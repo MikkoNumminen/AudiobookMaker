@@ -13,8 +13,11 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
+from src.ffmpeg_path import setup_ffmpeg_path
 from src.pdf_parser import parse_pdf
 from src.tts_engine import TTSConfig, text_to_speech, chapters_to_speech, VOICES
+
+setup_ffmpeg_path()
 
 
 # ---------------------------------------------------------------------------

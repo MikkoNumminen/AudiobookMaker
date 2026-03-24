@@ -15,37 +15,9 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## In Progress
 
-
-### Vaihe 3: TTS-moottori
-- [ ] Toteuta edge-tts-integraatio 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta tekstin pilkkominen TTS:lle sopiviin osiin (max ~3000 merkkiä per pyyntö) 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta äänitiedostojen yhdistäminen pydubilla 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta progress-callback (edistymisen seuranta) 🟢 ⚡ Sonnet [Claude 1, main]
-- [ ] Lisää kielivaihtoehdot (suomi, englanti) 🟢 ⚡ Sonnet [Claude 1, main]
-- [ ] Kirjoita testit TTS-putkelle 🟡 ⚡ Sonnet [Claude 1, main]
-
-### Vaihe 4: GUI
-- [ ] Toteuta pääikkuna (tiedoston valinta, kielen valinta, tallennus) 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta edistymispalkki ja status-viestit 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta asetukset (puhenopeus, äänen valinta) 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta virheilmoitukset käyttäjäystävällisesti 🟢 ⚡ Sonnet [Claude 1, main]
-- [ ] Aja TTS erillisessä threadissa ettei GUI jäädy 🟡 ⚡ Sonnet [Claude 1, main]
-
 ## Backlog
 
-### Vaihe 5: Paketointi (.exe)
-- [ ] Konfiguroi PyInstaller (.spec-tiedosto) 🟡 ⚡ Sonnet
-- [ ] Sisällytä ffmpeg binääri pakettiin 🟡 ⚡ Sonnet
-- [ ] Testaa .exe eri PDF-tiedostoilla 🟡 ⚡ Sonnet
-- [ ] Optimoi .exe-koko 🟢 ⚡ Sonnet
-
-### Vaihe 6: Installeri
-- [ ] Luo Inno Setup -skripti (installer/setup.iss) 🟡 ⚡ Sonnet
-- [ ] Installerin toteutus (tervetuloa, lisenssi, asennuspolku, Start Menu, uninstaller) 🔴 ⚡ Sonnet
+### Vaatii Windows-koneen
 - [ ] Lisää sovellukselle ikoni (assets/icon.ico) 🟢 ⚡ Sonnet
+- [ ] Testaa .exe eri PDF-tiedostoilla 🟡 ⚡ Sonnet
 - [ ] Testaa installeri puhtaalla Windows-ympäristöllä 🟡 ⚡ Sonnet
-- [ ] Varmista että kaikki riippuvuudet sisältyvät installeriin 🟡 ⚡ Sonnet
-
-### Vaihe 7: Dokumentaatio
-- [ ] Luo README.md (käyttöohjeet, kuvakaappaukset, tekniset tiedot) 🟡 ⚡ Sonnet
-- [ ] Luo BUILDING.md (ohjeet kehittäjälle buildin tekemiseen) 🟡 ⚡ Sonnet
