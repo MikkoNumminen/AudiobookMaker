@@ -1,34 +1,34 @@
 # AudiobookMaker
 
-Muuntaa PDF-tiedostot äänikirjoiksi. Lataa PDF, paina nappia, saat MP3:n.
+Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 
-## Ominaisuudet
+## Features
 
-- PDF-tekstin automaattinen tunnistus ja siivous (sivunumerot, otsikot, alaviitteet)
-- Lukujen automaattinen tunnistus
-- Tekstistä puheeksi edge-tts:llä (suomi ja englanti)
-- MP3-tiedosto per luku tai yksi yhdistetty tiedosto
-- Yksinkertainen Tkinter-GUI
-- Windows-installer — ei vaadi Pythonia tai muita asennuksia
+- Automatic PDF text extraction and cleanup (page numbers, headers, footers)
+- Automatic chapter detection
+- Text-to-speech via edge-tts (Finnish and English voices)
+- Single combined MP3 or one file per chapter
+- Simple Tkinter GUI
+- Windows installer — no Python or other dependencies required
 
-## Asennus (loppukäyttäjä)
+## Installation (end users)
 
-1. Lataa `AudiobookMaker-Setup.exe` Releases-sivulta
-2. Tuplaklikkaa ja seuraa ohjeita
-3. Löydät sovelluksen Start-valikosta
+1. Download `AudiobookMaker-Setup.exe` from the Releases page
+2. Double-click and follow the prompts
+3. Find the app in the Start Menu
 
-## Käyttö
+## Usage
 
-1. Avaa sovellus
-2. Valitse PDF-tiedosto
-3. Valitse kieli (suomi / englanti)
-4. Säädä puhenopeus tarvittaessa
-5. Paina **Muunna** — edistyspalkki näyttää tilanteen
-6. Tallenna MP3
+1. Open the app
+2. Select a PDF file
+3. Choose language (Finnish / English)
+4. Adjust speech rate if needed
+5. Click **Convert** — the progress bar shows status
+6. Save the MP3
 
-## Kehitysympäristö
+## Development setup
 
-Vaatii Python 3.11+, ffmpeg järjestelmässä tai dist/-kansiossa.
+Requires Python 3.11+, ffmpeg on system PATH or in `dist/`.
 
 ```bash
 git clone <repo>
@@ -39,45 +39,46 @@ pip install -r requirements.txt
 python -m src.main
 ```
 
-Testit:
+Run tests:
 
 ```bash
 pytest tests/
 ```
 
-## Projektin rakenne
+## Project structure
 
 ```
 AudiobookMaker/
 ├── src/
-│   ├── pdf_parser.py    # PDF-parsinta ja tekstin siivous
-│   ├── tts_engine.py    # edge-tts-integraatio ja äänitiedostojen yhdistäminen
-│   ├── gui.py           # Tkinter-käyttöliittymä
-│   └── main.py          # Sovelluksen käynnistyspiste
-├── tests/               # Yksikkötestit
-├── assets/              # Ikoni ja muut resurssit
-├── installer/           # Inno Setup -skripti
-├── dist/                # Käännetyt binäärit (ei versiohallinnassa)
+│   ├── pdf_parser.py    # PDF parsing and text cleaning
+│   ├── tts_engine.py    # edge-tts integration and audio combining
+│   ├── gui.py           # Tkinter UI
+│   ├── ffmpeg_path.py   # Runtime ffmpeg path helper for bundled builds
+│   └── main.py          # Application entry point
+├── tests/               # Unit tests
+├── assets/              # Icon and other resources
+├── installer/           # Inno Setup script
+├── dist/                # Compiled binaries (not version-controlled)
 └── requirements.txt
 ```
 
-## Teknologiat
+## Tech stack
 
-| Komponentti | Kirjasto |
-|-------------|---------|
-| PDF-parsinta | PyMuPDF (fitz) |
-| Puhesynteesi | edge-tts |
-| Äänen käsittely | pydub + ffmpeg |
+| Component | Library |
+|-----------|---------|
+| PDF parsing | PyMuPDF (fitz) |
+| Text-to-speech | edge-tts |
+| Audio processing | pydub + ffmpeg |
 | GUI | Tkinter |
-| Windows-paketointi | PyInstaller |
+| Windows packaging | PyInstaller |
 | Installer | Inno Setup |
 
-## Rajoitukset
+## Limitations
 
-- edge-tts käyttää Microsoftin palvelimia — vaatii internet-yhteyden
-- Skannatut PDF:t (kuva-PDF) eivät toimi — tekstin pitää olla kopioitavissa
-- PDF-tekstin siivous ei ole täydellinen kaikille formaateille
+- edge-tts uses Microsoft's servers — requires an internet connection
+- Scanned PDFs (image-based) are not supported — text must be selectable
+- Text cleanup heuristics may not work perfectly for all PDF formats
 
-## Lisenssi
+## License
 
 MIT
