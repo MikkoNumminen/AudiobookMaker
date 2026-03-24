@@ -236,9 +236,13 @@ class App(tk.Tk):
     def _refresh_voice_list(self) -> None:
         lang_code = LANGUAGES.get(self._lang_var.get(), "fi")
         voices = VOICES.get(lang_code, VOICES["fi"])
-        voice_names = list(voices.values())
-        self._voice_cb["values"] = voice_names
-        self._voice_cb.set(voices["default"])
+        # Keys are display names, "default" is a special key holding the default voice ID
+        display_names = [k for k in voices if k != "default"]
+        self._voice_cb["values"] = display_names
+        # Select the display name whose voice ID matches the default
+        default_id = voices["default"]
+        default_name = next((k for k, v in voices.items() if v == default_id and k != "default"), display_names[0])
+        self._voice_cb.set(default_name)
 
     # ------------------------------------------------------------------
     # Conversion
@@ -272,7 +276,8 @@ class App(tk.Tk):
             book = parse_pdf(self._pdf_path)
 
             lang_code = LANGUAGES.get(self._lang_var.get(), "fi")
-            voice = self._voice_var.get() or VOICES[lang_code]["default"]
+            display_name = self._voice_var.get()
+            voice = VOICES.get(lang_code, VOICES["fi"]).get(display_name) or VOICES[lang_code]["default"]
             rate = SPEED_OPTIONS.get(self._speed_var.get(), "+0%")
 
             config = TTSConfig(language=lang_code, voice=voice, rate=rate)
