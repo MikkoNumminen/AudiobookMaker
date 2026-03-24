@@ -15,12 +15,6 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## In Progress
 
-### Vaihe 2: PDF-parsinta
-- [ ] Toteuta PDF-tekstitunnistus PyMuPDF:llä 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta tekstin siivous (sivunumerot, ylä-/alatunnisteet, tyhjät rivit) 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta lukujen/kappaleiden tunnistus 🟡 ⚡ Sonnet [Claude 1, main]
-- [ ] Toteuta metadata-lukija (kirjan nimi, tekijä jos saatavilla) 🟢 ⚡ Sonnet [Claude 1, main]
-- [ ] Kirjoita yksikkötestit parsinnalle 🟡 ⚡ Sonnet [Claude 1, main]
 
 ### Vaihe 3: TTS-moottori
 - [ ] Toteuta edge-tts-integraatio 🟡 ⚡ Sonnet [Claude 1, main]
