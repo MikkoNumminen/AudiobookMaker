@@ -104,6 +104,56 @@ class TestSplitTextIntoChunks:
 
 
 # ---------------------------------------------------------------------------
+# _split_sentences — abbreviation and edge-case handling
+# ---------------------------------------------------------------------------
+
+
+class TestSplitSentences:
+    def test_finnish_abbreviation_esim_does_not_split(self) -> None:
+        text = "Tämä on esim. lause. Toinen lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "esim." in sentences[0]
+
+    def test_finnish_abbreviation_ks_does_not_split(self) -> None:
+        text = "Ks. sivu 45. Seuraava lause alkaa."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_initial_does_not_split(self) -> None:
+        text = "H. Pihlajamäki kirjoitti tämän. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "H. Pihlajamäki" in sentences[0]
+
+    def test_decimal_number_does_not_split(self) -> None:
+        text = "Arvo on 5.2 metriä. Toinen lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_domain_name_does_not_split(self) -> None:
+        text = "Katso google.com sivustoa. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_real_sentence_end_splits(self) -> None:
+        text = "Ensimmäinen lause. Toinen lause. Kolmas lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 3
+
+    def test_question_and_exclamation_split(self) -> None:
+        text = "Kysymys? Vastaus! Toteamus."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 3
+
+    def test_english_abbreviations(self) -> None:
+        text = "See Dr. Smith. He is a professor."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "Dr. Smith" in sentences[0]
+
+
+# ---------------------------------------------------------------------------
 # _force_split
 # ---------------------------------------------------------------------------
 
