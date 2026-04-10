@@ -23,21 +23,20 @@ from pydub import AudioSegment
 
 # voice_id -> display name shown in the GUI
 VOICE_DISPLAY_NAMES: dict[str, str] = {
-    "fi-FI-SelmaNeural": "Selma (suomi, nainen)",
     "fi-FI-NooraNeural": "Noora (suomi, nainen)",
     "fi-FI-HarriNeural": "Harri (suomi, mies)",
     "en-US-JennyNeural": "Jenny (English US, female)",
     "en-US-AriaNeural": "Aria (English US, female)",
+    "en-US-AvaNeural": "Ava (English US, female)",
     "en-US-GuyNeural": "Guy (English US, male)",
-    "en-US-DavisNeural": "Davis (English US, male)",
+    "en-US-AndrewNeural": "Andrew (English US, male)",
     "en-GB-SoniaNeural": "Sonia (English GB, female)",
     "en-GB-RyanNeural": "Ryan (English GB, male)",
 }
 
 VOICES: dict[str, dict[str, str]] = {
     "fi": {
-        "default": "fi-FI-SelmaNeural",
-        "Selma (suomi, nainen)": "fi-FI-SelmaNeural",
+        "default": "fi-FI-NooraNeural",
         "Noora (suomi, nainen)": "fi-FI-NooraNeural",
         "Harri (suomi, mies)": "fi-FI-HarriNeural",
     },
@@ -45,8 +44,9 @@ VOICES: dict[str, dict[str, str]] = {
         "default": "en-US-JennyNeural",
         "Jenny (English US, female)": "en-US-JennyNeural",
         "Aria (English US, female)": "en-US-AriaNeural",
+        "Ava (English US, female)": "en-US-AvaNeural",
         "Guy (English US, male)": "en-US-GuyNeural",
-        "Davis (English US, male)": "en-US-DavisNeural",
+        "Andrew (English US, male)": "en-US-AndrewNeural",
         "Sonia (English GB, female)": "en-GB-SoniaNeural",
         "Ryan (English GB, male)": "en-GB-RyanNeural",
     },
