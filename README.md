@@ -5,10 +5,17 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 ## Features
 
 - Automatic PDF text extraction and cleanup (page numbers, headers, footers)
+- Robust text cleaning: strips soft hyphens, fixes line-wrap hyphenation,
+  flattens in-paragraph line wraps, preserves compound hyphens
 - Automatic chapter detection
-- Text-to-speech via edge-tts (Finnish and English voices)
+- Text-to-speech via edge-tts (Finnish and English voices: Noora, Harri,
+  Jenny, Aria, Ava, Guy, Andrew, Sonia, Ryan)
+- Context-aware sentence splitter that handles Finnish and English
+  abbreviations, initials, decimals, and domain names
+- Silence trimming between chunks for seamless audio
 - Single combined MP3 or one file per chapter
 - Simple Tkinter GUI
+- Parallel CLI generator for large books
 - Windows installer — no Python or other dependencies required
 
 ## Installation (end users)
@@ -45,6 +52,19 @@ Run tests:
 pytest tests/
 ```
 
+## Command-line parallel generator
+
+For large PDFs the GUI's sequential synthesis can be slow. The
+`scripts/generate_audiobook_parallel.py` script runs multiple edge-tts
+requests concurrently and finishes ~8× faster on a typical book:
+
+```bash
+python scripts/generate_audiobook_parallel.py <input.pdf> <output.mp3> [concurrency]
+```
+
+Example: a 180-page, 375k-character Finnish book converts in ~6 minutes at
+concurrency 8, versus ~55 minutes sequentially.
+
 ## Project structure
 
 ```
@@ -56,8 +76,10 @@ AudiobookMaker/
 │   ├── ffmpeg_path.py   # Runtime ffmpeg path helper for bundled builds
 │   └── main.py          # Application entry point
 ├── tests/               # Unit tests
+├── scripts/             # CLI helpers (parallel audiobook generator)
 ├── assets/              # Icon and other resources
 ├── installer/           # Inno Setup script
+├── .github/workflows/   # CI: build Windows installer and publish releases
 ├── dist/                # Compiled binaries (not version-controlled)
 └── requirements.txt
 ```
