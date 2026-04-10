@@ -21,8 +21,23 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 ## Installation (end users)
 
 1. Download `AudiobookMaker-Setup-x.x.x.exe` from the [Releases](../../releases) page
-2. Double-click and follow the prompts
-3. Find the app in the Start Menu
+2. Double-click the downloaded file
+3. Windows will show a **"Windows protected your PC"** SmartScreen warning
+   because the installer is not code-signed. Click **More info** → **Run anyway**
+4. Follow the installer prompts (Next → Next → Install)
+5. Find the app in the Start Menu
+
+No Python, ffmpeg, or other dependencies need to be installed separately —
+everything is bundled in the single `.exe`.
+
+### Why the SmartScreen warning?
+
+Windows flags all unsigned installers from unknown publishers. Silencing
+the warning requires a paid code-signing certificate (~$100-300/year),
+which the project does not currently have. The installer is safe to run;
+its full source (PyInstaller spec + Inno Setup script + GitHub Actions
+build) lives in this repository and is built automatically on every
+tagged release.
 
 ## Usage
 
