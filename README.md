@@ -13,7 +13,7 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 
 ## Installation (end users)
 
-1. Download `AudiobookMaker-Setup.exe` from the Releases page
+1. Download `AudiobookMaker-Setup-x.x.x.exe` from the [Releases](../../releases) page
 2. Double-click and follow the prompts
 3. Find the app in the Start Menu
 
