@@ -73,8 +73,24 @@ _SHORT_LINE_RE = re.compile(r"^.{1,60}$")
 # Excessive whitespace
 _MULTI_BLANK_RE = re.compile(r"\n{3,}")
 
+# Matches a single newline that is NOT part of a paragraph break (double newline).
+# Used to flatten PDF line wraps inside a paragraph into spaces so edge-tts
+# doesn't insert a pause on every line break.
+_SINGLE_NEWLINE_RE = re.compile(r"(?<!\n)\n(?!\n)")
+
 # Hyphenated line-break (word split across lines): "käsit-\ntely" → "käsittely"
-_HYPHEN_BREAK_RE = re.compile(r"(\w)-\n(\w)")
+# Soft hyphen (U+00AD) — typographic hint that a word *may* be broken here.
+# These are invisible in most readers but appear in extracted PDF text.
+# Always strip them, regardless of whether a newline follows.
+_SOFT_HYPHEN_RE = re.compile(r"\u00ad\s*\n?\s*")
+
+# Hard hyphen at end of line (possibly with trailing space).
+# Word-wrap case: letter before the hyphen AND lowercase letter after = remove hyphen
+#   "var- \nhaismoderni" -> "varhaismoderni"
+# Compound case: digit before the hyphen = preserve the hyphen (e.g. "1200-luvulla")
+# Also preserve when the continuation starts with uppercase or a digit.
+_HYPHEN_BREAK_WORDWRAP_RE = re.compile(r"([a-zäöA-ZÄÖ])-[ \t]*\n\s*([a-zäö])")
+_HYPHEN_BREAK_KEEP_RE = re.compile(r"(\w)-[ \t]*\n\s*([A-ZÄÖ0-9a-zäö])")
 
 
 def _remove_page_numbers(text: str) -> str:
@@ -82,14 +98,32 @@ def _remove_page_numbers(text: str) -> str:
 
 
 def _fix_hyphenation(text: str) -> str:
-    return _HYPHEN_BREAK_RE.sub(r"\1\2", text)
+    # 1. Strip soft hyphens entirely (they are typographic hints, not content).
+    text = _SOFT_HYPHEN_RE.sub("", text)
+    # 2. Word-wrap hyphens (letter-hyphen-lowercase) -> join without the hyphen.
+    #    This must run before the KEEP rule so the word-wrap case is consumed first.
+    text = _HYPHEN_BREAK_WORDWRAP_RE.sub(r"\1\2", text)
+    # 3. Everything else (e.g. "1200-\nluvulla", "Austro-\nHungarian") -> keep hyphen,
+    #    drop the newline.
+    text = _HYPHEN_BREAK_KEEP_RE.sub(r"\1-\2", text)
+    return text
 
 
 def _normalize_whitespace(text: str) -> str:
-    text = _MULTI_BLANK_RE.sub("\n\n", text)
-    # Strip trailing spaces on each line
+    # Strip trailing spaces on each line first, so that collapsed single newlines
+    # don't leave "word \nnext" -> "word  next" (double space).
     lines = [line.rstrip() for line in text.splitlines()]
-    return "\n".join(lines).strip()
+    text = "\n".join(lines)
+    # Collapse 3+ consecutive newlines down to a paragraph break.
+    text = _MULTI_BLANK_RE.sub("\n\n", text)
+    # Preserve paragraph breaks (double newlines) while flattening in-paragraph
+    # line wraps to a single space.  Without this, edge-tts pauses at every
+    # line break inside a sentence because the PDF's line-wrapping leaks into
+    # the extracted text.
+    text = _SINGLE_NEWLINE_RE.sub(" ", text)
+    # Collapse any accidental double-spaces introduced by the substitution.
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip()
 
 
 def clean_text(raw: str) -> str:

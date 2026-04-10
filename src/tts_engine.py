@@ -322,24 +322,68 @@ async def _synthesize_all_chunks(
 # ---------------------------------------------------------------------------
 
 
-def combine_audio_files(input_paths: list[str], output_path: str) -> None:
+def _trim_chunk_silence(
+    segment: AudioSegment,
+    threshold_db: float = -45.0,
+    keep_ms: int = 30,
+) -> AudioSegment:
+    """Trim leading and trailing silence from a synthesized chunk.
+
+    edge-tts returns each chunk with ~150ms leading and ~800ms trailing
+    silence.  Without trimming, concatenating 100+ chunks produces ~1 second
+    of dead air at every chunk boundary, which sounds like the voice is
+    cutting mid-sentence.
+
+    Args:
+        segment: Audio segment to trim.
+        threshold_db: Anything quieter than this is considered silence.
+        keep_ms: Amount of silence to keep at each edge for a natural edge.
+
+    Returns:
+        Trimmed audio segment.
+    """
+    from pydub.silence import detect_leading_silence
+
+    lead = detect_leading_silence(segment, silence_threshold=threshold_db)
+    trail = detect_leading_silence(segment.reverse(), silence_threshold=threshold_db)
+    start = max(0, lead - keep_ms)
+    end = len(segment) - max(0, trail - keep_ms)
+    if end <= start:
+        # Chunk was entirely silent — return it as-is to avoid a zero-length slice
+        return segment
+    return segment[start:end]
+
+
+def combine_audio_files(
+    input_paths: list[str],
+    output_path: str,
+    inter_chunk_pause_ms: int = 200,
+) -> None:
     """Combine multiple MP3 files into one using pydub.
+
+    Each chunk is trimmed of leading/trailing silence before concatenation so
+    that the seams between chunks don't sound like dead air.  A short natural
+    pause is inserted between chunks so the speech flow still feels paced.
 
     Args:
         input_paths: Ordered list of MP3 file paths to concatenate.
         output_path: Destination MP3 path.
+        inter_chunk_pause_ms: Length of the synthetic pause inserted between
+            adjacent chunks (milliseconds).
 
     Raises:
         ValueError: If input_paths is empty.
-        RuntimeError: If audio combination fails.
     """
     if not input_paths:
         raise ValueError("No audio files to combine.")
 
+    gap = AudioSegment.silent(duration=inter_chunk_pause_ms)
     combined = AudioSegment.empty()
-    for path in input_paths:
-        segment = AudioSegment.from_mp3(path)
+    for i, path in enumerate(input_paths):
+        segment = _trim_chunk_silence(AudioSegment.from_mp3(path))
         combined += segment
+        if i < len(input_paths) - 1:
+            combined += gap
 
     combined.export(output_path, format="mp3")
 

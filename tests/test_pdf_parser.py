@@ -66,6 +66,52 @@ class TestCleanText:
         result = clean_text(text)
         assert "käsittely" in result
 
+    def test_fixes_hyphenation_with_trailing_space(self) -> None:
+        # PyMuPDF often emits a trailing space before the newline.
+        text = "var- \nhaismoderni"
+        result = clean_text(text)
+        assert "varhaismoderni" in result
+        assert "var-" not in result
+
+    def test_strips_soft_hyphens(self) -> None:
+        # U+00AD is a typographic hint that should never appear in spoken text.
+        text = "Pyhäs\u00ad\nsä on esimerkki"
+        result = clean_text(text)
+        assert "Pyhässä" in result
+        assert "\u00ad" not in result
+
+    def test_strips_inline_soft_hyphens(self) -> None:
+        # Soft hyphen without a newline (just an invisible hint).
+        text = "oikeus\u00adtiede"
+        result = clean_text(text)
+        assert "oikeustiede" in result
+        assert "\u00ad" not in result
+
+    def test_preserves_compound_number_hyphen(self) -> None:
+        # "1200-luvulla" across a line break: preserve the hyphen.
+        text = "1200-\nluvulla oli"
+        result = clean_text(text)
+        assert "1200-luvulla" in result
+
+    def test_preserves_proper_noun_hyphen(self) -> None:
+        text = "Austro-\nHungarian empire"
+        result = clean_text(text)
+        assert "Austro-Hungarian" in result
+
+    def test_flattens_in_paragraph_line_wraps(self) -> None:
+        # PDF line wraps inside a sentence must become spaces, not newlines,
+        # otherwise edge-tts inserts a pause at every line break.
+        text = "Oikeusvaltiosta ei vielä\nesimodernin oikeuden aikana voida puhua."
+        result = clean_text(text)
+        assert "\n" not in result
+        assert "ei vielä esimodernin" in result
+
+    def test_preserves_paragraph_breaks(self) -> None:
+        # Double newlines (paragraph breaks) must survive cleaning.
+        text = "First paragraph.\n\nSecond paragraph."
+        result = clean_text(text)
+        assert "\n\n" in result
+
     def test_collapses_multiple_blank_lines(self) -> None:
         text = "A\n\n\n\n\nB"
         result = clean_text(text)
