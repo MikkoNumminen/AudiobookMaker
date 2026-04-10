@@ -300,8 +300,12 @@ Type: filesandordirs; Name: "{app}"
 // SHChangeNotify — Win32 API call used to refresh the Windows shell after
 // file-association registry keys have been written.
 // ---------------------------------------------------------------------------
+// Inno Setup's Pascal Script does not support the `Pointer` type in external
+// function declarations, so we declare the two pointer parameters as
+// Cardinal (the native pointer width on 32-bit; Inno Setup installers are
+// 32-bit) and always pass 0 (= NULL) from the call site.
 procedure SHChangeNotify(wEventId: Integer; uFlags: Cardinal;
-  dwItem1: Pointer; dwItem2: Pointer);
+  dwItem1: Cardinal; dwItem2: Cardinal);
   external 'SHChangeNotify@shell32.dll stdcall';
 
 const
@@ -324,7 +328,7 @@ begin
     begin
       // Tell the shell that file associations have changed. This causes
       // Explorer to refresh icons and default-program information.
-      SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nil, nil);
+      SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0);
     end;
   end;
 end;
@@ -367,6 +371,6 @@ begin
   begin
     // Refresh the shell regardless of whether the pdfassoc task was active,
     // since the user might be uninstalling after a re-run that added it.
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nil, nil);
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0);
   end;
 end;
