@@ -1,4 +1,5 @@
 .venv/
+.venv-*/
 .claude/
 CLAUDE.md
 __pycache__/

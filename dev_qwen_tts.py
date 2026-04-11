@@ -30,12 +30,26 @@ Use this script to gauge feasibility on English, not to produce final
 Finnish audiobooks.
 
 INSTALLATION:
-    # From the repository root, inside the project venv:
-    pip install torch torchaudio huggingface_hub soundfile numpy
-
-    # The qwen_tts module itself is NOT on PyPI. It is vendored inside
-    # the official HuggingFace Space. This script downloads the Space on
-    # first run and adds it to sys.path so `import qwen_tts` works.
+    # CRITICAL: qwen_tts uses Python 3.10+ syntax (`str | None`) in its
+    # source, so it will NOT run under the main project venv (Python 3.9).
+    # Create a dedicated venv with Python 3.11+ and install into it:
+    #
+    #   brew install python@3.11 sox
+    #   python3.11 -m venv .venv-qwen
+    #   .venv-qwen/bin/pip install \
+    #       torch torchaudio transformers==4.57.3 accelerate \
+    #       einops librosa sox soundfile onnxruntime \
+    #       huggingface_hub PyMuPDF
+    #
+    # Then run the script via the dedicated venv:
+    #
+    #   .venv-qwen/bin/python dev_qwen_tts.py book.pdf --max-chunks 4
+    #
+    # The qwen_tts Python module itself is NOT on PyPI. It is vendored
+    # inside the official HuggingFace Space. This script downloads the
+    # Space on first run and adds it to sys.path so `import qwen_tts`
+    # works. The `sox` system binary (not just the Python wrapper) is
+    # also required — install via `brew install sox` on macOS.
 
 Models downloaded on first run (~6.5 GB total across all three):
     Qwen/Qwen3-TTS-12Hz-0.6B-Base           # voice cloning
@@ -88,20 +102,22 @@ PRESET_SPEAKERS = (
 )
 DEFAULT_PRESET_SPEAKER = "Vivian"
 
-# Languages officially supported by all three Qwen3-TTS variants. Used
-# only to print a warning — we still pass whatever --language argument
-# the user typed through to the model so experimentation is possible.
+# Languages officially supported by all three Qwen3-TTS variants. The
+# model's runtime check is case-sensitive lowercase; "auto" lets the
+# model try to detect the language from the text (and is the only hope
+# for Finnish input, though quality is unpredictable).
 SUPPORTED_LANGUAGES = {
-    "Chinese",
-    "English",
-    "Japanese",
-    "Korean",
-    "German",
-    "French",
-    "Russian",
-    "Portuguese",
-    "Spanish",
-    "Italian",
+    "auto",
+    "chinese",
+    "english",
+    "french",
+    "german",
+    "italian",
+    "japanese",
+    "korean",
+    "portuguese",
+    "russian",
+    "spanish",
 }
 
 
@@ -143,12 +159,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--language",
         type=str,
-        default="Finnish",
+        default="auto",
         help=(
-            "Language of the input text (default: Finnish). "
-            "WARNING: Qwen3-TTS only officially supports Chinese, English, "
-            "Japanese, Korean, German, French, Russian, Portuguese, Spanish, "
-            "and Italian. Finnish will probably sound bad or fail."
+            "Language of the input text (default: auto-detect). "
+            "Qwen3-TTS's runtime check accepts only these lowercase values: "
+            "auto, chinese, english, french, german, italian, japanese, "
+            "korean, portuguese, russian, spanish. Finnish is NOT in the "
+            "list and passing it raises ValueError at generate time — use "
+            "'auto' to let the model try to detect the language, or "
+            "'english' to hear the text read phonetically in English. "
+            "Values are lowercased before being sent to the model."
         ),
     )
     parser.add_argument(
@@ -160,6 +180,19 @@ def parse_args() -> argparse.Namespace:
             f"Preset speaker name for CustomVoice mode "
             f"(ignored when --ref-audio or --voice-description is used). "
             f"Default: {DEFAULT_PRESET_SPEAKER}."
+        ),
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="mps",
+        choices=("mps", "cpu", "cuda"),
+        help=(
+            "Compute device. Default: mps (Apple Silicon GPU). Fall back "
+            "to 'cpu' if MPS fails — Qwen3-TTS's codebook head violates "
+            "MPS's 65536-output-channel limit, so MPS generation is "
+            "known to crash with NotImplementedError on many layers. "
+            "CPU is slow (minutes per chunk) but reliable."
         ),
     )
     parser.add_argument(
@@ -233,6 +266,18 @@ def pick_mode(args: argparse.Namespace) -> tuple[str, str, str, str]:
     - ``mode_label`` is a human-readable label for logging
 
     Precedence is ``--ref-audio`` > ``--voice-description`` > preset.
+
+    **All three modes use float32 on MPS.** float16 causes NaN/inf in
+    the sampling step on Apple Silicon — a well-known PyTorch MPS bug
+    that surfaces as::
+
+        RuntimeError: probability tensor contains either `inf`, `nan`
+        or element < 0
+
+    float32 doubles memory use vs float16 (CustomVoice 0.6B ~2.4 GB,
+    VoiceDesign 1.7B ~6.8 GB) but is the only dtype that reliably
+    produces audio on MPS.  If you have an NVIDIA GPU and want to use
+    float16 for speed, override at the call site.
     """
     if args.ref_audio:
         return (
@@ -245,20 +290,24 @@ def pick_mode(args: argparse.Namespace) -> tuple[str, str, str, str]:
         return (
             "design",
             MODEL_VOICEDESIGN,
-            "float16",
+            "float32",
             "voice design (VoiceDesign 1.7B)",
         )
     return (
         "preset",
         MODEL_CUSTOM,
-        "float16",
+        "float32",
         "preset voice (CustomVoice)",
     )
 
 
 def language_warning(language: str) -> Optional[str]:
-    """Return a warning string if the language is unsupported, else None."""
-    if language in SUPPORTED_LANGUAGES:
+    """Return a warning string if the language is unsupported, else None.
+
+    Comparison is case-insensitive because the Qwen3-TTS runtime check
+    is lowercase-only.
+    """
+    if language.lower() in SUPPORTED_LANGUAGES:
         return None
     return (
         f"'{language}' is not in Qwen3-TTS's official supported-language "
@@ -356,7 +405,7 @@ def main() -> None:
 
     print(f"Mode: {mode_label}")
     print(f"Model: {model_id}")
-    print(f"Device: mps   dtype: {dtype}   attn_impl: sdpa")
+    print(f"Device: {args.device}   dtype: {dtype}   attn_impl: sdpa")
 
     # Warn if the user asked for an unsupported language.
     warning = language_warning(args.language)
@@ -366,22 +415,22 @@ def main() -> None:
     print("Downloading model weights (cached after first run)…")
     model_path = snapshot_download(repo_id=model_id)
 
-    print("Loading model onto MPS…")
+    print(f"Loading model onto {args.device}…")
     try:
         tts = Qwen3TTSModel.from_pretrained(
             model_path,
-            device_map="mps",
+            device_map=args.device,
             dtype=dtype,
             attn_implementation="sdpa",
         )
     except Exception as exc:  # noqa: BLE001
         sys.exit(
-            f"Failed to load {model_id} on MPS.\n"
+            f"Failed to load {model_id} on {args.device}.\n"
             f"  {type(exc).__name__}: {exc}\n\n"
             "Possible fixes:\n"
-            "  - Qwen3-TTS may hard-require CUDA; MPS is not officially supported.\n"
-            "  - Try dtype=torch.float32 instead of float16.\n"
-            "  - Fall back to device_map='cpu' (will be very slow).\n"
+            "  - Retry with --device cpu (slow but usually works).\n"
+            "  - Qwen3-TTS officially only supports CUDA; neither MPS\n"
+            "    nor CPU are covered by their test matrix.\n"
         )
 
     # Load the reference audio once; voice cloning uses it on every chunk.
@@ -393,6 +442,10 @@ def main() -> None:
         print(f"Loaded reference audio: {ref_path.name} ({duration:.1f}s at {sr} Hz)")
 
     # --- Generation loop -------------------------------------------------- #
+
+    # Qwen3-TTS rejects any language string whose lowercase form is not
+    # in its allowlist. Normalise once outside the loop.
+    language_param = args.language.lower()
 
     print(f"Synthesizing {len(chunks)} chunks…")
     all_wavs: list = []
@@ -409,7 +462,7 @@ def main() -> None:
                 # Base model — voice cloning from a reference audio clip.
                 wav, sr = tts.generate_voice_clone(
                     text=chunk,
-                    language=args.language,
+                    language=language_param,
                     ref_audio=ref_audio_tuple,
                     ref_text="",
                     x_vector_only_mode=False,
@@ -422,7 +475,7 @@ def main() -> None:
                 # authoritative runtime and uses generate_voice_design().
                 wav, sr = tts.generate_voice_design(
                     text=chunk,
-                    language=args.language,
+                    language=language_param,
                     instruct=args.voice_description,
                     non_streaming_mode=True,
                     max_new_tokens=MAX_NEW_TOKENS,
@@ -433,7 +486,7 @@ def main() -> None:
                 # mild style steering even in preset mode.
                 wav, sr = tts.generate_custom_voice(
                     text=chunk,
-                    language=args.language,
+                    language=language_param,
                     speaker=args.speaker,
                     instruct=None,
                     non_streaming_mode=True,

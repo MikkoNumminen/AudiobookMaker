@@ -63,14 +63,22 @@ class TestConstants:
     def test_max_new_tokens_is_reasonable(self) -> None:
         assert 256 <= MAX_NEW_TOKENS <= 8192
 
-    def test_supported_languages_has_ten_entries(self) -> None:
-        # Per the research agent: Qwen3-TTS only officially supports 10.
-        assert len(SUPPORTED_LANGUAGES) == 10
-        assert "English" in SUPPORTED_LANGUAGES
-        assert "Chinese" in SUPPORTED_LANGUAGES
+    def test_supported_languages_matches_runtime_list(self) -> None:
+        # Qwen3-TTS's runtime check rejects anything not in this exact set
+        # of lowercase strings. "auto" lets the model detect the language.
+        assert len(SUPPORTED_LANGUAGES) == 11
+        assert "auto" in SUPPORTED_LANGUAGES
+        assert "english" in SUPPORTED_LANGUAGES
+        assert "chinese" in SUPPORTED_LANGUAGES
+
+    def test_supported_languages_are_lowercase(self) -> None:
+        # Qwen3-TTS's runtime check is case-sensitive lowercase-only.
+        for lang in SUPPORTED_LANGUAGES:
+            assert lang == lang.lower(), f"{lang!r} should be lowercase"
 
     def test_finnish_is_not_supported(self) -> None:
         # This is the whole point of the warning machinery.
+        assert "finnish" not in SUPPORTED_LANGUAGES
         assert "Finnish" not in SUPPORTED_LANGUAGES
 
     def test_preset_speakers_are_non_empty(self) -> None:
@@ -104,7 +112,8 @@ class TestPickMode:
         mode, model_id, dtype, label = pick_mode(_args())
         assert mode == "preset"
         assert model_id == MODEL_CUSTOM
-        assert dtype == "float16"
+        # float32 is mandatory on MPS — float16 causes NaN in sampling.
+        assert dtype == "float32"
         assert "CustomVoice" in label
 
     def test_voice_description_picks_voicedesign(self) -> None:
@@ -113,7 +122,7 @@ class TestPickMode:
         )
         assert mode == "design"
         assert model_id == MODEL_VOICEDESIGN
-        assert dtype == "float16"
+        assert dtype == "float32"
         assert "VoiceDesign" in label
 
     def test_ref_audio_picks_base_with_float32(self) -> None:
@@ -122,6 +131,13 @@ class TestPickMode:
         assert model_id == MODEL_BASE
         assert dtype == "float32", "cloning must use float32 on MPS"
         assert "Base" in label or "cloning" in label.lower()
+
+    def test_all_modes_use_float32_on_mps(self) -> None:
+        # Guardrail: every mode must return float32 because float16 on
+        # MPS causes RuntimeError during sampling.
+        assert pick_mode(_args())[2] == "float32"
+        assert pick_mode(_args(voice_description="x"))[2] == "float32"
+        assert pick_mode(_args(ref_audio="/tmp/r.wav"))[2] == "float32"
 
     def test_ref_audio_wins_over_voice_description(self) -> None:
         # Precedence rule: --ref-audio beats --voice-description.
@@ -142,9 +158,12 @@ class TestPickMode:
 
 class TestLanguageWarning:
     def test_supported_language_returns_none(self) -> None:
+        # Capital or lowercase both accepted — we lowercase before comparing.
+        assert language_warning("english") is None
         assert language_warning("English") is None
         assert language_warning("Chinese") is None
         assert language_warning("German") is None
+        assert language_warning("auto") is None
 
     def test_unsupported_language_returns_warning(self) -> None:
         w = language_warning("Finnish")
@@ -156,8 +175,8 @@ class TestLanguageWarning:
         w = language_warning("Klingon")
         assert w is not None
         # Users need to know which languages they *could* use.
-        assert "English" in w
-        assert "Chinese" in w
+        assert "english" in w
+        assert "chinese" in w
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +200,9 @@ class TestParseArgs:
         assert args.pdf == "book.pdf"
         assert args.voice_description is None
         assert args.ref_audio is None
-        assert args.language == "Finnish"
+        # Default is "auto" because Finnish is not supported by Qwen3-TTS
+        # and any other hardcoded language would mis-serve Finnish users.
+        assert args.language == "auto"
         assert args.speaker == DEFAULT_PRESET_SPEAKER
         assert args.max_chunks == 0
 

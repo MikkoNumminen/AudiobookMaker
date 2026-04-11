@@ -13,8 +13,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-import edge_tts
 from pydub import AudioSegment
+
+# NOTE: edge_tts is imported lazily inside _synthesize_chunk() so that
+# other consumers (e.g. dev_qwen_tts.py) can `from src.tts_engine import
+# split_text_into_chunks` without dragging in an online-TTS dependency
+# they don't need.
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +293,8 @@ async def _synthesize_chunk(
     output_path: str,
 ) -> None:
     """Synthesize a single chunk to an MP3 file via edge-tts."""
+    import edge_tts  # lazy import — see note at top of file
+
     communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, volume=volume)
     await communicate.save(output_path)
 
