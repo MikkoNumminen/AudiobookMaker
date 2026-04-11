@@ -16,3 +16,18 @@ build/
 *.wav
 # Local model caches used by dev_qwen_tts.py and similar experiments
 models/
+
+# Windows / installer build artifacts
+*.exe
+installer/Output/
+installer/*.iss.bak
+installer/*.iss.swp
+installer/Unicode/
+
+# Code signing certificates — MUST NEVER be committed
+*.pfx
+*.p12
+
+# Visual Studio
+.vs/
+*.user
