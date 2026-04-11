@@ -24,9 +24,11 @@ from src.pdf_parser import parse_pdf
 from src.tts_base import TTSEngine, Voice, get_engine, list_engines
 
 # Import engine adapters for their side effect of registering with tts_base.
-# Order matters: Edge-TTS first so it's the default.
+# Order matters: Edge-TTS first so it's the default. Piper next (offline,
+# no GPU). VoxCPM2 last (developer-install only, requires NVIDIA GPU).
 from src import tts_edge  # noqa: F401  (registers EdgeTTSEngine)
 from src import tts_piper  # noqa: F401  (registers PiperTTSEngine)
+from src import tts_voxcpm  # noqa: F401  (registers VoxCPM2Engine)
 
 # Also import the chapter helper for the "one MP3 per chapter" output mode.
 from src.tts_engine import TTSConfig, chapters_to_speech
