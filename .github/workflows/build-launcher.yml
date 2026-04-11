@@ -110,7 +110,7 @@ jobs:
             Write-Host "Removing Finnish from [Languages] as a fallback."
             # Strip the Finnish language line so ISCC compiles clean.
             $iss = Get-Content -Raw -Encoding UTF8 installer/launcher.iss
-            $iss = $iss -replace 'Name: "finnish";.+?FinnishLangFileExists', '; (Finnish language file unavailable at build time)'
+            $iss = $iss -replace 'Name: "finnish"; MessagesFile: "compiler:Languages\\Unofficial\\Finnish\.isl"', '; (Finnish language file unavailable at build time)'
             [IO.File]::WriteAllText(
               "installer/launcher.iss",
               $iss,

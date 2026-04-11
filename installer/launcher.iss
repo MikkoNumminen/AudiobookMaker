@@ -70,11 +70,12 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-; Inno Setup 6 ships the Finnish language file in Unofficial/. Attempt
-; to load it; if it does not exist on the build machine the installer
-; falls back to English.
-Name: "finnish"; MessagesFile: "compiler:Languages\Unofficial\Finnish.isl"; \
-    Check: FinnishLangFileExists
+; Finnish language file from the unofficial translations repo. The
+; CI workflow downloads it into Inno Setup's Languages\Unofficial\
+; directory before compilation. If that download fails, the CI step
+; strips this whole line before invoking iscc so the fallback compile
+; succeeds with English only.
+Name: "finnish"; MessagesFile: "compiler:Languages\Unofficial\Finnish.isl"
 
 [Types]
 Name: "full";    Description: "Kaikki — Edge-TTS, Piper ja Chatterbox (suositus)"
@@ -186,17 +187,6 @@ Filename: "{app}\{#MyAppExeName}"; \
 Type: filesandordirs; Name: "{app}"
 
 [Code]
-
-{ -- Finnish language file presence check -- }
-
-function FinnishLangFileExists: Boolean;
-begin
-  { Inno Setup's \$EXEPATH expands at compile time; we cannot probe the }
-  { filesystem from here at compile time. Return True unconditionally; }
-  { if the file is missing at compile time the [Languages] line above  }
-  { will produce a compile-time error and CI will notice.              }
-  Result := True;
-end;
 
 { -- GPU detection (NVIDIA-aware, multi-source) -- }
 {                                                                       }
