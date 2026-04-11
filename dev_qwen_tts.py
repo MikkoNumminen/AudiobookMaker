@@ -216,6 +216,58 @@ def ensure_qwen_module() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Mode selection (pure, testable)
+# --------------------------------------------------------------------------- #
+
+
+def pick_mode(args: argparse.Namespace) -> tuple[str, str, str, str]:
+    """Pick the Qwen3-TTS variant based on which CLI flags are set.
+
+    Returns a tuple of ``(mode, model_id, dtype_name, mode_label)`` where:
+
+    - ``mode`` is one of ``"clone" | "design" | "preset"``
+    - ``model_id`` is the HuggingFace repo id for the chosen variant
+    - ``dtype_name`` is ``"float16"`` or ``"float32"`` — caller resolves
+      the actual ``torch.dtype`` object so this helper stays import-light
+      and unit-testable without a torch install
+    - ``mode_label`` is a human-readable label for logging
+
+    Precedence is ``--ref-audio`` > ``--voice-description`` > preset.
+    """
+    if args.ref_audio:
+        return (
+            "clone",
+            MODEL_BASE,
+            "float32",
+            "voice cloning (Base model)",
+        )
+    if args.voice_description:
+        return (
+            "design",
+            MODEL_VOICEDESIGN,
+            "float16",
+            "voice design (VoiceDesign 1.7B)",
+        )
+    return (
+        "preset",
+        MODEL_CUSTOM,
+        "float16",
+        "preset voice (CustomVoice)",
+    )
+
+
+def language_warning(language: str) -> Optional[str]:
+    """Return a warning string if the language is unsupported, else None."""
+    if language in SUPPORTED_LANGUAGES:
+        return None
+    return (
+        f"'{language}' is not in Qwen3-TTS's official supported-language "
+        f"list. Expect bad quality or failure. "
+        f"Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Reference audio loading
 # --------------------------------------------------------------------------- #
 
@@ -299,33 +351,17 @@ def main() -> None:
     from qwen_tts import Qwen3TTSModel  # type: ignore
 
     # Pick model + dtype + mode based on what the user supplied.
-    if args.ref_audio:
-        mode = "clone"
-        model_id = MODEL_BASE
-        dtype = torch.float32
-        mode_label = "voice cloning (Base model)"
-    elif args.voice_description:
-        mode = "design"
-        model_id = MODEL_VOICEDESIGN
-        dtype = torch.float16
-        mode_label = "voice design (VoiceDesign 1.7B)"
-    else:
-        mode = "preset"
-        model_id = MODEL_CUSTOM
-        dtype = torch.float16
-        mode_label = "preset voice (CustomVoice)"
+    mode, model_id, dtype_name, mode_label = pick_mode(args)
+    dtype = torch.float32 if dtype_name == "float32" else torch.float16
 
     print(f"Mode: {mode_label}")
     print(f"Model: {model_id}")
     print(f"Device: mps   dtype: {dtype}   attn_impl: sdpa")
 
     # Warn if the user asked for an unsupported language.
-    if args.language not in SUPPORTED_LANGUAGES:
-        print(
-            f"  WARNING: '{args.language}' is not in Qwen3-TTS's official "
-            f"supported-language list. Expect bad quality or failure.\n"
-            f"  Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
-        )
+    warning = language_warning(args.language)
+    if warning:
+        print(f"  WARNING: {warning}")
 
     print("Downloading model weights (cached after first run)…")
     model_path = snapshot_download(repo_id=model_id)
