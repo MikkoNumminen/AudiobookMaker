@@ -90,27 +90,91 @@ keep working.
 
 ## Installation (end users)
 
+There are **two installers** with different engine selections. Pick the
+one that matches what you want.
+
+### Which installer do I want?
+
+| I want… | Pick |
+|---|---|
+| Finnish/English audiobooks at decent quality, fast, any hardware | **Main installer** |
+| Full engine/voice/rate/reference settings matrix | **Main installer** |
+| **Best Finnish quality** via Chatterbox + Finnish-NLP finetune | **Launcher installer** |
+| Simple drop-a-PDF workflow, no settings screen | **Launcher installer** |
+| Voice cloning from a reference audio clip | **Launcher installer** (Chatterbox engine) |
+
+Both installers include Edge-TTS Noora and Piper Harri. **Only the
+Launcher installer offers the Chatterbox Finnish engine** (the one that
+produces the cleanest voice quality after the v7 fix stack) — it is
+GPU-only and downloads ~15 GB of model weights during install. Everyone
+else should pick the main installer.
+
+### Main installer — advanced settings window
+
 **Latest release:** [AudiobookMaker v1.0.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v1.0.1)
 
-1. Download `AudiobookMaker-Setup-1.0.1.exe` from the release above
-   (or browse all releases on the [Releases](../../releases) page)
-2. Double-click the downloaded file
-3. Windows will show a **"Windows protected your PC"** SmartScreen warning
-   because the installer is not code-signed. Click **More info** → **Run anyway**
-4. Follow the installer prompts (Next → Next → Install)
-5. Find the app in the Start Menu
+- Bundles: Edge-TTS (online Noora), Piper (offline Harri), full Tkinter
+  GUI with voice picker, rate slider, reference audio, voice description,
+  per-chapter vs single-file output toggle
+- **Does NOT bundle Chatterbox** — no voice cloning, no v7 Finnish quality
+- One file (~200 MB), no Python or ffmpeg to install separately
 
-No Python, ffmpeg, or other dependencies need to be installed separately —
-everything is bundled in the single `.exe`.
+1. Download `AudiobookMaker-Setup-1.0.1.exe` from the release page above
+2. Double-click, click **More info → Run anyway** on the SmartScreen warning
+3. Next → Next → Install
+4. Launch from the Start Menu
+
+### Launcher installer — simple window + optional Chatterbox
+
+**Latest release:** [AudiobookMaker Launcher v0.1.0 (prerelease)](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/launcher-v0.1.0)
+
+- Small launcher window: pick a PDF, click a button, get an MP3
+- Wizard asks which engines to install:
+  - **Edge-TTS Noora** — always included, ~0 MB extra
+  - **Piper Harri** — ~60 MB voice download
+  - **Chatterbox Finnish** *(opt-in, NVIDIA GPU required)* — ~15 GB
+    download, installs a dedicated Python 3.11 venv at
+    `C:\AudiobookMaker\.venv-chatterbox`, pulls the Chatterbox
+    multilingual base model + the Finnish-NLP T3 finetune from
+    HuggingFace, applies the Finnish gemination patch to the
+    upstream `chatterbox-tts` package, and auto-installs Python 3.11
+    silently if it's missing. First synthesis takes ~1–2 hours for a
+    180-page book on an RTX 3080 Ti.
+
+1. Download `AudiobookMaker-Launcher-Setup-0.1.0.exe` from the release
+   page above
+2. Double-click, click **More info → Run anyway** on the SmartScreen warning
+3. Pick engines in the wizard (Full / Compact / Custom)
+4. Wait — Chatterbox install takes 15–45 minutes visibly, downloads ~15 GB
+5. Launcher opens when install completes; drop in a PDF and go
+
+The launcher installer is a **per-user install** to
+`%LOCALAPPDATA%\Programs\AudiobookMaker-Launcher\` — no admin / UAC
+prompt. See [`docs/turo_ohjeet_fi.md`](docs/turo_ohjeet_fi.md) for the
+Finnish end-user walkthrough.
+
+#### Pre-flight checks the Launcher installer runs
+
+Before it downloads anything the wizard verifies:
+
+- Windows 10 build 17763 or newer (Windows 10 1809, Windows 11)
+- 2 GB free disk (16 GB if Chatterbox is selected)
+- NVIDIA GPU present + driver 550 or newer (only if Chatterbox is selected) —
+  detected via `nvidia-smi`, falling back to PowerShell WMI and WMIC
+- Not running ARM64 Windows (torch CUDA wheels don't exist for ARM64)
+
+Each failed check shows a Finnish dialog explaining what's wrong and
+what to do about it. If you picked Chatterbox but don't have a GPU the
+wizard offers to proceed without it and install only Edge-TTS + Piper.
 
 ### Why the SmartScreen warning?
 
-Windows flags all unsigned installers from unknown publishers. Silencing
-the warning requires a paid code-signing certificate (~$100-300/year),
-which the project does not currently have. The installer is safe to run;
-its full source (PyInstaller spec + Inno Setup script + GitHub Actions
-build) lives in this repository and is built automatically on every
-tagged release.
+Both installers are unsigned. Windows flags all unsigned installers from
+unknown publishers. Silencing the warning requires a paid code-signing
+certificate (~$100-300/year), which the project does not currently have.
+The installers are safe to run — their full source (PyInstaller spec +
+Inno Setup script + post-install Python + GitHub Actions build) lives
+in this repository and is built automatically on every tagged release.
 
 ## Usage
 
@@ -168,49 +232,30 @@ polluting the main installer or the main project venv. Each one is a
 single file, reads its own docstring for usage, and has dedicated tests
 under `tests/`.
 
-### `dev_qwen_tts.py` — Qwen3-TTS runner (experimental, Mac-friendly)
+### `dev_qwen_tts.py` — Qwen3-TTS feasibility probe (DROPPED)
 
-Standalone script for trying [Qwen3-TTS](https://huggingface.co/Qwen)
-locally. Supports three modes via flags:
+A standalone script for trying [Qwen3-TTS](https://huggingface.co/Qwen)
+locally. **This experiment is closed** — Qwen3-TTS is not a viable
+engine for this project for three independent reasons:
 
-- **Preset voice** (default) — `Qwen3-TTS-12Hz-0.6B-CustomVoice`, pick a
-  speaker with `--speaker`
-- **Voice cloning** — `--ref-audio my_voice.wav` runs the `Base` model
-- **Voice design** — `--voice-description "warm baritone elderly male"`
-  runs the `VoiceDesign` model
+1. **Finnish is not in its supported-language list** — Qwen3-TTS
+   officially supports only 10 languages (Chinese, English, Japanese,
+   Korean, German, French, Russian, Portuguese, Spanish, Italian).
+   Passing `--language Finnish` raises a hard `ValueError`.
+2. **MPS is blocked by a convolution channel limit** on Apple Silicon
+   (`Output channels > 65536 not supported`), so the model cannot run
+   on any Mac.
+3. **CPU inference is slower than realtime even on an RTX 4090** per
+   community reports.
 
-```bash
-# One-time setup: dedicated Python 3.11+ venv (Qwen uses PEP 604 syntax)
-brew install python@3.11 sox
-python3.11 -m venv .venv-qwen
-.venv-qwen/bin/pip install \
-    torch torchaudio transformers==4.57.3 accelerate \
-    einops librosa sox soundfile onnxruntime \
-    huggingface_hub PyMuPDF pydub
+The script is kept at the repo root so future developers who wonder
+"why not Qwen?" can read its docstring and the failure chain in the
+git history instead of re-doing the investigation. Run it with
+`--help` for the full set of flags it was designed to take. Do not
+expect audio output on any Mac.
 
-# Run against the first few chunks of a PDF
-.venv-qwen/bin/python dev_qwen_tts.py book.pdf --max-chunks 4
-.venv-qwen/bin/python dev_qwen_tts.py book.pdf --voice-description "tired narrator"
-.venv-qwen/bin/python dev_qwen_tts.py book.pdf --ref-audio voice.wav --language English
-```
-
-Useful flags: `--device {mps,cpu,cuda}`, `--language {auto,english,...}`,
-`--max-chunks N` (smoke-test the first N chunks only), `--speaker NAME`.
-Run with `--help` for the full list.
-
-**Known limitations on Mac (Apple Silicon):**
-
-- Qwen3-TTS is officially CUDA-only and relies on flash-attn3 kernels
-- MPS hits a hard `Output channels > 65536 not supported` convolution
-  limit inside the decoder — the script forces `float32` everywhere to
-  dodge float16 NaNs, but the channel limit is a real blocker for MPS
-- `--device cpu` loads, but inference is far slower than realtime even
-  on an M3/M4 — fine for a 1-sentence sanity check, not for a whole book
-- **Finnish is not in Qwen3-TTS's supported-language list.** The script
-  warns at startup and defaults `--language` to `auto`. For actual
-  Finnish audiobooks use the Edge-TTS or Piper engines in the main GUI
-
-Treat this script as feasibility probe, not a production path.
+**Use Chatterbox Finnish (via the Launcher installer) or Edge-TTS
+Noora for actual Finnish audiobooks.**
 
 ### `dev_chatterbox_fi.py` — Chatterbox-Finnish voice-cloning TTS (experimental, CPU-slow)
 
@@ -280,16 +325,27 @@ Useful flags: `--device {cpu,mps,cuda}` (default `cpu` — safest on Mac),
   with an English accent. Upstream README confirms this and suggests
   `cfg_weight=0.0` to MITIGATE accent bleed-through
 
-**Honest verdict:** unlike Qwen3-TTS, Chatterbox-Finnish actually
-produces listenable Finnish audio on this Mac — the finetune clones
-the reference voice convincingly and handles gemination and long
-vowels correctly. The catch is pure speed: 6–7× slower than realtime
-on CPU makes it painful for interactive work but feasible for
-overnight batch synthesis of a whole book. For real use see
-`scripts/chatterbox_cloud_runbook.md` — an RTX 4090 on RunPod runs
-at ~0.1× RTF (10× faster than realtime) for ~$0.35 per 6-hour book.
-Until you have a GPU path, the main app's Edge-TTS and Piper engines
-remain the practical Finnish path.
+**Honest verdict:** Chatterbox-Finnish produces listenable Finnish
+audio — the finetune clones the reference voice convincingly and
+handles gemination and long vowels correctly. The catch is pure
+speed: 6–7× slower than realtime on Mac CPU makes it painful for
+interactive work but feasible for overnight batch synthesis of a
+whole book. On a NVIDIA RTX 3080 Ti it runs ~5–7× faster than
+realtime (~80–110 min for a 180-page Finnish book).
+
+**If you are an end user who wants this quality:** install the
+[Launcher installer](#launcher-installer--simple-window--optional-chatterbox)
+and pick the Chatterbox component during the wizard. The installer
+does all of the dev-script plumbing described above (venv, torch,
+chatterbox-tts, Finnish-NLP finetune, gemination patch) automatically
+behind a progress bar. **You do NOT need to run `dev_chatterbox_fi.py`
+or touch Python directly.**
+
+If you want to run the whole book synthesis from a terminal instead
+of the launcher, see `scripts/generate_chatterbox_audiobook.py` for
+the full-book runner with per-chunk resumable caching. For a GPU
+cloud alternative (RTX 4090 for ~$0.35 per 6-hour audiobook) see
+`scripts/chatterbox_cloud_runbook.md`.
 
 ## Project structure
 
