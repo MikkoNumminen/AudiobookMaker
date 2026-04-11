@@ -106,8 +106,10 @@ class EdgeTTSEngine(TTSEngine):
         language: str,
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
+        voice_description: Optional[str] = None,
     ) -> None:
-        # Edge-TTS does not support voice cloning; silently ignore reference.
+        # Edge-TTS does not support voice cloning or voice description;
+        # silently ignore both parameters for interface compatibility.
         if not text or not text.strip():
             raise ValueError("Cannot synthesize empty text.")
         if not voice_id:

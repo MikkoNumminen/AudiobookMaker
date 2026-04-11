@@ -38,6 +38,10 @@ class UserConfig:
     reference_audio: str = ""
     """Path to a reference audio file for cloning engines, if any."""
 
+    voice_description: str = ""
+    """Free-text description of the desired voice for engines that
+    support it (e.g. VoxCPM2). Ignored by engines that don't."""
+
 
 def load() -> UserConfig:
     """Load user config from disk, or return defaults if missing/broken."""

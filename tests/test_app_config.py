@@ -27,6 +27,8 @@ class TestDefaults:
         assert cfg.language == "fi"
         assert cfg.voice_id == ""
         assert cfg.speed == "+0%"
+        assert cfg.reference_audio == ""
+        assert cfg.voice_description == ""
 
 
 class TestLoad:
@@ -92,6 +94,7 @@ class TestSave:
             voice_id="en_GB-alan-medium",
             speed="-25%",
             reference_audio="/tmp/ref.wav",
+            voice_description="(warm baritone elderly male)",
         )
         save(original)
         assert load() == original

@@ -96,6 +96,12 @@ class TTSEngine(ABC):
     supports_voice_cloning: ClassVar[bool] = False
     """True when the engine accepts a reference_audio sample to clone."""
 
+    supports_voice_description: ClassVar[bool] = False
+    """True when the engine accepts a free-text voice_description prompt
+    (e.g. 'a young woman with a gentle voice') to steer the generated
+    voice. Engines that do not support this should silently ignore the
+    parameter."""
+
     # --- instance methods; subclasses must implement ---
 
     @abstractmethod
@@ -131,6 +137,7 @@ class TTSEngine(ABC):
         language: str,
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
+        voice_description: Optional[str] = None,
     ) -> None:
         """Synthesize `text` to an MP3 file at `output_path`.
 
@@ -143,6 +150,9 @@ class TTSEngine(ABC):
             progress_cb: Optional callback for progress updates.
             reference_audio: Optional path to a short reference WAV/MP3 for
                 voice-cloning engines. Ignored by engines that do not clone.
+            voice_description: Optional free-text description of the desired
+                voice (e.g. 'a warm baritone elderly male voice'). Engines
+                without support must silently ignore this parameter.
 
         Raises:
             ValueError: If text is empty or voice_id is unknown.

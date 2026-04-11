@@ -63,6 +63,9 @@ class TestMetadata:
     def test_does_not_support_cloning(self) -> None:
         assert PiperTTSEngine.supports_voice_cloning is False
 
+    def test_does_not_support_voice_description(self) -> None:
+        assert PiperTTSEngine.supports_voice_description is False
+
 
 # ---------------------------------------------------------------------------
 # Voice catalogue

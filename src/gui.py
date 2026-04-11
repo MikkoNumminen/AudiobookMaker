@@ -210,6 +210,55 @@ class App(tk.Tk):
         self._test_btn.grid(row=0, column=1)
         row += 1
 
+        # Reference audio (voice cloning) — only shown for engines that
+        # support cloning.  Widgets are created up front and grid_remove()d
+        # until the current engine needs them.
+        self._ref_audio_label = ttk.Label(settings, text="Referenssiääni:")
+        self._ref_audio_label.grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0)
+        )
+        ref_row = ttk.Frame(settings)
+        ref_row.grid(row=row, column=1, columnspan=3, sticky=tk.EW, pady=(8, 0))
+        ref_row.columnconfigure(0, weight=1)
+        self._ref_audio_row = ref_row
+        self._ref_audio_var = tk.StringVar(value="")
+        self._ref_audio_entry = ttk.Entry(
+            ref_row, textvariable=self._ref_audio_var, state="readonly"
+        )
+        self._ref_audio_entry.grid(row=0, column=0, sticky=tk.EW, padx=(0, 8))
+        ttk.Button(ref_row, text="Selaa…", command=self._browse_reference_audio).grid(
+            row=0, column=1
+        )
+        ttk.Button(ref_row, text="Tyhjennä", command=self._clear_reference_audio).grid(
+            row=0, column=2, padx=(4, 0)
+        )
+        row += 1
+
+        # Voice description (natural-language voice design) — only for
+        # engines that support it.
+        self._voice_desc_label = ttk.Label(settings, text="Äänen kuvaus:")
+        self._voice_desc_label.grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0)
+        )
+        self._voice_desc_var = tk.StringVar(value="")
+        self._voice_desc_entry = ttk.Entry(
+            settings, textvariable=self._voice_desc_var
+        )
+        self._voice_desc_entry.grid(
+            row=row, column=1, columnspan=3, sticky=tk.EW, pady=(8, 0)
+        )
+        row += 1
+        self._voice_desc_hint = ttk.Label(
+            settings,
+            text='Esim. "warm baritone elderly male" — käytetään vain jos moottori tukee.',
+            foreground="#888",
+            font=("", 9),
+        )
+        self._voice_desc_hint.grid(
+            row=row, column=1, columnspan=3, sticky=tk.W, pady=(0, 4)
+        )
+        row += 1
+
         # Output mode
         ttk.Label(settings, text="Tulostus:").grid(row=row, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0))
         self._output_mode_var = tk.StringVar(value="Yksi MP3-tiedosto")
@@ -293,6 +342,13 @@ class App(tk.Tk):
                 self._speed_var.set(label)
                 break
 
+        # Restore reference audio + voice description if present and the
+        # current engine actually supports them.
+        if self._user_cfg.reference_audio:
+            self._ref_audio_var.set(self._user_cfg.reference_audio)
+        if self._user_cfg.voice_description:
+            self._voice_desc_var.set(self._user_cfg.voice_description)
+
     def _save_current_config(self) -> None:
         """Snapshot the current UI selection into the on-disk config."""
         engine = self._current_engine()
@@ -301,6 +357,8 @@ class App(tk.Tk):
         self._user_cfg.voice_id = voice.id if voice else ""
         self._user_cfg.language = self._current_language()
         self._user_cfg.speed = SPEED_OPTIONS.get(self._speed_var.get(), "+0%")
+        self._user_cfg.reference_audio = self._ref_audio_var.get()
+        self._user_cfg.voice_description = self._voice_desc_var.get()
         app_config.save(self._user_cfg)
 
     # ------------------------------------------------------------------
@@ -349,6 +407,9 @@ class App(tk.Tk):
             self._engine_status_var.set(status.reason)
             self._voice_cb["values"] = []
             self._voice_var.set("")
+            # Still show/hide capability widgets so the user can see what
+            # the engine *would* offer once installed.
+            self._update_capability_widgets(engine)
             return
 
         if status.needs_download:
@@ -373,6 +434,28 @@ class App(tk.Tk):
         else:
             self._voice_var.set("")
 
+        # Show/hide reference-audio and voice-description widgets based
+        # on what the current engine advertises.
+        self._update_capability_widgets(engine)
+
+    def _update_capability_widgets(self, engine: TTSEngine) -> None:
+        """Toggle the reference audio + voice description rows on/off
+        depending on the current engine's capability flags."""
+        show_ref = bool(engine.supports_voice_cloning)
+        show_desc = bool(engine.supports_voice_description)
+
+        for w in (self._ref_audio_label, self._ref_audio_row):
+            if show_ref:
+                w.grid()
+            else:
+                w.grid_remove()
+
+        for w in (self._voice_desc_label, self._voice_desc_entry, self._voice_desc_hint):
+            if show_desc:
+                w.grid()
+            else:
+                w.grid_remove()
+
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
@@ -391,6 +474,20 @@ class App(tk.Tk):
                 suggested = str(Path(path).with_suffix(".mp3"))
                 self._out_var.set(suggested)
                 self._output_path = suggested
+
+    def _browse_reference_audio(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Valitse referenssiäänitiedosto",
+            filetypes=[
+                ("Äänitiedostot", "*.wav *.mp3 *.flac *.ogg *.m4a"),
+                ("Kaikki tiedostot", "*.*"),
+            ],
+        )
+        if path:
+            self._ref_audio_var.set(path)
+
+    def _clear_reference_audio(self) -> None:
+        self._ref_audio_var.set("")
 
     def _browse_output(self) -> None:
         mode = OUTPUT_MODES[self._output_mode_var.get()]
@@ -452,7 +549,17 @@ class App(tk.Tk):
             def progress(current: int, total: int, msg: str) -> None:
                 self._safe_update_status(msg)
 
-            engine.synthesize(text, tmp.name, voice.id, lang, progress)
+            ref_audio = self._ref_audio_var.get() or None
+            voice_desc = self._voice_desc_var.get() or None
+            engine.synthesize(
+                text,
+                tmp.name,
+                voice.id,
+                lang,
+                progress,
+                reference_audio=ref_audio,
+                voice_description=voice_desc,
+            )
             self._safe_play_sample(tmp.name)
         except Exception as exc:
             self._safe_update_status(f"Näyteen luonti epäonnistui: {exc}")
@@ -542,6 +649,9 @@ class App(tk.Tk):
                     pct = 0
                 self._safe_update_progress(pct, msg)
 
+            ref_audio = self._ref_audio_var.get() or None
+            voice_desc = self._voice_desc_var.get() or None
+
             if mode == "single":
                 self._safe_update_status(
                     f"Muunnetaan tekstiä puheeksi ({engine.display_name})…"
@@ -552,6 +662,8 @@ class App(tk.Tk):
                     voice.id,
                     lang_code,
                     progress_cb,
+                    reference_audio=ref_audio,
+                    voice_description=voice_desc,
                 )
             else:
                 # Chapter mode currently only supports edge-tts via the

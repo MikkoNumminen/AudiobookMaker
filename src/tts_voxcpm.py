@@ -80,6 +80,7 @@ class VoxCPM2Engine(TTSEngine):
     requires_gpu = True
     requires_internet = False
     supports_voice_cloning = True
+    supports_voice_description = True
 
     # The loaded VoxCPM2 model is cached on the instance after the first
     # synthesize() call. The class is instantiated fresh by list_engines()
@@ -169,6 +170,7 @@ class VoxCPM2Engine(TTSEngine):
         language: str,
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
+        voice_description: Optional[str] = None,
     ) -> None:
         if not text or not text.strip():
             raise ValueError("Cannot synthesize empty text.")
@@ -196,6 +198,13 @@ class VoxCPM2Engine(TTSEngine):
         model = self._load_model()
         sample_rate = self._sample_rate or 24000
 
+        # VoxCPM2's voice-description feature is implemented by prepending
+        # the description in parentheses to the text itself, e.g.:
+        #   text = "(A warm baritone elderly male)Hello there."
+        # We normalise whatever the user typed into that form and apply it
+        # to every chunk so the whole audiobook stays consistent.
+        description_prefix = _build_description_prefix(voice_description)
+
         chunks = split_text_into_chunks(text)
         if not chunks:
             raise ValueError("Text produced no chunks after splitting.")
@@ -208,11 +217,16 @@ class VoxCPM2Engine(TTSEngine):
                 if progress_cb:
                     progress_cb(i, total, f"Syntetisoidaan pala {i + 1}/{total}…")
 
+                prompt_text = f"{description_prefix}{chunk}" if description_prefix else chunk
+
                 # VoxCPM.generate() returns a numpy float32 waveform.
                 if reference_audio:
-                    wav = model.generate(text=chunk, reference_wav_path=reference_audio)
+                    wav = model.generate(
+                        text=prompt_text,
+                        reference_wav_path=reference_audio,
+                    )
                 else:
-                    wav = model.generate(text=chunk)
+                    wav = model.generate(text=prompt_text)
 
                 chunk_path = os.path.join(tmp_dir, f"chunk_{i:04d}.wav")
                 sf.write(chunk_path, wav, sample_rate)
@@ -224,3 +238,28 @@ class VoxCPM2Engine(TTSEngine):
 
         if progress_cb:
             progress_cb(total, total, "Valmis!")
+
+
+def _build_description_prefix(voice_description: Optional[str]) -> str:
+    """Format a user-supplied voice description into VoxCPM2's prefix form.
+
+    Accepts:
+      - None / empty / whitespace-only  -> returns "" (no-op)
+      - "warm baritone"                 -> "(warm baritone)"
+      - "(warm baritone)"               -> "(warm baritone)"
+      - "  (  warm baritone  )  "       -> "(warm baritone)"
+
+    The returned string is ready to be concatenated directly in front of
+    a text chunk so that `prompt = prefix + chunk`.
+    """
+    if not voice_description:
+        return ""
+    stripped = voice_description.strip()
+    if not stripped:
+        return ""
+    # Tolerate users who already wrote the parentheses themselves.
+    if stripped.startswith("(") and stripped.endswith(")"):
+        stripped = stripped[1:-1].strip()
+        if not stripped:
+            return ""
+    return f"({stripped})"

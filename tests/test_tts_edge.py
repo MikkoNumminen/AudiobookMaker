@@ -44,6 +44,9 @@ class TestMetadata:
     def test_does_not_support_cloning(self) -> None:
         assert EdgeTTSEngine.supports_voice_cloning is False
 
+    def test_does_not_support_voice_description(self) -> None:
+        assert EdgeTTSEngine.supports_voice_description is False
+
 
 # ---------------------------------------------------------------------------
 # check_status
@@ -158,4 +161,16 @@ class TestSynthesize:
                 "fi-FI-NooraNeural",
                 "fi",
                 reference_audio="/path/to/ref.wav",
+            )
+
+    def test_voice_description_is_ignored(self) -> None:
+        # Edge-TTS does not support voice description; passing it must not crash.
+        engine = EdgeTTSEngine()
+        with patch("src.tts_edge._edge_text_to_speech"):
+            engine.synthesize(
+                "hello",
+                "/tmp/x.mp3",
+                "fi-FI-NooraNeural",
+                "fi",
+                voice_description="warm baritone elderly male",
             )

@@ -15,7 +15,12 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from src.tts_base import EngineStatus, Voice, get_engine
-from src.tts_voxcpm import VoxCPM2Engine, _DEFAULT_VOICES, _INSTALL_HINT
+from src.tts_voxcpm import (
+    VoxCPM2Engine,
+    _DEFAULT_VOICES,
+    _INSTALL_HINT,
+    _build_description_prefix,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -184,3 +189,39 @@ class TestSynthesize:
                     "voxcpm2-default-fi",
                     "fi",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Voice description (voice design) prefix handling
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDescriptionPrefix:
+    def test_none_returns_empty(self) -> None:
+        assert _build_description_prefix(None) == ""
+
+    def test_empty_string_returns_empty(self) -> None:
+        assert _build_description_prefix("") == ""
+
+    def test_whitespace_only_returns_empty(self) -> None:
+        assert _build_description_prefix("   \t  ") == ""
+
+    def test_wraps_plain_string_in_parentheses(self) -> None:
+        assert _build_description_prefix("warm baritone") == "(warm baritone)"
+
+    def test_already_parenthesized_is_normalised(self) -> None:
+        assert _build_description_prefix("(warm baritone)") == "(warm baritone)"
+
+    def test_parenthesized_with_whitespace_is_normalised(self) -> None:
+        assert _build_description_prefix("  ( warm baritone )  ") == "(warm baritone)"
+
+    def test_parens_only_returns_empty(self) -> None:
+        assert _build_description_prefix("()") == ""
+
+
+class TestVoiceDescriptionFlag:
+    def test_supports_voice_description_is_true(self) -> None:
+        assert VoxCPM2Engine.supports_voice_description is True
+
+    def test_supports_voice_cloning_is_true(self) -> None:
+        assert VoxCPM2Engine.supports_voice_cloning is True
