@@ -149,6 +149,29 @@ class TestLooksLikeHeading:
         assert not _looks_like_heading("")
         assert not _looks_like_heading("   ")
 
+    def test_year_period_prose_not_heading(self) -> None:
+        # Regression: PDF body lines like "1500. Nämä jaot on tarkoitettu ..."
+        # used to be captured as chapter titles because of the "\d+\." pattern.
+        # A 4-digit year followed by prose is NOT a heading.
+        line = (
+            "1500. Nämä jaot on tarkoitettu ainoastaan helpottamaan "
+            "oikeudellisten kehityslinjojen hahmottamista"
+        )
+        assert not _looks_like_heading(line)
+
+    def test_long_numbered_prose_not_heading(self) -> None:
+        # Even a short-numbered prefix should not count if the line is long prose.
+        line = (
+            "3. Tämä on pitkä lause joka jatkuu ja jatkuu ja sisältää "
+            "kokonaisen virkkeen eikä ole otsikko lainkaan."
+        )
+        assert not _looks_like_heading(line)
+
+    def test_numbered_short_title_still_heading(self) -> None:
+        # Legitimate numbered titles must still be detected.
+        assert _looks_like_heading("1. JOHDANTO")
+        assert _looks_like_heading("12. Yhteenveto")
+
 
 # ---------------------------------------------------------------------------
 # parse_pdf – metadata
@@ -244,5 +267,49 @@ class TestParsePdfErrors:
         try:
             with pytest.raises(ValueError):
                 parse_pdf(tmp.name)
+        finally:
+            os.unlink(tmp.name)
+
+    def test_year_prose_not_split_as_chapter(self) -> None:
+        # Regression (integration-level): a body line like "1500. Nämä jaot ..."
+        # used to be misdetected as a chapter heading, creating a spurious
+        # chapter and eating the first ~60 chars of body text into the title.
+        # Build a synthetic PDF with two real chapter headings and a year-prose
+        # line in the middle of the first chapter's body.
+        doc = fitz.open()
+        page = doc.new_page()
+        # insert_text draws each "\n" as a line break at the given point.
+        body = (
+            "1. JOHDANTO\n"
+            "\n"
+            "Tämä on ensimmäinen luku.\n"
+            "\n"
+            "1500. Nämä jaot on tarkoitettu ainoastaan helpottamaan "
+            "oikeudellisten kehityslinjojen seuraamista.\n"
+            "\n"
+            "2. SEURAAVA LUKU\n"
+            "\n"
+            "Toinen luku alkaa tässä."
+        )
+        page.insert_text((50, 72), body, fontsize=12)
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        doc.save(tmp.name)
+        doc.close()
+        tmp.close()
+        try:
+            book = parse_pdf(tmp.name)
+            # Exactly two chapters — the "1500." line must NOT start a new one.
+            assert len(book.chapters) == 2, (
+                f"expected 2 chapters, got {len(book.chapters)}: "
+                f"{[c.title for c in book.chapters]}"
+            )
+            assert book.chapters[0].title == "1. JOHDANTO"
+            assert book.chapters[1].title == "2. SEURAAVA LUKU"
+            # The year-prose line stays in chapter 0's body.
+            assert "1500. Nämä jaot on tarkoitettu" in book.chapters[0].content
+            # Chapter 0 body must not start with a mid-word fragment.
+            assert not book.chapters[0].content.lower().startswith("listen")
+            # Sanity: the intended opening line survives.
+            assert "Tämä on ensimmäinen luku" in book.chapters[0].content
         finally:
             os.unlink(tmp.name)

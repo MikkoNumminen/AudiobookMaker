@@ -142,7 +142,7 @@ def clean_text(raw: str) -> str:
 _CHAPTER_HEADING_RE = re.compile(
     r"^(?:"
     r"(?:Luku|Chapter|Osa|Part|Kapitel)\s+\d+"  # numbered: "Luku 3"
-    r"|(?:\d+[\.\)]\s+\w)"  # "3. Something" or "3) Something"
+    r"|(?:\d{1,3}[\.\)]\s+\w)"  # "3. Something" or "3) Something" (max 3 digits: rules out years like "1500.")
     r"|(?:[IVXLC]+[\.\)]\s+\w)"  # Roman numerals: "IV. Something"
     r")",
     re.IGNORECASE | re.MULTILINE,
@@ -152,11 +152,29 @@ _CHAPTER_HEADING_RE = re.compile(
 _TITLE_CASE_RE = re.compile(r"^([A-ZÄÖÅ][a-zäöå]+(?: [A-ZÄÖÅ][a-zäöå]+){0,6})$")
 _ALL_CAPS_RE = re.compile(r"^[A-ZÄÖÅ\s]{4,50}$")
 
+# Upper bound on heading length. Real chapter titles are short; anything longer
+# is almost certainly a line of prose that happens to start like a heading.
+_MAX_HEADING_LEN = 80
+
 
 def _looks_like_heading(line: str) -> bool:
     line = line.strip()
     if not line:
         return False
+    # Reject anything that is too long to plausibly be a heading — real titles
+    # are short, prose lines are long.
+    if len(line) > _MAX_HEADING_LEN:
+        return False
+    # Reject lines that contain a sentence-ending period followed by more words,
+    # e.g. "1500. Nämä jaot on tarkoitettu ..." — that's prose, not a title.
+    # A legitimate numbered heading has at most one "." (the one after the number).
+    if re.search(r"\w\.\s+\w.*\s+\w", line):
+        # More than one word-gap after an internal period -> looks like prose.
+        # But allow "3. Johdanto" (single word after the period).
+        # Count words after the first period.
+        after = line.split(".", 1)[1] if "." in line else ""
+        if len(after.strip().split()) > 4:
+            return False
     if _CHAPTER_HEADING_RE.match(line):
         return True
     if _ALL_CAPS_RE.match(line) and len(line) >= 4:
