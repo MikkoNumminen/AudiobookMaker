@@ -24,7 +24,7 @@ Actual output:
   Call 4: ~0.4s
   Call 5: ~0.4s
 
-See BUG_REPORT_chatterbox_hook_leak.md for the full issue writeup.
+See BUG_REPORT.md (same directory) for the full issue writeup.
 """
 
 import sys

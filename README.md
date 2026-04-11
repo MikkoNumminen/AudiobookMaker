@@ -269,8 +269,8 @@ Useful flags: `--device {cpu,mps,cuda}` (default `cpu` — safest on Mac),
   `self_attn._forward_hooks`, resets `engine.t3.compiled = False`,
   and restores `tfmr.config._attn_implementation` and
   `output_attentions` before each chunk to work around this — no
-  action needed from you, but see `BUG_REPORT_chatterbox_hook_leak.md`
-  and `chatterbox_hook_leak_fix.patch` for the upstream fix
+  action needed from you, but see `docs/upstream/chatterbox/BUG_REPORT.md`
+  and `docs/upstream/chatterbox/hook_leak_fix.patch` for the upstream fix
 - **Cross-language voice cloning is weak** — the T3 finetune owns
   Finnish pronunciation, the reference WAV only conditions speaker
   pitch/timbre. An English or African English reference will produce

@@ -126,7 +126,7 @@ A fully correct workaround also needs to:
 
 ## Proper fix
 
-The accompanying patch at `chatterbox_hook_leak_fix.patch` (against
+The accompanying patch at `hook_leak_fix.patch` (same directory) (against
 `src/chatterbox/models/t3/inference/alignment_stream_analyzer.py` and
 `src/chatterbox/models/t3/t3.py`) does the following:
 

@@ -21,7 +21,7 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 - [ ] After Turo's fast-track audiobook run succeeds AND no more local Chatterbox dev is needed, delete `.venv-qwen/` (1.4 GB), `~/.cache/huggingface/hub/models--ResembleAI--chatterbox` (6.0 GB), `~/.cache/huggingface/hub/models--Finnish-NLP--Chatterbox-Finnish` (2.0 GB). Total ~9.4 GB reclaimable. Do NOT delete while the Mac is still being used for dev. 🟢 ⚡ Sonnet
 
 ### Chatterbox-Finnish — upstream contribution (ready to ship)
-- [ ] Submit the bug report + patch in `BUG_REPORT_chatterbox_hook_leak.md` and `chatterbox_hook_leak_fix.patch` as a GitHub issue + PR to `resemble-ai/chatterbox`. Reproducer is at `repro_chatterbox_hook_leak.py`. 🟡 🧠 Opus
+- [ ] Submit the bug report + patch in `docs/upstream/chatterbox/BUG_REPORT.md` and `docs/upstream/chatterbox/hook_leak_fix.patch` as a GitHub issue + PR to `resemble-ai/chatterbox`. Reproducer is at `docs/upstream/chatterbox/repro_hook_leak.py`. 🟡 🧠 Opus
 
 ### Chatterbox-Finnish — Turo feedback loop
 - [ ] After Turo runs the fast-track bundle on his PC, collect any errors/friction and fix them in `scripts/setup_chatterbox_windows.ps1` or `scripts/run_audiobook.bat` 🟡 ⚡ Sonnet
