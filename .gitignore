@@ -13,3 +13,5 @@ build/
 .pytest_cache/
 *.mp3
 *.wav
+# Local model caches used by dev_qwen_tts.py and similar experiments
+models/
