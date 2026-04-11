@@ -64,28 +64,63 @@ jobs:
         shell: bash
 
       - name: Install Inno Setup
-        run: choco install innosetup --yes --no-progress
+        # Pin to a specific version so ArchitecturesAllowed=x64 etc.
+        # resolve consistently. x64 works on Inno 6.0+ so any recent
+        # choco build is fine, but we pin 6.2.2 explicitly to avoid
+        # surprise directive-compatibility breakage.
+        run: choco install innosetup --version=6.2.2 --yes --no-progress
+        shell: pwsh
 
       - name: Install unofficial Finnish language file for Inno Setup
         run: |
           $langDir = "C:\Program Files (x86)\Inno Setup 6\Languages\Unofficial"
           New-Item -ItemType Directory -Force -Path $langDir | Out-Null
-          $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/Finnish.isl"
-          try {
-            Invoke-WebRequest -Uri $url -OutFile "$langDir\Finnish.isl" -UseBasicParsing
-            Write-Host "Finnish.isl downloaded"
-          } catch {
-            Write-Host "Finnish.isl download failed: $_"
-            Write-Host "Wizard will fall back to English."
+          # Unofficial translations live at jrsoftware/issrc under
+          # Files/Languages/Unofficial. Try a couple of mirrors since
+          # the exact path has shifted between branches.
+          $urls = @(
+            "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/Finnish.isl",
+            "https://raw.githubusercontent.com/jrsoftware/issrc/master/Files/Languages/Unofficial/Finnish.isl"
+          )
+          $ok = $false
+          foreach ($url in $urls) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile "$langDir\Finnish.isl" -UseBasicParsing -ErrorAction Stop
+              Write-Host "Finnish.isl downloaded from $url"
+              $ok = $true
+              break
+            } catch {
+              Write-Host "Finnish.isl fetch from $url failed: $_"
+            }
+          }
+          if (-not $ok) {
+            Write-Host "WARNING: Finnish.isl not available. The wizard's"
+            Write-Host "Finnish language option will fail to compile."
+            Write-Host "Removing Finnish from [Languages] as a fallback."
+            # Strip the Finnish language line so ISCC compiles clean.
+            $iss = Get-Content -Raw -Encoding UTF8 installer/launcher.iss
+            $iss = $iss -replace 'Name: "finnish";.+?FinnishLangFileExists', '; (Finnish language file unavailable at build time)'
+            [IO.File]::WriteAllText(
+              "installer/launcher.iss",
+              $iss,
+              (New-Object System.Text.UTF8Encoding $true)
+            )
           }
         shell: pwsh
 
-      - name: Update Inno Setup version from tag
+      - name: Update Inno Setup version from tag (preserving UTF-8 BOM)
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          (Get-Content installer/launcher.iss) `
-            -replace '#define MyAppVersion     "0\.1\.0"', "#define MyAppVersion     `"$version`"" `
-            | Set-Content installer/launcher.iss
+          $iss = Get-Content -Raw -Encoding UTF8 installer/launcher.iss
+          $iss = $iss -replace '#define MyAppVersion     "0\.1\.0"', "#define MyAppVersion     `"$version`""
+          # Write back WITH BOM — the Finnish string literals in the
+          # Pascal Script [Code] section rely on BOM-terminated UTF-8
+          # so ISCC reads ä/ö correctly.
+          [IO.File]::WriteAllText(
+            "installer/launcher.iss",
+            $iss,
+            (New-Object System.Text.UTF8Encoding $true)
+          )
         shell: pwsh
 
       - name: Build installer
