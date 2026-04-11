@@ -3,19 +3,33 @@
 Provides a simple window for selecting a PDF, configuring TTS settings,
 and converting to MP3. Runs TTS in a background thread to keep the UI
 responsive.
+
+The GUI talks to engines through the `TTSEngine` interface and never
+imports any engine module directly — all engines register themselves on
+import below.
 """
 
 from __future__ import annotations
 
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
+from src import app_config
 from src.ffmpeg_path import setup_ffmpeg_path
 from src.pdf_parser import parse_pdf
-from src.tts_engine import TTSConfig, text_to_speech, chapters_to_speech, VOICES
+from src.tts_base import TTSEngine, Voice, get_engine, list_engines
+
+# Import engine adapters for their side effect of registering with tts_base.
+# Order matters: Edge-TTS first so it's the default.
+from src import tts_edge  # noqa: F401  (registers EdgeTTSEngine)
+from src import tts_piper  # noqa: F401  (registers PiperTTSEngine)
+
+# Also import the chapter helper for the "one MP3 per chapter" output mode.
+from src.tts_engine import TTSConfig, chapters_to_speech
 
 setup_ffmpeg_path()
 
@@ -25,8 +39,8 @@ setup_ffmpeg_path()
 # ---------------------------------------------------------------------------
 
 WINDOW_TITLE = "AudiobookMaker"
-WINDOW_MIN_W = 600
-WINDOW_MIN_H = 420
+WINDOW_MIN_W = 680
+WINDOW_MIN_H = 540
 
 LANGUAGES = {
     "Suomi": "fi",
@@ -44,6 +58,10 @@ OUTPUT_MODES = {
     "Yksi MP3-tiedosto": "single",
     "Yksi tiedosto per luku": "chapters",
 }
+
+# Short sample sentence used by the "Test voice" button.
+_SAMPLE_TEXT_FI = "Tämä on ääninäyte valitulla äänellä."
+_SAMPLE_TEXT_EN = "This is a voice sample with the selected voice."
 
 
 # ---------------------------------------------------------------------------
@@ -65,8 +83,13 @@ class App(tk.Tk):
         self._pdf_path: Optional[str] = None
         self._output_path: Optional[str] = None
         self._converting = False
+        self._testing_voice = False
+
+        # Load user preferences; defaults kick in on first launch.
+        self._user_cfg = app_config.load()
 
         self._build_ui()
+        self._apply_loaded_config()
 
     # ------------------------------------------------------------------
     # Window helpers
@@ -88,6 +111,7 @@ class App(tk.Tk):
         """Construct all widgets."""
         main = ttk.Frame(self, padding=16)
         main.pack(fill=tk.BOTH, expand=True)
+        main.columnconfigure(0, weight=1)
 
         # ---- PDF file selection ----
         ttk.Label(main, text="PDF-tiedosto", font=("", 10, "bold")).grid(
@@ -95,7 +119,6 @@ class App(tk.Tk):
         )
         pdf_row = ttk.Frame(main)
         pdf_row.grid(row=1, column=0, sticky=tk.EW, pady=(0, 12))
-        main.columnconfigure(0, weight=1)
         pdf_row.columnconfigure(0, weight=1)
 
         self._pdf_var = tk.StringVar(value="Ei tiedostoa valittu")
@@ -110,10 +133,40 @@ class App(tk.Tk):
         settings = ttk.LabelFrame(main, text="Asetukset", padding=8)
         settings.grid(row=2, column=0, sticky=tk.EW, pady=(0, 12))
         settings.columnconfigure(1, weight=1)
-        settings.columnconfigure(3, weight=1)
+
+        row = 0
+
+        # TTS engine selector
+        ttk.Label(settings, text="TTS-moottori:").grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 8), pady=(0, 0)
+        )
+        self._engine_var = tk.StringVar()
+        self._engine_cb = ttk.Combobox(
+            settings,
+            textvariable=self._engine_var,
+            state="readonly",
+            width=46,
+        )
+        self._engine_cb.grid(row=row, column=1, columnspan=3, sticky=tk.EW, pady=(0, 0))
+        self._engine_cb.bind("<<ComboboxSelected>>", self._on_engine_changed)
+        self._populate_engine_list()
+        row += 1
+
+        # Engine status / notice line
+        self._engine_status_var = tk.StringVar(value="")
+        self._engine_status_lbl = ttk.Label(
+            settings,
+            textvariable=self._engine_status_var,
+            foreground="#0a7",
+            wraplength=560,
+        )
+        self._engine_status_lbl.grid(
+            row=row, column=1, columnspan=3, sticky=tk.W, pady=(2, 6)
+        )
+        row += 1
 
         # Language
-        ttk.Label(settings, text="Kieli:").grid(row=0, column=0, sticky=tk.W, padx=(0, 8))
+        ttk.Label(settings, text="Kieli:").grid(row=row, column=0, sticky=tk.W, padx=(0, 8))
         self._lang_var = tk.StringVar(value="Suomi")
         lang_cb = ttk.Combobox(
             settings,
@@ -122,11 +175,11 @@ class App(tk.Tk):
             state="readonly",
             width=14,
         )
-        lang_cb.grid(row=0, column=1, sticky=tk.W)
+        lang_cb.grid(row=row, column=1, sticky=tk.W)
         lang_cb.bind("<<ComboboxSelected>>", self._on_language_changed)
 
         # Speed
-        ttk.Label(settings, text="Nopeus:").grid(row=0, column=2, sticky=tk.W, padx=(16, 8))
+        ttk.Label(settings, text="Nopeus:").grid(row=row, column=2, sticky=tk.W, padx=(16, 8))
         self._speed_var = tk.StringVar(value="Normaali")
         ttk.Combobox(
             settings,
@@ -134,30 +187,37 @@ class App(tk.Tk):
             values=list(SPEED_OPTIONS.keys()),
             state="readonly",
             width=20,
-        ).grid(row=0, column=3, sticky=tk.W)
+        ).grid(row=row, column=3, sticky=tk.W)
+        row += 1
 
         # Voice
-        ttk.Label(settings, text="Ääni:").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0))
+        ttk.Label(settings, text="Ääni:").grid(row=row, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0))
+        voice_row = ttk.Frame(settings)
+        voice_row.grid(row=row, column=1, columnspan=3, sticky=tk.EW, pady=(8, 0))
+        voice_row.columnconfigure(0, weight=1)
         self._voice_var = tk.StringVar()
         self._voice_cb = ttk.Combobox(
-            settings,
+            voice_row,
             textvariable=self._voice_var,
             state="readonly",
-            width=26,
         )
-        self._voice_cb.grid(row=1, column=1, columnspan=3, sticky=tk.W, pady=(8, 0))
-        self._refresh_voice_list()
+        self._voice_cb.grid(row=0, column=0, sticky=tk.EW, padx=(0, 8))
+        self._test_btn = ttk.Button(
+            voice_row, text="Kuuntele näyte", command=self._on_test_voice
+        )
+        self._test_btn.grid(row=0, column=1)
+        row += 1
 
         # Output mode
-        ttk.Label(settings, text="Tulostus:").grid(row=2, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0))
+        ttk.Label(settings, text="Tulostus:").grid(row=row, column=0, sticky=tk.W, padx=(0, 8), pady=(8, 0))
         self._output_mode_var = tk.StringVar(value="Yksi MP3-tiedosto")
         ttk.Combobox(
             settings,
             textvariable=self._output_mode_var,
             values=list(OUTPUT_MODES.keys()),
             state="readonly",
-            width=26,
-        ).grid(row=2, column=1, columnspan=3, sticky=tk.W, pady=(8, 0))
+        ).grid(row=row, column=1, columnspan=3, sticky=tk.EW, pady=(8, 0))
+        row += 1
 
         # ---- Output file selection ----
         ttk.Label(main, text="Tallennuspaikka", font=("", 10, "bold")).grid(
@@ -194,6 +254,124 @@ class App(tk.Tk):
         self._convert_btn.grid(row=7, column=0, pady=(0, 4))
 
     # ------------------------------------------------------------------
+    # Config application
+    # ------------------------------------------------------------------
+
+    def _apply_loaded_config(self) -> None:
+        """Apply persisted preferences to the widgets after they exist."""
+        # Language
+        for label, code in LANGUAGES.items():
+            if code == self._user_cfg.language:
+                self._lang_var.set(label)
+                break
+
+        # Engine — only if the saved engine is still registered & available.
+        engine = get_engine(self._user_cfg.engine_id)
+        if engine and engine.check_status().available:
+            self._engine_var.set(engine.display_name)
+        else:
+            # Fall back to the first registered engine.
+            engines = list_engines()
+            if engines:
+                self._engine_var.set(engines[0].display_name)
+
+        self._refresh_voice_list()
+
+        # Try to restore the saved voice if the current engine offers it.
+        engine = self._current_engine()
+        if engine and self._user_cfg.voice_id:
+            for voice in engine.list_voices(self._current_language()):
+                if voice.id == self._user_cfg.voice_id:
+                    self._voice_var.set(voice.display_name)
+                    break
+
+        # Speed: mapped back from the stored "+0%" etc. value.
+        for label, val in SPEED_OPTIONS.items():
+            if val == self._user_cfg.speed:
+                self._speed_var.set(label)
+                break
+
+    def _save_current_config(self) -> None:
+        """Snapshot the current UI selection into the on-disk config."""
+        engine = self._current_engine()
+        voice = self._current_voice()
+        self._user_cfg.engine_id = engine.id if engine else "edge"
+        self._user_cfg.voice_id = voice.id if voice else ""
+        self._user_cfg.language = self._current_language()
+        self._user_cfg.speed = SPEED_OPTIONS.get(self._speed_var.get(), "+0%")
+        app_config.save(self._user_cfg)
+
+    # ------------------------------------------------------------------
+    # Engine / voice helpers
+    # ------------------------------------------------------------------
+
+    def _populate_engine_list(self) -> None:
+        engines = list_engines()
+        self._engine_display_to_id = {e.display_name: e.id for e in engines}
+        self._engine_cb["values"] = list(self._engine_display_to_id.keys())
+        if engines and not self._engine_var.get():
+            self._engine_var.set(engines[0].display_name)
+
+    def _current_engine(self) -> Optional[TTSEngine]:
+        display = self._engine_var.get()
+        engine_id = self._engine_display_to_id.get(display)
+        return get_engine(engine_id) if engine_id else None
+
+    def _current_language(self) -> str:
+        return LANGUAGES.get(self._lang_var.get(), "fi")
+
+    def _current_voice(self) -> Optional[Voice]:
+        engine = self._current_engine()
+        if not engine:
+            return None
+        lang = self._current_language()
+        display = self._voice_var.get()
+        for voice in engine.list_voices(lang):
+            if voice.display_name == display:
+                return voice
+        return None
+
+    def _refresh_voice_list(self) -> None:
+        """Refresh the voice dropdown and engine status based on current selection."""
+        engine = self._current_engine()
+        if engine is None:
+            self._voice_cb["values"] = []
+            self._voice_var.set("")
+            self._engine_status_var.set("")
+            return
+
+        status = engine.check_status()
+        # Update status line
+        if not status.available:
+            self._engine_status_lbl.configure(foreground="#c33")
+            self._engine_status_var.set(status.reason)
+            self._voice_cb["values"] = []
+            self._voice_var.set("")
+            return
+
+        if status.needs_download:
+            self._engine_status_lbl.configure(foreground="#b60")
+            self._engine_status_var.set(
+                status.reason + "  Lataus käynnistyy automaattisesti."
+            )
+        else:
+            self._engine_status_lbl.configure(foreground="#0a7")
+            self._engine_status_var.set(engine.description)
+
+        lang = self._current_language()
+        voices = engine.list_voices(lang)
+        names = [v.display_name for v in voices]
+        self._voice_cb["values"] = names
+        if names:
+            default_id = engine.default_voice(lang)
+            default_name = next(
+                (v.display_name for v in voices if v.id == default_id), names[0]
+            )
+            self._voice_var.set(default_name)
+        else:
+            self._voice_var.set("")
+
+    # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
@@ -224,7 +402,6 @@ class App(tk.Tk):
                 self._output_path = path
                 self._out_var.set(path)
         else:
-            # For chapter mode, select a directory
             path = filedialog.askdirectory(title="Valitse kohdekansio")
             if path:
                 self._output_path = path
@@ -233,16 +410,75 @@ class App(tk.Tk):
     def _on_language_changed(self, _event: object = None) -> None:
         self._refresh_voice_list()
 
-    def _refresh_voice_list(self) -> None:
-        lang_code = LANGUAGES.get(self._lang_var.get(), "fi")
-        voices = VOICES.get(lang_code, VOICES["fi"])
-        # Keys are display names, "default" is a special key holding the default voice ID
-        display_names = [k for k in voices if k != "default"]
-        self._voice_cb["values"] = display_names
-        # Select the display name whose voice ID matches the default
-        default_id = voices["default"]
-        default_name = next((k for k, v in voices.items() if v == default_id and k != "default"), display_names[0])
-        self._voice_cb.set(default_name)
+    def _on_engine_changed(self, _event: object = None) -> None:
+        self._refresh_voice_list()
+
+    # ------------------------------------------------------------------
+    # Test voice button
+    # ------------------------------------------------------------------
+
+    def _on_test_voice(self) -> None:
+        if self._testing_voice:
+            return
+        engine = self._current_engine()
+        voice = self._current_voice()
+        if engine is None or voice is None:
+            messagebox.showerror("Virhe", "Valitse ensin TTS-moottori ja ääni.")
+            return
+
+        self._testing_voice = True
+        self._test_btn.config(state=tk.DISABLED)
+        self._status_var.set("Syntetisoidaan ääninäytettä…")
+
+        thread = threading.Thread(target=self._test_voice_worker, daemon=True)
+        thread.start()
+
+    def _test_voice_worker(self) -> None:
+        try:
+            engine = self._current_engine()
+            voice = self._current_voice()
+            if engine is None or voice is None:
+                return
+            lang = self._current_language()
+            text = _SAMPLE_TEXT_FI if lang == "fi" else _SAMPLE_TEXT_EN
+
+            tmp = tempfile.NamedTemporaryFile(
+                prefix="sample_", suffix=".mp3", delete=False
+            )
+            tmp.close()
+
+            def progress(current: int, total: int, msg: str) -> None:
+                self._safe_update_status(msg)
+
+            engine.synthesize(text, tmp.name, voice.id, lang, progress)
+            self._safe_play_sample(tmp.name)
+        except Exception as exc:
+            self._safe_update_status(f"Näyteen luonti epäonnistui: {exc}")
+            self.after(0, lambda: self._test_btn.config(state=tk.NORMAL))
+            self.after(0, lambda: setattr(self, "_testing_voice", False))
+
+    def _safe_play_sample(self, path: str) -> None:
+        def _play() -> None:
+            self._test_btn.config(state=tk.NORMAL)
+            self._testing_voice = False
+            self._status_var.set(f"Ääninäyte tallennettu: {path}")
+            # Open in the default audio player.
+            import platform
+            import subprocess
+
+            try:
+                if platform.system() == "Darwin":
+                    subprocess.Popen(["open", path])
+                elif platform.system() == "Windows":
+                    import os as _os
+
+                    _os.startfile(path)  # type: ignore[attr-defined]
+                else:
+                    subprocess.Popen(["xdg-open", path])
+            except Exception:
+                pass  # Best-effort; user can still find the file via the status line.
+
+        self.after(0, _play)
 
     # ------------------------------------------------------------------
     # Conversion
@@ -251,14 +487,29 @@ class App(tk.Tk):
     def _start_conversion(self) -> None:
         if self._converting:
             return
-
         if not self._pdf_path:
             messagebox.showerror("Virhe", "Valitse ensin PDF-tiedosto.")
             return
-
         if not self._output_path:
             messagebox.showerror("Virhe", "Valitse tallennuspaikka.")
             return
+
+        engine = self._current_engine()
+        voice = self._current_voice()
+        if engine is None:
+            messagebox.showerror("Virhe", "Valitse TTS-moottori.")
+            return
+        if voice is None:
+            messagebox.showerror("Virhe", "Valitse ääni.")
+            return
+
+        status = engine.check_status()
+        if not status.available:
+            messagebox.showerror("Virhe", f"{engine.display_name}: {status.reason}")
+            return
+
+        # Remember the user's selections.
+        self._save_current_config()
 
         self._converting = True
         self._convert_btn.config(state=tk.DISABLED)
@@ -271,23 +522,18 @@ class App(tk.Tk):
     def _conversion_worker(self) -> None:
         """Run in background thread — must not call Tkinter directly."""
         try:
-            # Parse PDF
+            engine = self._current_engine()
+            voice = self._current_voice()
+            if engine is None or voice is None:
+                raise RuntimeError("Engine or voice not selected")
+
             self._safe_update_status("Luetaan PDF-tiedostoa…")
             book = parse_pdf(self._pdf_path)
 
-            lang_code = LANGUAGES.get(self._lang_var.get(), "fi")
-            display_name = self._voice_var.get()
-            voice = VOICES.get(lang_code, VOICES["fi"]).get(display_name) or VOICES[lang_code]["default"]
-            rate = SPEED_OPTIONS.get(self._speed_var.get(), "+0%")
-
-            config = TTSConfig(language=lang_code, voice=voice, rate=rate)
+            lang_code = self._current_language()
             mode = OUTPUT_MODES[self._output_mode_var.get()]
 
-            total_chars = book.total_chars
-            processed_chars = 0
-
             def progress_cb(current: int, total: int, msg: str) -> None:
-                nonlocal processed_chars
                 if total > 0:
                     pct = (current / total) * 100
                 else:
@@ -295,10 +541,27 @@ class App(tk.Tk):
                 self._safe_update_progress(pct, msg)
 
             if mode == "single":
-                self._safe_update_status("Muunnetaan tekstiä puheeksi…")
-                text_to_speech(book.full_text, self._output_path, config, progress_cb)
+                self._safe_update_status(
+                    f"Muunnetaan tekstiä puheeksi ({engine.display_name})…"
+                )
+                engine.synthesize(
+                    book.full_text,
+                    self._output_path,
+                    voice.id,
+                    lang_code,
+                    progress_cb,
+                )
             else:
+                # Chapter mode currently only supports edge-tts via the
+                # legacy chapters_to_speech helper. Keep the old behaviour.
+                if engine.id != "edge":
+                    raise RuntimeError(
+                        "Lukukohtainen tulostus on tällä hetkellä tuettu vain "
+                        "Edge-TTS-moottorilla."
+                    )
                 chapters = [(ch.title, ch.content) for ch in book.chapters]
+                rate = SPEED_OPTIONS.get(self._speed_var.get(), "+0%")
+                config = TTSConfig(language=lang_code, voice=voice.id, rate=rate)
                 chapters_to_speech(chapters, self._output_path, config, progress_cb)
 
             self._safe_conversion_done(success=True, message="Valmis! Äänikirja tallennettu.")
@@ -331,7 +594,7 @@ class App(tk.Tk):
                 messagebox.showerror(
                     "Virhe",
                     f"Muunnos epäonnistui:\n\n{message}\n\n"
-                    "Tarkista että internet-yhteys toimii ja PDF sisältää kopioitavaa tekstiä.",
+                    "Tarkista asetukset ja yritä uudelleen.",
                 )
         self.after(0, _done)
 
