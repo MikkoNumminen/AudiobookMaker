@@ -26,6 +26,7 @@ from src.tts_engine import (
     VOICES,
     combine_audio_files,
     chapters_to_speech,
+    normalize_finnish_text,
     split_text_into_chunks,
     text_to_speech,
     _force_split,
@@ -55,6 +56,77 @@ class TestTTSConfig:
     def test_unknown_language_falls_back_to_finnish(self) -> None:
         cfg = TTSConfig(language="xx")
         assert cfg.resolved_voice() == VOICES["fi"]["default"]
+
+    def test_tts_config_normalize_default_is_true(self) -> None:
+        cfg = TTSConfig()
+        assert cfg.normalize_text is True
+
+    def test_tts_config_normalize_can_be_disabled(self) -> None:
+        cfg = TTSConfig(normalize_text=False)
+        assert cfg.normalize_text is False
+
+
+# ---------------------------------------------------------------------------
+# normalize_finnish_text
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeFinnishText:
+    def test_normalize_finnish_text_expands_year_numbers(self) -> None:
+        result = normalize_finnish_text("vuonna 1500")
+        assert not any(ch.isdigit() for ch in result)
+        assert "vuonna" in result
+
+    def test_normalize_finnish_text_handles_century_expressions(self) -> None:
+        result = normalize_finnish_text("1500-luvulla")
+        assert "luvulla" in result
+        assert not any(ch.isdigit() for ch in result)
+
+    def test_normalize_finnish_text_english_passes_through(self) -> None:
+        # Finnish-only normalizer: plain English without digits is unchanged.
+        text = "This is an English sentence."
+        assert normalize_finnish_text(text) == text
+
+    def test_normalize_finnish_text_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_normalize_finnish_text_drops_citations(self) -> None:
+        result = normalize_finnish_text(
+            "Tämä on väite (Pihlajamäki 2005).", drop_citations=True
+        )
+        assert "Pihlajamäki" not in result
+        assert "2005" not in result
+
+    def test_normalize_finnish_text_keeps_citations_when_disabled(self) -> None:
+        result = normalize_finnish_text(
+            "Tämä on väite (Pihlajamäki 2005).", drop_citations=False
+        )
+        assert "Pihlajamäki" in result
+
+    def test_compound_numbers_get_spaces(self) -> None:
+        # num2words 0.5.14 glues Finnish compound-number morphemes
+        # together (e.g. 1889 -> "kahdeksansataakahdeksankymmentäyhdeksän").
+        # Post-processor must insert spaces at morpheme boundaries so
+        # Chatterbox-TTS tokenizes and pronounces them correctly.
+        out = normalize_finnish_text("1889")
+        assert " " in out
+        assert "kahdeksansataa kahdeksankymmentä" in out
+        assert "kahdeksankymmentä yhdeksän" in out
+        assert "kahdeksansataakahdeksankymmentäyhdeksän" not in out
+
+        # Two-digit compound: 42 -> "neljäkymmentä kaksi".
+        assert normalize_finnish_text("42") == "neljäkymmentä kaksi"
+
+        # Hundreds + teens: 1917 -> spaces between sataa and seitsemäntoista.
+        out_1917 = normalize_finnish_text("1917")
+        assert "yhdeksänsataa seitsemäntoista" in out_1917
+
+        # Standalone teens must NOT be split — they are single word units.
+        assert normalize_finnish_text("15") == "viisitoista"
+        assert normalize_finnish_text("11") == "yksitoista"
+
+        # Clean hundreds (no trailing morpheme) must not get a spurious space.
+        assert normalize_finnish_text("1500") == "tuhat viisisataa"
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +322,86 @@ class TestTextToSpeech:
             try:
                 text_to_speech("Lyhyt teksti.", out, progress_cb=cb)
                 assert len(progress_calls) >= 1
+            finally:
+                os.unlink(out)
+
+    @requires_ffmpeg
+    def test_text_to_speech_calls_normalizer_for_finnish(self) -> None:
+        from pydub import AudioSegment
+
+        with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
+             patch("src.tts_engine._synthesize_chunk") as mock_synth:
+            mock_norm.side_effect = lambda t: t + " NORMALIZED"
+
+            async def fake_synth(text, voice, rate, volume, output_path):
+                seg = AudioSegment.silent(duration=50)
+                seg.export(output_path, format="mp3")
+
+            mock_synth.side_effect = fake_synth
+
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                out = f.name
+
+            try:
+                text_to_speech(
+                    "vuonna 1500",
+                    out,
+                    config=TTSConfig(language="fi", normalize_text=True),
+                )
+                assert mock_norm.called
+                mock_norm.assert_called_with("vuonna 1500")
+            finally:
+                os.unlink(out)
+
+    @requires_ffmpeg
+    def test_text_to_speech_skips_normalizer_for_english(self) -> None:
+        from pydub import AudioSegment
+
+        with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
+             patch("src.tts_engine._synthesize_chunk") as mock_synth:
+
+            async def fake_synth(text, voice, rate, volume, output_path):
+                seg = AudioSegment.silent(duration=50)
+                seg.export(output_path, format="mp3")
+
+            mock_synth.side_effect = fake_synth
+
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                out = f.name
+
+            try:
+                text_to_speech(
+                    "In the year 1500",
+                    out,
+                    config=TTSConfig(language="en"),
+                )
+                assert not mock_norm.called
+            finally:
+                os.unlink(out)
+
+    @requires_ffmpeg
+    def test_text_to_speech_skips_normalizer_when_disabled(self) -> None:
+        from pydub import AudioSegment
+
+        with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
+             patch("src.tts_engine._synthesize_chunk") as mock_synth:
+
+            async def fake_synth(text, voice, rate, volume, output_path):
+                seg = AudioSegment.silent(duration=50)
+                seg.export(output_path, format="mp3")
+
+            mock_synth.side_effect = fake_synth
+
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                out = f.name
+
+            try:
+                text_to_speech(
+                    "vuonna 1500",
+                    out,
+                    config=TTSConfig(language="fi", normalize_text=False),
+                )
+                assert not mock_norm.called
             finally:
                 os.unlink(out)
 

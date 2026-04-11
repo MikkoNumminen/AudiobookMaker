@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,6 +57,163 @@ VOICES: dict[str, dict[str, str]] = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Finnish text normalization
+# ---------------------------------------------------------------------------
+#
+# Raw PDF text often contains Finnish-specific patterns that TTS engines
+# read poorly: bare years ("1500"), century expressions ("1500-luvulla"),
+# numeric ranges, page abbreviations, decimals, and elided-hyphen compounds
+# ("keski-ja" instead of "keski- ja"). Edge-TTS Noora handles some cases
+# server-side but not all; Chatterbox-TTS has no number normalization at
+# all. Normalizing before chunking benefits every engine we plug in.
+#
+# Passes run in a fixed order because earlier patterns must consume their
+# digits before the generic "bare integer" fallback rewrites them. For
+# example, "1500-luvulla" MUST be handled by pass C before pass G sees a
+# loose 1500.
+
+# Pass A: bibliographic citations — parens containing a 4-digit year and a
+# Capitalized publisher-ish token. Conservative: requires BOTH.
+_FI_CITE_RE = re.compile(
+    r"\s*\(([^()]*?\b[A-ZÅÄÖ][\wäöåÄÖÅ]+[^()]*?\b\d{4}[a-z]?\b[^()]*?)\)"
+)
+
+# Pass B: elided-hyphen Finnish compounds (e.g. "keski-ja" → "keski- ja").
+_FI_ELIDED_HYPHEN_RE = re.compile(
+    r"(\w+)-(ja|tai|eli|sekä)\b", re.IGNORECASE
+)
+
+# Pass C: century/era expressions — digit + "-luku" declension suffix.
+_FI_CENTURY_SUFFIXES = (
+    "luvulla",
+    "luvulta",
+    "luvulle",
+    "luvuilla",
+    "luvusta",
+    "luvut",
+    "luvun",
+    "luku",
+)
+_FI_CENTURY_RE = re.compile(
+    r"(\d+)-(" + "|".join(_FI_CENTURY_SUFFIXES) + r")\b"
+)
+
+# Pass D: numeric ranges like "1500-1800" or "1100–1300".
+_FI_RANGE_RE = re.compile(r"(\d{3,4})\s*[-–]\s*(\d{3,4})\b")
+
+# Pass E: "s. 42" page abbreviation.
+_FI_PAGE_RE = re.compile(r"\bs\.\s*(\d+)")
+
+# Pass F: decimals (comma or dot separator).
+_FI_DECIMAL_RE = re.compile(r"(\d+)[.,](\d+)")
+
+# Pass G: any remaining bare integer.
+_FI_INT_RE = re.compile(r"\d+")
+
+# Pass H: split glued Finnish compound-number morphemes.
+#
+# num2words 0.5.14 emits Finnish compound numbers WITHOUT spaces between
+# hundreds/tens/units morphemes — e.g. 1889 -> "tuhat
+# kahdeksansataakahdeksankymmentäyhdeksän". Chatterbox-TTS then tokenizes
+# the glued word as one giant token and mispronounces it. We insert a
+# space after "sataa" (hundred, partitive form emitted by num2words for
+# 200-900) and after "kymmentä" (ten, partitive) when another morpheme
+# is glued on. Standalone teens like "viisitoista" (15) and "yksitoista"
+# (11) are unaffected because they do not contain these morphemes.
+_FI_MORPHEME_BOUNDARY_RE = re.compile(r"(sataa|kymmentä)(?=[a-zäöå])")
+
+
+def _fi_split_number_compounds(text: str) -> str:
+    """Insert spaces at morpheme boundaries in Finnish compound numbers.
+
+    See :data:`_FI_MORPHEME_BOUNDARY_RE` for the rationale. Operates on
+    already-normalized text (post num2words expansion).
+    """
+    return _FI_MORPHEME_BOUNDARY_RE.sub(r"\1 ", text)
+
+
+def normalize_finnish_text(text: str, drop_citations: bool = True) -> str:
+    """Expand Finnish-specific patterns so TTS engines read them correctly.
+
+    Rewrites numbers, century expressions, numeric ranges, page abbreviations,
+    and elided-hyphen compounds into plain word-form Finnish. Uses num2words
+    (lazy import) for the actual digit → word conversion; if the package is
+    not installed the function degrades gracefully and returns the input
+    unchanged.
+
+    Args:
+        text: Raw Finnish text.
+        drop_citations: If True, strip bibliographic citations like
+            "(Pihlajamäki 2005)" — they are distracting when read aloud.
+
+    Returns:
+        Normalized text ready for TTS synthesis.
+    """
+    if not text:
+        return text
+    try:
+        from num2words import num2words  # type: ignore
+    except ImportError:
+        return text
+
+    def _w(n: int) -> str:
+        try:
+            return num2words(n, lang="fi")
+        except (NotImplementedError, OverflowError, ValueError):
+            return str(n)
+
+    # Pass A — drop bibliographic citations.
+    if drop_citations:
+        text = _FI_CITE_RE.sub("", text)
+
+    # Pass B — elided-hyphen compounds (just insert a space).
+    text = _FI_ELIDED_HYPHEN_RE.sub(r"\1- \2", text)
+
+    # Pass C — century expressions.
+    def _century_sub(m: re.Match) -> str:
+        return f"{_w(int(m.group(1)))} {m.group(2)}"
+
+    text = _FI_CENTURY_RE.sub(_century_sub, text)
+
+    # Pass D — numeric ranges (must run before decimals/bare ints).
+    def _range_sub(m: re.Match) -> str:
+        return f"{_w(int(m.group(1)))} {_w(int(m.group(2)))}"
+
+    text = _FI_RANGE_RE.sub(_range_sub, text)
+
+    # Pass E — "s. 42" page abbreviation.
+    def _page_sub(m: re.Match) -> str:
+        return f"sivu {_w(int(m.group(1)))}"
+
+    text = _FI_PAGE_RE.sub(_page_sub, text)
+
+    # Pass F — decimals.
+    def _decimal_sub(m: re.Match) -> str:
+        whole = int(m.group(1))
+        frac_str = m.group(2)
+        try:
+            return num2words(float(f"{whole}.{frac_str}"), lang="fi")
+        except (NotImplementedError, ValueError):
+            return f"{_w(whole)} pilkku {' '.join(_w(int(d)) for d in frac_str)}"
+
+    text = _FI_DECIMAL_RE.sub(_decimal_sub, text)
+
+    # Pass G — any remaining bare integers.
+    def _int_sub(m: re.Match) -> str:
+        return _w(int(m.group(0)))
+
+    text = _FI_INT_RE.sub(_int_sub, text)
+
+    # Pass H — split glued compound-number morphemes (post num2words).
+    text = _fi_split_number_compounds(text)
+
+    # Collapse whitespace introduced by deletions/substitutions.
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" +([.,;:!?])", r"\1", text)
+    return text
+
+
 # Maximum characters per TTS request. edge-tts has no hard limit but
 # large chunks cause timeouts; 3000 chars is reliable in practice.
 MAX_CHUNK_CHARS = 3000
@@ -90,6 +248,12 @@ class TTSConfig:
     voice: str = ""          # empty = use language default
     rate: str = "+0%"        # e.g. "+10%", "-20%"
     volume: str = "+0%"
+    normalize_text: bool = True
+    """If True and language == "fi", run the input through
+    :func:`normalize_finnish_text` before chunking. This expands years,
+    century expressions, numeric ranges, and elided-hyphen compounds into
+    word-form Finnish so every engine (Edge-TTS, Piper, Chatterbox, ...)
+    pronounces them correctly. Set False to pass raw text through."""
 
     def resolved_voice(self) -> str:
         if self.voice:
@@ -428,6 +592,10 @@ def text_to_speech(
         config = TTSConfig()
 
     output_path = str(output_path)
+
+    if config.normalize_text and config.language == "fi":
+        text = normalize_finnish_text(text)
+
     chunks = split_text_into_chunks(text)
 
     if not chunks:
