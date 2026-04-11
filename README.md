@@ -20,7 +20,10 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 
 ## Installation (end users)
 
-1. Download `AudiobookMaker-Setup-x.x.x.exe` from the [Releases](../../releases) page
+**Latest release:** [AudiobookMaker v1.0.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v1.0.1)
+
+1. Download `AudiobookMaker-Setup-1.0.1.exe` from the release above
+   (or browse all releases on the [Releases](../../releases) page)
 2. Double-click the downloaded file
 3. Windows will show a **"Windows protected your PC"** SmartScreen warning
    because the installer is not code-signed. Click **More info** → **Run anyway**
