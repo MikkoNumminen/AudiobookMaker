@@ -220,7 +220,7 @@ class ChatterboxRunner:
     Usage::
 
         runner = ChatterboxRunner(
-            python_exe="/path/to/.venv-qwen/bin/python",
+            python_exe="/path/to/.venv-chatterbox/bin/python",
             script_path="scripts/generate_chatterbox_audiobook.py",
             pdf_path="/path/to/book.pdf",
             out_dir="/path/to/dist/audiobook",
@@ -399,7 +399,7 @@ def resolve_chatterbox_python() -> Optional[Path]:
 
     Preference order:
         1. ``CHATTERBOX_PYTHON`` environment variable (escape hatch for tests)
-        2. ``.venv-qwen/bin/python`` on macOS/Linux, ``.venv-qwen\\Scripts\\python.exe`` on Windows
+        2. ``.venv-chatterbox/bin/python`` on macOS/Linux, ``.venv-chatterbox\\Scripts\\python.exe`` on Windows
         3. ``None`` if no Chatterbox venv is detected
 
     The launcher should show a friendly "Chatterbox not installed" message if
@@ -413,9 +413,9 @@ def resolve_chatterbox_python() -> Optional[Path]:
 
     repo_root = Path(__file__).resolve().parent.parent
     if sys.platform == "win32":
-        candidate = repo_root / ".venv-qwen" / "Scripts" / "python.exe"
+        candidate = repo_root / ".venv-chatterbox" / "Scripts" / "python.exe"
     else:
-        candidate = repo_root / ".venv-qwen" / "bin" / "python"
+        candidate = repo_root / ".venv-chatterbox" / "bin" / "python"
     if candidate.exists():
         return candidate
     return None

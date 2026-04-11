@@ -252,7 +252,7 @@ class LauncherApp(tk.Tk):
                 labels.append(label)
                 self._engines_by_label[label] = engine
 
-        # Chatterbox-Finnish: offered iff .venv-qwen exists + the runner
+        # Chatterbox-Finnish: offered iff .venv-chatterbox exists + the runner
         # script is present. We don't instantiate a real TTSEngine subclass
         # for it in Phase 1 — it's handled purely via the subprocess bridge.
         chatterbox_py = resolve_chatterbox_python()

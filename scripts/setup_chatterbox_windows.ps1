@@ -15,7 +15,7 @@ if (-not (Test-Path (Join-Path $RepoDir ".git"))) {
     $RepoDir = Join-Path $ScriptDir "AudiobookMaker"
 }
 
-$VenvDir      = Join-Path $RepoDir ".venv-qwen"
+$VenvDir      = Join-Path $RepoDir ".venv-chatterbox"
 $ActivatePs1  = Join-Path $VenvDir "Scripts\Activate.ps1"
 $PythonInVenv = Join-Path $VenvDir "Scripts\python.exe"
 
@@ -85,19 +85,19 @@ try {
     }
 
     # Recompute venv paths in case the repo was just cloned.
-    $VenvDir      = Join-Path $RepoDir ".venv-qwen"
+    $VenvDir      = Join-Path $RepoDir ".venv-chatterbox"
     $ActivatePs1  = Join-Path $VenvDir "Scripts\Activate.ps1"
     $PythonInVenv = Join-Path $VenvDir "Scripts\python.exe"
 
     # -------------------------------------------------------------------------
-    Write-Header "Step 3/8: Creating or reusing venv (.venv-qwen)"
+    Write-Header "Step 3/8: Creating or reusing venv (.venv-chatterbox)"
     # -------------------------------------------------------------------------
 
     if (-not (Test-Path $PythonInVenv)) {
         Write-Host "  Creating venv at `"$VenvDir`""
         Push-Location "$RepoDir"
         try {
-            & python -m venv ".venv-qwen"
+            & python -m venv ".venv-chatterbox"
             if ($LASTEXITCODE -ne 0) { Fail "venv creation failed." }
         } finally {
             Pop-Location
@@ -244,7 +244,7 @@ except Exception as e:
     Write-Host "Setup complete. To generate the audiobook:" -ForegroundColor Green
     Write-Host ""
     Write-Host "  cd `"$RepoDir`""
-    Write-Host "  .\.venv-qwen\Scripts\Activate.ps1"
+    Write-Host "  .\.venv-chatterbox\Scripts\Activate.ps1"
     Write-Host "  python scripts\generate_chatterbox_audiobook.py --pdf path\to\turodokumentti.pdf --out dist\audiobook"
     Write-Host ""
     Write-Host "First run will download ~5 GB of model weights (if step 6 was skipped). Resume is automatic." -ForegroundColor Green

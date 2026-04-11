@@ -21,11 +21,11 @@ What this does:
        viable CPU/MPS path for real audiobooks.
 
 Usage:
-    .venv-qwen/bin/python dev_chatterbox_fi.py
-    .venv-qwen/bin/python dev_chatterbox_fi.py --device cpu
-    .venv-qwen/bin/python dev_chatterbox_fi.py --device mps
-    .venv-qwen/bin/python dev_chatterbox_fi.py --text "Oma testilauseeni."
-    .venv-qwen/bin/python dev_chatterbox_fi.py --finnish-finetune
+    .venv-chatterbox/bin/python dev_chatterbox_fi.py
+    .venv-chatterbox/bin/python dev_chatterbox_fi.py --device cpu
+    .venv-chatterbox/bin/python dev_chatterbox_fi.py --device mps
+    .venv-chatterbox/bin/python dev_chatterbox_fi.py --text "Oma testilauseeni."
+    .venv-chatterbox/bin/python dev_chatterbox_fi.py --finnish-finetune
 
 Status: EXPERIMENTAL. Chatterbox upstream targets CUDA/CPU; MPS works
 for most ops but some (perth watermarker, parts of s3gen) may silently
@@ -36,8 +36,8 @@ Base model:         https://huggingface.co/ResembleAI/chatterbox
 Upstream package:   pip install chatterbox-tts
 
 INSTALLATION:
-    # Reuse the existing .venv-qwen (Python 3.11, already has torch).
-    .venv-qwen/bin/pip install chatterbox-tts safetensors
+    # Reuse the existing .venv-chatterbox (Python 3.11, already has torch).
+    .venv-chatterbox/bin/pip install chatterbox-tts safetensors
 """
 
 from __future__ import annotations

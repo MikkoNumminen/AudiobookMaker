@@ -230,18 +230,20 @@ speakerless mode; every run needs a reference WAV. Supports three modes:
   reference clip instead of the Finnish sample
 
 ```bash
-# Reuse the existing .venv-qwen (Python 3.11, already has torch)
-.venv-qwen/bin/pip install chatterbox-tts safetensors
+# Dedicated venv for Chatterbox (Python 3.11, needs torch + chatterbox-tts)
+python3.11 -m venv .venv-chatterbox
+.venv-chatterbox/bin/pip install chatterbox-tts safetensors silero-vad \
+    num2words pydub PyMuPDF
 
 # Smoke test: one Finnish gemination/long-vowel probe sentence
-.venv-qwen/bin/python dev_chatterbox_fi.py
+.venv-chatterbox/bin/python dev_chatterbox_fi.py
 
 # Real prose from a PDF, first 5 chunks, with the Finnish finetune
-.venv-qwen/bin/python dev_chatterbox_fi.py \
+.venv-chatterbox/bin/python dev_chatterbox_fi.py \
     --pdf book.pdf --chunks 5 --finnish-finetune
 
 # Custom voice clone
-.venv-qwen/bin/python dev_chatterbox_fi.py --ref-audio my_voice.wav
+.venv-chatterbox/bin/python dev_chatterbox_fi.py --ref-audio my_voice.wav
 ```
 
 Useful flags: `--device {cpu,mps,cuda}` (default `cpu` — safest on Mac),

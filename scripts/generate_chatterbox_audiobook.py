@@ -38,9 +38,9 @@ Output layout:
 
 Usage:
   # dev machine (macOS):
-  .venv-qwen/bin/python scripts/generate_chatterbox_audiobook.py --pdf book.pdf
+  .venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py --pdf book.pdf
   # production (Windows):
-  .venv-qwen\\Scripts\\python.exe scripts\\generate_chatterbox_audiobook.py --pdf book.pdf
+  .venv-chatterbox\\Scripts\\python.exe scripts\\generate_chatterbox_audiobook.py --pdf book.pdf
 
 For the GPU cloud alternative (rental RTX or A100), see
 scripts/chatterbox_cloud_runbook.md.
@@ -86,10 +86,10 @@ INTER_CHAPTER_SILENCE_MS = 500
 SETUP_INSTRUCTIONS = """\
 chatterbox-tts is not installed. To set it up:
 
-  1. python -m venv .venv-qwen
-  2. .venv-qwen/bin/pip install --upgrade pip
-  3. .venv-qwen/bin/pip install torch torchaudio chatterbox-tts safetensors
-  4. .venv-qwen/bin/pip install silero-vad pydub num2words huggingface_hub PyMuPDF
+  1. python -m venv .venv-chatterbox
+  2. .venv-chatterbox/bin/pip install --upgrade pip
+  3. .venv-chatterbox/bin/pip install torch torchaudio chatterbox-tts safetensors
+  4. .venv-chatterbox/bin/pip install silero-vad pydub num2words huggingface_hub PyMuPDF
   5. On Windows install ffmpeg and add it to PATH (pydub needs it).
 """
 

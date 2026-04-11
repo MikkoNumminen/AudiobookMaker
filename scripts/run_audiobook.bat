@@ -29,7 +29,7 @@ echo.
 REM ---------------------------------------------------------------------------
 REM  Step 1: locate the venv Python.
 REM ---------------------------------------------------------------------------
-set "VENV_PY=%REPO_ROOT%\.venv-qwen\Scripts\python.exe"
+set "VENV_PY=%REPO_ROOT%\.venv-chatterbox\Scripts\python.exe"
 if not exist "%VENV_PY%" (
     echo  ERROR: Chatterbox venv not found at
     echo    %VENV_PY%
