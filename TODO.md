@@ -17,21 +17,21 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
-### VoxCPM2 — GPU-testaus (vaatii NVIDIA-koneen)
-- [ ] Aja `pip install voxcpm` GPU-koneella ja varmista että GUI näkee moottorin saatavilla olevana 🟢 ⚡ Sonnet
-- [ ] Aja Turo-kirjan ensimmäiset ~5000 merkkiä VoxCPM2:lla suomeksi, vertaa v3-versioon (Noora Edge-TTS) 🟡 🧠 Opus
-- [ ] Kokeile `voice_description="warm baritone elderly male"` englanninkielisellä näytetekstillä ja arvioi kuulostaako oikealta 🟡 🧠 Opus
-- [ ] Kokeile `reference_audio` -kloonausta 10 s näytteellä (esim. Morgan Freeman-tyylinen klippi) ja arvioi 🟡 🧠 Opus
-- [ ] Jos VoxCPM2:n suomi ei ole selkeästi parempi kuin Noora: päätä jääkö engine koodiin vai poistetaanko 🟢 🧠 Opus
+### VoxCPM2 — GPU testing (requires NVIDIA machine)
+- [ ] Run `pip install voxcpm` on a GPU machine and verify the GUI sees the engine as available 🟢 ⚡ Sonnet
+- [ ] Synthesize the first ~5000 characters of the Turo book with VoxCPM2 in Finnish, compare against v3 (Noora Edge-TTS) 🟡 🧠 Opus
+- [ ] Try `voice_description="warm baritone elderly male"` on an English sample and judge whether the output sounds right 🟡 🧠 Opus
+- [ ] Try `reference_audio` cloning with a 10 s clip (e.g. a Morgan Freeman-style sample) and evaluate the result 🟡 🧠 Opus
+- [ ] If VoxCPM2's Finnish is not clearly better than Noora: decide whether to keep the engine in the codebase or remove it 🟢 🧠 Opus
 
-### Qwen3-TTS (kokeellinen, todennäköisesti droppaus)
-- [ ] Tutki uudestaan WebFetchillä onko QwenLM julkaissut virallisen PyPI-paketin `qwen3-tts` vuonna 2026 (aiempi tutkimus: ei ollut — vendoroitu HF Spaceen) 🟢 ⚡ Sonnet
-- [ ] Jos PyPI-paketti on olemassa: tarkista tukeeko se suomea (aiempi kuvaus mainitsi vain "10 major languages") 🟢 ⚡ Sonnet
-- [ ] Jos suomi + PyPI + CPU-fallback kaikki täyttyvät: luo `src/tts_qwen.py` adapter samalla mallilla kuin `tts_voxcpm.py` (kloonaus + voice description laiskana tuontina) 🟡 ⚡ Sonnet
-- [ ] Jos yksikin edellä olevista ei täyty: lisää Qwen3 READMEen "Not supported — use VoxCPM2 instead" -huomautuksella ja sulje tämä tehtävärivistö 🟢 ⚡ Sonnet
-- [ ] GPU-testaus Qwen3:lle jos adapter saadaan tehtyä 🟡 🧠 Opus
+### Qwen3-TTS (experimental, likely to be dropped)
+- [ ] Re-check with WebFetch whether QwenLM has published an official `qwen3-tts` PyPI package in 2026 (previous research: no — vendored into an HF Space) 🟢 ⚡ Sonnet
+- [ ] If a PyPI package exists: verify it supports Finnish (the previous description only listed "10 major languages") 🟢 ⚡ Sonnet
+- [ ] If Finnish + PyPI + CPU fallback all check out: create `src/tts_qwen.py` adapter mirroring `tts_voxcpm.py` (cloning + voice description with lazy imports) 🟡 ⚡ Sonnet
+- [ ] If any of the above fails: add a "Not supported — use VoxCPM2 instead" note to README and close this task block 🟢 ⚡ Sonnet
+- [ ] GPU test Qwen3 if the adapter gets built 🟡 🧠 Opus
 
-### Vaatii Windows-koneen
-- [ ] Lisää sovellukselle ikoni (assets/icon.ico) 🟢 ⚡ Sonnet
-- [ ] Testaa .exe eri PDF-tiedostoilla 🟡 ⚡ Sonnet
-- [ ] Testaa installeri puhtaalla Windows-ympäristöllä 🟡 ⚡ Sonnet
+### Requires a Windows machine
+- [ ] Add an application icon (assets/icon.ico) 🟢 ⚡ Sonnet
+- [ ] Test the .exe against multiple PDF files 🟡 ⚡ Sonnet
+- [ ] Test the installer on a clean Windows environment 🟡 ⚡ Sonnet
