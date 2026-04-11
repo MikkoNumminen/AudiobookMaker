@@ -160,6 +160,58 @@ python scripts/generate_audiobook_parallel.py <input.pdf> <output.mp3> [concurre
 Example: a 180-page, 375k-character Finnish book converts in ~6 minutes at
 concurrency 8, versus ~55 minutes sequentially.
 
+## Developer scripts (local experiments)
+
+Standalone scripts at the repo root are **not** part of the shipped app.
+They exist so you can poke at experimental TTS stacks locally without
+polluting the main installer or the main project venv. Each one is a
+single file, reads its own docstring for usage, and has dedicated tests
+under `tests/`.
+
+### `dev_qwen_tts.py` — Qwen3-TTS runner (experimental, Mac-friendly)
+
+Standalone script for trying [Qwen3-TTS](https://huggingface.co/Qwen)
+locally. Supports three modes via flags:
+
+- **Preset voice** (default) — `Qwen3-TTS-12Hz-0.6B-CustomVoice`, pick a
+  speaker with `--speaker`
+- **Voice cloning** — `--ref-audio my_voice.wav` runs the `Base` model
+- **Voice design** — `--voice-description "warm baritone elderly male"`
+  runs the `VoiceDesign` model
+
+```bash
+# One-time setup: dedicated Python 3.11+ venv (Qwen uses PEP 604 syntax)
+brew install python@3.11 sox
+python3.11 -m venv .venv-qwen
+.venv-qwen/bin/pip install \
+    torch torchaudio transformers==4.57.3 accelerate \
+    einops librosa sox soundfile onnxruntime \
+    huggingface_hub PyMuPDF pydub
+
+# Run against the first few chunks of a PDF
+.venv-qwen/bin/python dev_qwen_tts.py book.pdf --max-chunks 4
+.venv-qwen/bin/python dev_qwen_tts.py book.pdf --voice-description "tired narrator"
+.venv-qwen/bin/python dev_qwen_tts.py book.pdf --ref-audio voice.wav --language English
+```
+
+Useful flags: `--device {mps,cpu,cuda}`, `--language {auto,english,...}`,
+`--max-chunks N` (smoke-test the first N chunks only), `--speaker NAME`.
+Run with `--help` for the full list.
+
+**Known limitations on Mac (Apple Silicon):**
+
+- Qwen3-TTS is officially CUDA-only and relies on flash-attn3 kernels
+- MPS hits a hard `Output channels > 65536 not supported` convolution
+  limit inside the decoder — the script forces `float32` everywhere to
+  dodge float16 NaNs, but the channel limit is a real blocker for MPS
+- `--device cpu` loads, but inference is far slower than realtime even
+  on an M3/M4 — fine for a 1-sentence sanity check, not for a whole book
+- **Finnish is not in Qwen3-TTS's supported-language list.** The script
+  warns at startup and defaults `--language` to `auto`. For actual
+  Finnish audiobooks use the Edge-TTS or Piper engines in the main GUI
+
+Treat this script as feasibility probe, not a production path.
+
 ## Project structure
 
 ```
