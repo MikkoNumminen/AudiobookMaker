@@ -1,5 +1,13 @@
 # AudiobookMaker
 
+[![Build main installer](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-release.yml/badge.svg)](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-release.yml)
+[![Build launcher installer](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-launcher.yml/badge.svg)](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-launcher.yml)
+[![Latest main release](https://img.shields.io/github/v/release/MikkoNumminen/AudiobookMaker?label=main%20installer&color=blue)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
+[![Latest launcher release](https://img.shields.io/github/v/release/MikkoNumminen/AudiobookMaker?include_prereleases&label=launcher&color=orange)](https://github.com/MikkoNumminen/AudiobookMaker/releases)
+[![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
+[![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](#installation-end-users)
+
 Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 
 ## Features
@@ -90,45 +98,40 @@ keep working.
 
 ## Installation (end users)
 
-There are **two installers** with different engine selections. Pick the
-one that matches what you want.
+There are **two installers** with different engine selections. The
+Launcher installer is the recommended starting point; the Main
+installer stays around for power users who want the advanced settings
+matrix.
 
 ### Which installer do I want?
 
 | I want… | Pick |
 |---|---|
-| Finnish/English audiobooks at decent quality, fast, any hardware | **Main installer** |
-| Full engine/voice/rate/reference settings matrix | **Main installer** |
-| **Best Finnish quality** via Chatterbox + Finnish-NLP finetune | **Launcher installer** |
 | Simple drop-a-PDF workflow, no settings screen | **Launcher installer** |
+| **Best Finnish quality** via Chatterbox + Finnish-NLP finetune | **Launcher installer** |
 | Voice cloning from a reference audio clip | **Launcher installer** (Chatterbox engine) |
+| Any modern Windows + NVIDIA GPU | **Launcher installer** |
+| Full engine/voice/rate/reference settings window | **Main installer** |
+| Per-chapter MP3 output toggle | **Main installer** |
 
-Both installers include Edge-TTS Noora and Piper Harri. **Only the
-Launcher installer offers the Chatterbox Finnish engine** (the one that
-produces the cleanest voice quality after the v7 fix stack) — it is
-GPU-only and downloads ~15 GB of model weights during install. Everyone
-else should pick the main installer.
+Both installers ship Edge-TTS Noora and Piper Harri. **Only the
+Launcher installer offers the Chatterbox Finnish engine** (the one
+that produces the cleanest voice quality after the v7 fix stack) — it
+is GPU-only and downloads ~15 GB of model weights during install. If
+you don't have an NVIDIA GPU and just want a working audiobook tool,
+either installer does the same Edge-TTS Noora synthesis at equivalent
+quality; pick whichever UI you prefer.
 
-### Main installer — advanced settings window
-
-**Latest release:** [AudiobookMaker v1.0.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v1.0.1)
-
-- Bundles: Edge-TTS (online Noora), Piper (offline Harri), full Tkinter
-  GUI with voice picker, rate slider, reference audio, voice description,
-  per-chapter vs single-file output toggle
-- **Does NOT bundle Chatterbox** — no voice cloning, no v7 Finnish quality
-- One file (~200 MB), no Python or ffmpeg to install separately
-
-1. Download `AudiobookMaker-Setup-1.0.1.exe` from the release page above
-2. Double-click, click **More info → Run anyway** on the SmartScreen warning
-3. Next → Next → Install
-4. Launch from the Start Menu
-
-### Launcher installer — simple window + optional Chatterbox
+### ⭐ Launcher installer — recommended
 
 **Latest release:** [AudiobookMaker Launcher v0.1.0 (prerelease)](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/launcher-v0.1.0)
+*(marked as a prerelease until end-to-end validated on real Windows +
+GPU hardware; the installer itself is built and tested by CI on every
+commit — see the build badge at the top of this README.)*
 
 - Small launcher window: pick a PDF, click a button, get an MP3
+- Per-user install (no admin / UAC prompt) to
+  `%LOCALAPPDATA%\Programs\AudiobookMaker-Launcher\`
 - Wizard asks which engines to install:
   - **Edge-TTS Noora** — always included, ~0 MB extra
   - **Piper Harri** — ~60 MB voice download
@@ -148,10 +151,8 @@ else should pick the main installer.
 4. Wait — Chatterbox install takes 15–45 minutes visibly, downloads ~15 GB
 5. Launcher opens when install completes; drop in a PDF and go
 
-The launcher installer is a **per-user install** to
-`%LOCALAPPDATA%\Programs\AudiobookMaker-Launcher\` — no admin / UAC
-prompt. See [`docs/turo_ohjeet_fi.md`](docs/turo_ohjeet_fi.md) for the
-Finnish end-user walkthrough.
+See [`docs/turo_ohjeet_fi.md`](docs/turo_ohjeet_fi.md) for the Finnish
+end-user walkthrough (step-by-step, beginner-friendly).
 
 #### Pre-flight checks the Launcher installer runs
 
@@ -166,6 +167,21 @@ Before it downloads anything the wizard verifies:
 Each failed check shows a Finnish dialog explaining what's wrong and
 what to do about it. If you picked Chatterbox but don't have a GPU the
 wizard offers to proceed without it and install only Edge-TTS + Piper.
+
+### Main installer — advanced settings window (legacy)
+
+**Latest release:** [AudiobookMaker v1.0.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v1.0.1)
+
+- Bundles: Edge-TTS (online Noora), Piper (offline Harri), full Tkinter
+  GUI with voice picker, rate slider, reference audio, voice description,
+  per-chapter vs single-file output toggle
+- **Does NOT bundle Chatterbox** — no voice cloning, no v7 Finnish quality
+- One file (~200 MB), no Python or ffmpeg to install separately
+
+1. Download `AudiobookMaker-Setup-1.0.1.exe` from the release page above
+2. Double-click, click **More info → Run anyway** on the SmartScreen warning
+3. Next → Next → Install
+4. Launch from the Start Menu
 
 ### Why the SmartScreen warning?
 
