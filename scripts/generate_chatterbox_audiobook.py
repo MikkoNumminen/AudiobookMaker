@@ -1,0 +1,662 @@
+#!/usr/bin/env python
+"""generate_chatterbox_audiobook.py — full PDF -> MP3 audiobook via Chatterbox-TTS.
+
+Synthesizes a complete Finnish audiobook from a PDF using the
+ChatterboxMultilingualTTS base model with the Finnish-NLP T3 finetune
+swapped in. Applies the proven v7 fix stack from dev_chatterbox_fi.py:
+
+  1. Three state-leak workarounds around upstream chatterbox-tts v0.1.7
+     (forward-hook clearing, compiled-flag reset, tfmr config restore).
+  2. Silero-VAD "loose Finnish" tail-trim (threshold=0.3,
+     min_silence_duration_ms=500, +100 ms head pad, +200 ms tail pad).
+  3. Finnish text normalization via src.tts_engine.normalize_finnish_text.
+  4. Sentence-start preamble trimming (pdf_parser sometimes eats a few
+     chars of the body into the chapter title).
+  5. 300-char chunk sizing (upstream-consensus fluency sweet spot).
+  6. 7 kHz low-pass + loudness normalize to -20 dBFS post-processing.
+
+Hardware expectations:
+  * Windows 11 with NVIDIA RTX 3080 Ti (16 GB VRAM), CUDA.
+  * Also works on macOS CPU for development, but ~60x slower.
+  * No MPS path — Chatterbox has silent fallbacks on MPS that hurt
+    quality; we default to CPU on Mac and CUDA on Windows.
+
+Resume semantics:
+  * Per-chunk WAV cache at dist/audiobook/{pdf_stem}/.chunks/
+    ch{ci:02d}_chunk{chi:04d}.wav. Re-running the script skips any
+    chunk whose WAV already exists. Ctrl-C is safe between chunks.
+  * .progress.json in the output dir tracks completed chapters, total
+    chunks done, wall-clock elapsed, and estimated remaining time.
+  * Pass --no-resume to wipe the cache dir and start from scratch.
+
+Output layout:
+  dist/audiobook/{pdf_stem}/
+    .chunks/ch{ci:02d}_chunk{chi:04d}.wav   (intermediate)
+    .progress.json                          (resume state)
+    {idx:02d}_{safe_title}.mp3              (one per chapter)
+    00_full.mp3                             (concatenated book)
+
+Usage:
+  # dev machine (macOS):
+  .venv-qwen/bin/python scripts/generate_chatterbox_audiobook.py --pdf book.pdf
+  # production (Windows):
+  .venv-qwen\\Scripts\\python.exe scripts\\generate_chatterbox_audiobook.py --pdf book.pdf
+
+For the GPU cloud alternative (rental RTX or A100), see
+scripts/chatterbox_cloud_runbook.md.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+# Make `src.*` importable when the script is run from anywhere.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+FINNISH_REPO = "Finnish-NLP/Chatterbox-Finnish"
+FINNISH_T3_FILE = "models/best_finnish_multilingual_cp986.safetensors"
+FINNISH_REF_WAV = "samples/reference_finnish.wav"
+
+# Finnish "Golden Settings" from the model card.
+FI_REPETITION_PENALTY = 1.5
+FI_TEMPERATURE = 0.8
+FI_EXAGGERATION = 0.5
+FI_CFG_WEIGHT = 0.3
+
+# Post-processing targets.
+LOWPASS_HZ = 7000
+TARGET_DBFS = -20.0
+
+# Chapter skip heuristics.
+MIN_CHAPTER_CHARS = 3000
+MAX_DOT_RATIO = 0.05
+MAX_SINGLE_LETTER_RATIO = 0.2
+
+# Inter-chapter gap in the full-book concat.
+INTER_CHAPTER_SILENCE_MS = 500
+
+SETUP_INSTRUCTIONS = """\
+chatterbox-tts is not installed. To set it up:
+
+  1. python -m venv .venv-qwen
+  2. .venv-qwen/bin/pip install --upgrade pip
+  3. .venv-qwen/bin/pip install torch torchaudio chatterbox-tts safetensors
+  4. .venv-qwen/bin/pip install silero-vad pydub num2words huggingface_hub PyMuPDF
+  5. On Windows install ffmpeg and add it to PATH (pydub needs it).
+"""
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Generate a full Finnish PDF->MP3 audiobook via "
+                    "Chatterbox-TTS + Finnish-NLP finetune.",
+    )
+    p.add_argument("--pdf", required=True, help="Input PDF file.")
+    p.add_argument(
+        "--out",
+        default="dist/audiobook",
+        help="Output directory root. Per-book subdir is created.",
+    )
+    p.add_argument(
+        "--chapters",
+        default=None,
+        help="Comma-separated list of chapter indices to synthesize. "
+             "Default: all chapters passing skip heuristics.",
+    )
+    p.add_argument(
+        "--chunks-per-chapter",
+        type=int,
+        default=0,
+        help="Cap chunks per chapter (0 = unlimited). Useful for smoke tests.",
+    )
+    p.add_argument(
+        "--device",
+        choices=("cuda", "cpu", "auto"),
+        default="auto",
+        help="Torch device. 'auto' picks cuda if available, else cpu.",
+    )
+    p.add_argument(
+        "--resume",
+        dest="resume",
+        action="store_true",
+        default=True,
+        help="(default) Re-use cached chunk WAVs on restart.",
+    )
+    p.add_argument(
+        "--no-resume",
+        dest="resume",
+        action="store_false",
+        help="Wipe the .chunks cache before starting.",
+    )
+    p.add_argument(
+        "--chunk-chars",
+        type=int,
+        default=300,
+        help="Target characters per chunk (upstream-consensus sweet spot).",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse the PDF, count chunks per chapter, estimate total synth "
+             "time from --rtf, print the plan and exit. Does NOT import torch.",
+    )
+    p.add_argument(
+        "--rtf",
+        type=float,
+        default=0.17,
+        help="Real-time factor used for --dry-run estimates. Observed ~0.17 "
+             "on RTX 3080 Ti with the Finnish finetune.",
+    )
+    p.add_argument(
+        "--ref-audio",
+        default=None,
+        help="Override reference voice clone WAV. Default: fetch from the "
+             "Finnish-NLP/Chatterbox-Finnish repo on HuggingFace.",
+    )
+    return p.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Helpers that don't need torch
+# ---------------------------------------------------------------------------
+
+
+def _safe_title(title: str) -> str:
+    cleaned = "".join(
+        c if c.isalnum() or c in " -_" else "_" for c in title.strip()
+    )
+    cleaned = cleaned.strip().replace("  ", " ")
+    return cleaned[:80] or "chapter"
+
+
+def _trim_to_sentence_start(content: str) -> str:
+    """Slice content so it starts at a fresh sentence boundary.
+
+    Mirrors dev_chatterbox_fi._trim_to_sentence_start: if the first char
+    is already a capital/opening quote, return as-is; otherwise find the
+    first ``[.!?...]\\s+[A-ZAAOAOU]`` boundary and slice from there.
+    """
+    import re
+    if not content:
+        return content
+    if content[0].isupper() or content[0] in "\"'(\u00ab":
+        return content
+    m = re.search(r"[.!?\u2026]\s+([A-Z\u00c5\u00c4\u00d6])", content)
+    if m:
+        return content[m.start(1):]
+    return content
+
+
+def _chapter_is_prose(content: str) -> bool:
+    """Apply the dev-script skip heuristics."""
+    content = content.strip()
+    if len(content) < MIN_CHAPTER_CHARS:
+        return False
+    dot_ratio = content.count(".") / len(content)
+    if dot_ratio > MAX_DOT_RATIO:
+        return False
+    words = content[:500].split()
+    if not words:
+        return False
+    single = sum(1 for w in words if len(w) == 1 and w.isalpha())
+    if single / len(words) > MAX_SINGLE_LETTER_RATIO:
+        return False
+    return True
+
+
+def _select_chapters(book, only: set[int] | None):
+    """Return [(idx, chapter), ...] for chapters that will be synthesized.
+
+    ``idx`` is the position in the filtered list (used for output filenames).
+    """
+    selected = []
+    for ch in book.chapters:
+        if not _chapter_is_prose(ch.content):
+            continue
+        if only is not None and ch.index not in only:
+            continue
+        selected.append(ch)
+    return list(enumerate(selected, start=1))
+
+
+def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int):
+    """Normalize + chunk a chapter's content. Returns list[str]."""
+    from src.tts_engine import normalize_finnish_text, split_text_into_chunks
+    content = _trim_to_sentence_start(chapter.content.strip())
+    content = normalize_finnish_text(content)
+    chunks = split_text_into_chunks(content, max_chars=chunk_chars)
+    if chunks_cap and chunks_cap > 0:
+        chunks = chunks[:chunks_cap]
+    return chunks
+
+
+def _format_hms(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m"
+    return f"{m}m{s:02d}s"
+
+
+def _dry_run(args) -> int:
+    """Parse PDF, print chunk plan, estimate synth time. No torch."""
+    from src.pdf_parser import parse_pdf
+    print(f"[dry-run] parsing {args.pdf}", flush=True)
+    book = parse_pdf(args.pdf)
+    only = None
+    if args.chapters:
+        only = {int(x) for x in args.chapters.split(",") if x.strip()}
+    selected = _select_chapters(book, only)
+    if not selected:
+        print("[dry-run] no chapters passed the skip heuristics", flush=True)
+        return 1
+
+    total_chars = 0
+    total_chunks = 0
+    per_chunk_audio_s = 15.0  # rough: 300 chars -> ~15s Finnish audio
+    print(f"[dry-run] {len(selected)} chapters pass filters", flush=True)
+    for pos, ch in selected:
+        chunks = _prepare_chapter_chunks(ch, args.chunk_chars,
+                                         args.chunks_per_chapter)
+        total_chars += len(ch.content)
+        total_chunks += len(chunks)
+        title_preview = ch.title[:60] if ch.title else f"chapter {ch.index}"
+        print(
+            f"  [{pos:02d}] idx={ch.index} {title_preview!r}: "
+            f"{len(ch.content)} chars -> {len(chunks)} chunks",
+            flush=True,
+        )
+    est_audio_s = total_chunks * per_chunk_audio_s
+    est_synth_s = est_audio_s * args.rtf
+    print(
+        f"[dry-run] total: {total_chunks} chunks, "
+        f"~{_format_hms(est_audio_s)} audio, "
+        f"~{_format_hms(est_synth_s)} synth @ rtf={args.rtf}",
+        flush=True,
+    )
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Main synthesis (lazy imports)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_device(requested: str) -> str:
+    import torch
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        print("[warn] CUDA not available; falling back to cpu (slow).",
+              flush=True)
+        return "cpu"
+    if requested == "cuda" and not torch.cuda.is_available():
+        print("[warn] CUDA requested but not available; using cpu.",
+              flush=True)
+        return "cpu"
+    return requested
+
+
+def _clear_chatterbox_state(engine) -> None:
+    """Apply the three v7 state-leak workarounds before each generate()."""
+    try:
+        for layer in engine.t3.tfmr.layers:
+            layer.self_attn._forward_hooks.clear()
+    except AttributeError:
+        pass
+    try:
+        engine.t3.compiled = False
+        engine.t3.tfmr.config._attn_implementation = "sdpa"
+        engine.t3.tfmr.config.output_attentions = False
+    except AttributeError:
+        pass
+
+
+def _load_engine(device: str, ref_override: str | None):
+    """Load Chatterbox + Finnish finetune. Returns (engine, ref_wav_path)."""
+    import torch  # noqa: F401  (imported to verify install before next steps)
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    print(f"[tts] loading ChatterboxMultilingualTTS on {device}...", flush=True)
+    t0 = time.time()
+    engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    print(f"[tts] base loaded in {time.time() - t0:.1f}s", flush=True)
+
+    if ref_override:
+        ref_wav_path = ref_override
+    else:
+        print(f"[tts] fetching reference wav from {FINNISH_REPO}...",
+              flush=True)
+        ref_wav_path = hf_hub_download(FINNISH_REPO, FINNISH_REF_WAV)
+    print(f"[tts] ref wav: {ref_wav_path}", flush=True)
+
+    print(f"[tts] fetching Finnish T3 finetune from {FINNISH_REPO}...",
+          flush=True)
+    fi_ckpt_path = hf_hub_download(FINNISH_REPO, FINNISH_T3_FILE)
+    sd = load_file(fi_ckpt_path)
+    sd = {k[3:] if k.startswith("t3.") else k: v for k, v in sd.items()}
+    missing, unexpected = engine.t3.load_state_dict(sd, strict=False)
+    print(
+        f"[tts] Finnish T3 loaded (missing={len(missing)}, "
+        f"unexpected={len(unexpected)})",
+        flush=True,
+    )
+    return engine, ref_wav_path
+
+
+def _make_vad():
+    """Return (vad_model, get_speech_timestamps) or (None, None)."""
+    try:
+        from silero_vad import load_silero_vad, get_speech_timestamps
+        return load_silero_vad(), get_speech_timestamps
+    except Exception as exc:
+        print(f"[warn] silero-vad unavailable ({exc}); using dB fallback",
+              flush=True)
+        return None, None
+
+
+def _vad_trim(seg, vad_model, get_speech_timestamps):
+    """Silero-VAD loose-Finnish tail/head trim. seg: pydub AudioSegment."""
+    import torch
+    import torchaudio
+    from pydub.silence import detect_leading_silence
+    if vad_model is None:
+        lead = detect_leading_silence(seg, silence_threshold=-30.0)
+        trail = detect_leading_silence(seg.reverse(), silence_threshold=-30.0)
+        start = max(0, lead - 30)
+        end = len(seg) - max(0, trail - 30)
+        return seg[start:end] if end > start else seg
+
+    samples = torch.tensor(seg.get_array_of_samples(),
+                           dtype=torch.float32) / 32768.0
+    if seg.channels > 1:
+        samples = samples.view(-1, seg.channels).mean(dim=1)
+    wav16 = torchaudio.functional.resample(samples, seg.frame_rate, 16000)
+    ts = get_speech_timestamps(
+        wav16, vad_model, sampling_rate=16000,
+        threshold=0.3, min_silence_duration_ms=500,
+    )
+    if not ts:
+        return seg
+    first_start_ms = max(0, int(ts[0]["start"] * 1000 / 16000) - 100)
+    last_end_ms = min(len(seg), int(ts[-1]["end"] * 1000 / 16000) + 200)
+    if last_end_ms <= first_start_ms:
+        return seg
+    return seg[first_start_ms:last_end_ms]
+
+
+def _postprocess(seg):
+    """7 kHz low-pass + loudness normalize to TARGET_DBFS."""
+    seg = seg.low_pass_filter(LOWPASS_HZ)
+    delta = TARGET_DBFS - seg.dBFS
+    if seg.dBFS != float("-inf"):
+        seg = seg.apply_gain(delta)
+    return seg
+
+
+def _write_progress(progress_path: Path, state: dict) -> None:
+    tmp = progress_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False),
+                   encoding="utf-8")
+    tmp.replace(progress_path)
+
+
+class _StopRequested(Exception):
+    pass
+
+
+def main() -> int:
+    args = parse_args()
+
+    # --dry-run path must not import torch/chatterbox.
+    if args.dry_run:
+        return _dry_run(args)
+
+    # Lazy torch/chatterbox imports with friendly error.
+    try:
+        import torch  # noqa: F401
+        import torchaudio  # noqa: F401
+        import chatterbox  # noqa: F401
+    except ImportError as exc:
+        print(f"[error] {exc}", flush=True)
+        print(SETUP_INSTRUCTIONS, flush=True)
+        return 2
+
+    from pydub import AudioSegment
+    from src.pdf_parser import parse_pdf
+
+    pdf_path = Path(args.pdf).expanduser().resolve()
+    if not pdf_path.is_file():
+        print(f"[error] PDF not found: {pdf_path}", flush=True)
+        return 2
+
+    out_root = Path(args.out).expanduser().resolve() / pdf_path.stem
+    chunks_dir = out_root / ".chunks"
+    progress_path = out_root / ".progress.json"
+
+    if not args.resume and chunks_dir.exists():
+        print(f"[setup] --no-resume: wiping {chunks_dir}", flush=True)
+        for p in chunks_dir.glob("*"):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    out_root.mkdir(parents=True, exist_ok=True)
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[setup] out={out_root}", flush=True)
+    print(f"[setup] parsing PDF: {pdf_path.name}", flush=True)
+    book = parse_pdf(str(pdf_path))
+    only = None
+    if args.chapters:
+        only = {int(x) for x in args.chapters.split(",") if x.strip()}
+    selected = _select_chapters(book, only)
+    if not selected:
+        print("[error] no chapters passed skip heuristics; nothing to do",
+              flush=True)
+        return 1
+    print(f"[setup] {len(selected)} chapters selected", flush=True)
+
+    # Pre-compute chunks for each selected chapter (deterministic, cheap).
+    plan = []  # [(pos, chapter, chunks)]
+    total_chunks = 0
+    for pos, ch in selected:
+        chunks = _prepare_chapter_chunks(ch, args.chunk_chars,
+                                         args.chunks_per_chapter)
+        if not chunks:
+            continue
+        plan.append((pos, ch, chunks))
+        total_chunks += len(chunks)
+    print(f"[setup] total chunks to synthesize: {total_chunks}", flush=True)
+
+    device = _resolve_device(args.device)
+    print(f"[setup] device={device}", flush=True)
+
+    # Ctrl-C handling: finish the current chunk, then exit cleanly.
+    stop_flag = {"stop": False}
+
+    def _on_sigint(signum, frame):
+        if stop_flag["stop"]:
+            print("[signal] second Ctrl-C; exiting immediately", flush=True)
+            sys.exit(130)
+        stop_flag["stop"] = True
+        print("[signal] Ctrl-C received; finishing current chunk then "
+              "saving progress...", flush=True)
+
+    signal.signal(signal.SIGINT, _on_sigint)
+
+    engine, ref_wav_path = _load_engine(device, args.ref_audio)
+    vad_model, get_speech_timestamps = _make_vad()
+
+    wall_start = time.time()
+    total_done = 0
+    # Count already-cached chunks to keep RTF/ETA honest across restarts.
+    cached_done = 0
+    for pos, ch, chunks in plan:
+        for chi in range(len(chunks)):
+            cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
+            if cache_path.exists():
+                cached_done += 1
+    total_done = cached_done
+    print(f"[setup] cached chunks found: {cached_done}/{total_chunks}",
+          flush=True)
+
+    completed_chapters: list[dict] = []
+    chapter_mp3_paths: list[Path] = []
+
+    synth_wall_s = 0.0
+    synth_audio_s = 0.0
+
+    try:
+        for ci_pos, (pos, ch, chunks) in enumerate(plan, start=1):
+            safe = _safe_title(ch.title or f"chapter_{ch.index}")
+            chapter_mp3 = out_root / f"{pos:02d}_{safe}.mp3"
+            chapter_mp3_paths.append(chapter_mp3)
+
+            print(
+                f"[chapter {ci_pos}/{len(plan)}] idx={ch.index} "
+                f"title={ch.title[:60]!r} chunks={len(chunks)}",
+                flush=True,
+            )
+
+            for chi, chunk_text in enumerate(chunks):
+                if stop_flag["stop"]:
+                    raise _StopRequested()
+
+                cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
+                if cache_path.exists():
+                    continue
+
+                _clear_chatterbox_state(engine)
+                t0 = time.time()
+                wav = engine.generate(
+                    chunk_text,
+                    language_id="fi",
+                    audio_prompt_path=ref_wav_path,
+                    repetition_penalty=FI_REPETITION_PENALTY,
+                    temperature=FI_TEMPERATURE,
+                    exaggeration=FI_EXAGGERATION,
+                    cfg_weight=FI_CFG_WEIGHT,
+                )
+                dt = time.time() - t0
+                audio_s = wav.shape[-1] / engine.sr
+                synth_wall_s += dt
+                synth_audio_s += audio_s
+                total_done += 1
+
+                import torchaudio as ta
+                ta.save(str(cache_path), wav, engine.sr)
+
+                # ETA/RTF reporting based on THIS session's synthesis only
+                # (cached chunks aren't timed).
+                rtf = dt / audio_s if audio_s > 0 else float("inf")
+                elapsed = time.time() - wall_start
+                remaining_chunks = total_chunks - total_done
+                if synth_wall_s > 0 and (total_done - cached_done) > 0:
+                    avg = synth_wall_s / (total_done - cached_done)
+                    eta = avg * remaining_chunks
+                else:
+                    eta = 0
+                print(
+                    f"[chapter {ci_pos}/{len(plan)}] "
+                    f"chunk {chi + 1}/{len(chunks)} "
+                    f"({total_done}/{total_chunks} total) - "
+                    f"{_format_hms(elapsed)} elapsed, "
+                    f"~{_format_hms(eta)} remaining, "
+                    f"RTF {rtf:.2f}x",
+                    flush=True,
+                )
+
+            # Concat + trim + postprocess this chapter.
+            if stop_flag["stop"]:
+                raise _StopRequested()
+            print(f"[chapter {ci_pos}/{len(plan)}] assembling MP3...",
+                  flush=True)
+            combined = AudioSegment.empty()
+            gap = AudioSegment.silent(duration=100)  # 100ms inter-chunk
+            for chi in range(len(chunks)):
+                cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
+                seg = AudioSegment.from_file(str(cache_path))
+                seg = _vad_trim(seg, vad_model, get_speech_timestamps)
+                combined += seg
+                if chi < len(chunks) - 1:
+                    combined += gap
+            combined = _postprocess(combined)
+            combined.export(str(chapter_mp3), format="mp3")
+            print(f"[chapter {ci_pos}/{len(plan)}] wrote {chapter_mp3.name} "
+                  f"({len(combined) / 1000.0:.1f}s)", flush=True)
+
+            completed_chapters.append({
+                "pos": pos,
+                "source_index": ch.index,
+                "title": ch.title,
+                "mp3": str(chapter_mp3.relative_to(out_root)),
+                "chunks": len(chunks),
+            })
+            _write_progress(progress_path, {
+                "pdf": str(pdf_path),
+                "completed_chapters": completed_chapters,
+                "total_chapters": len(plan),
+                "total_chunks_done": total_done,
+                "total_chunks": total_chunks,
+                "elapsed_s": time.time() - wall_start,
+                "eta_s": (
+                    (synth_wall_s / max(1, (total_done - cached_done)))
+                    * (total_chunks - total_done)
+                ) if (total_done - cached_done) > 0 else 0,
+            })
+
+    except _StopRequested:
+        print("[signal] saved partial progress; exit 0", flush=True)
+        _write_progress(progress_path, {
+            "pdf": str(pdf_path),
+            "completed_chapters": completed_chapters,
+            "total_chapters": len(plan),
+            "total_chunks_done": total_done,
+            "total_chunks": total_chunks,
+            "elapsed_s": time.time() - wall_start,
+            "interrupted": True,
+        })
+        return 0
+
+    # Full-book concatenation.
+    if len(chapter_mp3_paths) > 1:
+        print(f"[full] concatenating {len(chapter_mp3_paths)} chapters", flush=True)
+        full = AudioSegment.empty()
+        gap = AudioSegment.silent(duration=INTER_CHAPTER_SILENCE_MS)
+        for i, p in enumerate(chapter_mp3_paths):
+            if not p.exists():
+                print(f"[full] skipping missing {p.name}", flush=True)
+                continue
+            full += AudioSegment.from_file(str(p))
+            if i < len(chapter_mp3_paths) - 1:
+                full += gap
+        full = _postprocess(full)
+        full_path = out_root / "00_full.mp3"
+        full.export(str(full_path), format="mp3")
+        print(f"[full] wrote {full_path} ({len(full) / 1000.0:.1f}s)",
+              flush=True)
+
+    print(f"[done] {total_done}/{total_chunks} chunks, "
+          f"{_format_hms(time.time() - wall_start)} wall-clock", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
