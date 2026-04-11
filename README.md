@@ -212,6 +212,83 @@ Run with `--help` for the full list.
 
 Treat this script as feasibility probe, not a production path.
 
+### `dev_chatterbox_fi.py` — Chatterbox-Finnish voice-cloning TTS (experimental, CPU-slow)
+
+Standalone script for trying
+[Chatterbox](https://huggingface.co/ResembleAI/chatterbox) and its
+Finnish finetune
+[Finnish-NLP/Chatterbox-Finnish](https://huggingface.co/Finnish-NLP/Chatterbox-Finnish)
+locally. Chatterbox is a zero-shot voice-clone TTS — there is no
+speakerless mode; every run needs a reference WAV. Supports three modes:
+
+- **Base multilingual** (default) — `ResembleAI/chatterbox`, Finnish via
+  `language_id='fi'`, cloned from the bundled `samples/reference_finnish.wav`
+- **Finnish-NLP finetune** — `--finnish-finetune` swaps the T3 weights
+  for `best_finnish_multilingual_cp986.safetensors` (~2 GB), claiming
+  MOS 4.34 / WER 2.76% on Finnish
+- **Custom voice clone** — `--ref-audio my_voice.wav` uses your own
+  reference clip instead of the Finnish sample
+
+```bash
+# Reuse the existing .venv-qwen (Python 3.11, already has torch)
+.venv-qwen/bin/pip install chatterbox-tts safetensors
+
+# Smoke test: one Finnish gemination/long-vowel probe sentence
+.venv-qwen/bin/python dev_chatterbox_fi.py
+
+# Real prose from a PDF, first 5 chunks, with the Finnish finetune
+.venv-qwen/bin/python dev_chatterbox_fi.py \
+    --pdf book.pdf --chunks 5 --finnish-finetune
+
+# Custom voice clone
+.venv-qwen/bin/python dev_chatterbox_fi.py --ref-audio my_voice.wav
+```
+
+Useful flags: `--device {cpu,mps,cuda}` (default `cpu` — safest on Mac),
+`--chunks N`, `--chunk-chars 500`, `--text "..."`, `--output out.mp3`,
+`--cfg-weight`, `--exaggeration`, `--temperature`.
+
+**Measured behavior on this Mac (CPU):**
+
+- First run downloads ~5.3 GB of model weights into the HF cache
+  (multilingual base + s3gen + tokenizer + reference WAV), plus ~2 GB
+  for the Finnish finetune if `--finnish-finetune` is used
+- Synthesis runs ~6–7× slower than realtime on CPU — a 25 s chunk
+  costs ~150 s wall-clock. MPS mostly works but silently falls back
+  to CPU for parts of `s3gen` and the perth watermarker
+- **`--finnish-finetune` is effectively required for stable Finnish
+  prose.** The stock multilingual weights trigger a token-repetition
+  forced-EOS partway through most Finnish sentences; the finetune
+  runs cleanly at the documented "golden settings"
+  (`repetition_penalty=1.5`, `temperature=0.8`, `cfg_weight=0.3`)
+- **Upstream bug workaround:** `chatterbox-tts` v0.1.7 leaks a
+  PyTorch forward hook inside `alignment_stream_analyzer.py` on
+  every `generate()` call, plus it mutates `tfmr.config` without
+  restoring it. After chunk #1 the accumulated state collapses
+  chunks 2+ to ~0.4 s of audio. The dev script clears
+  `self_attn._forward_hooks`, resets `engine.t3.compiled = False`,
+  and restores `tfmr.config._attn_implementation` and
+  `output_attentions` before each chunk to work around this — no
+  action needed from you, but see `BUG_REPORT_chatterbox_hook_leak.md`
+  and `chatterbox_hook_leak_fix.patch` for the upstream fix
+- **Cross-language voice cloning is weak** — the T3 finetune owns
+  Finnish pronunciation, the reference WAV only conditions speaker
+  pitch/timbre. An English or African English reference will produce
+  Finnish audio in a different voice character, NOT Finnish spoken
+  with an English accent. Upstream README confirms this and suggests
+  `cfg_weight=0.0` to MITIGATE accent bleed-through
+
+**Honest verdict:** unlike Qwen3-TTS, Chatterbox-Finnish actually
+produces listenable Finnish audio on this Mac — the finetune clones
+the reference voice convincingly and handles gemination and long
+vowels correctly. The catch is pure speed: 6–7× slower than realtime
+on CPU makes it painful for interactive work but feasible for
+overnight batch synthesis of a whole book. For real use see
+`scripts/chatterbox_cloud_runbook.md` — an RTX 4090 on RunPod runs
+at ~0.1× RTF (10× faster than realtime) for ~$0.35 per 6-hour book.
+Until you have a GPU path, the main app's Edge-TTS and Piper engines
+remain the practical Finnish path.
+
 ## Project structure
 
 ```
