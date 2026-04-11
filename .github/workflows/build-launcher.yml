@@ -8,6 +8,9 @@ on:
   push:
     tags:
       - "launcher-v*"
+  # Manual trigger button on the Actions tab (and `gh workflow run`)
+  # so we can test-build the installer without creating a real release.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -58,9 +61,14 @@ jobs:
           dist/AudiobookMakerLauncher/AudiobookMakerLauncher.exe --self-test
         shell: bash
 
-      - name: Extract version from tag
+      - name: Extract version from tag (or fall back to 0.0.0-dev)
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#launcher-v}" >> $GITHUB_OUTPUT
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/launcher-v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#launcher-v}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=0.0.0-dev" >> $GITHUB_OUTPUT
+          fi
         shell: bash
 
       - name: Install Inno Setup
@@ -133,6 +141,11 @@ jobs:
           path: installer/Output/*.exe
 
       - name: Create GitHub Release
+        # Only publish a release on an actual tag push. Manual
+        # workflow_dispatch runs build the installer and upload it as
+        # an artifact (downloadable from the Actions tab) but skip
+        # the release step entirely.
+        if: startsWith(github.ref, 'refs/tags/launcher-v')
         uses: softprops/action-gh-release@v2
         with:
           name: AudiobookMaker Launcher ${{ steps.version.outputs.VERSION }}
