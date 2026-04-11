@@ -3,7 +3,11 @@
 # Build with: pyinstaller audiobookmaker.spec
 
 import os
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 block_cipher = None
 
@@ -21,14 +25,21 @@ hidden_imports = [
     'aiohttp.resolver',
     'aiohttp.connector',
     'certifi',
+    # Piper offline TTS + its ONNX runtime backend
+    'piper',
+    'onnxruntime',
+    'numpy',
 ]
 
 hidden_imports += collect_submodules('edge_tts')
 hidden_imports += collect_submodules('aiohttp')
+hidden_imports += collect_submodules('piper')
+hidden_imports += collect_submodules('onnxruntime')
 
+# numpy is now REQUIRED at runtime (onnxruntime/piper need it), so it
+# must NOT appear in excludes.
 excludes = [
     'matplotlib',
-    'numpy',
     'scipy',
     'PIL',
     'cv2',
@@ -39,16 +50,28 @@ excludes = [
     'docutils',
 ]
 
+# Native shared libraries that onnxruntime ships with (e.g. DirectML and
+# core DLLs on Windows). Piper also pulls in espeak-ng native libs, which
+# collect_data_files('piper') picks up automatically below.
+binaries = collect_dynamic_libs('onnxruntime')
+
 # Bundle ffmpeg.exe from dist/ffmpeg/ into the package root
 # so pydub can find it via PATH at runtime (see src/ffmpeg_path.py)
 datas = [
     (os.path.join('dist', 'ffmpeg', 'ffmpeg.exe'), '.'),
 ]
+# piper ships its phonemizer data (espeak-ng-data/) inside the package;
+# PiperVoice.load() will fail at runtime without it.  collect_data_files
+# walks the installed piper package and emits every non-Python file.
+datas += collect_data_files('piper')
+# onnxruntime ships a few config/JSON files next to its native libs on
+# some platforms; bundle them to be safe.
+datas += collect_data_files('onnxruntime')
 
 a = Analysis(
     [os.path.join('src', 'main.py')],
     pathex=[os.path.abspath('.')],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
