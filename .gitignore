@@ -1,5 +1,8 @@
 .venv/
 .venv-*/
+# Also match the bare symlink form (no trailing slash) so local compatibility
+# shims like `.venv-chatterbox -> .venv-qwen` stay out of git.
+.venv-*
 .claude/
 CLAUDE.md
 __pycache__/
