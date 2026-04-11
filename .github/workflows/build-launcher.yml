@@ -72,11 +72,14 @@ jobs:
         shell: bash
 
       - name: Install Inno Setup
-        # Pin to a specific version so ArchitecturesAllowed=x64 etc.
-        # resolve consistently. x64 works on Inno 6.0+ so any recent
-        # choco build is fine, but we pin 6.2.2 explicitly to avoid
-        # surprise directive-compatibility breakage.
-        run: choco install innosetup --version=6.2.2 --yes --no-progress
+        # The windows-latest runner already ships with Inno Setup
+        # pre-installed (currently 6.7.1). We do NOT pin a version —
+        # pinning with --version=6.2.2 would trigger choco's
+        # "newer version already installed" guard and fail the step.
+        # choco install without a version is a no-op if the package
+        # is already present, so this just ensures iscc.exe is on
+        # PATH if something ever removes it from the image.
+        run: choco install innosetup --yes --no-progress
         shell: pwsh
 
       - name: Install unofficial Finnish language file for Inno Setup
