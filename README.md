@@ -8,8 +8,12 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 - Robust text cleaning: strips soft hyphens, fixes line-wrap hyphenation,
   flattens in-paragraph line wraps, preserves compound hyphens
 - Automatic chapter detection
-- Text-to-speech via edge-tts (Finnish and English voices: Noora, Harri,
-  Jenny, Aria, Ava, Guy, Andrew, Sonia, Ryan)
+- Multiple TTS engines selectable from the GUI:
+  - **Edge-TTS** (online, Microsoft, default) — Finnish and English neural voices
+  - **Piper** (offline, CPU-only) — offline neural voices, models auto-downloaded on first use
+- "Test voice" button to preview the selected engine + voice before converting
+- Remembers the last-used engine, voice, language, and speed between sessions
+  (config in `~/.audiobookmaker/config.json`)
 - Context-aware sentence splitter that handles Finnish and English
   abbreviations, initials, decimals, and domain names
 - Silence trimming between chunks for seamless audio
@@ -17,6 +21,31 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
 - Simple Tkinter GUI
 - Parallel CLI generator for large books
 - Windows installer — no Python or other dependencies required
+
+## TTS engines
+
+### Edge-TTS (online, default)
+
+Microsoft's free online neural TTS. Fast, high quality, no local model
+files. Requires an internet connection during synthesis.
+
+- Finnish voices: Noora, Harri
+- English US voices: Jenny, Aria, Ava, Guy, Andrew
+- English GB voices: Sonia, Ryan
+- Does not need a GPU. Does not support voice cloning.
+
+### Piper (offline, CPU)
+
+Local neural TTS that runs entirely on CPU — no internet needed after the
+first voice download. Better Finnish pronunciation than Edge-TTS for some
+phrases. Voice models are ~60 MB each and are downloaded automatically on
+first use to `~/.audiobookmaker/piper_voices/` (not bundled with the
+installer).
+
+- Finnish voice: Harri
+- English US voices: Lessac (female), Ryan-high (male)
+- English GB voice: Alan (male)
+- Does not need a GPU. Does not support voice cloning.
 
 ## Installation (end users)
 
@@ -46,10 +75,13 @@ tagged release.
 
 1. Open the app
 2. Select a PDF file
-3. Choose language (Finnish / English)
-4. Adjust speech rate if needed
-5. Click **Convert** — the progress bar shows status
-6. Save the MP3
+3. Choose the TTS engine from the dropdown (Edge-TTS or Piper)
+   - The first Piper conversion will trigger a ~60 MB voice-model download
+4. Choose language (Finnish / English)
+5. Pick a voice; press **Kuuntele näyte** to hear a short sample before committing
+6. Adjust speech rate if needed
+7. Click **Convert** — the progress bar shows status
+8. Save the MP3
 
 ## Development setup
 
@@ -89,7 +121,11 @@ concurrency 8, versus ~55 minutes sequentially.
 AudiobookMaker/
 ├── src/
 │   ├── pdf_parser.py    # PDF parsing and text cleaning
-│   ├── tts_engine.py    # edge-tts integration and audio combining
+│   ├── tts_base.py      # Abstract TTSEngine interface + registry
+│   ├── tts_edge.py      # Edge-TTS engine adapter
+│   ├── tts_piper.py     # Piper offline TTS engine adapter
+│   ├── tts_engine.py    # Shared text chunking + audio combining
+│   ├── app_config.py    # GUI preference persistence
 │   ├── gui.py           # Tkinter UI
 │   ├── ffmpeg_path.py   # Runtime ffmpeg path helper for bundled builds
 │   └── main.py          # Application entry point
@@ -107,7 +143,8 @@ AudiobookMaker/
 | Component | Library |
 |-----------|---------|
 | PDF parsing | PyMuPDF (fitz) |
-| Text-to-speech | edge-tts |
+| Online TTS | edge-tts |
+| Offline TTS | piper-tts (ONNX Runtime) |
 | Audio processing | pydub + ffmpeg |
 | GUI | Tkinter |
 | Windows packaging | PyInstaller |
@@ -115,9 +152,12 @@ AudiobookMaker/
 
 ## Limitations
 
-- edge-tts uses Microsoft's servers — requires an internet connection
+- Edge-TTS uses Microsoft's servers — requires an internet connection
+- Piper voice downloads require internet on first use of each voice
 - Scanned PDFs (image-based) are not supported — text must be selectable
 - Text cleanup heuristics may not work perfectly for all PDF formats
+- "One MP3 per chapter" output currently only works with Edge-TTS
+  (Piper conversions always produce a single combined MP3)
 
 ## License
 
