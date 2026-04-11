@@ -4,6 +4,10 @@ PyMuPDF==1.24.5
 # Text-to-speech
 edge-tts==7.2.8
 
+# Offline neural TTS (Piper). Voice models (~60MB each) are downloaded
+# to ~/.audiobookmaker/piper_voices/ on first use, not bundled.
+piper-tts==1.4.2
+
 # Audio processing
 pydub==0.25.1
 

@@ -380,7 +380,9 @@ def combine_audio_files(
     gap = AudioSegment.silent(duration=inter_chunk_pause_ms)
     combined = AudioSegment.empty()
     for i, path in enumerate(input_paths):
-        segment = _trim_chunk_silence(AudioSegment.from_mp3(path))
+        # Auto-detect format from the file extension so both edge-tts MP3
+        # chunks and piper WAV chunks are supported.
+        segment = _trim_chunk_silence(AudioSegment.from_file(path))
         combined += segment
         if i < len(input_paths) - 1:
             combined += gap
