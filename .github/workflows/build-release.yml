@@ -77,11 +77,24 @@ jobs:
             ## AudiobookMaker ${{ steps.version.outputs.VERSION }}
 
             ### Installation
-            1. Download `AudiobookMaker-Setup-${{ steps.version.outputs.VERSION }}.exe` below
-            2. Double-click and follow the installer
-            3. Find AudiobookMaker in your Start Menu
 
-            No Python, ffmpeg, or other dependencies needed — everything is included.
+            1. Download `AudiobookMaker-Setup-${{ steps.version.outputs.VERSION }}.exe` below
+            2. Double-click the downloaded file
+            3. Windows will show a **"Windows protected your PC"** SmartScreen warning
+               because the installer is not code-signed. Click **More info** → **Run anyway**
+            4. Follow the installer prompts (Next → Next → Install)
+            5. Find AudiobookMaker in your Start Menu
+
+            No Python, ffmpeg, or other dependencies need to be installed separately —
+            everything is bundled in the single `.exe`.
+
+            #### Why the SmartScreen warning?
+
+            Windows flags all unsigned installers from unknown publishers. Silencing
+            the warning requires a paid code-signing certificate, which the project
+            does not currently have. The installer is safe to run — its full source
+            (PyInstaller spec + Inno Setup script + this GitHub Actions workflow)
+            lives in the repository and is built automatically on every tagged release.
           files: installer/Output/*.exe
           draft: false
           prerelease: false
