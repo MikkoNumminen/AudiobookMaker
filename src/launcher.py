@@ -626,7 +626,38 @@ class LauncherApp(tk.Tk):
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
+def self_test() -> int:
+    """Headless sanity check: import engines, construct + destroy the window.
+
+    Used by CI smoke tests (the Windows Actions runner calls
+    ``AudiobookMakerLauncher.exe --self-test``) and by local verification
+    that the frozen .exe can at least reach its main loop without crashing.
+    Returns 0 on success, non-zero on any failure.
+    """
+    try:
+        engines = list_engines()
+        print(f"[self-test] engines registered: {[e.id for e in engines]}", flush=True)
+        app = LauncherApp()
+        app.update_idletasks()
+        print(
+            f"[self-test] window title={app.title()!r} "
+            f"geometry={app.geometry()!r}",
+            flush=True,
+        )
+        values = list(app._engine_cb["values"])
+        print(f"[self-test] engine dropdown: {values}", flush=True)
+        app.destroy()
+        print("[self-test] OK", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"[self-test] FAILED: {exc!r}", flush=True, file=sys.stderr)
+        return 1
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    argv = list(argv if argv is not None else sys.argv[1:])
+    if "--self-test" in argv:
+        return self_test()
     app = LauncherApp()
     app.mainloop()
     return 0

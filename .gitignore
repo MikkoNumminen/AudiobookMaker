@@ -10,9 +10,10 @@ __pycache__/
 *.pyo
 dist/
 build/
-# Ignore auto-generated specs but not our handcrafted one
+# Ignore auto-generated specs but not our handcrafted ones
 *.spec
 !audiobookmaker.spec
+!audiobookmaker_launcher.spec
 *.egg-info/
 .pytest_cache/
 *.mp3

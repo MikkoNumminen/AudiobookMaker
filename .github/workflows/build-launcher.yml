@@ -1,0 +1,145 @@
+name: Build Launcher Installer
+
+# Totally separate from build-release.yml so the main-app v1.0.x
+# release cadence is not entangled with the launcher's own version
+# track. Tag format: launcher-v0.1.0, launcher-v0.2.0, etc.
+
+on:
+  push:
+    tags:
+      - "launcher-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install launcher build dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+        shell: bash
+
+      - name: Download ffmpeg
+        run: |
+          curl -L -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+          7z x ffmpeg.zip -offmpeg_tmp
+          mkdir -p dist/ffmpeg
+          cp ffmpeg_tmp/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe dist/ffmpeg/ffmpeg.exe
+        shell: bash
+
+      - name: Create placeholder icon if missing
+        run: |
+          if [ ! -f assets/icon.ico ]; then
+            pip install Pillow
+            python -c "
+          from PIL import Image
+          img = Image.new('RGBA', (256, 256), (52, 101, 164, 255))
+          img.save('assets/icon.ico', format='ICO', sizes=[(256, 256)])
+          "
+          fi
+        shell: bash
+
+      - name: Build launcher exe with PyInstaller
+        run: pyinstaller audiobookmaker_launcher.spec
+
+      - name: Smoke test the frozen launcher (--self-test)
+        run: |
+          dist/AudiobookMakerLauncher/AudiobookMakerLauncher.exe --self-test
+        shell: bash
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#launcher-v}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Install unofficial Finnish language file for Inno Setup
+        run: |
+          $langDir = "C:\Program Files (x86)\Inno Setup 6\Languages\Unofficial"
+          New-Item -ItemType Directory -Force -Path $langDir | Out-Null
+          $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/Finnish.isl"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile "$langDir\Finnish.isl" -UseBasicParsing
+            Write-Host "Finnish.isl downloaded"
+          } catch {
+            Write-Host "Finnish.isl download failed: $_"
+            Write-Host "Wizard will fall back to English."
+          }
+        shell: pwsh
+
+      - name: Update Inno Setup version from tag
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          (Get-Content installer/launcher.iss) `
+            -replace '#define MyAppVersion     "0\.1\.0"', "#define MyAppVersion     `"$version`"" `
+            | Set-Content installer/launcher.iss
+        shell: pwsh
+
+      - name: Build installer
+        run: iscc installer/launcher.iss
+
+      - name: Upload launcher installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-installer
+          path: installer/Output/*.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AudiobookMaker Launcher ${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## AudiobookMaker Launcher ${{ steps.version.outputs.VERSION }}
+
+            A simpler launcher window aimed at non-technical users. Pick
+            a PDF, click a button, get an MP3. Offers three TTS engines
+            in the install wizard:
+
+            * **Edge-TTS Noora** — online, fast, any hardware (default)
+            * **Piper Harri** — offline CPU, ~60 MB voice download
+            * **Chatterbox Finnish** — GPU, best quality, ~15 GB download
+
+            ### Installation
+
+            1. Download `AudiobookMaker-Launcher-Setup-${{ steps.version.outputs.VERSION }}.exe`
+            2. Double-click the file
+            3. Windows SmartScreen will warn because the installer is not
+               code-signed — click **More info** → **Run anyway**
+            4. Pick which engines to install in the wizard
+            5. If you picked Chatterbox the installer downloads ~15 GB
+               and takes 15–45 minutes. The install script runs visibly
+               so you can watch progress.
+            6. Launcher starts from the Start Menu when install completes.
+
+            ### Pre-flight requirements
+
+            * Windows 10 (1809) or Windows 11
+            * 2 GB free disk for Edge-TTS only, 16 GB if Chatterbox
+            * Chatterbox branch: NVIDIA GPU + driver 550 or newer,
+              system-installed Python 3.11 (from python.org)
+
+            See `docs/turo_ohjeet_fi.md` in the repository for the
+            Finnish end-user walkthrough.
+
+            ### Why the SmartScreen warning?
+
+            Same as the main AudiobookMaker installer: no code-signing
+            cert yet. Full source (launcher, bridge, installer script,
+            this workflow) lives in the repository.
+          files: installer/Output/*.exe
+          draft: false
+          prerelease: true
