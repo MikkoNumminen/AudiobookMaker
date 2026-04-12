@@ -85,6 +85,14 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
   Finnish codes (`RL`, `SL`), and modern tech (`PDF`, `URL`, `API`).
   Exact-case and word-boundary anchored — `NATOn` stays untouched
   because the inflected form is a single token
+- **Short-range governor inflection**: numeric ranges like
+  `sivuilta 42–45` now inflect both endpoints through the governor
+  table — `sivuilta neljältäkymmeneltä kahdelta neljältäkymmeneltä
+  viideltä` (plural ablative). Works for 1–4 digit ranges with a
+  recognized governor; bare ranges (`5-2`) fall back to nominative
+- **Section-sign (§) expansion**: `§ 242` → `pykälä 242` is
+  rendered as `pykälä kaksisataa neljäkymmentä kaksi`, so Finnish
+  legal texts with section references read naturally
 - **Voice cloning in your own voice** via
   [scripts/record_voice_sample.py](scripts/record_voice_sample.py) —
   record a 12 s reference clip through your Mac's built-in mic,

@@ -308,6 +308,14 @@ _FI_UNIT_RE = re.compile(
 # Dollar sign precedes the number: $5 → 5 dollaria
 _FI_DOLLAR_RE = re.compile(r"\$\s*(\d+(?:[.,]\d+)?)")
 
+# Section sign (§) precedes the number: § 242 → pykälä 242. The output
+# `pykälä` then acts as a before-governor for Pass G, which emits the
+# number in nominative by default. In the rare case the surrounding
+# prose already contains `pykälässä` or similar, both governors are
+# visible to Pass G's ±3-word scan; the nearer one wins (typically the
+# inserted `pykälä` at distance 1).
+_FI_SECTION_SIGN_RE = re.compile(r"§\s*(?=\d)")
+
 # Lookup dict for unit expansion (symbol → Finnish word).
 _FI_UNIT_LOOKUP: dict[str, str] = {sym: word for sym, word in _FI_UNIT_MAP}
 
@@ -320,6 +328,9 @@ def _expand_unit_symbols(text: str) -> str:
     """
     # Dollar sign: prefix form — convert first.
     text = _FI_DOLLAR_RE.sub(r"\1 dollaria", text)
+
+    # Section sign (§): prefix form — `§ 242` → `pykälä 242`.
+    text = _FI_SECTION_SIGN_RE.sub("pykälä ", text)
 
     def _unit_sub(m: re.Match) -> str:
         number = m.group(1)
@@ -345,8 +356,14 @@ _FI_CENTURY_RE = re.compile(
     r"(\d+)-(" + "|".join(_FI_CENTURY_SUFFIXES) + r")\b"
 )
 
-# Pass D: numeric ranges like "1500-1800" or "1100–1300".
-_FI_RANGE_RE = re.compile(r"(\d{3,4})\s*[-–]\s*(\d{3,4})\b")
+# Pass D: numeric ranges. Matches 1–4 digit numbers on both sides of
+# a hyphen or en-dash so short ranges like `sivuilta 42-45` also get
+# their endpoints inflected by Pass G's governor detection. The dash
+# is replaced with a space so Pass G's tokenizer sees two separate
+# `num` tokens and each one independently looks up ±3 word tokens for
+# a governor. Ranges without a governor (bare `5-2` arithmetic) fall
+# back to nominative on both endpoints, which is acceptable for TTS.
+_FI_RANGE_RE = re.compile(r"(\d{1,4})\s*[-–]\s*(\d{1,4})\b")
 
 # Pass E: "s. 42" / "ss. 42-45" page abbreviation. Expand ONLY the
 # abbreviation; leave the digits for Pass G so governor-aware case
@@ -383,15 +400,20 @@ _FI_GOVERNOR_BEFORE: dict[str, str] = {
     "vuoteen": "illative",
     "vuodesta": "elative",
     "vuosina": "essive",
-    # Page governors.
+    # Page governors — singular.
     "sivu": "nominative",
     "sivut": "nominative",
     "sivulla": "adessive",
     "sivulta": "ablative",
     "sivulle": "allative",
-    "sivuilla": "adessive",
     "sivusta": "elative",
     "sivuun": "illative",
+    # Page governors — plural (e.g. `sivuilta 42-45` → ablative both).
+    "sivuilla": "adessive",
+    "sivuilta": "ablative",
+    "sivuille": "allative",
+    "sivuista": "elative",
+    "sivuihin": "illative",
     # Chapter / section / paragraph governors.
     "luku": "nominative",
     "luvussa": "inessive",
@@ -414,11 +436,15 @@ _FI_GOVERNOR_BEFORE: dict[str, str] = {
     "kohdasta": "elative",
     "kohtaan": "illative",
     "kohdalla": "adessive",
-    # Row / line positions.
+    # Row / line positions — singular.
     "rivi": "nominative",
     "rivillä": "adessive",
     "riviltä": "ablative",
     "riville": "allative",
+    # Row / line positions — plural.
+    "riveillä": "adessive",
+    "riveiltä": "ablative",
+    "riveille": "allative",
     # Clock-time: `klo` / `kello` are frozen adverbials; the hour itself
     # stays nominative. See Q2 in docs/finnish_governor_cases.md.
     "klo": "nominative",
@@ -663,19 +689,52 @@ def _expand_roman_numerals(text: str) -> str:
 # We insert a space after every case-inflected form of `sata` and
 # `kymmenen` when another morpheme is glued on. Standalone teens like
 # "viisitoista" (15) are unaffected — they do not contain these stems.
+#
+# ORDERING MATTERS. The alternation must try partitive forms
+# (`sataa`, `kymmentä`) BEFORE illative forms (`sataan`,
+# `kymmeneen`) because inside a nominative compound number like
+# `kaksisataaneljäkymmentäkaksi` the literal substring `sataan`
+# appears (the `n` belongs to the following `neljäkymmentä`
+# morpheme). If the regex tried `sataan` first it would steal that
+# `n` and emit `kaksisataan eljäkymmentäkaksi` — clearly wrong.
+# Trying `sataa` first matches and splits correctly. Do NOT resort
+# by length here; the order below is the correctness guarantee.
 _FI_MORPHEME_STEMS: tuple[str, ...] = (
-    # "sata" case forms (singular).
-    "sataa", "sadan", "sadassa", "sadasta", "sataan",
-    "sadalla", "sadalta", "sadalle", "satana", "sadaksi",
-    "sadaksi", "satoja",
-    # "kymmenen" case forms.
-    "kymmentä", "kymmenen", "kymmenessä", "kymmenestä",
-    "kymmeneen", "kymmenellä", "kymmeneltä", "kymmenelle",
-    "kymmenenä", "kymmeneksi",
+    # Partitive (base) — most common in compound numbers, must win.
+    "sataa",
+    "kymmentä",
+    # Genitive.
+    "sadan",
+    "kymmenen",
+    # Inessive.
+    "sadassa",
+    "kymmenessä",
+    # Elative.
+    "sadasta",
+    "kymmenestä",
+    # Adessive.
+    "sadalla",
+    "kymmenellä",
+    # Ablative.
+    "sadalta",
+    "kymmeneltä",
+    # Allative.
+    "sadalle",
+    "kymmenelle",
+    # Essive.
+    "satana",
+    "kymmenenä",
+    # Translative.
+    "sadaksi",
+    "kymmeneksi",
+    # Plural partitive.
+    "satoja",
+    # Illative forms LAST — risky inside compound numbers (see above).
+    "sataan",
+    "kymmeneen",
 )
 _FI_MORPHEME_BOUNDARY_RE = re.compile(
-    r"(" + "|".join(sorted(set(_FI_MORPHEME_STEMS), key=len, reverse=True))
-    + r")(?=[a-zäöå])"
+    r"(" + "|".join(_FI_MORPHEME_STEMS) + r")(?=[a-zäöå])"
 )
 
 

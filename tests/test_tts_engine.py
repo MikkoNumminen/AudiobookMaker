@@ -1139,3 +1139,94 @@ class TestAcronymExpansion:
     def test_eu_expanded_via_normalize(self) -> None:
         result = normalize_finnish_text("EU on liitto")
         assert "Euroopan unioni" in result
+
+
+# ---------------------------------------------------------------------------
+# Session 4 polish — § expansion, Pass H morpheme ordering, Pass D short ranges
+# ---------------------------------------------------------------------------
+
+
+class TestSectionSignExpansion:
+    """Pass M now recognizes `§` as a prefix symbol that expands to
+    `pykälä`. Subsequent digits are inflected by Pass G via the
+    `pykälä` before-governor (nominative default)."""
+
+    def test_section_sign_with_space(self) -> None:
+        result = normalize_finnish_text("§ 5")
+        assert "pykälä" in result
+        assert "viisi" in result
+        assert "§" not in result
+
+    def test_section_sign_without_space(self) -> None:
+        result = normalize_finnish_text("§5 on laki")
+        assert "pykälä viisi" in result
+        assert "§" not in result
+
+    def test_section_sign_with_larger_number(self) -> None:
+        # Regression check: § 242 must not trigger the Pass H ordering bug
+        result = normalize_finnish_text("§ 242")
+        assert "pykälä" in result
+        assert "kaksisataa neljäkymmentä kaksi" in result
+        assert "sataan" not in result.split()[1:]  # no false illative split
+
+
+class TestPassHMorphemeOrdering:
+    """Pass H's morpheme splitter must prefer partitive `sataa` /
+    `kymmentä` over illative `sataan` / `kymmeneen` inside compound
+    numbers so it doesn't steal a leading letter from the next
+    morpheme. See the explicit-ordering list in `_FI_MORPHEME_STEMS`."""
+
+    def test_242_nominative_splits_correctly(self) -> None:
+        result = normalize_finnish_text("242")
+        # Must be `kaksisataa neljäkymmentä kaksi`
+        # NOT `kaksisataan eljäkymmentä kaksi` (the old bug).
+        assert "kaksisataa neljäkymmentä kaksi" in result
+        # The bad form has a standalone `eljäkymmentä` preceded by a
+        # space (the orphaned first letter after the false split).
+        assert " eljäkymmentä" not in result
+        assert "kaksisataan " not in result
+
+    def test_345_nominative_splits_correctly(self) -> None:
+        result = normalize_finnish_text("345")
+        assert "kolmesataa neljäkymmentä viisi" in result
+        assert "sataan" not in result
+
+    def test_1889_still_splits_correctly(self) -> None:
+        # Regression from session 1.
+        result = normalize_finnish_text("1889")
+        assert "kahdeksansataa kahdeksankymmentä yhdeksän" in result
+
+
+class TestShortRangeGovernorInflection:
+    """Pass D now matches 1–4 digit ranges so short ranges like
+    `sivuilta 42–45` also travel through Pass G's governor detection
+    and both endpoints inflect correctly."""
+
+    def test_sivuilta_plural_ablative_range(self) -> None:
+        # `sivuilta 42-45` → both endpoints in ablative
+        result = normalize_finnish_text("sivuilta 42-45")
+        # Ablative forms of 42 and 45 both appear
+        assert "neljältäkymmeneltä kahdelta" in result
+        assert "neljältäkymmeneltä viideltä" in result
+
+    def test_sivulta_singular_ablative_short_range(self) -> None:
+        result = normalize_finnish_text("sivulta 3-5")
+        assert "kolmelta" in result
+        assert "viideltä" in result
+
+    def test_riveilta_range(self) -> None:
+        result = normalize_finnish_text("riveiltä 10-12")
+        assert "kymmeneltä" in result
+        assert "kahdeltatoista" in result
+
+    def test_bare_short_range_nominative_fallback(self) -> None:
+        # No governor → both endpoints in nominative (acceptable)
+        result = normalize_finnish_text("5-2")
+        assert "viisi" in result
+        assert "kaksi" in result
+
+    def test_year_range_still_works(self) -> None:
+        # Regression check — long year ranges continue to work.
+        result = normalize_finnish_text("vuonna 1500-1800")
+        assert "tuhat viisisataa" in result
+        assert "tuhat kahdeksansataa" in result
