@@ -409,6 +409,7 @@ class UnifiedApp(tk.Tk):
     def _build_input_tabs(self, parent: ttk.Frame, row: int) -> None:
         self._input_nb = ttk.Notebook(parent)
         self._input_nb.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self._input_nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         # PDF tab
         pdf_frame = ttk.Frame(self._input_nb, padding=6)
@@ -631,12 +632,16 @@ class UnifiedApp(tk.Tk):
         self._save_label.grid(
             row=0, column=0, sticky="w", padx=(0, 6)
         )
-        self._out_var = tk.StringVar(value="Ei valittu")
+        self._out_var = tk.StringVar(value="")
         ttk.Entry(out_frame, textvariable=self._out_var, state="readonly").grid(
             row=0, column=1, sticky="ew", padx=(0, 6)
         )
-        self._out_browse_btn = ttk.Button(out_frame, text="Selaa\u2026", command=self._browse_output)
+        self._out_browse_btn = ttk.Button(
+            out_frame, text="Vaihda\u2026", command=self._browse_output,
+        )
         self._out_browse_btn.grid(row=0, column=2)
+        # Set initial auto-generated path.
+        self._auto_output_path()
 
     # ---- 4. Progress frame --------------------------------------------
 
@@ -767,6 +772,10 @@ class UnifiedApp(tk.Tk):
         idx = self._input_nb.index(self._input_nb.select())
         return "pdf" if idx == 0 else "text"
 
+    def _on_tab_changed(self, _event: object = None) -> None:
+        """Refresh the auto-generated output path when switching tabs."""
+        self._auto_output_path()
+
     def _get_input_text(self) -> str:
         """Return the text to synthesize based on the active input tab."""
         if self._input_mode == "pdf":
@@ -870,20 +879,35 @@ class UnifiedApp(tk.Tk):
     # File dialogs
     # ------------------------------------------------------------------
 
+    def _auto_output_path(self) -> None:
+        """Generate an automatic output path based on current input mode."""
+        if self._input_mode == "pdf" and self._pdf_path:
+            # Output goes next to the PDF: book.pdf -> book.mp3
+            suggested = str(Path(self._pdf_path).with_suffix(".mp3"))
+        else:
+            # Auto-increment: texttospeech_1.mp3, texttospeech_2.mp3, ...
+            out_dir = Path.home() / "Documents" / "AudiobookMaker"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            n = 1
+            while True:
+                candidate = out_dir / f"texttospeech_{n}.mp3"
+                if not candidate.exists():
+                    break
+                n += 1
+            suggested = str(candidate)
+        self._out_var.set(suggested)
+        self._output_path = suggested
+
     def _browse_pdf(self) -> None:
         path = filedialog.askopenfilename(
-            title="Valitse PDF-tiedosto",
-            filetypes=[("PDF-tiedostot", "*.pdf"), ("Kaikki tiedostot", "*.*")],
+            title=self._s("select_pdf"),
+            filetypes=[("PDF", "*.pdf"), ("*", "*.*")],
         )
         if path:
             self._pdf_path = path
             self._pdf_var.set(path)
-            self._status_var.set("PDF valittu.")
-            # Auto-suggest output path.
-            if not self._output_path or self._out_var.get() in ("Ei valittu", "Not selected"):
-                suggested = str(Path(path).with_suffix(".mp3"))
-                self._out_var.set(suggested)
-                self._output_path = suggested
+            self._status_var.set("PDF valittu." if self._ui_lang == "fi" else "PDF selected.")
+            self._auto_output_path()
 
     def _browse_reference_audio(self) -> None:
         path = filedialog.askopenfilename(
@@ -900,18 +924,25 @@ class UnifiedApp(tk.Tk):
         self._ref_audio_var.set("")
 
     def _browse_output(self) -> None:
+        """Let the user override the auto-generated output path."""
+        current = self._out_var.get()
+        initial_dir = str(Path(current).parent) if current else str(Path.home())
         mode = OUTPUT_MODES[self._ui_lang].get(self._output_mode_var.get(), "single")
         if mode == "single":
             path = filedialog.asksaveasfilename(
-                title="Tallenna MP3-tiedostona",
+                title=self._s("save_as"),
+                initialdir=initial_dir,
                 defaultextension=".mp3",
-                filetypes=[("MP3-tiedostot", "*.mp3")],
+                filetypes=[("MP3", "*.mp3")],
             )
             if path:
                 self._output_path = path
                 self._out_var.set(path)
         else:
-            path = filedialog.askdirectory(title="Valitse kohdekansio")
+            path = filedialog.askdirectory(
+                title=self._s("save_as"),
+                initialdir=initial_dir,
+            )
             if path:
                 self._output_path = path
                 self._out_var.set(path)
@@ -1105,7 +1136,9 @@ class UnifiedApp(tk.Tk):
                 messagebox.showerror(self._s("error"), self._s("no_text"))
                 return
 
-        if not self._output_path or self._out_var.get() in ("Ei valittu", "Not selected"):
+        if not self._output_path:
+            self._auto_output_path()
+        if not self._output_path:
             messagebox.showerror(self._s("error"), self._s("no_pdf"))
             return
 
