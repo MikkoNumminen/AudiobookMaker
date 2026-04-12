@@ -81,6 +81,27 @@ _FI_CITE_RE = re.compile(
     r"\s*\(([^()]*?\b[A-ZÅÄÖ][\wäöåÄÖÅ]+[^()]*?\b\d{4}[a-z]?\b[^()]*?)\)"
 )
 
+# Pass A extension — metadata paren drop (ISBN/DOI/CC license/etc.)
+_FI_METADATA_PAREN_RE = re.compile(
+    r"\s*\([^()]*(?:ISBN|DOI|Creative Commons|CC\s*BY|CC0|CC\s*4\.0|eISBN)[^()]*\)",
+    re.IGNORECASE,
+)
+
+# Pass J1 — ellipsis collapse.
+# Replace 3+ ASCII periods surrounded by whitespace/boundary with Unicode ellipsis.
+_FI_ELLIPSIS_RE = re.compile(r"(?<!\S)\.{3,}(?!\S)")
+
+# Pass J2 — TOC dot-leader drop.
+# Matches 4+ consecutive dots followed by optional whitespace and a digit.
+_FI_TOC_DOT_LEADER_RE = re.compile(r"\s*\.{4,}\s*\d+\b")
+
+# Pass J3 — ISBN strip.
+# Matches ISBN-13 with or without prefix, with/without hyphens/spaces.
+_FI_ISBN_RE = re.compile(
+    r"\b(?:ISBN[\s:-]*)?97[89][- ]?\d{1,5}[- ]?\d{1,7}[- ]?\d{1,7}[- ]?\d\b",
+    re.IGNORECASE,
+)
+
 # Pass B: elided-hyphen Finnish compounds (e.g. "keski-ja" → "keski- ja").
 _FI_ELIDED_HYPHEN_RE = re.compile(
     r"(\w+)-(ja|tai|eli|sekä)\b", re.IGNORECASE
@@ -702,9 +723,19 @@ def normalize_finnish_text(
         except (NotImplementedError, OverflowError, ValueError, TypeError):
             return str(n)
 
-    # Pass A — drop bibliographic citations.
+    # Pass A — drop bibliographic citations and metadata parens.
     if drop_citations:
         text = _FI_CITE_RE.sub("", text)
+        text = _FI_METADATA_PAREN_RE.sub("", text)
+
+    # Pass J1 — ellipsis collapse (3+ dots surrounded by whitespace → …).
+    text = _FI_ELLIPSIS_RE.sub("…", text)
+
+    # Pass J2 — TOC dot-leader drop (4+ dots followed by page number).
+    text = _FI_TOC_DOT_LEADER_RE.sub(" ", text)
+
+    # Pass J3 — ISBN strip (bare ISBN-13 numbers in prose).
+    text = _FI_ISBN_RE.sub("", text)
 
     # Pass B — elided-hyphen compounds (just insert a space).
     text = _FI_ELIDED_HYPHEN_RE.sub(r"\1- \2", text)

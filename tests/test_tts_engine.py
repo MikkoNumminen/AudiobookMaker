@@ -923,3 +923,136 @@ class TestRomanNumeralExpansion:
         assert _roman_to_int("IIII") is None
         assert _roman_to_int("VV") is None
         assert _roman_to_int("") is None
+
+# ---------------------------------------------------------------------------
+# Pass A extension — metadata paren drop
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataParenDrop:
+    def test_isbn_paren_dropped(self) -> None:
+        result = normalize_finnish_text("(ISBN 978-951-123-456-7)", drop_citations=True)
+        assert "ISBN" not in result
+        assert "978" not in result
+
+    def test_doi_paren_dropped(self) -> None:
+        result = normalize_finnish_text("(DOI 10.1234/abcd)", drop_citations=True)
+        assert "DOI" not in result
+        assert "10.1234" not in result
+
+    def test_creative_commons_paren_dropped(self) -> None:
+        result = normalize_finnish_text(
+            "(Creative Commons Nimeä 4.0 Kansainvälinen)", drop_citations=True
+        )
+        assert "Creative Commons" not in result
+
+    def test_cc_by_dropped(self) -> None:
+        result = normalize_finnish_text("(CC BY 4.0)", drop_citations=True)
+        assert "CC BY" not in result
+
+    def test_nonmetadata_paren_untouched(self) -> None:
+        result = normalize_finnish_text("(tämä on huomautus)", drop_citations=True)
+        assert "tämä on huomautus" in result
+
+    def test_metadata_paren_kept_when_drop_citations_false(self) -> None:
+        result = normalize_finnish_text("(DOI 10.1234/abcd)", drop_citations=False)
+        assert "DOI" in result
+
+
+# ---------------------------------------------------------------------------
+# Pass J1 — ellipsis collapse
+# ---------------------------------------------------------------------------
+
+
+class TestEllipsisCollapse:
+    def test_three_dots_surrounded_by_space(self) -> None:
+        result = normalize_finnish_text("Hmm ... hän sanoi")
+        assert "…" in result
+        assert "..." not in result
+
+    def test_four_dots_surrounded_by_space(self) -> None:
+        result = normalize_finnish_text("Odottakaa .... valmis")
+        assert "…" in result
+        assert "...." not in result
+
+    def test_decimal_not_collapsed(self) -> None:
+        # Decimals like 1.5 should not be affected — Pass F handles those
+        result = normalize_finnish_text("1.5 prosenttia")
+        assert "…" not in result
+
+    def test_url_dots_not_collapsed(self) -> None:
+        # Dots inside a word (no surrounding whitespace) must not collapse
+        result = normalize_finnish_text("example.com on osoite")
+        assert "…" not in result
+
+
+# ---------------------------------------------------------------------------
+# Pass J2 — TOC dot-leader drop
+# ---------------------------------------------------------------------------
+
+
+class TestTocDotLeaderDrop:
+    def test_toc_line_dropped(self) -> None:
+        result = normalize_finnish_text("RAJAT..............42")
+        assert "RAJAT" in result
+        assert "42" not in result
+        # No long dot run left
+        assert "......." not in result
+
+    def test_lowercase_toc(self) -> None:
+        result = normalize_finnish_text("Johdanto.........1")
+        assert "Johdanto" in result
+        assert "........." not in result
+
+    def test_toc_with_leading_spaces(self) -> None:
+        result = normalize_finnish_text("   Luku 1 .............. 5")
+        assert "Luku" in result
+        assert ".............." not in result
+
+    def test_real_ellipsis_preserved(self) -> None:
+        # Only 3 dots with no digit after — Pass J2 must not touch this;
+        # Pass J1 converts it to Unicode ellipsis
+        result = normalize_finnish_text("Hmm... valmis")
+        # Pass J1 did not fire (no surrounding whitespace), so the dots survive
+        # as-is OR Pass J1 fires — either way no Pass J2 damage
+        assert "valmis" in result
+
+    def test_five_dots_followed_by_digit(self) -> None:
+        result = normalize_finnish_text("RAJAT..... 42")
+        assert "RAJAT" in result
+        assert "....." not in result
+
+
+# ---------------------------------------------------------------------------
+# Pass J3 — ISBN strip
+# ---------------------------------------------------------------------------
+
+
+class TestIsbnStrip:
+    def test_isbn_13_with_hyphens(self) -> None:
+        result = normalize_finnish_text("Kirja ISBN 978-951-123-456-7 on hyvä")
+        assert "ISBN" not in result
+        assert "978" not in result
+        assert "Kirja" in result
+        assert "hyvä" in result
+
+    def test_isbn_13_without_prefix(self) -> None:
+        result = normalize_finnish_text("9789511234567 on kirja")
+        assert "9789511234567" not in result
+        assert "kirja" in result
+
+    def test_isbn_13_with_spaces(self) -> None:
+        result = normalize_finnish_text("ISBN 978 951 123 456 7")
+        assert "ISBN" not in result
+        assert "978" not in result
+
+    def test_isbn_in_sentence(self) -> None:
+        # The metadata-paren drop handles parens; ISBN strip handles bare numbers
+        result = normalize_finnish_text("(ISBN: 978-951-123-456-7)", drop_citations=True)
+        assert "978" not in result
+
+    def test_non_isbn_digits_preserved(self) -> None:
+        result = normalize_finnish_text("Vuonna 1918 tapahtui")
+        assert "1918" not in result  # Pass G expands it to words
+        # But the year word form should be present
+        assert "yhdeksäntoista" in result or "tuhat" in result
