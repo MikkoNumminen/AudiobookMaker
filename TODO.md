@@ -17,6 +17,11 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Voice cloning — real-world end-to-end validation
+- [ ] Test `scripts/record_voice_sample.py` live with a real 12 s recording of the user's own voice — raise the macOS **System Settings → Sound → Input → Input volume** slider to ~85% first (work calls like Zoom/Teams leave it at ~5–10% which fails preflight at ~−47 dBFS loudness despite 40+ dB SNR). Then re-run with `--synthesize "Terve. Tämä on minun ääneni testi. Kohta keitetään kahvit."`, confirm the preflight passes with loudness in −25…−15 dBFS, verify Chatterbox finishes and the playback sounds like v7-quality Finnish in the user's cloned voice. Log the final MP3 path + per-check numbers for future reference. 🟢 ⚡ Sonnet
+- [ ] If the first clip passes but cloning quality is below v7, iterate: (a) re-record longer (20 s), (b) re-record with more varied prosody, (c) experiment with an explicit `--ref-audio` path and compare vs auto-detected flow. 🟡 🧠 Opus
+- [ ] Document the "input volume gotcha" in the README `record_voice_sample.py` section as a troubleshooting note so future users don't hit the same dead end. 🟢 ⚡ Sonnet
+
 ### Finnish normalizer — Tier 1 follow-ups (governor detection shipped)
 - [ ] Pass K — abbreviation expansion lexicon (`yms`, `esim`, `ts`, `ml`, `nk`, `ns`, `vrt`, `huom`, `ym`, `mm`, `jne`, `tms`, `ed.`, `ao.`, `ko.`). Spec: `docs/finnish_normalizer_design.md` §3. 🔴 🧠 Opus
 - [ ] Pass L — Roman numeral expansion with ordinal + context detection (`Pius IX` → "Pius yhdeksäs", `Kustaa II Aadolf`, `1. luku`, `XIX vuosisata`). Must NOT eat regular I/V/X words mid-sentence. Spec: `docs/finnish_normalizer_design.md` §4. 🟡 🧠 Opus
