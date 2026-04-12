@@ -140,15 +140,6 @@ Name: "desktopicon";       \
   GroupDescription: "{cm:AdditionalIcons}"; \
   Flags: checkedonce
 
-; .pdf file association — optional, unchecked by default.
-; NOTE: This is an OPTIONAL feature. Associating AudiobookMaker with .pdf
-; files will make it the default application for opening PDF documents system-
-; wide. Only enable this if you want AudiobookMaker to open when you
-; double-click a .pdf file in Windows Explorer.
-Name: "pdfassoc"; \
-  Description: "Associate AudiobookMaker with .pdf files (optional — see note above)"; \
-  GroupDescription: "File associations:"; \
-  Flags: unchecked
 
 
 ; -----------------------------------------------------------------------------
@@ -233,51 +224,6 @@ Root: HKLM; \
   ValueType: string; ValueName: "Publisher"; \
   ValueData: "AudiobookMaker"
 
-; --- Optional .pdf file association ---
-; These keys are only written when the "pdfassoc" task is selected.
-;
-; ProgID definition — describes the application and the verb ("open") command.
-Root: HKCR; \
-  Subkey: "AudiobookMaker.AssocFile.PDF"; \
-  ValueType: string; ValueName: ""; \
-  ValueData: "PDF Document"; \
-  Flags: uninsdeletekey; \
-  Tasks: pdfassoc
-
-Root: HKCR; \
-  Subkey: "AudiobookMaker.AssocFile.PDF\DefaultIcon"; \
-  ValueType: string; ValueName: ""; \
-  ValueData: "{app}\AudiobookMaker.exe,0"; \
-  Tasks: pdfassoc
-
-Root: HKCR; \
-  Subkey: "AudiobookMaker.AssocFile.PDF\shell\open\command"; \
-  ValueType: string; ValueName: ""; \
-  ValueData: """{app}\AudiobookMaker.exe"" ""%1"""; \
-  Tasks: pdfassoc
-
-; Associate the .pdf extension with the ProgID defined above.
-; NOTE: Windows may ask the user to confirm the default-app change the first
-; time a .pdf file is opened after installation.
-Root: HKCR; \
-  Subkey: ".pdf"; \
-  ValueType: string; ValueName: ""; \
-  ValueData: "AudiobookMaker.AssocFile.PDF"; \
-  Flags: uninsdeletevalue; \
-  Tasks: pdfassoc
-
-; Register the app in the "OpenWithProgids" list so it also appears in the
-; "Open with" context-menu even when it is not the default .pdf handler.
-Root: HKCR; \
-  Subkey: ".pdf\OpenWithProgids"; \
-  ValueType: string; ValueName: "AudiobookMaker.AssocFile.PDF"; \
-  ValueData: ""; \
-  Flags: uninsdeletevalue; \
-  Tasks: pdfassoc
-
-; Notify the Windows shell that file associations have changed so that icons
-; and default-app info are refreshed immediately without a reboot.
-; This is done via a [Code] section call — see below.
 
 
 ; -----------------------------------------------------------------------------

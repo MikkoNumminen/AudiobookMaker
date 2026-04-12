@@ -73,6 +73,8 @@ datas += collect_data_files('piper')
 datas += collect_data_files('onnxruntime')
 # Finnish loanword lexicon used by the text normalizer
 datas += [(os.path.join('data', 'fi_loanwords.yaml'), 'data')]
+# Chatterbox runner script — invoked as a subprocess by the unified GUI
+datas += [(os.path.join('scripts', 'generate_chatterbox_audiobook.py'), 'scripts')]
 
 a = Analysis(
     [os.path.join('src', 'main.py')],

@@ -399,8 +399,9 @@ def resolve_chatterbox_python() -> Optional[Path]:
 
     Preference order:
         1. ``CHATTERBOX_PYTHON`` environment variable (escape hatch for tests)
-        2. ``.venv-chatterbox/bin/python`` on macOS/Linux, ``.venv-chatterbox\\Scripts\\python.exe`` on Windows
-        3. ``None`` if no Chatterbox venv is detected
+        2. ``.venv-chatterbox`` next to the repo/app root
+        3. ``C:\\AudiobookMaker\\.venv-chatterbox`` (default install path)
+        4. ``None`` if no Chatterbox venv is detected
 
     The launcher should show a friendly "Chatterbox not installed" message if
     this returns ``None``.
@@ -411,11 +412,19 @@ def resolve_chatterbox_python() -> Optional[Path]:
         if p.exists():
             return p
 
+    suffix = ("Scripts", "python.exe") if sys.platform == "win32" else ("bin", "python")
+
+    # Check relative to the repo/app root.
     repo_root = Path(__file__).resolve().parent.parent
-    if sys.platform == "win32":
-        candidate = repo_root / ".venv-chatterbox" / "Scripts" / "python.exe"
-    else:
-        candidate = repo_root / ".venv-chatterbox" / "bin" / "python"
+    candidate = repo_root / ".venv-chatterbox" / suffix[0] / suffix[1]
     if candidate.exists():
         return candidate
+
+    # Check the default install location used by the in-app installer and
+    # the old launcher installer.
+    if sys.platform == "win32":
+        default = Path(r"C:\AudiobookMaker\.venv-chatterbox") / suffix[0] / suffix[1]
+        if default.exists():
+            return default
+
     return None

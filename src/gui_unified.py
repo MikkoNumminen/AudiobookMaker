@@ -48,7 +48,13 @@ except Exception:
 # Repo root (needed for Chatterbox runner script resolution)
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+# In dev mode, this is the repo root. In a PyInstaller bundle, this is
+# the _MEIPASS temp directory (or the app directory for onedir builds).
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    _APP_ROOT = Path(sys._MEIPASS)
+else:
+    _APP_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = _APP_ROOT
 
 # ---------------------------------------------------------------------------
 # UI constants
@@ -1172,7 +1178,12 @@ class UnifiedApp(tk.Tk):
             )
             return
 
-        out_dir = (_REPO_ROOT / "dist" / "audiobook").resolve()
+        # Use output path's parent directory, or a sensible default.
+        if self._out_var.get() and self._out_var.get() not in ("Ei valittu", "Not selected"):
+            out_dir = Path(self._out_var.get()).parent
+        else:
+            out_dir = Path.home() / "Documents" / "AudiobookMaker"
+        out_dir = out_dir.resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
 
         extra_args: list[str] = []
