@@ -1,6 +1,6 @@
 """Entry point for AudiobookMaker."""
 
-from src.gui import run
+from src.gui_unified import run
 
 if __name__ == "__main__":
     run()
