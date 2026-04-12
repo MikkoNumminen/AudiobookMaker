@@ -22,8 +22,9 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 - [ ] If the first clip passes but cloning quality is below v7, iterate: (a) re-record longer (20 s), (b) re-record with more varied prosody, (c) experiment with an explicit `--ref-audio` path and compare vs auto-detected flow. 🟡 🧠 Opus
 - [ ] Document the "input volume gotcha" in the README `record_voice_sample.py` section as a troubleshooting note so future users don't hit the same dead end. 🟢 ⚡ Sonnet
 
-### Finnish normalizer — Tier 1 follow-ups (Pass G/K/M + range polish shipped)
-- [ ] Pass I — loanword lexicon YAML (`data/fi_loanwords.yaml`) covering `-ismi`, non-`valtio` `-tio`, Latin legal phrases, foreign place names, person names. Apply AFTER num2words. Spec: `docs/finnish_normalizer_design.md` §2 + `docs/finnish_tts_failure_inventory.md`. **This is the Pass that fixes the `-ismi` / `-tio` mispronunciations Turo heard in the v7 sample** — highest user-visible quality win left in Tier 1. 🔴 🧠 Opus
+### Finnish normalizer — Tier 1 follow-ups (Pass G/K/M/I + range polish shipped)
+- [ ] Pass I audio validation on GPU — listen to a Turo-book chapter with Pass I on vs off on the NVIDIA machine, confirm that `humanismi` / `konsiliarismissa` / `instituutio` / Latin phrases actually sound better with the respelling. If they sound worse, revisit the respelling format (hyphen vs space vs no respelling) per-category. 🟡 🧠 Opus
+- [ ] Pass I lexicon extensions as new failure classes surface in other Finnish books beyond Turo — the current 42 `ismi_stems` + 53 `tio_stems` cover the Turo corpus; other books will need more. 🟡 ⚡ Sonnet
 - [ ] Pass L — Roman numeral expansion with ordinal + context detection (`Pius IX` → "Pius yhdeksäs", `Kustaa II Aadolf`, `1. luku`, `XIX vuosisata`). Must NOT eat regular I/V/X letters mid-sentence — needs regnal-name context detection and a single-letter guard. Spec: `docs/finnish_normalizer_design.md` §4. 🟡 🧠 Opus
 - [ ] Short-range governor inflection on Pass D (1–2 digit ranges like `sivuilta 42–45` → both endpoints ablative). Current `_FI_RANGE_RE` only matches 3–4 digit ranges to avoid collision with math expressions; broadening it needs careful test coverage. 🟢 🧠 Opus
 
