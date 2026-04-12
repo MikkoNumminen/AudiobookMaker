@@ -34,6 +34,25 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
   convention by default (nominative regardless of `vuodesta`/`vuoteen`);
   flip `TTSConfig.year_shortening = "full"` to emit full case agreement
   per VISK §772
+- **Abbreviation expansion** (Pass K): 28 common Finnish abbreviations
+  are expanded to their full spoken forms before sentence splitting —
+  `esim.` → `esimerkiksi`, `jne.` → `ja niin edelleen`,
+  `mm.` → `muun muassa`, `yms.` → `ynnä muuta sellaista`,
+  `eaa.` → `ennen ajanlaskun alkua`, `prof.` → `professori`,
+  `tri Virtanen` → `tohtori Virtanen` (only when followed by a
+  capitalized name), plus era / title / count categories
+- **Unit symbol expansion** (Pass M): numeric-prefixed unit symbols
+  become Finnish partitive forms — `5 %` → `viisi prosenttia`,
+  `20 €` → `kaksikymmentä euroa`, `$5` → `viisi dollaria`,
+  `3 km` → `kolme kilometriä`, `20 °C` → `kaksikymmentä celsiusastetta`,
+  `2 kg` → `kaksi kilogrammaa`, `5 min` → `viisi minuuttia`. The
+  numeral keeps its case from Pass G's governor detection so the whole
+  phrase reads naturally
+- **Governor-aware range endpoints** (Pass D polish): both endpoints
+  of a year range agree with the governing preposition —
+  `vuosina 1914–1918` under `year_shortening="full"` emits both years
+  in essive per VISK §772; under the default radio mode both remain
+  in nominative
 - **Voice cloning in your own voice** via
   [scripts/record_voice_sample.py](scripts/record_voice_sample.py) —
   record a 12 s reference clip through your Mac's built-in mic,
