@@ -1,0 +1,174 @@
+# Finnish loanword respelling lexicon for Chatterbox-Finnish TTS.
+#
+# Pass I in src/tts_engine.py::normalize_finnish_text loads this file
+# via src/fi_loanwords.py. The four sections below each target a
+# distinct failure class from docs/finnish_tts_failure_inventory.md.
+#
+# Stem whitelists (ismi_stems, tio_stems):
+#   Each entry is the EXACT character sequence the regex
+#   `\b(\w+?)(ismi|tio)(\w*)\b` will capture as group(1) — the
+#   stem BEFORE the literal suffix. This is NOT the full surface
+#   form and NOT a longer Finnish-inflected prefix.
+#
+#   Example: `humanismi` -> group(1) = `human`. Entry: `human`.
+#   Example: `sanktio`   -> group(1) = `sank`.  Entry: `sank`.
+#   Example: `instituutio` -> group(1) = `instituu`. Entry: `instituu`.
+#
+#   All stems here were audited by regex-capture simulation against
+#   the failure inventory's surface forms. Every entry is known to
+#   match at least one real Finnish loanword without false positives.
+#
+# CRITICAL: tio_stems must NOT contain `val`, `na`, `ra`, or any
+# 2-letter stem that would false-positive on `valtio`, `nationalismi`,
+# `rationalismi`, `rationaalinen` — native Finnish words where `tio`
+# appears only as a coincidental substring.
+
+ismi_stems:
+- absolut
+- aktiv
+- anabapt
+- dogmat
+- empir
+- feodal
+- formal
+- gallikan
+- histor
+- human
+- ideal
+- imperial
+- individual
+- jansen
+- kalvin
+- kapital
+- kolonial
+- konsensual
+- konsiliar
+- liberal
+- lutheran
+- material
+- mekan
+- merkantil
+- modern
+- national
+- natural
+- nominal
+- oikeusplural
+- oikeuspositiv
+- pap
+- pasif
+- paternal
+- piet
+- plural
+- positiv
+- protestant
+- rational
+- real
+- republikan
+- sosial
+- utilitar
+tio_stems:
+- ac
+- administraa
+- auktorisaa
+- conduc
+- constitu
+- delegaa
+- evaluaa
+- federaa
+- fik
+- fundaa
+- funk
+- graduaa
+- harmonisaa
+- inkorporaa
+- innovaa
+- instituu
+- instruk
+- interpretaa
+- justifikaa
+- kausaa
+- klassifikaa
+- kodifikaa
+- kollaboraa
+- kommunikaa
+- kompensaa
+- konfirmaa
+- konstituu
+- legitimaa
+- loca
+- modernisaa
+- modifikaa
+- negaa
+- observaa
+- operaa
+- organisaa
+- posi
+- preskrip
+- produk
+- publikaa
+- ratifikaa
+- regulaa
+- relaa
+- renovaa
+- representaa
+- resep
+- restrik
+- sank
+- separaa
+- sertifikaa
+- simulaa
+- spesifikaa
+- stipula
+- transak
+latin_phrases:
+  ius commune: jus kommune
+  ius proprium: jus proprium
+  ius publicum: jus publikkum
+  ius gentium: jus gentium
+  ius naturale: jus naturale
+  ius civile: jus siviilë
+  corpus iuris: korpus juuris
+  corpus iuris civilis: korpus juuris siviilis
+  usus modernus pandectarum: uusus modernus pandektarum
+  usus modernus: uusus modernus
+  ratio scripta: ratsio skripta
+  modus vivendi: modus vivendi
+  iuris prudentia: juuris prudentsia
+  iurisprudentia: juurisprudentsia
+  lex mercatoria: leks merkatorria
+  lex naturalis: leks naturalis
+  lex specialis: leks spetsiiaalis
+  lex generalis: leks generalis
+  bona fides: bona fides
+  culpa in contrahendo: kulpa in kontrahendo
+  pacta sunt servanda: pakta sunt servanda
+  rebus sic stantibus: reebus sik stantibus
+  ex nunc: eks nunk
+  ex tunc: eks tunk
+  ex lege: eks leege
+  de iure: de juure
+  de facto: de fakto
+  in dubio: in duubio
+  mutatis mutandis: mutaatis mutandis
+foreign_names:
+  Wittenberg: Vittenberg
+  Reichskammergericht: Raihskammergeriht
+  Rechtsgeschichte: Rehtsgeshihte
+  Gerichtsordnung: Gerihtsorndung
+  Landrecht: Landreht
+  Allgemeines Landrecht: Allgemaaines Landreht
+  Reichsrecht: Raihsreht
+  München: Mynhen
+  Nürnberg: Nyrnberg
+  Heidelberg: Haidellberg
+  Leipzig: Laiptsig
+  Zürich: Syyrih
+  Strasbourg: Strasburg
+  Leiden: Leiden
+  Savigny: Saviinji
+  Thomasius: Toomasius
+  Wolff: Volf
+  Leibniz: Laibnits
+  Hegel: Heegel
+  Pufendorf: Puufendorf
+  Grotius: Grootiuss

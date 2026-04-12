@@ -16,6 +16,8 @@ from typing import Callable, Optional
 
 from pydub import AudioSegment
 
+from src.fi_loanwords import apply_loanword_respellings
+
 # NOTE: edge_tts is imported lazily inside _synthesize_chunk() so that
 # other consumers (e.g. dev_qwen_tts.py) can `from src.tts_engine import
 # split_text_into_chunks` without dragging in an online-TTS dependency
@@ -484,6 +486,11 @@ def normalize_finnish_text(
     context). If num2words is not installed the function degrades
     gracefully and returns the input unchanged.
 
+    Also applies Pass I (Finnish loanword respelling) which fixes common
+    mispronunciations of loanword suffixes like ``-ismi`` and ``-tio`` by
+    inserting hyphens that guide the TTS engine's pronunciation
+    (e.g. ``humanismi`` → ``humanis-mi``, ``instituutio`` → ``instituu-tio``).
+
     Args:
         text: Raw Finnish text.
         drop_citations: If True, strip bibliographic citations like
@@ -590,6 +597,13 @@ def normalize_finnish_text(
         cursor = end
     parts.append(text[cursor:])
     text = "".join(parts)
+
+    # Pass I — Finnish loanword respelling (post num2words, pre morpheme split).
+    # Fixes mispronunciations of loanword suffixes (-ismi, -tio) and substitutes
+    # foreign names / Latin phrases with phonetically correct Finnish spellings.
+    # Loanwords contain no digits so num2words cannot collide; running before
+    # Pass H prevents double-splitting a respelled form that already has a hyphen.
+    text = apply_loanword_respellings(text)
 
     # Pass H — split glued compound-number morphemes (post num2words).
     text = _fi_split_number_compounds(text)
