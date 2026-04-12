@@ -130,6 +130,174 @@ class TestNormalizeFinnishText:
 
 
 # ---------------------------------------------------------------------------
+# Governor-word case detection (Pass G)
+# ---------------------------------------------------------------------------
+
+
+class TestFinnishGovernorCases:
+    """Numerals must inflect to agree with their governor word.
+
+    The reference for every expected form is
+    ``docs/finnish_governor_cases.md`` (VISK §772 + Kielikello).
+    """
+
+    def test_sivulta_takes_ablative(self) -> None:
+        # "sivulta 42" → ablative "neljältäkymmeneltäkahdelta"
+        out = normalize_finnish_text("sivulta 42")
+        assert "neljältäkymmeneltä" in out
+        assert "kahdelta" in out
+        assert "42" not in out
+
+    def test_sivulla_takes_adessive(self) -> None:
+        out = normalize_finnish_text("sivulla 42")
+        assert "neljälläkymmenellä" in out
+        assert "kahdella" in out
+
+    def test_sivulle_takes_allative(self) -> None:
+        out = normalize_finnish_text("sivulle 42")
+        assert "neljällekymmenelle" in out
+        assert "kahdelle" in out
+
+    def test_luvussa_takes_inessive(self) -> None:
+        # "luvussa 3" → inessive "kolmessa"
+        out = normalize_finnish_text("luvussa 3")
+        assert "kolmessa" in out
+
+    def test_kappaleessa_takes_inessive(self) -> None:
+        out = normalize_finnish_text("kappaleessa 7")
+        assert "seitsemässä" in out
+
+    def test_kohdassa_takes_inessive(self) -> None:
+        out = normalize_finnish_text("kohdassa 4")
+        assert "neljässä" in out
+
+    def test_rivilla_takes_adessive(self) -> None:
+        out = normalize_finnish_text("rivillä 12")
+        assert "kahdellatoista" in out
+
+    def test_klo_stays_nominative(self) -> None:
+        # "klo 14" — kello is a frozen adverbial, hour stays nominative.
+        # Expected reading: "kello neljätoista" (clock fourteen).
+        out = normalize_finnish_text("klo 14")
+        assert "neljätoista" in out
+        assert "neljässätoista" not in out
+
+    def test_kello_stays_nominative(self) -> None:
+        out = normalize_finnish_text("kello 8")
+        assert "kahdeksan" in out
+        assert "kahdeksalla" not in out
+
+    def test_viisi_kertaa_numeral_stays_nominative(self) -> None:
+        # VISK §772: "X kertaa" → number in nominative, kertaa keeps
+        # its (frozen) partitive.
+        out = normalize_finnish_text("5 kertaa")
+        assert out == "viisi kertaa"
+
+    def test_kolme_prosenttia_numeral_stays_nominative(self) -> None:
+        out = normalize_finnish_text("3 prosenttia")
+        assert out == "kolme prosenttia"
+
+    def test_vuotta_numeral_stays_nominative(self) -> None:
+        out = normalize_finnish_text("10 vuotta")
+        assert "kymmenen vuotta" in out
+
+    def test_bare_integer_with_no_governor_is_nominative(self) -> None:
+        # Regression: unchanged behaviour for unmarked bare ints.
+        assert normalize_finnish_text("42") == "neljäkymmentä kaksi"
+        assert normalize_finnish_text("15") == "viisitoista"
+
+    def test_governor_match_is_case_insensitive(self) -> None:
+        # "Sivulta 42" at sentence start must still detect the governor.
+        out = normalize_finnish_text("Sivulta 42")
+        assert "neljältäkymmeneltä" in out
+
+    def test_governor_scan_window_is_three_words(self) -> None:
+        # Governor exactly 3 word tokens before the number — must hit.
+        out = normalize_finnish_text("sivulta tämän erittäin 42")
+        assert "neljältäkymmeneltä" in out
+
+    def test_governor_beyond_three_words_is_ignored(self) -> None:
+        # Governor 4 words before the number — must NOT hit; fall
+        # back to nominative.
+        out = normalize_finnish_text("sivulta yksi kaksi kolme neljä 42")
+        assert "neljäkymmentä kaksi" in out
+        assert "neljältäkymmeneltä" not in out
+
+
+# ---------------------------------------------------------------------------
+# year_shortening flag (Kielikello radio convention)
+# ---------------------------------------------------------------------------
+
+
+class TestYearShortening:
+    """The ``year_shortening`` kwarg chooses between radio and full case."""
+
+    def test_radio_default_keeps_year_nominative(self) -> None:
+        # vuodesta 1917 → "vuodesta tuhat yhdeksänsataa seitsemäntoista"
+        out = normalize_finnish_text("vuodesta 1917 alkaen")
+        assert "tuhat" in out
+        assert "yhdeksänsataa" in out
+        assert "seitsemäntoista" in out
+        # Must NOT contain the elative form of the year.
+        assert "tuhannesta" not in out
+
+    def test_full_mode_emits_elative(self) -> None:
+        out = normalize_finnish_text(
+            "vuodesta 1917 alkaen", year_shortening="full"
+        )
+        assert "tuhannesta" in out
+        assert "seitsemästätoista" in out
+
+    def test_full_mode_emits_illative_for_vuoteen(self) -> None:
+        out = normalize_finnish_text(
+            "vuoteen 1900 mennessä", year_shortening="full"
+        )
+        assert "tuhanteen" in out
+
+    def test_radio_mode_ignores_vuoteen(self) -> None:
+        out = normalize_finnish_text("vuoteen 1900 mennessä")
+        assert "tuhanteen" not in out
+        assert "tuhat" in out
+
+    def test_short_integer_with_year_governor_is_not_a_year(self) -> None:
+        # "vuoden 5" — 5 is below the 1000 year threshold, so the
+        # year-governor override does not apply. Since "vuoden" is
+        # nominative in the governor table anyway, the numeral stays
+        # nominative.
+        out = normalize_finnish_text("vuoden 5 jälkeen")
+        assert "viisi" in out
+
+
+# ---------------------------------------------------------------------------
+# Page abbreviation expansion (Pass E) leaves digits for Pass G
+# ---------------------------------------------------------------------------
+
+
+class TestPageAbbreviation:
+    def test_s_abbrev_expands_to_sivu_and_inflects_via_governor(self) -> None:
+        # "s. 42" → Pass E emits "sivu 42", then Pass G sees "sivu"
+        # as a nominative governor and expands 42 in nominative.
+        out = normalize_finnish_text("s. 42")
+        assert "sivu" in out
+        assert "neljäkymmentä kaksi" in out
+        assert "s." not in out
+
+    def test_ss_abbrev_expands_to_sivut(self) -> None:
+        out = normalize_finnish_text("ss. 42")
+        assert "sivut" in out
+
+
+class TestTTSConfigYearShortening:
+    def test_tts_config_year_shortening_default_is_radio(self) -> None:
+        cfg = TTSConfig()
+        assert cfg.year_shortening == "radio"
+
+    def test_tts_config_year_shortening_can_be_full(self) -> None:
+        cfg = TTSConfig(year_shortening="full")
+        assert cfg.year_shortening == "full"
+
+
+# ---------------------------------------------------------------------------
 # split_text_into_chunks
 # ---------------------------------------------------------------------------
 
@@ -331,7 +499,7 @@ class TestTextToSpeech:
 
         with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
              patch("src.tts_engine._synthesize_chunk") as mock_synth:
-            mock_norm.side_effect = lambda t: t + " NORMALIZED"
+            mock_norm.side_effect = lambda t, **kw: t + " NORMALIZED"
 
             async def fake_synth(text, voice, rate, volume, output_path):
                 seg = AudioSegment.silent(duration=50)
@@ -349,7 +517,9 @@ class TestTextToSpeech:
                     config=TTSConfig(language="fi", normalize_text=True),
                 )
                 assert mock_norm.called
-                mock_norm.assert_called_with("vuonna 1500")
+                mock_norm.assert_called_with(
+                    "vuonna 1500", year_shortening="radio"
+                )
             finally:
                 os.unlink(out)
 
