@@ -354,7 +354,11 @@ def _trim_to_sentence_start(content: str) -> str:
 def pick_text(args: argparse.Namespace) -> list[str]:
     """Return a list of chunks to synthesize (one per generate() call).
 
-    - args.text → single-chunk run of exactly that string.
+    - args.text → run through the Finnish sentence-aware chunker with
+      `max_chars=args.chunk_chars`, then limit to `args.chunks` pieces.
+      This is critical because Chatterbox's decoder emits early EOS on
+      multi-sentence chunks — feeding it one sentence at a time is the
+      only reliable way to synthesize a paragraph on either CPU or GPU.
     - args.pdf  → first real prose chapter, sliced into N chunks of
       ~args.chunk_chars each, where N = args.chunks.
     - otherwise → single-chunk run of DEFAULT_SENTENCE.
@@ -366,8 +370,23 @@ def pick_text(args: argparse.Namespace) -> list[str]:
             if normalized != raw:
                 print(f"  normalizer rewrote {abs(len(normalized) - len(raw))} "
                       f"chars of --text input")
-            return [normalized]
-        return [raw]
+            raw = normalized
+        try:
+            from src.tts_engine import split_text_into_chunks  # type: ignore
+        except ImportError:
+            return [raw]
+        all_chunks = split_text_into_chunks(raw, max_chars=args.chunk_chars)
+        if not all_chunks:
+            return [raw]
+        # In --text mode always synthesize every sentence the chunker
+        # produced — the --chunks flag is a --pdf smoke-test limit and
+        # applying it here would silently drop sentences after the
+        # first one (the default of --chunks is 1). If you want to
+        # limit --text output, pass a shorter string.
+        if len(all_chunks) != 1:
+            print(f"  --text split into {len(all_chunks)} sentence-chunks "
+                  f"(chunk_chars={args.chunk_chars})")
+        return all_chunks
     if args.pdf:
         # Reuse the main app's PDF parser so we get the same text cleanup
         # (letterspace fixup, hyphenation repair, chapter detection). A
