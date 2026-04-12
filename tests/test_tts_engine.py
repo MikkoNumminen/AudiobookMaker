@@ -32,6 +32,7 @@ from src.tts_engine import (
     _force_split,
     _split_sentences,
     _roman_to_int,
+    _expand_acronyms,
     MAX_CHUNK_CHARS,
 )
 
@@ -1056,3 +1057,85 @@ class TestIsbnStrip:
         assert "1918" not in result  # Pass G expands it to words
         # But the year word form should be present
         assert "yhdeksäntoista" in result or "tuhat" in result
+# TestAcronymExpansion
+# ---------------------------------------------------------------------------
+
+
+class TestAcronymExpansion:
+    """Tests for _expand_acronyms (Pass N) and its integration via normalize_finnish_text."""
+
+    # --- Positive expansion ---
+
+    def test_eu_expanded(self) -> None:
+        assert _expand_acronyms("EU on liitto") == "Euroopan unioni on liitto"
+
+    def test_yk_expanded(self) -> None:
+        assert _expand_acronyms("YK päätti") == "Yhdistyneet kansakunnat päätti"
+
+    def test_usa_expanded(self) -> None:
+        assert _expand_acronyms("USA oli") == "Yhdysvallat oli"
+
+    def test_nato_expanded(self) -> None:
+        # NATO reads as a word, not letter-by-letter
+        assert _expand_acronyms("NATO jäsenyys") == "Nato jäsenyys"
+
+    def test_alr_letter_by_letter(self) -> None:
+        assert _expand_acronyms("ALR sääti") == "A L R sääti"
+
+    def test_abgb_letter_by_letter(self) -> None:
+        # Hyphen is a non-word char so \b fires between ABGB and -; ABGB IS expanded.
+        assert _expand_acronyms("ABGB-laki") == "A B G B-laki"
+
+    def test_bgb_letter_by_letter(self) -> None:
+        assert _expand_acronyms("BGB § 242") == "B G B § 242"
+
+    def test_hgb_letter_by_letter(self) -> None:
+        assert _expand_acronyms("HGB") == "H G B"
+
+    def test_multiple_acronyms(self) -> None:
+        assert _expand_acronyms("EU ja YK") == "Euroopan unioni ja Yhdistyneet kansakunnat"
+
+    # --- Negative (don't expand) ---
+
+    def test_lowercase_not_expanded(self) -> None:
+        # `eu` is a Finnish negative prefix and must NOT be expanded
+        original = "eu on suomen kielessä tavu"
+        assert _expand_acronyms(original) == original
+
+    def test_unknown_acronym_untouched(self) -> None:
+        original = "XYZ on akronyymi"
+        assert _expand_acronyms(original) == original
+
+    def test_partial_match_untouched(self) -> None:
+        # `NATOn` is one word token — no \b inside it; NATO is NOT matched.
+        # This is by design: we only expand exact standalone tokens.
+        original = "NATOn jäsenyys"
+        assert _expand_acronyms(original) == original
+
+    # --- Word-boundary edge cases ---
+
+    def test_acronym_at_sentence_start(self) -> None:
+        assert _expand_acronyms("EU päätti.") == "Euroopan unioni päätti."
+
+    def test_acronym_at_sentence_end(self) -> None:
+        assert _expand_acronyms("jäsenyys EU.") == "jäsenyys Euroopan unioni."
+
+    def test_acronym_with_colon_suffix(self) -> None:
+        # Finnish inflection uses colon: `EU:n`. The colon is a non-word char
+        # so \b fires between `EU` and `:` — EU IS matched and expanded.
+        # `YK:n` likewise.
+        assert _expand_acronyms("EU:n") == "Euroopan unioni:n"
+        assert _expand_acronyms("YK:n") == "Yhdistyneet kansakunnat:n"
+
+    # --- Longest-first disambiguation ---
+
+    def test_abgb_matches_before_bgb(self) -> None:
+        # Ensures `ABGB` is NOT partially replaced as `A` + `BGB` expansion.
+        result = _expand_acronyms("ABGB ja BGB")
+        assert result == "A B G B ja B G B"
+
+    # --- Integration: normalize_finnish_text passes through Pass N ---
+
+    def test_eu_expanded_via_normalize(self) -> None:
+        result = normalize_finnish_text("EU on liitto")
+        assert "Euroopan unioni" in result

@@ -186,6 +186,72 @@ def _expand_abbreviations(text: str) -> str:
     return text
 
 
+# Pass N: Finnish acronym expansion (known whitelist).
+#
+# Expands a fixed set of acronyms to their Finnish spoken forms.
+# Matching is exact-case and word-boundary anchored so that:
+#   - lowercase `eu` (negative prefix) is NOT expanded
+#   - inflected forms like `NATOn` or `EU:n` may or may not match depending
+#     on whether the boundary falls (see _expand_acronyms docstring)
+#   - unknown ALL-CAPS tokens are left unchanged (no heuristic fallback)
+#
+# Run AFTER Pass K (abbreviations) and BEFORE Pass M (units).
+
+_FI_ACRONYM_LOOKUP: dict[str, str] = {
+    # Political / international organizations
+    "EU": "Euroopan unioni",
+    "EY": "Euroopan yhteisö",
+    "EEC": "Euroopan talousyhteisö",
+    "YK": "Yhdistyneet kansakunnat",
+    "USA": "Yhdysvallat",
+    "NATO": "Nato",  # Read as a word, not letter-by-letter
+    "UNESCO": "Unesco",
+    "WTO": "W T O",  # Letter-by-letter
+    "ILO": "I L O",
+    "UN": "U N",
+    # German-language legal acronyms (common in Finnish legal history)
+    "ALR": "A L R",  # Allgemeines Landrecht
+    "ABGB": "A B G B",  # Österreichisches Allgemeines Bürgerliches Gesetzbuch
+    "BGB": "B G B",  # Bürgerliches Gesetzbuch
+    "HGB": "H G B",  # Handelsgesetzbuch
+    "StGB": "St G B",  # Strafgesetzbuch
+    "StPO": "St P O",  # Strafprozessordnung
+    "ZPO": "Z P O",  # Zivilprozessordnung
+    # Finnish legal acronyms
+    "RL": "R L",  # Rikoslaki
+    "SL": "S L",  # Siviililaki
+    # Common modern
+    "PDF": "P D F",
+    "URL": "U R L",
+    "API": "A P I",
+}
+
+# Build a regex alternation sorted longest-first so `ABGB` matches before
+# `BGB`, etc. Case-sensitive: `EU` ≠ `eu` (negative prefix in Finnish).
+_FI_ACRONYM_RE = re.compile(
+    r"\b(" + "|".join(
+        re.escape(k) for k in sorted(_FI_ACRONYM_LOOKUP, key=len, reverse=True)
+    ) + r")\b"
+)
+
+
+def _expand_acronyms(text: str) -> str:
+    """Expand known Finnish/legal acronyms to their spoken forms (Pass N).
+
+    Matching is exact-case and word-boundary anchored (\\b). Consequences:
+    - ``EU:n`` — the colon is a non-word character so ``\\b`` fires between
+      ``EU`` and ``:``, meaning ``EU`` IS matched and expanded.
+    - ``NATOn`` — ``O`` and ``n`` are both word characters so no ``\\b``
+      boundary exists inside the token; ``NATO`` is NOT matched.
+    - ``ABGB-laki`` — the hyphen is a non-word character so ``\\b`` fires
+      between ``ABGB`` and ``-``; ``ABGB`` IS matched and expanded.
+    - Unknown all-caps tokens are left unchanged (no heuristic fallback).
+    """
+    def _sub(m: re.Match) -> str:
+        return _FI_ACRONYM_LOOKUP[m.group(1)]
+    return _FI_ACRONYM_RE.sub(_sub, text)
+
+
 # Pass M: measurement unit / currency symbol expansion.
 #
 # Replaces numeric-prefixed unit symbols with their Finnish partitive forms
@@ -687,6 +753,9 @@ def normalize_finnish_text(
     numerals to Finnish spoken forms with context-aware ordinal vs. cardinal
     selection (e.g. ``Kustaa II`` → ``Kustaa toinen``,
     ``XIX vuosisata`` → ``yhdeksästoista vuosisata``).
+    Also applies Pass N (acronym expansion) which replaces a fixed whitelist
+    of known acronyms (``EU``, ``YK``, ``NATO``, legal codes, etc.) with
+    their Finnish spoken forms before unit/number processing.
 
     Also applies Pass I (Finnish loanword respelling) which fixes common
     mispronunciations of loanword suffixes like ``-ismi`` and ``-tio`` by
@@ -749,6 +818,8 @@ def normalize_finnish_text(
     # don't bleed into Roman numeral detection; before Pass M so unit expansion
     # doesn't consume context the ordinal classifier needs.
     text = _expand_roman_numerals(text)
+    # Pass N — acronym expansion (known whitelist, exact-case).
+    text = _expand_acronyms(text)
 
     # Pass M — measurement unit / currency symbol expansion. Must run
     # before Pass D/F/G so the digit prefix stays intact for governor
