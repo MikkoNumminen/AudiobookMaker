@@ -391,6 +391,182 @@ _FI_YEAR_GOVERNORS = frozenset({
     "vuonna", "vuoden", "vuodelta", "vuoteen", "vuodesta", "vuosina",
 })
 
+# Pass L: Roman numeral expansion.
+#
+# Matches sequences of 2+ Roman-numeral capital letters at word boundaries.
+# The lookahead `(?=[IVXLCDM]{2,}\b)` excludes standalone `I`, `V`, `X`, etc.
+# so the English pronoun "I" and single-letter abbreviations are never touched.
+_FI_ROMAN_RE = re.compile(
+    r"\b(?=[IVXLCDM]{2,}\b)(M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))\b"
+)
+
+# Tokens that are modern acronyms but happen to be valid Roman numerals.
+# Case-sensitive — matched against the raw (upper-cased) token.
+_FI_ROMAN_BLACKLIST = frozenset({
+    "DC",   # direct current
+    "LCD",  # liquid crystal display
+    "MVP",  # most valuable player
+    "CV",   # curriculum vitae
+    "CI",   # continuous integration / confidence interval
+    "MD",   # doctor of medicine
+    "ID",   # identification
+})
+
+# Regnal first names and ecclesial / political titles that, when they
+# immediately precede a Roman numeral, make it an ordinal (e.g. "Kustaa II").
+_FI_ROMAN_REGNAL_NAMES = frozenset({
+    "Kustaa", "Kaarle", "Juhana", "Eerik", "Henrik", "Pius", "Leo",
+    "Aleksanteri", "Nikolai", "Katariina", "Elisabet", "Yrjö",
+    "Fredrik", "Adolf", "Oskar", "Erik",
+})
+_FI_ROMAN_TITLES = frozenset({
+    "paavi", "Paavi", "kuningas", "Kuningas", "keisari", "Keisari",
+    "tsaari", "Tsaari", "sulttaani", "Sulttaani",
+})
+
+# Words that follow a Roman numeral and signal ordinal reading
+# (e.g. "XIX vuosisata" → "yhdeksästoista vuosisata").
+_FI_ROMAN_ORDINAL_AFTER = frozenset({
+    "vuosisata", "vuosisadalla", "vuosisadalta", "vuosisatana",
+    "luku", "luvulla", "luvulta", "luvussa", "luvun",
+    "kappale", "kappaleessa", "kappaletta",
+})
+
+# Words that precede a Roman numeral and signal ordinal reading
+# (e.g. "luku IV" → "luku neljäs").
+_FI_ROMAN_ORDINAL_BEFORE = frozenset({
+    "luku", "Luku", "luvussa", "luvun", "pykälä", "Pykälä",
+    "pykälässä", "kohta", "kohdassa",
+})
+
+
+def _roman_to_int(s: str) -> Optional[int]:
+    """Convert a Roman numeral string to an integer, or None if invalid.
+
+    Uses the standard subtractive algorithm. Returns None for the empty
+    string (which the regex may produce for a zero-valued match) or for
+    sequences that are not canonical standard Roman numerals (e.g. IIII).
+    Validation: round-trip the result back through a canonical encoder and
+    compare — if they differ, the input was non-canonical.
+    """
+    if not s:
+        return None
+    val_map = {"I": 1, "V": 5, "X": 10, "L": 50,
+               "C": 100, "D": 500, "M": 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(s):
+        v = val_map.get(ch)
+        if v is None:
+            return None
+        if v < prev:
+            total -= v
+        else:
+            total += v
+        prev = v
+    if total <= 0:
+        return None
+    # Validate canonicity: re-encode and compare.
+    n = total
+    parts: list[str] = []
+    for arabic, roman in (
+        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+    ):
+        while n >= arabic:
+            parts.append(roman)
+            n -= arabic
+    canonical = "".join(parts)
+    return total if canonical == s else None
+
+
+def _expand_roman_numerals(text: str) -> str:
+    """Expand Roman numerals to Finnish spoken forms (Pass L).
+
+    For each Roman numeral token (2+ letters, word-boundary anchored):
+    - Skip blacklisted acronyms (DC, LCD, CV, etc.).
+    - Classify as ORDINAL when preceded by a regnal name/title or
+      section keyword, or followed by century/chapter keywords.
+    - Fall back to CARDINAL in all other cases.
+    - If _roman_to_int returns None (invalid/non-canonical), leave unchanged.
+    """
+    try:
+        from num2words import num2words  # type: ignore
+    except ImportError:
+        return text
+
+    # Tokenize once to allow ±2 word-token look-around.
+    tokens: list[tuple[str, str, int, int]] = []
+    for m in _FI_TOKEN_RE.finditer(text):
+        if m.group("num") is not None:
+            kind = "num"
+        elif m.group("word") is not None:
+            kind = "word"
+        else:
+            kind = "other"
+        tokens.append((kind, m.group(0), m.start(), m.end()))
+
+    # Map character position → token index for fast lookup.
+    pos_to_tok: dict[int, int] = {tok[2]: i for i, tok in enumerate(tokens)}
+
+    def _nearby_words(tok_idx: int, step: int, limit: int = 2) -> list[str]:
+        """Return up to `limit` word-token values in direction `step`."""
+        result: list[str] = []
+        j = tok_idx + step
+        while 0 <= j < len(tokens) and len(result) < limit:
+            if tokens[j][0] == "word":
+                result.append(tokens[j][1])
+            j += step
+        return result
+
+    parts: list[str] = []
+    cursor = 0
+
+    for m in _FI_ROMAN_RE.finditer(text):
+        token_str = m.group(0)
+        # Blacklist check (case-sensitive on upper form).
+        if token_str.upper() in _FI_ROMAN_BLACKLIST:
+            continue
+        n = _roman_to_int(token_str)
+        if n is None:
+            continue
+
+        # Find token index for context look-around.
+        tok_idx = pos_to_tok.get(m.start())
+        is_ordinal = False
+        if tok_idx is not None:
+            before_words = _nearby_words(tok_idx, -1)
+            after_words = _nearby_words(tok_idx, +1)
+            # Regnal name or title immediately before → ordinal.
+            if before_words and (
+                before_words[0] in _FI_ROMAN_REGNAL_NAMES
+                or before_words[0] in _FI_ROMAN_TITLES
+            ):
+                is_ordinal = True
+            # Section keyword before → ordinal.
+            elif before_words and before_words[0] in _FI_ROMAN_ORDINAL_BEFORE:
+                is_ordinal = True
+            # Century/chapter keyword after → ordinal.
+            elif after_words and after_words[0] in _FI_ROMAN_ORDINAL_AFTER:
+                is_ordinal = True
+
+        if is_ordinal:
+            try:
+                replacement = num2words(n, lang="fi", to="ordinal")
+            except (NotImplementedError, OverflowError, ValueError, TypeError):
+                replacement = num2words(n, lang="fi")
+        else:
+            replacement = num2words(n, lang="fi")
+
+        parts.append(text[cursor:m.start()])
+        parts.append(replacement)
+        cursor = m.end()
+
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
 # Pass H: split glued Finnish compound-number morphemes.
 #
 # num2words 0.5.14 emits Finnish compound numbers with the hundreds and
@@ -486,6 +662,11 @@ def normalize_finnish_text(
     context). If num2words is not installed the function degrades
     gracefully and returns the input unchanged.
 
+    Also applies Pass L (Roman numeral expansion) which converts Roman
+    numerals to Finnish spoken forms with context-aware ordinal vs. cardinal
+    selection (e.g. ``Kustaa II`` → ``Kustaa toinen``,
+    ``XIX vuosisata`` → ``yhdeksästoista vuosisata``).
+
     Also applies Pass I (Finnish loanword respelling) which fixes common
     mispronunciations of loanword suffixes like ``-ismi`` and ``-tio`` by
     inserting hyphens that guide the TTS engine's pronunciation
@@ -531,6 +712,12 @@ def normalize_finnish_text(
     # Pass K — Finnish abbreviation expansion. Must run before Pass C so
     # abbreviation periods do not interfere with period-sensitive patterns.
     text = _expand_abbreviations(text)
+
+    # Pass L — Roman numerals (regnal ordinals, chapter ordinals, cardinal fallback).
+    # Runs after Pass K (abbreviation expansion) so periods in abbreviations
+    # don't bleed into Roman numeral detection; before Pass M so unit expansion
+    # doesn't consume context the ordinal classifier needs.
+    text = _expand_roman_numerals(text)
 
     # Pass M — measurement unit / currency symbol expansion. Must run
     # before Pass D/F/G so the digit prefix stays intact for governor

@@ -31,6 +31,7 @@ from src.tts_engine import (
     text_to_speech,
     _force_split,
     _split_sentences,
+    _roman_to_int,
     MAX_CHUNK_CHARS,
 )
 
@@ -769,3 +770,156 @@ class TestRangePolish:
         # Both endpoints in nominative (no governor)
         assert "tuhat viisisataa" in result
         assert "tuhat kahdeksansataa" in result
+
+
+# ---------------------------------------------------------------------------
+# Pass L — Roman numeral expansion
+# ---------------------------------------------------------------------------
+
+
+class TestRomanNumeralExpansion:
+    # -- Regnal ordinals -------------------------------------------------------
+
+    def test_kustaa_ii_aadolf(self) -> None:
+        result = normalize_finnish_text("Kustaa II Aadolf oli kuningas")
+        assert "Kustaa toinen Aadolf oli kuningas" == result
+
+    def test_pius_ix(self) -> None:
+        result = normalize_finnish_text("paavi Pius IX")
+        assert "yhdeksäs" in result
+        assert "IX" not in result
+
+    def test_leo_xiii(self) -> None:
+        result = normalize_finnish_text("Leo XIII")
+        assert "kolmastoista" in result
+        assert "XIII" not in result
+
+    def test_katariina_ii(self) -> None:
+        result = normalize_finnish_text("Katariina II")
+        assert "toinen" in result
+        assert "II" not in result
+
+    def test_henrik_viii(self) -> None:
+        result = normalize_finnish_text("Henrik VIII")
+        assert "kahdeksas" in result
+        assert "VIII" not in result
+
+    def test_kuningas_juhana_iii(self) -> None:
+        result = normalize_finnish_text("kuningas Juhana III")
+        assert "kolmas" in result
+        assert "III" not in result
+
+    def test_tsaari_nikolai_ii(self) -> None:
+        result = normalize_finnish_text("tsaari Nikolai II")
+        assert "toinen" in result
+        assert "II" not in result
+
+    # -- Chapter / century ordinals -------------------------------------------
+
+    def test_luku_iv(self) -> None:
+        result = normalize_finnish_text("luku IV käsittelee")
+        assert "neljäs" in result
+        assert "IV" not in result
+
+    def test_xix_vuosisata(self) -> None:
+        result = normalize_finnish_text("XIX vuosisata")
+        assert "yhdeksästoista" in result
+        assert "XIX" not in result
+
+    def test_xx_luvulla(self) -> None:
+        result = normalize_finnish_text("XX luvulla")
+        assert "kahdeskymmenes" in result
+        assert "XX" not in result
+
+    def test_pykala_xii(self) -> None:
+        result = normalize_finnish_text("pykälä XII")
+        assert "kahdestoista" in result
+        assert "XII" not in result
+
+    # -- Cardinal fallback -----------------------------------------------------
+
+    def test_ii_alone_no_context(self) -> None:
+        result = normalize_finnish_text("II oli aikakausi")
+        assert "kaksi" in result
+        assert "II" not in result
+
+    def test_iv_with_unknown_preceding_word(self) -> None:
+        result = normalize_finnish_text("Talo IV")
+        # cardinal fallback — no regnal/title/section context
+        assert "neljä" in result
+        assert "IV" not in result
+
+    def test_mcm_year(self) -> None:
+        # MCM = 1900, no context → cardinal
+        result = normalize_finnish_text("MCM")
+        assert "tuhat yhdeksänsataa" in result
+        assert "MCM" not in result
+
+    # -- Blacklist checks ------------------------------------------------------
+
+    def test_dc_not_expanded(self) -> None:
+        result = normalize_finnish_text("DC power")
+        assert "DC" in result
+
+    def test_cv_not_expanded(self) -> None:
+        result = normalize_finnish_text("lähetä CV")
+        assert "CV" in result
+
+    def test_mvp_not_expanded(self) -> None:
+        result = normalize_finnish_text("tämän kauden MVP")
+        assert "MVP" in result
+
+    def test_lcd_not_expanded(self) -> None:
+        result = normalize_finnish_text("LCD näyttö")
+        assert "LCD" in result
+
+    # -- Single-letter guard ---------------------------------------------------
+
+    def test_standalone_i_not_expanded(self) -> None:
+        result = normalize_finnish_text("I said no")
+        # Single I must not be expanded (regex requires 2+ chars)
+        assert "I" in result
+
+    def test_standalone_v_not_expanded(self) -> None:
+        # Single V should not be touched
+        result = normalize_finnish_text("Olen paikalla. V kertaa.")
+        assert "V " in result or "V." in result
+
+    def test_standalone_x_not_expanded(self) -> None:
+        result = normalize_finnish_text("X marks the spot")
+        assert "X" in result
+
+    # -- Edge cases ------------------------------------------------------------
+
+    def test_invalid_roman_stays_unchanged(self) -> None:
+        # IIII is non-canonical (canonical is IV); _roman_to_int returns None.
+        # The regex matches IIII but the round-trip canonicity check rejects it,
+        # so the token is left unchanged.
+        assert _roman_to_int("IIII") is None
+        result = normalize_finnish_text("IIII")
+        assert "IIII" in result
+
+    def test_roman_at_sentence_start(self) -> None:
+        result = normalize_finnish_text("IX vuosisadalla")
+        assert "yhdeksäs" in result
+        assert "IX" not in result
+
+    def test_multiple_romans_in_one_sentence(self) -> None:
+        result = normalize_finnish_text("Kustaa II ja Juhana III")
+        assert "toinen" in result
+        assert "kolmas" in result
+        assert "II" not in result
+        assert "III" not in result
+
+    # -- _roman_to_int unit tests ----------------------------------------------
+
+    def test_roman_to_int_basic_values(self) -> None:
+        assert _roman_to_int("IV") == 4
+        assert _roman_to_int("IX") == 9
+        assert _roman_to_int("XIV") == 14
+        assert _roman_to_int("MCM") == 1900
+
+    def test_roman_to_int_invalid_returns_none(self) -> None:
+        assert _roman_to_int("IIII") is None
+        assert _roman_to_int("VV") is None
+        assert _roman_to_int("") is None
