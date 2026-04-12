@@ -32,6 +32,9 @@ installer/Unicode/
 *.pfx
 *.p12
 
+# Source PDFs — copyrighted material, must never be committed
+*.pdf
+
 # Personal voice recordings used as Chatterbox --ref-audio clips.
 # The user's own voice is personal data and must not be committed.
 voice_samples/
