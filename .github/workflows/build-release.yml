@@ -57,7 +57,7 @@ jobs:
       - name: Update Inno Setup version from tag
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          (Get-Content installer/setup.iss) -replace 'AppVersion=1\.0\.0', "AppVersion=$version" -replace 'AudiobookMaker-Setup-1\.0\.0', "AudiobookMaker-Setup-$version" | Set-Content installer/setup.iss
+          (Get-Content installer/setup.iss) -replace 'AppVersion=\d+\.\d+\.\d+', "AppVersion=$version" -replace 'AudiobookMaker-Setup-\d+\.\d+\.\d+', "AudiobookMaker-Setup-$version" | Set-Content installer/setup.iss
         shell: pwsh
 
       - name: Build installer
@@ -76,25 +76,25 @@ jobs:
           body: |
             ## AudiobookMaker ${{ steps.version.outputs.VERSION }}
 
+            Unified release — one app, one installer, all engines.
+
+            ### What's new
+
+            - Single unified GUI replaces both the old Main and Launcher installers
+            - Finnish/English UI language toggle
+            - PDF and plain text input modes
+            - In-app engine installer (install Chatterbox without leaving the app)
+            - Edge-TTS, Piper, and Chatterbox Finnish all in one window
+
             ### Installation
 
             1. Download `AudiobookMaker-Setup-${{ steps.version.outputs.VERSION }}.exe` below
-            2. Double-click the downloaded file
-            3. Windows will show a **"Windows protected your PC"** SmartScreen warning
-               because the installer is not code-signed. Click **More info** → **Run anyway**
-            4. Follow the installer prompts (Next → Next → Install)
-            5. Find AudiobookMaker in your Start Menu
+            2. Double-click — click **More info** → **Run anyway** on the SmartScreen warning
+            3. Follow the installer prompts
+            4. Open AudiobookMaker from the Start Menu
+            5. To add Chatterbox (best Finnish quality, needs NVIDIA GPU): click **Install engines** inside the app
 
-            No Python, ffmpeg, or other dependencies need to be installed separately —
-            everything is bundled in the single `.exe`.
-
-            #### Why the SmartScreen warning?
-
-            Windows flags all unsigned installers from unknown publishers. Silencing
-            the warning requires a paid code-signing certificate, which the project
-            does not currently have. The installer is safe to run — its full source
-            (PyInstaller spec + Inno Setup script + this GitHub Actions workflow)
-            lives in the repository and is built automatically on every tagged release.
+            No Python or other dependencies needed — everything is bundled.
           files: installer/Output/*.exe
           draft: false
           prerelease: false

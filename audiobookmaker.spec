@@ -29,6 +29,10 @@ hidden_imports = [
     'piper',
     'onnxruntime',
     'numpy',
+    # Finnish text normalizer
+    'num2words',
+    # Unified GUI extras
+    'tkinter.scrolledtext',
 ]
 
 hidden_imports += collect_submodules('edge_tts')
@@ -67,6 +71,8 @@ datas += collect_data_files('piper')
 # onnxruntime ships a few config/JSON files next to its native libs on
 # some platforms; bundle them to be safe.
 datas += collect_data_files('onnxruntime')
+# Finnish loanword lexicon used by the text normalizer
+datas += [(os.path.join('data', 'fi_loanwords.yaml'), 'data')]
 
 a = Analysis(
     [os.path.join('src', 'main.py')],
