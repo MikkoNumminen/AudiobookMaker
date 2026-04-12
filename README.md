@@ -27,6 +27,13 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
   voice description between sessions (config in `~/.audiobookmaker/config.json`)
 - Context-aware sentence splitter that handles Finnish and English
   abbreviations, initials, decimals, and domain names
+- Finnish text normalizer with **governor-word case detection**: numbers
+  inflect to agree with the surrounding preposition (`sivulta 42` →
+  `sivulta neljältäkymmeneltä kahdelta`, `luvussa 3` → `luvussa kolmessa`,
+  `klo 14` → `kello neljätoista`). Years follow the Kielikello radio
+  convention by default (nominative regardless of `vuodesta`/`vuoteen`);
+  flip `TTSConfig.year_shortening = "full"` to emit full case agreement
+  per VISK §772
 - Silence trimming between chunks for seamless audio
 - Single combined MP3 or one file per chapter
 - Simple Tkinter GUI
