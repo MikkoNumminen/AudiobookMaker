@@ -84,6 +84,163 @@ _FI_ELIDED_HYPHEN_RE = re.compile(
     r"(\w+)-(ja|tai|eli|sekä)\b", re.IGNORECASE
 )
 
+# Pass K: Finnish abbreviation expansion.
+#
+# Expands common Finnish abbreviations to their full spoken forms.
+# Must run before Pass C (century expressions) so that abbreviation
+# periods do not interfere with period-sensitive downstream patterns.
+# All expansions are emitted in lowercase regardless of input case.
+#
+# The `tri` trigger is special — it has no trailing period and only
+# expands before a space + capital letter (a person's name).
+
+_FI_ABBREV_MAP: dict[str, str] = {
+    # Reference abbreviations (sorted longest-first for regex alternation)
+    "yms.": "ynnä muuta sellaista",
+    "tms.": "tai muuta sellaista",
+    "jne.": "ja niin edelleen",
+    "vrt.": "vertaa",
+    "huom.": "huomaa",
+    "esim.": "esimerkiksi",
+    "ts.": "toisin sanoen",
+    "ks.": "katso",
+    "ym.": "ynnä muuta",
+    "mm.": "muun muassa",
+    "nk.": "niin kutsuttu",
+    "ns.": "niin sanottu",
+    "ko.": "kyseinen",
+    "ao.": "asianomainen",
+    "ed.": "edellinen",
+    # Era abbreviations
+    "eKr.": "ennen Kristusta",
+    "jKr.": "jälkeen Kristuksen",
+    "eaa.": "ennen ajanlaskun alkua",
+    "jaa.": "jälkeen ajanlaskun alun",
+    # Titles
+    "prof.": "professori",
+    "dos.": "dosentti",
+    "fil.": "filosofian",
+    "maist.": "maisteri",
+    "kand.": "kandidaatti",
+    "toim.": "toimittaja",
+    # Count / quantity
+    "kpl.": "kappaletta",
+    "milj.": "miljoonaa",
+    "mrd.": "miljardia",
+}
+
+# Build one regex alternation sorted longest-first to prevent partial matches.
+_FI_ABBREV_RE = re.compile(
+    r"\b(" + "|".join(
+        re.escape(k) for k in sorted(_FI_ABBREV_MAP, key=len, reverse=True)
+    ) + r")",
+    re.IGNORECASE,
+)
+
+# `tri` without period: only expand when followed by space + capital letter
+# (i.e. a person's name). Word boundary at start; lookahead for the name.
+_FI_TRI_RE = re.compile(r"\btri(?=\s+[A-ZÄÖÅ])")
+
+
+def _expand_abbreviations(text: str) -> str:
+    """Expand Finnish abbreviations to their full spoken forms (Pass K).
+
+    Uses a case-insensitive match and always emits the lowercase expansion.
+    The special case `tri` (without a period) is expanded to `tohtori` only
+    when immediately followed by a space and a capital letter (a person's name).
+    """
+    def _abbrev_sub(m: re.Match) -> str:
+        key = m.group(1).lower()
+        # eKr. and jKr. have mixed case keys — look up both variants
+        expansion = _FI_ABBREV_MAP.get(key)
+        if expansion is None:
+            # Try original capitalisation (for eKr. / jKr.)
+            expansion = _FI_ABBREV_MAP.get(m.group(1))
+        return expansion if expansion is not None else m.group(1)
+
+    text = _FI_ABBREV_RE.sub(_abbrev_sub, text)
+    text = _FI_TRI_RE.sub("tohtori", text)
+    return text
+
+
+# Pass M: measurement unit / currency symbol expansion.
+#
+# Replaces numeric-prefixed unit symbols with their Finnish partitive forms
+# so Pass G's governor detection sees `5 prosenttia` and picks nominative
+# from `_FI_GOVERNOR_AFTER["prosenttia"]`.  Must run before Pass C/D/F/G.
+#
+# Units are ordered longest-first in the alternation to avoid partial matches
+# (e.g. `°C` before bare `C`, `km` before bare `m`).
+
+_FI_UNIT_MAP: list[tuple[str, str]] = [
+    # Temperature (allow optional negative sign on the digit)
+    ("°C", "celsiusastetta"),
+    ("°F", "fahrenheitastetta"),
+    # Length (multi-char first)
+    ("km", "kilometriä"),
+    ("cm", "senttimetriä"),
+    ("mm", "millimetriä"),
+    ("m", "metriä"),
+    # Mass (multi-char first)
+    ("kg", "kilogrammaa"),
+    ("mg", "milligrammaa"),
+    ("g", "grammaa"),
+    ("t", "tonnia"),
+    # Volume (multi-char first)
+    ("ml", "millilitraa"),
+    ("dl", "desilitraa"),
+    ("cl", "senttilitraa"),
+    ("l", "litraa"),
+    # Time
+    ("min", "minuuttia"),
+    # Currency (suffix — after number)
+    ("€", "euroa"),
+    ("£", "puntaa"),
+    # Percent / per-mille
+    ("%", "prosenttia"),
+    ("‰", "promillea"),
+    # Legacy Finnish currency
+    ("mk", "markkaa"),
+]
+
+# Build a single regex: (-?\d+(?:[.,]\d+)?)\s*(<unit>) followed by a
+# negative lookahead for word characters so word-character units like `km`
+# are not greedily matched mid-word, while symbol units like `%` and `€`
+# (which are non-word chars and don't support `\b`) still match correctly.
+# Units are sorted longest-first.
+_FI_UNIT_RE = re.compile(
+    r"(-?\d+(?:[.,]\d+)?)\s*("
+    + "|".join(
+        re.escape(sym) for sym, _ in _FI_UNIT_MAP
+    )
+    + r")(?!\w)",
+)
+
+# Dollar sign precedes the number: $5 → 5 dollaria
+_FI_DOLLAR_RE = re.compile(r"\$\s*(\d+(?:[.,]\d+)?)")
+
+# Lookup dict for unit expansion (symbol → Finnish word).
+_FI_UNIT_LOOKUP: dict[str, str] = {sym: word for sym, word in _FI_UNIT_MAP}
+
+
+def _expand_unit_symbols(text: str) -> str:
+    """Expand numeric unit symbols to Finnish partitive forms (Pass M).
+
+    Keeps the digit token in place so Pass G's governor table can still
+    detect the unit word and assign nominative case to the numeral.
+    """
+    # Dollar sign: prefix form — convert first.
+    text = _FI_DOLLAR_RE.sub(r"\1 dollaria", text)
+
+    def _unit_sub(m: re.Match) -> str:
+        number = m.group(1)
+        sym = m.group(2)
+        word = _FI_UNIT_LOOKUP.get(sym, sym)
+        return f"{number} {word}"
+
+    return _FI_UNIT_RE.sub(_unit_sub, text)
+
+
 # Pass C: century/era expressions — digit + "-luku" declension suffix.
 _FI_CENTURY_SUFFIXES = (
     "luvulla",
@@ -210,6 +367,19 @@ _FI_GOVERNOR_AFTER: dict[str, str] = {
     "euroa": "nominative",
     "senttiä": "nominative",
     "markkaa": "nominative",
+    # Added for Pass M unit expansion
+    "milligrammaa": "nominative",
+    "millilitraa": "nominative",
+    "desilitraa": "nominative",
+    "senttilitraa": "nominative",
+    "litraa": "nominative",
+    "tonnia": "nominative",
+    "celsiusastetta": "nominative",
+    "fahrenheitastetta": "nominative",
+    "dollaria": "nominative",
+    "puntaa": "nominative",
+    "miljoonaa": "nominative",
+    "miljardia": "nominative",
 }
 
 # Year governors — trigger last-part / radio-convention handling when
@@ -351,19 +521,28 @@ def normalize_finnish_text(
     # Pass B — elided-hyphen compounds (just insert a space).
     text = _FI_ELIDED_HYPHEN_RE.sub(r"\1- \2", text)
 
+    # Pass K — Finnish abbreviation expansion. Must run before Pass C so
+    # abbreviation periods do not interfere with period-sensitive patterns.
+    text = _expand_abbreviations(text)
+
+    # Pass M — measurement unit / currency symbol expansion. Must run
+    # before Pass D/F/G so the digit prefix stays intact for governor
+    # detection (e.g. `5 prosenttia` → Pass G picks nominative).
+    text = _expand_unit_symbols(text)
+
     # Pass C — century expressions.
     def _century_sub(m: re.Match) -> str:
         return f"{_w(int(m.group(1)))} {m.group(2)}"
 
     text = _FI_CENTURY_RE.sub(_century_sub, text)
 
-    # Pass D — numeric ranges (must run before decimals/bare ints).
-    # Endpoints fall back to nominative — per-endpoint governor
-    # detection is a future improvement.
-    def _range_sub(m: re.Match) -> str:
-        return f"{_w(int(m.group(1)))} {_w(int(m.group(2)))}"
-
-    text = _FI_RANGE_RE.sub(_range_sub, text)
+    # Pass D — numeric ranges. Split the endpoints on the dash and let
+    # Pass G's tokenizer + governor detection handle each endpoint
+    # independently. `vuosina 1914-1918` under year_shortening="full"
+    # inflects both endpoints in essive; under "radio" both stay
+    # nominative. The regex only matches 3-4 digit ranges to avoid
+    # collision with short math expressions (a session 2 concern).
+    text = _FI_RANGE_RE.sub(r"\1 \2", text)
 
     # Pass E — abbreviation expansion only. "s. 42" → "sivu 42",
     # "ss. 42-45" → "sivut 42-45". The digit is left for Pass G so

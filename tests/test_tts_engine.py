@@ -595,3 +595,177 @@ class TestTextToSpeech:
                 assert os.path.getsize(out) > 0
             finally:
                 os.unlink(out)
+
+
+# ---------------------------------------------------------------------------
+# Pass K — Finnish abbreviation expansion
+# ---------------------------------------------------------------------------
+
+
+class TestAbbreviationExpansion:
+    def test_esim_expanded(self) -> None:
+        result = normalize_finnish_text("Esim. tämä")
+        assert "esimerkiksi" in result
+        assert "esim." not in result.lower()
+
+    def test_mm_with_period_is_muun_muassa(self) -> None:
+        result = normalize_finnish_text("Tämä on mm. hyvä.")
+        assert "muun muassa" in result
+        assert "millimetriä" not in result
+
+    def test_jne(self) -> None:
+        result = normalize_finnish_text("ja niin edelleen jne.")
+        assert "ja niin edelleen" in result
+
+    def test_yms(self) -> None:
+        result = normalize_finnish_text("koirat, kissat yms.")
+        assert "ynnä muuta sellaista" in result
+
+    def test_eaa(self) -> None:
+        result = normalize_finnish_text("vuonna 500 eaa.")
+        assert "ennen ajanlaskun alkua" in result
+
+    def test_ekr(self) -> None:
+        result = normalize_finnish_text("syntyi 100 eKr.")
+        assert "ennen Kristusta" in result
+
+    def test_tri_before_capital_name(self) -> None:
+        result = normalize_finnish_text("tri Virtanen tuli")
+        assert "tohtori Virtanen" in result
+        assert "tri Virtanen" not in result
+
+    def test_tri_not_expanded_without_capital_name(self) -> None:
+        # `tri` alone (followed by lowercase) must NOT be expanded
+        result = normalize_finnish_text("tri on lyhenne")
+        assert "tri" in result
+        assert "tohtori" not in result
+
+    def test_case_insensitive_match(self) -> None:
+        for variant in ("Ts. tämä on", "TS. tämä on", "ts. tämä on"):
+            result = normalize_finnish_text(variant)
+            assert "toisin sanoen" in result, f"Failed for: {variant!r}"
+
+    def test_prof_expanded(self) -> None:
+        result = normalize_finnish_text("prof. Mäkinen puhui")
+        assert "professori" in result
+        assert "prof." not in result
+
+    def test_dos_expanded(self) -> None:
+        result = normalize_finnish_text("dos. Korhonen kirjoitti")
+        assert "dosentti" in result
+        assert "dos." not in result
+
+    def test_abbrev_does_not_eat_random_word_ending_in_same_letters(self) -> None:
+        # "nero" should not be treated as if it starts with "ns." or "nk."
+        result = normalize_finnish_text("nero on lahjakas")
+        assert "nero" in result
+
+
+# ---------------------------------------------------------------------------
+# Pass M — measurement unit / currency symbol expansion
+# ---------------------------------------------------------------------------
+
+
+class TestUnitSymbolExpansion:
+    def test_percent_with_space(self) -> None:
+        result = normalize_finnish_text("5 %")
+        assert "viisi prosenttia" in result
+
+    def test_percent_without_space(self) -> None:
+        result = normalize_finnish_text("5%")
+        assert "viisi prosenttia" in result
+
+    def test_per_mille(self) -> None:
+        result = normalize_finnish_text("3 \u2030")
+        assert "kolme promillea" in result
+
+    def test_euros(self) -> None:
+        result = normalize_finnish_text("20 \u20ac")
+        assert "kaksikymmentä euroa" in result
+
+    def test_dollars_prefix(self) -> None:
+        result = normalize_finnish_text("$5")
+        assert "viisi dollaria" in result
+
+    def test_kilometers(self) -> None:
+        result = normalize_finnish_text("3 km")
+        assert "kolme kilometriä" in result
+
+    def test_centimeters(self) -> None:
+        result = normalize_finnish_text("15 cm")
+        assert "viisitoista senttimetriä" in result
+
+    def test_millimeters_unit_not_abbrev(self) -> None:
+        # `5 mm` (digit + mm, no period) must expand as unit, not abbreviation
+        result = normalize_finnish_text("5 mm")
+        assert "viisi millimetriä" in result
+        assert "muun muassa" not in result
+
+    def test_kilograms(self) -> None:
+        result = normalize_finnish_text("2 kg")
+        assert "kaksi kilogrammaa" in result
+
+    def test_temperature_celsius_positive(self) -> None:
+        result = normalize_finnish_text("20 \u00b0C")
+        assert "kaksikymmentä celsiusastetta" in result
+
+    def test_temperature_celsius_negative(self) -> None:
+        # Negative temperature: -5 °C — the number part is negative
+        result = normalize_finnish_text("-5 \u00b0C")
+        assert "celsiusastetta" in result
+
+    def test_minutes(self) -> None:
+        result = normalize_finnish_text("5 min")
+        assert "viisi minuuttia" in result
+
+    def test_unit_does_not_match_without_digit_prefix(self) -> None:
+        result = normalize_finnish_text("kilometrin matka")
+        assert "kilometrin" in result
+        # Should not be expanded (no digit prefix)
+        assert "kilometriä" not in result
+
+    def test_mm_alone_without_digit_is_not_a_unit(self) -> None:
+        # `mm.` with a period is the abbreviation "muun muassa", not a unit
+        result = normalize_finnish_text("mm. on hyvä")
+        assert "muun muassa" in result
+        assert "millimetriä" not in result
+
+    def test_cm_before_km_disambiguation(self) -> None:
+        result = normalize_finnish_text("5 cm ja 10 km")
+        assert "viisi senttimetriä" in result
+        assert "kymmenen kilometriä" in result
+
+
+# ---------------------------------------------------------------------------
+# Pass D (range polish) — per-endpoint governor inflection via Pass G
+# ---------------------------------------------------------------------------
+
+
+class TestRangePolish:
+    def test_year_range_radio_default_both_nominative(self) -> None:
+        # Default radio mode: year governor overrides case to nominative
+        result = normalize_finnish_text("vuosina 1914-1918")
+        # Both endpoints contain tuhat yhdeksänsataa (nominative prefix)
+        assert result.count("tuhat yhdeksänsataa") >= 2
+        # Essive form must NOT appear
+        assert "tuhantena" not in result
+
+    def test_year_range_full_mode_both_inflect(self) -> None:
+        result = normalize_finnish_text(
+            "vuosina 1914-1918", year_shortening="full"
+        )
+        # Essive form must appear for both endpoints
+        assert result.count("tuhantena") >= 2
+
+    def test_range_with_vuodesta_governor_full_mode(self) -> None:
+        result = normalize_finnish_text(
+            "vuodesta 1917-1920", year_shortening="full"
+        )
+        # Both endpoints should have the elative form
+        assert result.count("tuhannesta") >= 2
+
+    def test_range_with_no_governor_falls_back_to_nominative(self) -> None:
+        result = normalize_finnish_text("1500-1800")
+        # Both endpoints in nominative (no governor)
+        assert "tuhat viisisataa" in result
+        assert "tuhat kahdeksansataa" in result
