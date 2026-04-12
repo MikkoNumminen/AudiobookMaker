@@ -28,6 +28,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Optional
 
 from src import app_config
+from src.auto_updater import check_for_update, download_update, apply_update, APP_VERSION, UpdateInfo
 from src.ffmpeg_path import setup_ffmpeg_path
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
 from src.pdf_parser import parse_pdf
@@ -156,6 +157,11 @@ _STRINGS = {
         "no_file_selected": "Ei tiedostoa valittu",
         "no_output_selected": "Ei valittu",
         "select_input_prompt": "Valitse syöte ja paina Muunna.",
+        "update_available": "Versio {version} saatavilla.",
+        "update_now": "Päivitä nyt",
+        "update_downloading": "Ladataan päivitystä...",
+        "update_installing": "Asennetaan päivitys...",
+        "update_failed": "Päivitys epäonnistui.",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -202,6 +208,11 @@ _STRINGS = {
         "no_file_selected": "No file selected",
         "no_output_selected": "Not selected",
         "select_input_prompt": "Select input and press Convert.",
+        "update_available": "Version {version} available.",
+        "update_now": "Update now",
+        "update_downloading": "Downloading update...",
+        "update_installing": "Installing update...",
+        "update_failed": "Update failed.",
     },
 }
 
@@ -234,6 +245,7 @@ class UnifiedApp(tk.Tk):
         self._chatterbox_runner: Optional[ChatterboxRunner] = None
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
         self._log_visible = False
+        self._pending_update: Optional[UpdateInfo] = None
 
         # Load persisted preferences.
         self._user_cfg = app_config.load()
@@ -250,6 +262,13 @@ class UnifiedApp(tk.Tk):
 
         # Apply UI language (updates all widget texts).
         self._apply_ui_language()
+
+        # Check for updates in background (non-blocking).
+        self._update_queue: "queue.Queue[UpdateInfo]" = queue.Queue()
+        threading.Thread(
+            target=self._check_update_worker, daemon=True, name="update-check",
+        ).start()
+        self.after(500, self._poll_update_check)
 
     # ------------------------------------------------------------------
     # Window helpers
@@ -382,6 +401,15 @@ class UnifiedApp(tk.Tk):
         else:
             self._log_toggle_btn.config(text=s("show_log"))
 
+        # Update banner.
+        if self._pending_update and self._pending_update.available:
+            self._update_label.config(
+                text=s("update_available").format(
+                    version=self._pending_update.latest_version
+                )
+            )
+            self._update_btn.config(text=s("update_now"))
+
         # UI lang combobox — keep it in sync.
         self._ui_lang_var.set("Suomi" if self._ui_lang == "fi" else "English")
 
@@ -396,13 +424,33 @@ class UnifiedApp(tk.Tk):
         self.rowconfigure(0, weight=1)
         main.columnconfigure(0, weight=1)
         # Let log panel row stretch.
-        main.rowconfigure(5, weight=1)
+        main.rowconfigure(6, weight=1)
 
-        self._build_input_tabs(main, row=0)
-        self._build_settings_frame(main, row=1)
-        self._build_output_frame(main, row=2)
-        self._build_progress_frame(main, row=3)
-        self._build_log_panel(main, row=4, stretch_row=5)
+        self._build_update_banner(main, row=0)
+        self._build_input_tabs(main, row=1)
+        self._build_settings_frame(main, row=2)
+        self._build_output_frame(main, row=3)
+        self._build_progress_frame(main, row=4)
+        self._build_log_panel(main, row=5, stretch_row=6)
+
+    # ---- 0. Update banner ---------------------------------------------
+
+    def _build_update_banner(self, parent: ttk.Frame, row: int) -> None:
+        self._update_banner = ttk.Frame(parent)
+        self._update_banner.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self._update_banner.columnconfigure(0, weight=1)
+
+        self._update_label = ttk.Label(self._update_banner, text="")
+        self._update_label.grid(row=0, column=0, sticky="w", padx=(0, 8))
+
+        self._update_btn = ttk.Button(
+            self._update_banner, text=self._s("update_now"),
+            command=self._on_update_click,
+        )
+        self._update_btn.grid(row=0, column=1)
+
+        # Hidden by default.
+        self._update_banner.grid_remove()
 
     # ---- 1. Input tabs ------------------------------------------------
 
@@ -1498,6 +1546,108 @@ class UnifiedApp(tk.Tk):
         self._log_text.insert(tk.END, line + "\n")
         self._log_text.see(tk.END)
         self._log_text.configure(state=tk.DISABLED)
+
+    # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+
+    def _check_update_worker(self) -> None:
+        """Background thread: check GitHub for a newer version."""
+        try:
+            info = check_for_update(APP_VERSION)
+            self._update_queue.put(info)
+        except Exception:
+            pass  # Silently ignore — no banner shown.
+
+    def _poll_update_check(self) -> None:
+        """Tk main-thread poller: pick up the update-check result."""
+        try:
+            info = self._update_queue.get_nowait()
+        except queue.Empty:
+            self.after(500, self._poll_update_check)
+            return
+
+        if info.available:
+            self._pending_update = info
+            self._update_label.config(
+                text=self._s("update_available").format(
+                    version=info.latest_version
+                )
+            )
+            self._update_btn.config(text=self._s("update_now"))
+            self._update_banner.grid()
+
+    def _on_update_click(self) -> None:
+        """User clicked the update button — download and install."""
+        if self._pending_update is None:
+            return
+
+        self._update_btn.config(
+            state=tk.DISABLED,
+            text=self._s("update_downloading"),
+        )
+
+        threading.Thread(
+            target=self._download_update_worker, daemon=True,
+            name="update-download",
+        ).start()
+        self.after(self.POLL_INTERVAL_MS, self._pump_update_download)
+
+    def _download_update_worker(self) -> None:
+        """Background thread: download the installer."""
+        assert self._pending_update is not None
+        try:
+            def progress_cb(done: int, total: int) -> None:
+                if total > 0:
+                    self._event_queue.put(
+                        ProgressEvent(
+                            kind="chunk",
+                            total_done=done,
+                            total_chunks=total,
+                            raw_line=self._s("update_downloading"),
+                        )
+                    )
+
+            installer_path = download_update(self._pending_update, progress_cb)
+            self._event_queue.put(
+                ProgressEvent(
+                    kind="update_done",
+                    raw_line=str(installer_path),
+                )
+            )
+        except Exception as exc:
+            self._event_queue.put(
+                ProgressEvent(kind="update_failed", raw_line=str(exc))
+            )
+
+    def _pump_update_download(self) -> None:
+        """Tk main-thread pump for update download progress."""
+        while True:
+            try:
+                ev = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if ev.kind == "chunk":
+                if ev.total_chunks > 0:
+                    self._progress_var.set(
+                        (ev.total_done / ev.total_chunks) * 1000
+                    )
+            elif ev.kind == "update_done":
+                self._progress_var.set(1000)
+                self._update_btn.config(text=self._s("update_installing"))
+                installer_path = Path(ev.raw_line)
+                self.after(200, lambda: apply_update(installer_path))
+                return
+            elif ev.kind == "update_failed":
+                self._update_btn.config(
+                    state=tk.NORMAL,
+                    text=self._s("update_failed"),
+                )
+                self._progress_var.set(0)
+                return
+
+        self.after(self.POLL_INTERVAL_MS, self._pump_update_download)
 
     # ------------------------------------------------------------------
     # Error helper
