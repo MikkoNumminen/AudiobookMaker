@@ -17,6 +17,13 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Finnish normalizer — Tier 1 follow-ups (governor detection shipped)
+- [ ] Pass K — abbreviation expansion lexicon (`yms`, `esim`, `ts`, `ml`, `nk`, `ns`, `vrt`, `huom`, `ym`, `mm`, `jne`, `tms`, `ed.`, `ao.`, `ko.`). Spec: `docs/finnish_normalizer_design.md` §3. 🔴 🧠 Opus
+- [ ] Pass L — Roman numeral expansion with ordinal + context detection (`Pius IX` → "Pius yhdeksäs", `Kustaa II Aadolf`, `1. luku`, `XIX vuosisata`). Must NOT eat regular I/V/X words mid-sentence. Spec: `docs/finnish_normalizer_design.md` §4. 🟡 🧠 Opus
+- [ ] Pass M — percent / currency / measurement unit rendering (`5 %` → "viisi prosenttia", `20 €` → "kaksikymmentä euroa", `3 km` → "kolme kilometriä"). Spec: `docs/finnish_normalizer_design.md` §5. 🟡 🧠 Opus
+- [ ] Pass I — loanword lexicon YAML (`data/fi_loanwords.yaml`) covering `-ismi`, non-`valtio` `-tio`, Latin legal phrases, foreign place names, person names. Apply AFTER num2words. Spec: `docs/finnish_normalizer_design.md` §2 + `docs/finnish_tts_failure_inventory.md`. 🔴 🧠 Opus
+- [ ] Per-endpoint governor detection on Pass D (numeric ranges) — currently both endpoints fall back to nominative, but `sivuilta 42–45` should inflect both endpoints to ablative. 🟡 🧠 Opus
+
 ### Local disk cleanup (deferred — Mac still in use)
 - [ ] After Turo's fast-track audiobook run succeeds AND no more local Chatterbox dev is needed, delete `.venv-chatterbox/` (symlink) + `.venv-qwen/` (1.4 GB real venv — originally named `.venv-qwen` from the dead Qwen investigation, later repurposed for Chatterbox), `~/.cache/huggingface/hub/models--ResembleAI--chatterbox` (6.0 GB), `~/.cache/huggingface/hub/models--Finnish-NLP--Chatterbox-Finnish` (2.0 GB). Total ~9.4 GB reclaimable. Do NOT delete while the Mac is still being used for dev. 🟢 ⚡ Sonnet
 
