@@ -34,6 +34,15 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
   convention by default (nominative regardless of `vuodesta`/`vuoteen`);
   flip `TTSConfig.year_shortening = "full"` to emit full case agreement
   per VISK §772
+- **Voice cloning in your own voice** via
+  [scripts/record_voice_sample.py](scripts/record_voice_sample.py) —
+  record a 12 s reference clip through your Mac's built-in mic,
+  auto-trim leading/trailing silence, run a v7 quality-floor preflight
+  (sample rate, clipping, SNR, loudness, duration), and immediately
+  synthesize arbitrary text in the cloned voice via Chatterbox-Finnish.
+  Same script runs on both Mac (CPU iteration) and Windows (`--tts-device
+  cuda` for production-quality GPU runs). Your recordings land in a
+  gitignored `voice_samples/` directory and never leave your machine
 - Silence trimming between chunks for seamless audio
 - Single combined MP3 or one file per chapter
 - Simple Tkinter GUI
@@ -363,6 +372,58 @@ does all of the dev-script plumbing described above (venv, torch,
 chatterbox-tts, Finnish-NLP finetune, gemination patch) automatically
 behind a progress bar. **You do NOT need to run `dev_chatterbox_fi.py`
 or touch Python directly.**
+
+### `scripts/record_voice_sample.py` — record your own voice → clone → TTS
+
+End-to-end helper that records a reference clip through your Mac's
+(or Windows') microphone, validates it against the v7 quality floor,
+and immediately synthesizes arbitrary text in the cloned voice. Same
+command works on both Mac (iteration build, CPU) and Windows (full
+quality, `--tts-device cuda`).
+
+```bash
+# List input devices — find the right mic
+.venv/bin/python scripts/record_voice_sample.py --list-devices
+
+# Record + preflight + synthesize a test sentence (Mac CPU)
+.venv/bin/python scripts/record_voice_sample.py \
+    --synthesize "Terve. Tämä on minun ääneni testi."
+
+# Reuse an existing clip (skip the recording step)
+.venv/bin/python scripts/record_voice_sample.py \
+    --use-existing voice_samples/mikko_001.wav \
+    --synthesize "Uusi testi samalla äänellä."
+
+# Production run on the NVIDIA GPU machine
+.venv\Scripts\python.exe scripts\record_voice_sample.py ^
+    --use-existing voice_samples\mikko_001.wav ^
+    --synthesize-file chapter_01.txt ^
+    --tts-device cuda --synthesis-output out\chapter_01_mikko.mp3
+```
+
+The preflight enforces all of:
+
+1. Sample rate ≥ 16 kHz
+2. Duration 5–30 s
+3. Zero clipped samples (< 0.05%)
+4. RMS loudness in `-35…-10` dBFS
+5. SNR ≥ 15 dB (rough estimate from frame-power distribution)
+6. Auto-trim of leading/trailing silence
+
+If any check fails the script exits non-zero and refuses to synthesize.
+Pass `--skip-preflight` to override for dev work — not recommended for
+real samples. Your recordings land in `voice_samples/`, which is
+gitignored so your voice never gets committed.
+
+Under the hood the `--synthesize` flag shells out to
+`dev_chatterbox_fi.py` with `--ref-audio <your clip>`, `--finnish-finetune`,
+and `--chunk-chars 35` so every sentence becomes its own Chatterbox
+chunk — this bypasses the upstream early-EOS bug that truncates
+multi-sentence inputs. Hyper-params are locked to the v7 Turo production
+values (`cfg_weight=0.3`, `temperature=0.8`, `exaggeration=0.5`). 276
+unit tests cover the preflight logic end-to-end against synthetic
+WAV fixtures — no audio device or network required to run the test
+suite.
 
 If you want to run the whole book synthesis from a terminal instead
 of the launcher, see `scripts/generate_chatterbox_audiobook.py` for
