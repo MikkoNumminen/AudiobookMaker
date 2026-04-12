@@ -17,6 +17,14 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Next session — three candidate paths (pick one)
+
+The Finnish normalizer is at a natural stopping point: 16 passes shipped, 419 tests green, Tier 1 mechanical layer complete. These are the three realistic ways to push further, in order of "user impact vs effort":
+
+1. **🛑 Stop and wait for audio feedback.** Ship the current normalizer to Turo's GPU machine, listen to a chapter, collect specific failures. This is the only path that gets us ground-truth audio validation — all other work is speculation until we hear a real run. Opus judgment call when the time comes.
+2. **🔴 🧠 Long compound word seam splitter (Pass P).** The biggest remaining unhandled class from `docs/finnish_tts_failure_inventory.md` — 576 unique compounds (≥20 chars) in the Turo book. Two implementation strategies to decide between before coding: (a) manual seam lexicon of ~300-500 compound boundaries like `oikeus-`, `rangaistus-`, `menettely-`, or (b) libvoikko integration (heavy C-library dependency, installer complexity). Full session of its own.
+3. **🟡 🧠 Heuristic acronym fallback for unknown all-caps.** Smaller than (2) but higher false-positive risk. Current Pass N is whitelist-only — adding a heuristic for unknown ALL-CAPS tokens ≥2 letters needs a small-caps-heading guard (`KESKI JA AJALLA` is a heading, not an acronym). Needs careful design.
+
 ### Voice cloning — real-world end-to-end validation
 - [ ] Test `scripts/record_voice_sample.py` live with a real 12 s recording of the user's own voice — raise the macOS **System Settings → Sound → Input → Input volume** slider to ~85% first (work calls like Zoom/Teams leave it at ~5–10% which fails preflight at ~−47 dBFS loudness despite 40+ dB SNR). Then re-run with `--synthesize "Terve. Tämä on minun ääneni testi. Kohta keitetään kahvit."`, confirm the preflight passes with loudness in −25…−15 dBFS, verify Chatterbox finishes and the playback sounds like v7-quality Finnish in the user's cloned voice. Log the final MP3 path + per-check numbers for future reference. 🟢 ⚡ Sonnet
 - [ ] If the first clip passes but cloning quality is below v7, iterate: (a) re-record longer (20 s), (b) re-record with more varied prosody, (c) experiment with an explicit `--ref-audio` path and compare vs auto-detected flow. 🟡 🧠 Opus
