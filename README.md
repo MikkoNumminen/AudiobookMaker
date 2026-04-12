@@ -53,6 +53,16 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
   `vuosina 1914–1918` under `year_shortening="full"` emits both years
   in essive per VISK §772; under the default radio mode both remain
   in nominative
+- **Finnish loanword respelling** (Pass I): a curated YAML lexicon at
+  [data/fi_loanwords.yaml](data/fi_loanwords.yaml) covers `-ismi` /
+  `-tio` loanwords, Latin legal phrases, and foreign place / personal
+  names. Chatterbox-Finnish mispronounces words like `humanismi`,
+  `konsiliarismissa`, `instituutio`, `ius commune`, and `Wittenberg`;
+  Pass I rewrites them into phonetic equivalents Chatterbox handles
+  correctly (`humanis-mi`, `konsiliaris-missa`, `instituu-tio`,
+  `jus kommune`, `Vittenberg`). Stem whitelists preserve all Finnish
+  case declensions automatically and are audited so the native word
+  `valtio` (and 15+ of its declensions) is **never** touched
 - **Voice cloning in your own voice** via
   [scripts/record_voice_sample.py](scripts/record_voice_sample.py) —
   record a 12 s reference clip through your Mac's built-in mic,
