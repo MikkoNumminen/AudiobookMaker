@@ -63,6 +63,28 @@ Converts PDF files into audiobooks. Load a PDF, press a button, get an MP3.
   `jus kommune`, `Vittenberg`). Stem whitelists preserve all Finnish
   case declensions automatically and are audited so the native word
   `valtio` (and 15+ of its declensions) is **never** touched
+- **Roman numeral expansion** (Pass L) with context-aware ordinal
+  detection: `Kustaa II Aadolf` → `Kustaa toinen Aadolf`,
+  `paavi Pius IX` → `paavi Pius yhdeksäs`, `XIX vuosisata` →
+  `yhdeksästoista vuosisata`, `luku IV käsittelee` → `luku neljäs
+  käsittelee`. Regnal names and chapter heads trigger ordinals;
+  everything else is cardinal. A hard blacklist skips modern
+  acronyms (`DC`, `LCD`, `MVP`, `CV`, `CI`, `MD`, `ID`) that happen
+  to be valid Roman numerals. Single letters (`I`, `V`, `X`) are
+  never expanded
+- **Input cleanup** (metadata paren drop + ellipsis / TOC / ISBN):
+  parenthesized ISBN / DOI / Creative Commons markers are stripped,
+  runs of 3+ dots collapse to a single Unicode ellipsis, PDF table-
+  of-contents dot-leaders (`RAJAT..............42`) are removed, and
+  bare ISBN-13 numbers are dropped from prose
+- **Known-acronym expansion** (Pass N): a fixed whitelist expands
+  common acronyms to their Finnish spoken forms — `EU` →
+  `Euroopan unioni`, `YK` → `Yhdistyneet kansakunnat`, `USA` →
+  `Yhdysvallat`, `NATO` → `Nato`, plus letter-by-letter readings
+  for German legal codes (`ALR`, `ABGB`, `BGB`, `HGB`, `StGB`),
+  Finnish codes (`RL`, `SL`), and modern tech (`PDF`, `URL`, `API`).
+  Exact-case and word-boundary anchored — `NATOn` stays untouched
+  because the inflected form is a single token
 - **Voice cloning in your own voice** via
   [scripts/record_voice_sample.py](scripts/record_voice_sample.py) —
   record a 12 s reference clip through your Mac's built-in mic,
