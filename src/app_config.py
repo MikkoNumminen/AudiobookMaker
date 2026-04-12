@@ -42,6 +42,18 @@ class UserConfig:
     """Free-text description of the desired voice for engines that
     support it (e.g. VoxCPM2). Ignored by engines that don't."""
 
+    input_mode: str = "pdf"
+    """Last used input mode: 'pdf' or 'text'."""
+
+    output_mode: str = "single"
+    """Output mode: 'single' (one MP3) or 'chapters' (per chapter)."""
+
+    log_panel_visible: bool = False
+    """Whether the log panel was visible last session."""
+
+    ui_language: str = "fi"
+    """UI display language: 'fi' (Finnish) or 'en' (English)."""
+
 
 def load() -> UserConfig:
     """Load user config from disk, or return defaults if missing/broken."""
@@ -55,7 +67,7 @@ def load() -> UserConfig:
     # Only accept keys that match the dataclass fields — ignore any legacy
     # entries so a stale config file can't crash the app.
     allowed = set(UserConfig.__dataclass_fields__.keys())
-    filtered = {k: v for k, v in raw.items() if k in allowed and isinstance(v, str)}
+    filtered = {k: v for k, v in raw.items() if k in allowed and isinstance(v, (str, bool))}
     return UserConfig(**filtered)
 
 
