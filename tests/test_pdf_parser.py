@@ -39,6 +39,7 @@ def _make_pdf(pages: list[str], title: str = "", author: str = "") -> str:
         doc.set_metadata({"title": title, "author": author})
 
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp.close()  # close before save — Windows locks open files
     doc.save(tmp.name)
     doc.close()
     return tmp.name
@@ -294,9 +295,9 @@ class TestParsePdfErrors:
         )
         page.insert_text((50, 72), body, fontsize=12)
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp.close()  # close before save — Windows locks open files
         doc.save(tmp.name)
         doc.close()
-        tmp.close()
         try:
             book = parse_pdf(tmp.name)
             # Exactly two chapters — the "1500." line must NOT start a new one.
