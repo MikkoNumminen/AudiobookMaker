@@ -55,10 +55,10 @@ Spanish are also supported.
 
 ## Installation
 
-**Download:** [AudiobookMaker v2.3.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v2.3.0)
+**Download:** [AudiobookMaker v2.3.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v2.3.1)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-2.3.0.exe`
+1. Download `AudiobookMaker-Setup-2.3.1.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
