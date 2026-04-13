@@ -7,11 +7,30 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
+[![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 Turn a PDF (or plain text) into an audiobook. Pick a file, press a button, get an MP3.
 
 Works best with Finnish text, but English, German, Swedish, French, and
 Spanish are also supported.
+
+## Status
+
+Active development. Things are moving fast and a few releases per
+week is normal right now.
+
+**What's stable:** the core PDF-to-MP3 flow with Edge-TTS (online) and
+Piper (offline). Tested end-to-end with a real 10-hour Finnish
+audiobook that came out sounding great. Installer works. Auto-updates
+work.
+
+**What's still getting rough edges sanded off:** Chatterbox voice
+cloning, VoxCPM2 engine, the in-app engine installer, and some UI
+corners. These work but you might hit a snag.
+
+If you hit a bug, open an issue -- they get fixed fast. The
+`Build and Release` badge at the top tells you whether CI is green
+right now.
 
 ## What's new
 
