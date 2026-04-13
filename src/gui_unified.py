@@ -1110,6 +1110,85 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         ctk.CTkButton(dlg, text="Sulje", command=dlg.destroy).pack(pady=(0, 16))
 
     # ------------------------------------------------------------------
+    # Auto-update (periodic check + download + install)
+    # ------------------------------------------------------------------
+
+    UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
+
+    def _check_update_worker(self) -> None:
+        """Background thread: check GitHub for a newer release."""
+        try:
+            info = check_for_update(APP_VERSION)
+            self._update_queue.put(info)
+        except Exception:
+            pass  # Never crash on update check failure.
+
+    def _poll_update_check(self) -> None:
+        """Main thread: pick up the result from the update check thread."""
+        try:
+            info = self._update_queue.get_nowait()
+            if info.available:
+                self._pending_update = info
+                self._show_update_banner(info)
+        except queue.Empty:
+            pass
+
+        # Schedule the next periodic check.
+        if getattr(sys, "frozen", False):
+            self.after(
+                self.UPDATE_CHECK_INTERVAL_MS,
+                self._schedule_update_check,
+            )
+
+    def _schedule_update_check(self) -> None:
+        """Launch a new background update check and poll for results."""
+        threading.Thread(
+            target=self._check_update_worker, daemon=True,
+            name="update-check-periodic",
+        ).start()
+        self.after(500, self._poll_update_check)
+
+    def _show_update_banner(self, info: UpdateInfo) -> None:
+        """Show the update banner with version info."""
+        msg = self._s("update_available").format(version=info.latest_version)
+        self._update_label.configure(text=msg)
+        self._update_banner.grid()
+
+    def _on_update_click(self) -> None:
+        """User clicked 'Update now' — download and install."""
+        if self._pending_update is None:
+            return
+        self._update_btn.configure(
+            state="disabled", text=self._s("update_downloading"),
+        )
+        threading.Thread(
+            target=self._download_and_apply_update, daemon=True,
+            name="update-download",
+        ).start()
+
+    def _download_and_apply_update(self) -> None:
+        """Background thread: download installer, then apply on main thread."""
+        try:
+            update = self._pending_update
+            if update is None:
+                return
+
+            def progress_cb(done: int, total: int) -> None:
+                if total > 0:
+                    self.after(0, lambda: self._progress_bar.set(done / total))
+
+            path = download_update(update, progress_cb=progress_cb)
+            # Apply must run on the main thread (it calls sys.exit).
+            self.after(0, lambda: apply_update(path))
+        except Exception as exc:
+            self.after(0, lambda: self._update_btn.configure(
+                state="normal", text=self._s("update_now"),
+            ))
+            self.after(0, lambda: messagebox.showerror(
+                self._s("error"), f"{self._s('update_failed')}\n{exc}",
+            ))
+
+    # ------------------------------------------------------------------
     # Voice preview
     # ------------------------------------------------------------------
 
