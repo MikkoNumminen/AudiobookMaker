@@ -449,6 +449,8 @@ def main() -> int:
         print("[error] either --pdf or --text-file is required", flush=True)
         return 2
 
+    # "source_path" is the unified reference written into progress.json,
+    # regardless of input mode. Keeps downstream code simple.
     if args.text_file:
         # Plain text input — create a single-chapter book structure.
         text_path = Path(args.text_file).expanduser().resolve()
@@ -466,6 +468,7 @@ def main() -> int:
             metadata=SimpleNamespace(title=text_path.stem),
         )
         input_stem = text_path.stem
+        source_path = text_path
         print(f"[setup] text file: {text_path.name} ({len(content)} chars)", flush=True)
     else:
         from src.pdf_parser import parse_pdf
@@ -475,6 +478,7 @@ def main() -> int:
             return 2
         book = parse_pdf(str(pdf_path))
         input_stem = pdf_path.stem
+        source_path = pdf_path
         print(f"[setup] parsing PDF: {pdf_path.name}", flush=True)
 
     out_root = Path(args.out).expanduser().resolve() / input_stem
@@ -644,7 +648,7 @@ def main() -> int:
                 "chunks": len(chunks),
             })
             _write_progress(progress_path, {
-                "pdf": str(pdf_path),
+                "source": str(source_path),
                 "completed_chapters": completed_chapters,
                 "total_chapters": len(plan),
                 "total_chunks_done": total_done,
@@ -659,7 +663,7 @@ def main() -> int:
     except _StopRequested:
         print("[signal] saved partial progress; exit 0", flush=True)
         _write_progress(progress_path, {
-            "pdf": str(pdf_path),
+            "source": str(source_path),
             "completed_chapters": completed_chapters,
             "total_chapters": len(plan),
             "total_chunks_done": total_done,

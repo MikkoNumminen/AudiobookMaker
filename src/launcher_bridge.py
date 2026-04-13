@@ -292,9 +292,14 @@ class ChatterboxRunner:
 
         creationflags = 0
         if sys.platform == "win32":
-            # Needed so we can deliver CTRL_C_EVENT to the child without
-            # killing the launcher process too. See cancel() below.
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            # CREATE_NEW_PROCESS_GROUP: so CTRL_C_EVENT can target the child
+            # without killing the launcher. See cancel() below.
+            # CREATE_NO_WINDOW: hide the console window that would otherwise
+            # flash when the subprocess spawns ffmpeg, ffprobe, etc.
+            creationflags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                | subprocess.CREATE_NO_WINDOW       # type: ignore[attr-defined]
+            )
 
         self._state.proc = subprocess.Popen(
             argv,
