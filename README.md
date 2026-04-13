@@ -151,6 +151,48 @@ coffee, come back to a finished audiobook.
 
 ---
 
+## Real-world use
+
+A law student used AudiobookMaker to turn a stack of study material
+into audio. They wanted to listen to it while walking the dog, which
+is a normal thing students do -- walks are long, dogs need the
+exercise, and school reading has to happen somehow.
+
+Before finding this app, they had tried the usual free options:
+
+- Copy the text into Word and click "Read aloud". Word mispronounces
+  abbreviations and the voice sounds robotic
+- Let Microsoft Edge read the PDF out loud. Same kind of voice, even
+  lower quality
+- Pay for ready-made audiobooks meant for students. Some had a real
+  human reading, which sounded great. Others used an AI voice, which
+  sometimes glitched on a word or skipped a page
+
+AudiobookMaker did better than all the automated options and held its
+own against the human-narrated ones. It didn't trip on abbreviations.
+It didn't skip pages. Finnish numbers and case endings came out right.
+Emphasis landed in the right spots.
+
+Here's what the student said after a few hours of listening:
+
+> "That's insanely good. I get this mental image of a 60-plus grandma
+> with reading glasses reading it somewhere in a cabin."
+
+> "Better than anything I've listened to so far for study material.
+> 5/5."
+
+The "grandma in a cabin" bit is the part we care about most. The
+point isn't just that the words are correct. It's that the voice has
+enough character that your brain builds a picture of who is reading
+to you, and sticks with it for hours.
+
+One practical question came up: does 1.25x playback muddle the audio?
+The answer: every audio player has its own speed control, so the app
+doesn't need to. Make the audiobook once at normal speed, then speed
+it up in your player when you want to get through it faster.
+
+---
+
 ## Why the SmartScreen warning?
 
 The installer is unsigned. Windows shows a scary-looking warning for
