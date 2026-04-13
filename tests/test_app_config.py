@@ -34,7 +34,7 @@ class TestDefaults:
         cfg = UserConfig()
         assert cfg.input_mode == "pdf"
         assert cfg.output_mode == "single"
-        assert cfg.log_panel_visible is False
+        assert cfg.log_panel_visible is True
 
 
 class TestLoad:
@@ -148,7 +148,7 @@ class TestBackwardCompatibility:
         # New fields fall back to defaults.
         assert cfg.input_mode == "pdf"
         assert cfg.output_mode == "single"
-        assert cfg.log_panel_visible is False
+        assert cfg.log_panel_visible is True
 
     def test_old_config_with_extra_unknown_keys(self, tmp_config) -> None:
         old_data = {

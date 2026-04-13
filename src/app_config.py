@@ -48,8 +48,8 @@ class UserConfig:
     output_mode: str = "single"
     """Output mode: 'single' (one MP3) or 'chapters' (per chapter)."""
 
-    log_panel_visible: bool = False
-    """Whether the log panel was visible last session."""
+    log_panel_visible: bool = True
+    """Whether the log panel is visible (shown by default)."""
 
     ui_language: str = ""
     """UI display language: 'fi' (Finnish) or 'en' (English).

@@ -326,6 +326,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _set_window_icon(self) -> None:
         """Set the goat icon on the window title bar and taskbar."""
+        # Set AppUserModelID so Windows shows our icon in the taskbar
+        # instead of the default Python icon.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "AudiobookMaker.AudiobookMaker"
+            )
+        except Exception:
+            pass
+
         try:
             icon_path = _APP_ROOT / "assets" / "icon.ico"
             if icon_path.exists():
