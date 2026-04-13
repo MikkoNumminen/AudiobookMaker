@@ -253,23 +253,26 @@ def apply_update(installer_path: Path) -> None:
     release_mutex()
 
     relaunch_bat = Path(tempfile.gettempdir()) / "audiobookmaker_relaunch.bat"
+    # Use short variable names in the batch script to avoid quoting issues.
     relaunch_bat.write_text(
-        f'@echo off\r\n'
-        f'echo Waiting for AudiobookMaker to exit...\r\n'
-        f':wait_loop\r\n'
-        f'tasklist /FI "PID eq {my_pid}" 2>NUL | find "{my_pid}" >NUL\r\n'
-        f'if not errorlevel 1 (\r\n'
-        f'    timeout /t 1 /nobreak >NUL\r\n'
-        f'    goto wait_loop\r\n'
-        f')\r\n'
-        f'echo Starting installer...\r\n'
-        f'powershell -Command "Start-Process -FilePath \'{installer_path}\' '
-        f"-ArgumentList '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES "
-        f'/DIR=\"\"{current_install_dir}\"\"'
-        f"' -Verb RunAs -Wait\"\r\n"
-        f'echo Relaunching AudiobookMaker...\r\n'
-        f'start "" "{app_exe}"\r\n'
-        f'del "%~f0"\r\n',
+        '@echo off\r\n'
+        f'set "INSTALLER={installer_path}"\r\n'
+        f'set "APPEXE={app_exe}"\r\n'
+        f'set "APPDIR={current_install_dir}"\r\n'
+        f'set "MYPID={my_pid}"\r\n'
+        '\r\n'
+        'echo Waiting for AudiobookMaker to exit...\r\n'
+        ':wait_loop\r\n'
+        'tasklist /FI "PID eq %MYPID%" 2>NUL | find "%MYPID%" >NUL\r\n'
+        'if not errorlevel 1 (\r\n'
+        '    timeout /t 1 /nobreak >NUL\r\n'
+        '    goto wait_loop\r\n'
+        ')\r\n'
+        'echo Running installer...\r\n'
+        '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"\r\n'
+        'echo Restarting app...\r\n'
+        'start "" "%APPEXE%"\r\n'
+        'del "%~f0"\r\n',
         encoding="utf-8",
     )
 
