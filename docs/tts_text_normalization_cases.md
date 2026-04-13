@@ -1,6 +1,6 @@
 # Finnish TTS Text Normalization Inventory
 
-Source corpus: `turodokumentti.pdf` (Finnish legal-history text, 371 123 chars),
+Source corpus: `source.pdf` (Finnish legal-history text, 371 123 chars),
 extracted via `src.pdf_parser.parse_pdf`. Used to scope a Finnish normalizer for
 Chatterbox-TTS.
 

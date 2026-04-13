@@ -116,13 +116,6 @@ With Chatterbox you also get:
   - `5 %` is read as "viisi prosenttia"
   - `sivulta 42` inflects the number to match Finnish case grammar
 
-**First audiobook timing:** A 180-page Finnish book takes about 1-2
-hours to synthesize with Chatterbox on an RTX 3080 Ti. The result is a
-set of MP3 files, one per chapter, plus one combined full-book MP3.
-
-See [`docs/turo_ohjeet_fi.md`](docs/turo_ohjeet_fi.md) for a
-step-by-step Finnish walkthrough aimed at beginners.
-
 ---
 
 ## First audiobook: the numbers

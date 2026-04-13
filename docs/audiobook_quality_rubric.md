@@ -94,7 +94,7 @@ Score sheet template:
 
 ## Reference: samples measured so far
 
-- **Edge-TTS Noora** (`turodokumentti_audiobook_v3.mp3`) — current baseline. The target to beat.
+- **Edge-TTS Noora** (`source_audiobook_v3.mp3`) — current baseline. The target to beat.
 - **Chatterbox multilingual stock** — failed: token-repetition loop forced EOS truncation.
 - **Chatterbox Finnish-NLP finetune, default ref, 500ch chunks** — ~49s sample; audible chunk seams (axis 6 failure).
 - **Chatterbox Finnish-NLP finetune, Mandela ref, 500ch chunks, cfg=0.9** — ~79s sample; voice character drifted (axis 7), fluency issues (axes 3, 5).
