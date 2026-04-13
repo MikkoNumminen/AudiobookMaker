@@ -1200,11 +1200,25 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ------------------------------------------------------------------
 
     def _populate_engine_list(self) -> None:
-        """Fill the engine combobox from the registry + Chatterbox check."""
+        """Fill the engine combobox from the registry + Chatterbox check.
+
+        Runs check_status() on every engine so the dropdown label
+        reflects current availability (e.g. "Piper (ladattava)" when
+        voices are missing).
+        """
         self._engine_display_to_id.clear()
 
         for engine in list_engines():
-            self._engine_display_to_id[engine.display_name] = engine.id
+            label = engine.display_name
+            try:
+                status = engine.check_status()
+                if not status.available:
+                    label = f"{engine.display_name}  \u2014  ei käytettävissä"
+                elif status.needs_download:
+                    label = f"{engine.display_name}  \u2014  lataa ensin"
+            except Exception:
+                pass
+            self._engine_display_to_id[label] = engine.id
 
         # Chatterbox-Finnish via subprocess bridge.
         chatterbox_py = resolve_chatterbox_python()
