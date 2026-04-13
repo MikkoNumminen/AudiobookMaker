@@ -74,7 +74,7 @@ ctk.set_default_color_theme("blue")
 
 WINDOW_TITLE = "AudiobookMaker"
 WINDOW_MIN_W = 780
-WINDOW_MIN_H = 650
+WINDOW_MIN_H = 860
 
 LANGUAGES = {
     "Suomi": "fi",
