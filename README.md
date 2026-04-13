@@ -6,14 +6,35 @@
 
 Turn a PDF (or plain text) into an audiobook. Pick a file, press a button, get an MP3.
 
-Works best with Finnish text, but English is supported too.
+Works best with Finnish text, but English, German, Swedish, French, and
+Spanish are also supported.
 
-## New in v2.0.0
+## What's new
 
-- **Unified app** -- one download replaces both old installers (Main and Launcher). Everything is in one place now.
-- **Finnish/English UI** -- toggle the interface language from inside the app.
-- **Plain text input** -- type or paste text directly. You no longer need a PDF to get started.
-- **In-app engine installer** -- if you have an NVIDIA GPU, you can add Chatterbox without leaving the app. Click "Install engines", wait, done.
+**v2.3.0** -- Modern UI, more voices, instant playback, auto-updates:
+
+- **Modern look** -- the app now uses a modern widget toolkit with dark
+  mode support. It follows your Windows light/dark setting automatically
+- **Listen button** -- type text, click Listen, hear it spoken
+  immediately. No need to save a file first
+- **30+ voices** -- Finnish, English, German, Swedish, French, and
+  Spanish voices from Edge-TTS. Offline Piper voices for Finnish,
+  English, and German
+- **Auto-updates** -- when a new version is available, the app offers to
+  update itself. One click, no manual downloads
+- **Voice recording** -- record your own voice and use it for voice
+  cloning with Chatterbox
+- **Chatterbox text input** -- you can now type text and synthesize it
+  with Chatterbox, not just PDFs
+- **Smart language detection** -- the app detects your Windows language
+  and picks Finnish or English UI automatically on first run
+
+**v2.0.0** -- Unified app:
+
+- One download replaces both old installers (Main and Launcher)
+- Finnish/English UI toggle
+- Plain text input alongside PDF
+- In-app engine installer for Chatterbox
 
 ---
 
@@ -23,39 +44,42 @@ Works best with Finnish text, but English is supported too.
 |---|---|---|
 | **Who is it for?** | Anyone with a Windows PC | Developers who want to tinker |
 | **How do you get it?** | Download one .exe, install, done | Clone the repo, set up Python |
-| **Voice engines included** | Edge-TTS + Piper out of the box; Chatterbox available via in-app install | Everything, including experimental engines |
-| **Works offline?** | Only with Piper (or Chatterbox once installed) | Yes, after first setup |
-| **Needs a GPU?** | No (but Chatterbox needs NVIDIA 8+ GB) | Depends on which engine you pick |
-| **Voice cloning?** | Yes, if Chatterbox is installed | Yes |
-| **Finnish text intelligence?** | Yes, if Chatterbox is installed | Full |
-| **Download size** | ~200 MB (Chatterbox adds ~15 GB if you install it) | Varies |
-
-Read on for the details.
+| **Voice engines** | Edge-TTS + Piper out of the box; Chatterbox via in-app install | Everything, including experimental engines |
+| **Works offline?** | With Piper or Chatterbox | Yes, after first setup |
+| **Needs a GPU?** | No (Chatterbox needs NVIDIA 8+ GB) | Depends on which engine you pick |
+| **Voice cloning?** | Yes, with Chatterbox | Yes |
+| **Languages** | Finnish, English, German, Swedish, French, Spanish | Same |
+| **Download size** | ~200 MB (Chatterbox adds ~15 GB) | Varies |
 
 ---
 
 ## Installation
 
-**Download:** [AudiobookMaker v2.2.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v2.2.0)
+**Download:** [AudiobookMaker v2.3.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v2.3.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-2.2.0.exe`
+1. Download `AudiobookMaker-Setup-2.3.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
 4. Open AudiobookMaker from the Start Menu
 
+**Already have an older version?** The app checks for updates
+automatically. When a new version is available, a banner appears at the
+top of the window -- click "Update now" and the app handles everything.
+No manual downloads, no installer prompts.
+
 **What you get right away:**
-- A window where you pick a PDF or type/paste text, choose a voice, and click Convert
-- Two voice engines to choose from:
-  - **Edge-TTS** (needs internet) -- Microsoft's cloud voices. Finnish
-    voices Noora and Harri, plus several English voices. This is the
-    default and sounds good for most uses
-  - **Piper** (works offline) -- downloads a ~60 MB voice model once,
-    then works without internet forever. Good if you're on a plane or
-    don't want to depend on Microsoft's servers
-- Settings for voice, language, speech speed, and per-chapter output
-- Finnish/English interface language toggle
+- A window where you pick a PDF or type/paste text, choose a voice, and
+  click Convert -- or click Listen to hear it spoken immediately
+- Two voice engines:
+  - **Edge-TTS** (needs internet) -- Microsoft's cloud voices. 30+
+    voices across 6 languages. Fast, free, sounds good
+  - **Piper** (works offline) -- downloads a voice model once (~60 MB),
+    then works without internet forever
+- Modern dark/light mode UI that follows your Windows setting
+- The app detects your system language and starts in Finnish or English
+  automatically
 - No Python, no GPU, no command line needed
 
 **Want the best Finnish voice quality?**
@@ -74,14 +98,10 @@ With Chatterbox you also get:
 - **Finnish text intelligence** -- the app understands Finnish grammar
   and reads numbers, dates, abbreviations, legal references, and
   loanwords the way a human would. For example:
-  - `1300-luvulla` is read as "tuhat kolmesataa luvulla" (not
-    "yksi-kolme-nolla-nolla viiva luvulla")
+  - `1300-luvulla` is read as "tuhat kolmesataa luvulla"
   - `esim.` is read as "esimerkiksi"
   - `5 %` is read as "viisi prosenttia"
-  - `sivulta 42` inflects the number to match the case:
-    "sivulta neljaltakymmenelta kahdelta"
-  - Latin legal terms like `ius commune` are respelled so the engine
-    pronounces them correctly
+  - `sivulta 42` inflects the number to match Finnish case grammar
 
 **First audiobook timing:** A 180-page Finnish book takes about 1-2
 hours to synthesize with Chatterbox on an RTX 3080 Ti. The result is a
@@ -158,42 +178,39 @@ These are standalone tools at the repo root and in `scripts/`. They
 are not part of the shipped installer.
 
 - **`dev_chatterbox_fi.py`** -- synthesize text with Chatterbox-Finnish
-  from the command line. Useful for testing individual sentences or
-  chunks. Run with `--help` for options
+  from the command line. Run with `--help` for options
 - **`scripts/generate_chatterbox_audiobook.py`** -- full book synthesis
-  from PDF to MP3 via Chatterbox. Resumable (safe to Ctrl-C and
-  restart)
+  from PDF (or plain text file) to MP3 via Chatterbox. Resumable (safe
+  to Ctrl-C and restart)
 - **`scripts/generate_audiobook_parallel.py`** -- parallel Edge-TTS
   generator, about 8x faster than the GUI for large books
 - **`scripts/record_voice_sample.py`** -- record a voice clip, validate
-  its quality, and synthesize text in the cloned voice. Works on both
-  Mac and Windows
+  its quality, and synthesize text in the cloned voice
 - **`dev_qwen_tts.py`** -- Qwen3-TTS experiment. **Abandoned** --
-  Finnish isn't supported, MPS is broken, CPU is too slow. Kept in the
-  repo so nobody re-investigates the same dead end
+  Finnish isn't supported, MPS is broken, CPU is too slow. Kept so
+  nobody re-investigates the same dead end
 
 ### Finnish text normalizer
 
-The normalizer is the system that makes Finnish numbers, abbreviations,
-and special terms sound natural when read aloud. It runs automatically
-when using Chatterbox-Finnish (via the app or dev scripts).
+The normalizer makes Finnish numbers, abbreviations, and special terms
+sound natural when read aloud. It runs automatically when using
+Chatterbox-Finnish (via the app or dev scripts).
 
-It works as a series of text transformations ("passes") that run before
-the text reaches the TTS engine. There are 16 passes covering:
+It works as a series of 16 text transformation passes covering:
 
 - Century expressions (`1300-luvulla`)
 - Year numbers and numeric ranges
 - Abbreviations (`esim.`, `prof.`, `jne.`)
 - Roman numerals with context-aware ordinal detection
 - Unit symbols (`%`, `km`, `kg`)
-- Section signs (`\S`)
+- Section signs
 - Finnish case inflection for numbers after prepositions
 - Loanword respelling for words the AI mispronounces
 - Various cleanup (ISBN stripping, TOC dot-leaders, metadata)
 
 The normalizer has 400+ unit tests. See
 [`docs/tts_text_normalization_cases.md`](docs/tts_text_normalization_cases.md)
-for the full inventory of what it handles.
+for the full inventory.
 
 ### Known upstream issue
 
@@ -210,25 +227,30 @@ this automatically. We've reported the bug and submitted a fix:
 ```
 AudiobookMaker/
 ├── src/
-│   ├── main.py          # App entry point
-│   ├── gui.py           # Tkinter window
-│   ├── pdf_parser.py    # PDF text extraction and cleanup
-│   ├── tts_base.py      # TTS engine interface
-│   ├── tts_edge.py      # Edge-TTS adapter
-│   ├── tts_piper.py     # Piper adapter
-│   ├── tts_voxcpm.py    # VoxCPM2 adapter (dev only)
-│   ├── tts_engine.py    # Text chunking, normalizer, audio combining
-│   ├── fi_loanwords.py  # Finnish loanword respelling
-│   ├── app_config.py    # Settings persistence
-│   └── ffmpeg_path.py   # ffmpeg path helper
+│   ├── main.py              # App entry point + single-instance guard
+│   ├── gui_unified.py       # CustomTkinter GUI (unified window)
+│   ├── auto_updater.py      # GitHub-based auto-update checker
+│   ├── system_checks.py     # GPU, disk, Python detection
+│   ├── engine_installer.py  # In-app engine installation
+│   ├── single_instance.py   # Prevent multiple app instances
+│   ├── voice_recorder.py    # In-app voice recording for cloning
+│   ├── pdf_parser.py        # PDF text extraction and cleanup
+│   ├── tts_base.py          # TTS engine interface + registry
+│   ├── tts_edge.py          # Edge-TTS adapter
+│   ├── tts_piper.py         # Piper adapter
+│   ├── tts_voxcpm.py        # VoxCPM2 adapter (dev only)
+│   ├── tts_engine.py        # Text chunking, normalizer, audio combining
+│   ├── fi_loanwords.py      # Finnish loanword respelling
+│   ├── app_config.py        # Settings persistence
+│   └── ffmpeg_path.py       # ffmpeg path helper
 ├── data/
-│   └── fi_loanwords.yaml  # Loanword lexicon
-├── tests/                  # Unit tests (400+)
-├── scripts/                # CLI tools and setup scripts
-├── docs/                   # Documentation and research notes
-├── installer/              # Inno Setup build scripts
-├── assets/                 # Icons
-├── .github/workflows/      # CI: auto-build installer on release
+│   └── fi_loanwords.yaml    # Loanword lexicon
+├── tests/                   # Unit tests (460+)
+├── scripts/                 # CLI tools and setup scripts
+├── docs/                    # Documentation and research notes
+├── installer/               # Inno Setup build scripts
+├── assets/                  # Icons
+├── .github/workflows/       # CI: auto-build installer on release
 └── requirements.txt
 ```
 
