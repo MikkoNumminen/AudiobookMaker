@@ -51,6 +51,37 @@ def get_ffmpeg_exe() -> Optional[str]:
     return None
 
 
+def _patch_pydub_no_window() -> None:
+    """Monkey-patch pydub's subprocess calls to hide console windows.
+
+    pydub calls subprocess.Popen without startupinfo or creationflags,
+    causing ffmpeg/ffprobe to flash console windows on every call.
+    We patch the Popen references in pydub's modules to use a wrapper
+    that adds CREATE_NO_WINDOW on Windows.
+    """
+    import subprocess as _sp
+
+    _OrigPopen = _sp.Popen
+
+    class _SilentPopen(_OrigPopen):
+        def __init__(self, *args, **kwargs):
+            if "creationflags" not in kwargs and "startupinfo" not in kwargs:
+                kwargs["creationflags"] = _sp.CREATE_NO_WINDOW
+            super().__init__(*args, **kwargs)
+
+    # Patch the Popen reference in pydub's modules.
+    try:
+        import pydub.utils
+        pydub.utils.Popen = _SilentPopen
+    except (ImportError, AttributeError):
+        pass
+    try:
+        import pydub.audio_segment
+        pydub.audio_segment.subprocess.Popen = _SilentPopen
+    except (ImportError, AttributeError):
+        pass
+
+
 def setup_ffmpeg_path() -> None:
     """Configure pydub to use the bundled ffmpeg.
 
@@ -84,3 +115,10 @@ def setup_ffmpeg_path() -> None:
             pydub.utils.get_prober_name = lambda: ffprobe
     except ImportError:
         pass
+
+    # On Windows, prevent ffmpeg/ffprobe subprocess calls from flashing
+    # console windows.  Pydub uses bare subprocess.Popen() without
+    # startupinfo, so we monkey-patch the Popen calls in pydub's modules
+    # to pass CREATE_NO_WINDOW.
+    if sys.platform == "win32":
+        _patch_pydub_no_window()

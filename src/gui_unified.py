@@ -1384,11 +1384,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     def _listen_worker(
         self, text: str, engine: TTSEngine, voice: Voice,
     ) -> None:
+        import time
         tmp_path: Optional[str] = None
         try:
             lang = self._current_language()
             ref_audio = self._ref_audio_var.get() or None
             voice_desc = self._voice_desc_var.get() or None
+
+            preview_len = len(text)
+            self.after(0, lambda: self._append_log(
+                f"Kuuntele: {engine.display_name}, {voice.display_name}"
+            ))
+            self.after(0, lambda: self._append_log(
+                f"Teksti: {preview_len} merkkiä"
+            ))
 
             tmp = tempfile.NamedTemporaryFile(
                 prefix="listen_", suffix=".mp3", delete=False
@@ -1397,12 +1406,23 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             tmp_path = tmp.name
             self._listen_temp_path = tmp_path
 
+            t0 = time.perf_counter()
+            self.after(0, lambda: self._append_log("Syntetisoidaan..."))
+
             engine.synthesize(
                 text, tmp_path, voice.id, lang,
                 lambda c, t, m: None,
                 reference_audio=ref_audio,
                 voice_description=voice_desc,
             )
+
+            elapsed = time.perf_counter() - t0
+            size_kb = os.path.getsize(tmp_path) / 1024
+            self.after(0, lambda: self._append_log(
+                f"Synteesi valmis: {elapsed:.1f}s, {size_kb:.0f} KB"
+            ))
+
+            self.after(0, lambda: self._append_log("Toistetaan ääntä..."))
 
             # Play via the system's default audio player.
             if sys.platform == "win32":
@@ -1412,10 +1432,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             else:
                 subprocess.Popen(["xdg-open", tmp_path])
             # Give the player time to open the file before cleanup.
-            import time
             time.sleep(2)
 
         except Exception as exc:
+            self.after(0, lambda: self._append_log(f"Virhe: {exc}"))
             self.after(0, lambda: self._status_label_val.configure(
                 text=f"Listen error: {exc}"
             ))
