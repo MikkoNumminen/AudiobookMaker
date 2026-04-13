@@ -4,6 +4,7 @@ Checks GitHub Releases for new versions, downloads the installer,
 and launches a silent update.
 """
 
+import hashlib
 import json
 import logging
 import subprocess
@@ -45,6 +46,7 @@ class UpdateInfo:
     download_url: str
     release_notes: str
     asset_size_bytes: int
+    sha256: str  # expected SHA-256 hex digest ("" if not provided in release notes)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +85,24 @@ def _no_update(current_version: str) -> UpdateInfo:
         download_url="",
         release_notes="",
         asset_size_bytes=0,
+        sha256="",
     )
+
+
+def _extract_sha256(release_notes: str) -> Optional[str]:
+    """Extract a SHA-256 hash from the release notes body.
+
+    Looks for a line like:
+        SHA-256: abc123...
+    or:
+        `abc123...` (64 hex chars on their own)
+    """
+    import re
+    # Pattern: "SHA-256: <hex>" or "sha256: <hex>"  (with optional backticks)
+    match = re.search(r"(?i)sha-?256:\s*`?([0-9a-fA-F]{64})`?", release_notes)
+    if match:
+        return match.group(1).lower()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +143,8 @@ def check_for_update(current_version: str) -> UpdateInfo:
             logger.warning("No .exe asset found in latest release")
             return _no_update(current_version)
 
+        sha256 = _extract_sha256(data.get("body", ""))
+
         return UpdateInfo(
             available=True,
             current_version=current_version,
@@ -131,6 +152,7 @@ def check_for_update(current_version: str) -> UpdateInfo:
             download_url=asset["browser_download_url"],
             release_notes=data.get("body", ""),
             asset_size_bytes=asset.get("size", 0),
+            sha256=sha256 or "",
         )
 
     except (URLError, OSError, json.JSONDecodeError, KeyError) as exc:
@@ -190,6 +212,19 @@ def download_update(
     except Exception as exc:
         dest.unlink(missing_ok=True)
         raise RuntimeError(f"Download failed: {exc}") from exc
+
+    # Verify integrity if a SHA-256 hash was provided in the release notes.
+    if update.sha256:
+        file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()
+        if file_hash != update.sha256:
+            dest.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Integrity check failed: expected SHA-256 {update.sha256[:16]}…, "
+                f"got {file_hash[:16]}…. Download may be corrupted."
+            )
+        logger.info("SHA-256 verified: %s", file_hash[:16])
+    else:
+        logger.warning("No SHA-256 hash in release notes — skipping integrity check")
 
     return dest
 
