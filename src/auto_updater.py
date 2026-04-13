@@ -7,6 +7,7 @@ and launches a silent update.
 import hashlib
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -230,32 +231,48 @@ def download_update(
 
 
 def apply_update(installer_path: Path) -> None:
-    """Launch the installer silently and restart the application.
+    """Launch the installer and restart the application.
 
-    The Inno Setup installer runs with ``/VERYSILENT`` so the user sees no
-    UI.  After the installer finishes, a helper script relaunches the app.
-
-    Must be called from the main thread.
+    The sequence is:
+      1. Release the single-instance mutex so Inno Setup's AppMutex check passes.
+      2. Write a helper batch script that:
+         a. Waits for this process to exit (tasklist polling).
+         b. Runs the installer with /VERYSILENT (elevated via PowerShell).
+         c. Relaunches the app.
+      3. Launch the batch script detached.
+      4. Exit this process.
     """
-    import tempfile
+    from src.single_instance import release as release_mutex
 
     app_exe = str(Path(sys.executable).resolve())
     current_install_dir = str(Path(sys.executable).parent)
+    my_pid = os.getpid()
 
-    # Write a small batch script that waits for the installer to finish,
-    # then relaunches the app. This is needed because /VERYSILENT skips
-    # the [Run] section in Inno Setup.
+    # Release the single-instance mutex so the installer doesn't think
+    # the app is still running (Inno Setup checks AppMutex).
+    release_mutex()
+
     relaunch_bat = Path(tempfile.gettempdir()) / "audiobookmaker_relaunch.bat"
     relaunch_bat.write_text(
         f'@echo off\r\n'
-        f'"{installer_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES '
-        f'/DIR="{current_install_dir}"\r\n'
+        f'echo Waiting for AudiobookMaker to exit...\r\n'
+        f':wait_loop\r\n'
+        f'tasklist /FI "PID eq {my_pid}" 2>NUL | find "{my_pid}" >NUL\r\n'
+        f'if not errorlevel 1 (\r\n'
+        f'    timeout /t 1 /nobreak >NUL\r\n'
+        f'    goto wait_loop\r\n'
+        f')\r\n'
+        f'echo Starting installer...\r\n'
+        f'powershell -Command "Start-Process -FilePath \'{installer_path}\' '
+        f"-ArgumentList '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES "
+        f'/DIR=\"\"{current_install_dir}\"\"'
+        f"' -Verb RunAs -Wait\"\r\n"
+        f'echo Relaunching AudiobookMaker...\r\n'
         f'start "" "{app_exe}"\r\n'
         f'del "%~f0"\r\n',
         encoding="utf-8",
     )
 
-    # Launch the batch script detached and exit.
     subprocess.Popen(
         ["cmd.exe", "/c", str(relaunch_bat)],
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
