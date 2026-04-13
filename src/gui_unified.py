@@ -43,10 +43,12 @@ from src.tts_engine import TTSConfig, chapters_to_speech
 from src import tts_edge  # noqa: F401
 from src import tts_piper  # noqa: F401
 
-try:
-    from src import tts_voxcpm  # noqa: F401
-except Exception:
-    pass  # VoxCPM2 is optional developer-install.
+# VoxCPM2 is developer-only — don't show it in the installed exe.
+if not getattr(sys, "frozen", False):
+    try:
+        from src import tts_voxcpm  # noqa: F401
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,7 @@ hidden_imports = [
     'frozenlist',
     # Piper offline TTS + its ONNX runtime backend
     'piper',
+    'piper_phonemize',
     'onnxruntime',
     'numpy',
     # Finnish text normalizer
@@ -48,6 +49,7 @@ hidden_imports += collect_submodules('edge_tts')
 hidden_imports += collect_submodules('aiohttp')
 hidden_imports += collect_submodules('piper')
 hidden_imports += collect_submodules('onnxruntime')
+hidden_imports += collect_submodules('piper_phonemize')
 hidden_imports += collect_submodules('customtkinter')
 
 # numpy is now REQUIRED at runtime (onnxruntime/piper need it), so it
@@ -68,6 +70,8 @@ excludes = [
 # core DLLs on Windows). Piper also pulls in espeak-ng native libs, which
 # collect_data_files('piper') picks up automatically below.
 binaries = collect_dynamic_libs('onnxruntime')
+binaries += collect_dynamic_libs('piper')
+binaries += collect_dynamic_libs('piper_phonemize')
 
 # Bundle ffmpeg.exe and ffplay.exe from dist/ffmpeg/ into the package root
 # so pydub can find ffmpeg via PATH at runtime (see src/ffmpeg_path.py)
@@ -80,6 +84,7 @@ datas = [
 # PiperVoice.load() will fail at runtime without it.  collect_data_files
 # walks the installed piper package and emits every non-Python file.
 datas += collect_data_files('piper')
+datas += collect_data_files('piper_phonemize')
 # onnxruntime ships a few config/JSON files next to its native libs on
 # some platforms; bundle them to be safe.
 datas += collect_data_files('onnxruntime')
