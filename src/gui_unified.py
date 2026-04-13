@@ -1250,10 +1250,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             return
 
         engine = self._current_engine()
-        voice = self._current_voice()
         if engine is None:
             messagebox.showerror(self._s("error"), "Moottoria ei löytynyt.")
             return
+        status = engine.check_status()
+        if not status.available:
+            messagebox.showerror(
+                self._s("error"), f"{engine.display_name}: {status.reason}"
+            )
+            return
+        voice = self._current_voice()
         if voice is None:
             messagebox.showerror(self._s("error"), "Valitse ääni.")
             return
@@ -1448,18 +1454,18 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # For registry engines, verify availability.
         if engine_id != "chatterbox_fi":
             engine = self._current_engine()
-            voice = self._current_voice()
             if engine is None:
                 messagebox.showerror(self._s("error"), "Moottoria ei löytynyt.")
-                return
-            if voice is None:
-                messagebox.showerror(self._s("error"), "Valitse ääni.")
                 return
             status = engine.check_status()
             if not status.available:
                 messagebox.showerror(
                     self._s("error"), f"{engine.display_name}: {status.reason}"
                 )
+                return
+            voice = self._current_voice()
+            if voice is None:
+                messagebox.showerror(self._s("error"), "Valitse ääni.")
                 return
 
         # Persist settings before synthesis.
