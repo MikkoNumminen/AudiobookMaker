@@ -270,7 +270,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self.minsize(WINDOW_MIN_W, WINDOW_MIN_H)
         self._center_window()
 
-        setup_ffmpeg_path()
+        # Set goat icon on the window title bar.
+        self._set_window_icon()
 
         # ---- internal state ----
         self._pdf_path: Optional[str] = None
@@ -284,7 +285,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._listen_temp_path: Optional[str] = None
         self._chatterbox_runner: Optional[ChatterboxRunner] = None
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
-        self._log_visible = False
+        self._log_visible = True
         self._pending_update: Optional[UpdateInfo] = None
 
         # Load persisted preferences.
@@ -322,6 +323,21 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         x = (sw - WINDOW_MIN_W) // 2
         y = (sh - WINDOW_MIN_H) // 2
         self.geometry(f"{WINDOW_MIN_W}x{WINDOW_MIN_H}+{x}+{y}")
+
+    def _set_window_icon(self) -> None:
+        """Set the goat icon on the window title bar and taskbar."""
+        try:
+            icon_path = _APP_ROOT / "assets" / "icon.ico"
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+                return
+            # Fallback: try PNG via PhotoImage (works on some platforms).
+            png_path = _APP_ROOT / "assets" / "icon.png"
+            if png_path.exists():
+                icon_img = tk.PhotoImage(file=str(png_path))
+                self.iconphoto(True, icon_img)
+        except Exception:
+            pass  # Non-critical — default icon is fine as fallback.
 
     # ------------------------------------------------------------------
     # UI language helpers
@@ -820,7 +836,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         toggle_frame.grid(row=row, column=0, sticky="ew", pady=(4, 0))
 
         self._log_toggle_btn = ctk.CTkButton(
-            toggle_frame, text="Näytä loki", command=self._toggle_log,
+            toggle_frame, text="Piilota loki", command=self._toggle_log,
             width=120,
         )
         self._log_toggle_btn.grid(row=0, column=0, sticky="w")
@@ -840,8 +856,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._log_text.grid(row=0, column=0, sticky="nsew")
         self._log_text.configure(state="disabled")
 
-        # Hidden by default.
-        self._log_frame.grid_remove()
+        # Visible by default (log panel shown on launch).
 
     # ------------------------------------------------------------------
     # Engine list population
@@ -1469,8 +1484,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 self._output_mode_cb.set(label)
                 break
 
-        # Log panel visibility.
-        if cfg.log_panel_visible:
+        # Log panel visibility (visible by default; hide if user previously chose to).
+        if not cfg.log_panel_visible:
             self._toggle_log()
 
     def _save_current_config(self) -> None:
