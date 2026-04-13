@@ -30,15 +30,37 @@ from src.fi_loanwords import apply_loanword_respellings
 
 # voice_id -> display name shown in the GUI
 VOICE_DISPLAY_NAMES: dict[str, str] = {
+    # Finnish
     "fi-FI-NooraNeural": "Noora (suomi, nainen)",
     "fi-FI-HarriNeural": "Harri (suomi, mies)",
+    "fi-FI-SelmaNeural": "Selma (suomi, nainen)",
+    # English US
     "en-US-JennyNeural": "Jenny (English US, female)",
     "en-US-AriaNeural": "Aria (English US, female)",
     "en-US-AvaNeural": "Ava (English US, female)",
     "en-US-GuyNeural": "Guy (English US, male)",
     "en-US-AndrewNeural": "Andrew (English US, male)",
+    "en-US-BrianNeural": "Brian (English US, male)",
+    "en-US-EmmaNeural": "Emma (English US, female)",
+    "en-US-MichelleNeural": "Michelle (English US, female)",
+    # English GB
     "en-GB-SoniaNeural": "Sonia (English GB, female)",
     "en-GB-RyanNeural": "Ryan (English GB, male)",
+    "en-GB-LibbyNeural": "Libby (English GB, female)",
+    "en-GB-ThomasNeural": "Thomas (English GB, male)",
+    # German
+    "de-DE-KatjaNeural": "Katja (Deutsch, weiblich)",
+    "de-DE-ConradNeural": "Conrad (Deutsch, männlich)",
+    "de-DE-AmalaNeural": "Amala (Deutsch, weiblich)",
+    # Swedish
+    "sv-SE-SofieNeural": "Sofie (svenska, kvinna)",
+    "sv-SE-MattiasNeural": "Mattias (svenska, man)",
+    # French
+    "fr-FR-DeniseNeural": "Denise (français, femme)",
+    "fr-FR-HenriNeural": "Henri (français, homme)",
+    # Spanish
+    "es-ES-ElviraNeural": "Elvira (español, mujer)",
+    "es-ES-AlvaroNeural": "Alvaro (español, hombre)",
 }
 
 VOICES: dict[str, dict[str, str]] = {
@@ -46,6 +68,7 @@ VOICES: dict[str, dict[str, str]] = {
         "default": "fi-FI-NooraNeural",
         "Noora (suomi, nainen)": "fi-FI-NooraNeural",
         "Harri (suomi, mies)": "fi-FI-HarriNeural",
+        "Selma (suomi, nainen)": "fi-FI-SelmaNeural",
     },
     "en": {
         "default": "en-US-JennyNeural",
@@ -54,8 +77,34 @@ VOICES: dict[str, dict[str, str]] = {
         "Ava (English US, female)": "en-US-AvaNeural",
         "Guy (English US, male)": "en-US-GuyNeural",
         "Andrew (English US, male)": "en-US-AndrewNeural",
+        "Brian (English US, male)": "en-US-BrianNeural",
+        "Emma (English US, female)": "en-US-EmmaNeural",
+        "Michelle (English US, female)": "en-US-MichelleNeural",
         "Sonia (English GB, female)": "en-GB-SoniaNeural",
         "Ryan (English GB, male)": "en-GB-RyanNeural",
+        "Libby (English GB, female)": "en-GB-LibbyNeural",
+        "Thomas (English GB, male)": "en-GB-ThomasNeural",
+    },
+    "de": {
+        "default": "de-DE-KatjaNeural",
+        "Katja (Deutsch, weiblich)": "de-DE-KatjaNeural",
+        "Conrad (Deutsch, männlich)": "de-DE-ConradNeural",
+        "Amala (Deutsch, weiblich)": "de-DE-AmalaNeural",
+    },
+    "sv": {
+        "default": "sv-SE-SofieNeural",
+        "Sofie (svenska, kvinna)": "sv-SE-SofieNeural",
+        "Mattias (svenska, man)": "sv-SE-MattiasNeural",
+    },
+    "fr": {
+        "default": "fr-FR-DeniseNeural",
+        "Denise (français, femme)": "fr-FR-DeniseNeural",
+        "Henri (français, homme)": "fr-FR-HenriNeural",
+    },
+    "es": {
+        "default": "es-ES-ElviraNeural",
+        "Elvira (español, mujer)": "es-ES-ElviraNeural",
+        "Alvaro (español, hombre)": "es-ES-AlvaroNeural",
     },
 }
 

@@ -47,6 +47,10 @@ WINDOW_MIN_H = 540
 LANGUAGES = {
     "Suomi": "fi",
     "English": "en",
+    "Deutsch": "de",
+    "Svenska": "sv",
+    "Français": "fr",
+    "Español": "es",
 }
 
 SPEED_OPTIONS = {
