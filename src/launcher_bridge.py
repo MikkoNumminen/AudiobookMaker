@@ -421,17 +421,29 @@ def resolve_chatterbox_python() -> Optional[Path]:
 
     suffix = ("Scripts", "python.exe") if sys.platform == "win32" else ("bin", "python")
 
-    # Check relative to the repo/app root.
-    repo_root = Path(__file__).resolve().parent.parent
-    candidate = repo_root / ".venv-chatterbox" / suffix[0] / suffix[1]
-    if candidate.exists():
-        return candidate
+    candidates = []
 
-    # Check the default install location used by the in-app installer and
-    # the old launcher installer.
+    # 1. Relative to the source/repo root.
+    repo_root = Path(__file__).resolve().parent.parent
+    candidates.append(repo_root / ".venv-chatterbox" / suffix[0] / suffix[1])
+
+    # 2. In a PyInstaller bundle, check relative to the exe directory
+    #    (not _MEIPASS which is a temp dir).
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / ".venv-chatterbox" / suffix[0] / suffix[1])
+        # Also check one level up from the exe.
+        candidates.append(exe_dir.parent / ".venv-chatterbox" / suffix[0] / suffix[1])
+
     if sys.platform == "win32":
-        default = Path(r"C:\AudiobookMaker\.venv-chatterbox") / suffix[0] / suffix[1]
-        if default.exists():
-            return default
+        # 3. Default install path used by the in-app installer.
+        candidates.append(Path(r"C:\AudiobookMaker\.venv-chatterbox") / suffix[0] / suffix[1])
+        # 4. Common dev locations.
+        for drive in ("C:", "D:"):
+            candidates.append(Path(f"{drive}\\koodaamista\\AudiobookMaker\\.venv-chatterbox") / suffix[0] / suffix[1])
+
+    for c in candidates:
+        if c.exists():
+            return c
 
     return None
