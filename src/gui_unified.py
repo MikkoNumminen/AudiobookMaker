@@ -497,7 +497,7 @@ class UnifiedApp(ctk.CTk):
 
     def _build_input_tabs(self, parent: ctk.CTkFrame, row: int) -> None:
         self._input_nb = ctk.CTkTabview(
-            parent, command=self._on_tab_changed
+            parent, height=200, command=self._on_tab_changed
         )
         self._input_nb.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
@@ -525,7 +525,7 @@ class UnifiedApp(ctk.CTk):
         text_frame.rowconfigure(0, weight=1)
 
         self._text_widget = ctk.CTkTextbox(
-            text_frame, height=120, wrap="word", font=ctk.CTkFont(size=13)
+            text_frame, height=160, wrap="word", font=ctk.CTkFont(size=13)
         )
         self._text_widget.grid(row=0, column=0, sticky="nsew")
 
