@@ -1,0 +1,93 @@
+name: Monitor CI failures
+
+# Watch the build-release and build-launcher workflows. When one fails,
+# open (or update) a GitHub issue so you get a notification without
+# having to scan the Actions tab. When a workflow passes again, any
+# open failure issue for that workflow is closed automatically.
+#
+# The goal: a single source of truth for "is CI currently red?" that
+# you can't miss.
+
+on:
+  workflow_run:
+    workflows:
+      - "Build and Release"
+      - "Build Launcher Installer"
+    types: [completed]
+
+permissions:
+  issues: write
+  actions: read
+
+jobs:
+  handle-completion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report failure or recovery
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const label = 'ci-failure';
+            const title = `CI failure: ${run.name}`;
+
+            // Find any existing open issue for this workflow.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+            });
+            const mine = existing.data.find(i => i.title === title);
+
+            if (run.conclusion === 'failure') {
+              const body = [
+                `## ${run.name} failed`,
+                ``,
+                `- **Branch:** \`${run.head_branch}\``,
+                `- **Commit:** ${run.head_sha.substring(0, 8)} — ${run.head_commit.message.split('\n')[0]}`,
+                `- **Triggered by:** @${run.triggering_actor.login}`,
+                `- **Run:** ${run.html_url}`,
+                `- **Finished:** ${run.updated_at}`,
+                ``,
+                `Click the run link above and look at the red step to see the logs.`,
+              ].join('\n');
+
+              if (mine) {
+                // Existing issue — comment with the new failure.
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: mine.number,
+                  body: `Another failure on the same workflow:\n\n${body}`,
+                });
+                console.log(`Commented on existing issue #${mine.number}`);
+              } else {
+                // No open issue — create one.
+                const created = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title,
+                  body,
+                  labels: [label],
+                });
+                console.log(`Opened issue #${created.data.number}`);
+              }
+            } else if (run.conclusion === 'success' && mine) {
+              // CI recovered. Close the open failure issue.
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: mine.number,
+                body: `CI is green again. Recovered at ${run.html_url}.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: mine.number,
+                state: 'closed',
+              });
+              console.log(`Closed recovered issue #${mine.number}`);
+            } else {
+              console.log(`Run finished with conclusion=${run.conclusion}, nothing to do.`);
+            }
