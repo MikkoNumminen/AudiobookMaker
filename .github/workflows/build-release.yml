@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v4
@@ -114,11 +116,19 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin master
           git checkout master
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          sed -i "s|AudiobookMaker v[0-9]\+\.[0-9]\+\.[0-9]\+|AudiobookMaker v${VERSION}|g" README.md
-          sed -i "s|releases/tag/v[0-9]\+\.[0-9]\+\.[0-9]\+|releases/tag/v${VERSION}|g" README.md
-          sed -i "s|AudiobookMaker-Setup-[0-9]\+\.[0-9]\+\.[0-9]\+\.exe|AudiobookMaker-Setup-${VERSION}.exe|g" README.md
+          git pull origin master
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $readme = Get-Content -Raw README.md
+          $readme = $readme -replace 'AudiobookMaker v\d+\.\d+\.\d+', "AudiobookMaker v$version"
+          $readme = $readme -replace 'releases/tag/v\d+\.\d+\.\d+', "releases/tag/v$version"
+          $readme = $readme -replace 'AudiobookMaker-Setup-\d+\.\d+\.\d+\.exe', "AudiobookMaker-Setup-$version.exe"
+          Set-Content README.md $readme
           git add README.md
-          git diff --cached --quiet || git commit -m "docs(readme): update download links to v${VERSION}"
-          git push
-        shell: bash
+          $changed = git diff --cached --quiet; $LASTEXITCODE -ne 0
+          if ($changed) {
+            git commit -m "docs(readme): update download links to v$version"
+            git push origin master
+          } else {
+            Write-Host "README already up to date"
+          }
+        shell: pwsh
