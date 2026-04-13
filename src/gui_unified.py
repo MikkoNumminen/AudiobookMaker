@@ -1474,6 +1474,198 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self.after(self.POLL_INTERVAL_MS, self._pump_events)
 
     # ------------------------------------------------------------------
+    # In-process engine synthesis (Edge-TTS, Piper, VoxCPM2)
+    # ------------------------------------------------------------------
+
+    def _start_inprocess_engine(self, engine_id: str) -> None:
+        """Start synthesis in a background thread for registry engines."""
+        self._append_log(f"Engine: {engine_id}")
+        self._append_log(f"Output: {self._output_path}")
+        # Capture input on the main thread (thread-safe).
+        input_mode = self._input_mode
+        pdf_path = self._pdf_path
+        input_text = None
+        if input_mode == "text" and not self._text_has_placeholder:
+            input_text = self._text_widget.get("1.0", tk.END).strip()
+        output_path = self._output_path
+        voice = self._current_voice()
+        voice_id = voice.id if voice else None
+        language = self._current_language()
+        speed = SPEED_OPTIONS[self._ui_lang].get(self._speed_cb.get(), "+0%")
+        ref_audio = self._ref_audio_var.get() or None
+        voice_desc = self._voice_desc_var.get() or None
+
+        threading.Thread(
+            target=self._run_inprocess,
+            args=(engine_id, input_mode, pdf_path, input_text,
+                  output_path, voice_id, language, speed,
+                  ref_audio, voice_desc),
+            daemon=True, name=f"tts-{engine_id}",
+        ).start()
+
+    def _run_inprocess(
+        self, engine_id: str, input_mode: str,
+        pdf_path: Optional[str], input_text: Optional[str],
+        output_path: Optional[str], voice_id: Optional[str],
+        language: str, speed: str,
+        ref_audio: Optional[str], voice_desc: Optional[str],
+    ) -> None:
+        """Background thread for in-process TTS synthesis."""
+        try:
+            engine = get_engine(engine_id)
+            if engine is None:
+                raise RuntimeError(f"Engine '{engine_id}' not found.")
+
+            self._event_queue.put(
+                ProgressEvent(kind="log", raw_line="Reading input...")
+            )
+
+            if input_mode == "pdf":
+                assert pdf_path is not None
+                book = parse_pdf(pdf_path)
+                text = book.full_text
+            else:
+                text = input_text or ""
+
+            if not text:
+                raise ValueError("No text to synthesize.")
+
+            if voice_id is None:
+                voice_id = engine.default_voice(language)
+                if voice_id is None:
+                    raise RuntimeError("No voice available for the selected language.")
+
+            self._event_queue.put(
+                ProgressEvent(kind="log", raw_line=f"Synthesizing ({len(text)} chars)...")
+            )
+
+            # Create output directory.
+            out = Path(output_path) if output_path else Path.home() / "Documents" / "AudiobookMaker" / "output.mp3"
+            out.parent.mkdir(parents=True, exist_ok=True)
+
+            def progress_cb(current: int, total: int, msg: str = "") -> None:
+                pct = (current / total) if total > 0 else 0
+                self._event_queue.put(ProgressEvent(
+                    kind="chunk",
+                    total_done=current,
+                    total_chunks=total,
+                    raw_line=msg or f"Chunk {current}/{total}",
+                ))
+
+            engine.synthesize(
+                text=text,
+                output_path=str(out),
+                voice_id=voice_id,
+                language=language,
+                progress_cb=progress_cb,
+                reference_audio=ref_audio,
+                voice_description=voice_desc,
+            )
+
+            self._event_queue.put(ProgressEvent(
+                kind="done",
+                output_path=str(out),
+                raw_line=f"Saved: {out}",
+            ))
+
+        except Exception as exc:
+            self._event_queue.put(ProgressEvent(
+                kind="error",
+                raw_line=str(exc),
+            ))
+
+    # ------------------------------------------------------------------
+    # Chatterbox subprocess relay
+    # ------------------------------------------------------------------
+
+    def _relay_chatterbox_events(self) -> None:
+        """Drain ChatterboxRunner events into the GUI queue."""
+        runner = self._chatterbox_runner
+        if runner is None:
+            return
+        while not runner.finished:
+            ev = runner.poll_event(timeout=0.2)
+            if ev is not None:
+                self._event_queue.put(ev)
+        # Final drain.
+        while True:
+            ev = runner.poll_event(timeout=0.05)
+            if ev is None:
+                break
+            self._event_queue.put(ev)
+
+    # ------------------------------------------------------------------
+    # Event pump (main thread — processes events from background threads)
+    # ------------------------------------------------------------------
+
+    def _pump_events(self) -> None:
+        """Poll the event queue and update UI. Reschedules itself while running."""
+        while True:
+            try:
+                ev = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            self._append_log(ev.raw_line or ev.kind)
+
+            if ev.kind == "chunk":
+                if ev.total_chunks > 0:
+                    pct = ev.total_done / ev.total_chunks
+                    self._progress_bar.set(pct)
+                    self._status_label_val.configure(
+                        text=f"{ev.total_done}/{ev.total_chunks}"
+                    )
+
+            elif ev.kind == "done":
+                self._progress_bar.set(1.0)
+                self._status_label_val.configure(text=self._s("done"))
+                self._output_path = ev.output_path
+                self._set_idle_state()
+                return  # Stop pumping.
+
+            elif ev.kind == "error":
+                self._fail(ev.raw_line or "Unknown error")
+                return  # Stop pumping.
+
+            elif ev.kind == "log":
+                pass  # Already appended to log above.
+
+        # Reschedule if still running.
+        if self._synth_running:
+            self.after(self.POLL_INTERVAL_MS, self._pump_events)
+
+    # ------------------------------------------------------------------
+    # Running/idle state management
+    # ------------------------------------------------------------------
+
+    def _set_running_state(self) -> None:
+        self._synth_running = True
+        self._convert_btn.configure(state="disabled")
+        self._listen_btn.configure(state="disabled")
+        self._cancel_btn.grid()
+        self._progress_bar.set(0)
+        self._status_label_val.configure(text=self._s("converting"))
+        self._clear_log()
+
+    def _set_idle_state(self) -> None:
+        self._synth_running = False
+        self._convert_btn.configure(state="normal")
+        self._listen_btn.configure(state="normal")
+        self._cancel_btn.grid_remove()
+        self._open_folder_btn.configure(state="normal")
+        self._chatterbox_runner = None
+
+    # ------------------------------------------------------------------
+    # Cancel
+    # ------------------------------------------------------------------
+
+    def _on_cancel_click(self) -> None:
+        if self._chatterbox_runner is not None:
+            self._chatterbox_runner.cancel()
+        self._cancel_requested = True
+        self._cancel_btn.configure(text=self._s("cancelling"), state="disabled")
+
+    # ------------------------------------------------------------------
     # Output folder
     # ------------------------------------------------------------------
 
