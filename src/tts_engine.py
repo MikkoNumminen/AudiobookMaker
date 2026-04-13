@@ -1344,6 +1344,23 @@ def _trim_chunk_silence(
     return segment[start:end]
 
 
+def _load_audio_with_retry(path: str, max_retries: int = 5, delay: float = 0.3) -> AudioSegment:
+    """Load an audio file, retrying on Windows file-locking errors.
+
+    edge-tts's async transports may hold file handles briefly after
+    asyncio.run() returns. A short retry loop handles this gracefully.
+    """
+    import time
+    for attempt in range(max_retries):
+        try:
+            return _trim_chunk_silence(AudioSegment.from_file(path))
+        except PermissionError:
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            else:
+                raise
+
+
 def combine_audio_files(
     input_paths: list[str],
     output_path: str,
@@ -1372,7 +1389,7 @@ def combine_audio_files(
     for i, path in enumerate(input_paths):
         # Auto-detect format from the file extension so both edge-tts MP3
         # chunks and piper WAV chunks are supported.
-        segment = _trim_chunk_silence(AudioSegment.from_file(path))
+        segment = _load_audio_with_retry(path)
         combined += segment
         if i < len(input_paths) - 1:
             combined += gap
@@ -1428,6 +1445,10 @@ def text_to_speech(
         mp3_files = asyncio.run(
             _synthesize_all_chunks(chunks, config, tmp_dir, progress_cb)
         )
+        # On Windows, edge-tts's async transports may hold file handles
+        # briefly after asyncio.run() returns. Force GC to release them.
+        import gc
+        gc.collect()
         combine_audio_files(mp3_files, output_path)
     finally:
         # Clean up temp files. On Windows, pydub may hold locks briefly
