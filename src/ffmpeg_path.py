@@ -68,13 +68,19 @@ def setup_ffmpeg_path() -> None:
     if ffmpeg_dir not in current_path:
         os.environ['PATH'] = ffmpeg_dir + os.pathsep + current_path
 
-    # Explicitly tell pydub where ffmpeg is (bypasses its own PATH lookup).
+    # Explicitly tell pydub where ffmpeg and ffprobe are.
+    # Setting AudioSegment.converter handles ffmpeg for export/convert.
+    # However, pydub's mediainfo_json() uses get_prober_name() which does
+    # NOT check AudioSegment.ffprobe — it runs its own which() lookup.
+    # We must also monkey-patch get_prober_name to return the full path.
     try:
         from pydub import AudioSegment
         AudioSegment.converter = ffmpeg_exe
-        # Also set ffprobe if it exists alongside ffmpeg.
         ffprobe = os.path.join(ffmpeg_dir, 'ffprobe.exe')
         if os.path.isfile(ffprobe):
             AudioSegment.ffprobe = ffprobe
+            # Patch the prober lookup so mediainfo_json() uses our ffprobe.
+            import pydub.utils
+            pydub.utils.get_prober_name = lambda: ffprobe
     except ImportError:
         pass

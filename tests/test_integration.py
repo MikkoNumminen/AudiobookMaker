@@ -59,11 +59,21 @@ def _make_test_pdf(pages: list[str], title: str = "Test Book") -> str:
 # Stub TTS engine that writes a valid silent MP3
 # ---------------------------------------------------------------------------
 
-# Minimal valid MP3 frame (MPEG1 Layer3, 128kbps, 44100Hz, ~26ms of silence).
-# This is the smallest valid MP3 that pydub can load.
-_SILENT_MP3 = (
-    b"\xff\xfb\x90\x00" + b"\x00" * 413  # one MPEG audio frame
-)
+# Generate a real silent MP3 using pydub (if ffmpeg is available) or fall
+# back to a minimal MP3 frame header.  The real MP3 is needed because
+# pydub/ffprobe will reject hand-crafted byte sequences.
+try:
+    from src.ffmpeg_path import setup_ffmpeg_path as _setup_ff
+    _setup_ff()
+    from pydub import AudioSegment as _AS
+    import io as _io
+    _buf = _io.BytesIO()
+    _AS.silent(duration=100).export(_buf, format="mp3")
+    _SILENT_MP3 = _buf.getvalue()
+except Exception:
+    _SILENT_MP3 = (
+        b"\xff\xfb\x90\x00" + b"\x00" * 413  # fallback: one MPEG audio frame
+    )
 
 
 class _StubEngine(TTSEngine):
