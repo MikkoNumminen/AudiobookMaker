@@ -11,23 +11,36 @@ Spanish are also supported.
 
 ## What's new
 
-**v2.3.0** -- Modern UI, more voices, instant playback, auto-updates:
+**v2.3** -- Major update. Modern UI, more voices, auto-updates, and
+a lot of fixes to make everything actually work reliably:
 
-- **Modern look** -- the app now uses a modern widget toolkit with dark
-  mode support. It follows your Windows light/dark setting automatically
-- **Listen button** -- type text, click Listen, hear it spoken
-  immediately. No need to save a file first
-- **30+ voices** -- Finnish, English, German, Swedish, French, and
-  Spanish voices from Edge-TTS. Offline Piper voices for Finnish,
-  English, and German
-- **Auto-updates** -- when a new version is available, the app offers to
-  update itself. One click, no manual downloads
-- **Voice recording** -- record your own voice and use it for voice
-  cloning with Chatterbox
-- **Chatterbox text input** -- you can now type text and synthesize it
-  with Chatterbox, not just PDFs
+- **Modern look** -- the app uses CustomTkinter with dark/light mode
+  that follows your Windows theme automatically
+- **Listen button** -- type text, click Listen, hear it spoken right
+  away. No need to save a file first. Great for trying out voices
+- **30+ voices in 6 languages** -- Finnish, English, German, Swedish,
+  French, and Spanish voices from Edge-TTS. Offline Piper voices for
+  Finnish, English, and German
+- **Auto-updates** -- the app checks for new versions every 5 minutes.
+  When one is found, a banner appears at the top. Click it and the app
+  downloads, installs, and restarts itself. No manual downloads needed
+  after the first install
+- **Voice recording** -- record your own voice directly from the app
+  and use it for voice cloning with Chatterbox
+- **Chatterbox works with text** -- you can type or paste text and
+  synthesize it with Chatterbox. Previously only PDF input was
+  supported
 - **Smart language detection** -- the app detects your Windows language
   and picks Finnish or English UI automatically on first run
+- **Single-instance guard** -- prevents accidentally opening two copies
+  of the app, which could cause file conflicts or GPU crashes. If you
+  need two windows (e.g. different engines on different files), the app
+  asks you to confirm
+- **Automatic output paths** -- no more file-picker dialogs before you
+  start. PDF input saves the MP3 next to the PDF. Text input saves to
+  Documents/AudiobookMaker with auto-incrementing filenames
+- **500+ tests** -- pre-commit hooks and CI enforce that all tests pass
+  before any code ships
 
 **v2.0.0** -- Unified app:
 
