@@ -65,3 +65,43 @@ limit on MPS, and CPU inference is slower than realtime even on an RTX 4090. The
 - [ ] Add an application icon (assets/icon.ico) 🟢 ⚡ Sonnet
 - [ ] Test the .exe against multiple PDF files 🟡 ⚡ Sonnet
 - [ ] Test the installer on a clean Windows environment 🟡 ⚡ Sonnet
+
+## Post-Audit Tasks
+
+### TTS Output Quality
+- [ ] Create a comparison script that runs the same Finnish + English text samples through all three engines and outputs labeled MP3s for manual A/B review
+- [ ] Verify silence trimming between chunks — check for gaps or over-trimming
+- [ ] Test sentence splitter output against edge cases before TTS (URLs, decimals, Finnish abbreviations like "esim.", "ns.", "mm.")
+
+### PDF Parser Stress Testing
+- [ ] Collect 10-15 diverse test PDFs: scanned, two-column layout, academic with footnotes, e-book with TOC and page numbers, Finnish book with hyphenation, PDFs with tables and inline images
+- [ ] Run parser against all test PDFs and manually review extracted text for accuracy
+- [ ] Document which PDF types break the current heuristics
+
+### GUI Threading
+- [ ] During a long conversion, test UI responsiveness: drag window, change settings, press buttons — document any freezes
+- [ ] Identify and fix any blocking operations running on the main thread
+
+### Clean Install Testing
+- [ ] Test AudiobookMaker-Setup.exe on a fresh Windows VM/sandbox with no dev tools installed
+- [ ] Verify full flow: install → open → load PDF → select engine → convert → save MP3
+- [ ] Document any missing bundled dependencies or PATH issues
+
+### Memory Profiling
+- [ ] Profile memory usage during conversion of a large PDF (300+ pages) using tracemalloc or memory_profiler
+- [ ] Check that pydub audio chunks are released properly and not accumulating in memory
+- [ ] Set a baseline for peak memory usage per book size
+
+### Dependency Security
+- [ ] Run pip audit or safety check against requirements.txt
+- [ ] Pin all dependency versions if not already pinned
+- [ ] Update any packages with known vulnerabilities
+
+### Sentence Splitter Edge Case Tests
+- [ ] URLs embedded in text
+- [ ] Decimal numbers ("3.14 was the result")
+- [ ] Finnish abbreviations ("esim.", "ns.", "mm.", "jne.")
+- [ ] Periods inside quotation marks
+- [ ] Strings with only punctuation or whitespace
+- [ ] Mixed Finnish/English paragraphs
+- [ ] Initials ("J.R.R. Tolkien wrote...")
