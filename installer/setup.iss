@@ -49,9 +49,9 @@ AppUpdatesURL=
 ; Copyright string embedded in the uninstaller executable.
 AppCopyright=Copyright (C) 2026 AudiobookMaker Contributors
 
-; Default installation directory. {autopf} resolves to "Program Files" on
-; 64-bit Windows (the native 64-bit Program Files folder).
-DefaultDirName={autopf}\AudiobookMaker
+; Per-user install — no admin/UAC prompt needed. This is critical for the
+; auto-updater which runs the installer silently without elevation.
+DefaultDirName={localappdata}\Programs\AudiobookMaker
 
 ; Name of the Start Menu folder created for the app shortcuts.
 DefaultGroupName=AudiobookMaker
@@ -110,9 +110,9 @@ AppMutex=AudiobookMaker_SingleInstance
 ; and had to be closed.
 RestartApplications=yes
 
-; Require administrator privileges so that the app can be installed into
-; Program Files and registry keys can be written to HKLM.
-PrivilegesRequired=admin
+; Per-user install — no admin privileges needed. Required for the
+; auto-updater to work without UAC prompts.
+PrivilegesRequired=lowest
 
 ; Show the "Run AudiobookMaker after setup finishes" checkbox on the last page.
 ; The checkbox is checked by default.
@@ -213,18 +213,18 @@ Filename: "{app}\AudiobookMaker.exe"; \
 ; These keys cause Windows to display AudiobookMaker in the installed-programs
 ; list with publisher, version, and uninstall information.
 
-Root: HKLM; \
+Root: HKCU; \
   Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1"; \
   ValueType: string; ValueName: "DisplayName"; \
   ValueData: "AudiobookMaker"; \
   Flags: uninsdeletekey
 
-Root: HKLM; \
+Root: HKCU; \
   Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1"; \
   ValueType: string; ValueName: "DisplayVersion"; \
   ValueData: "1.0.0"
 
-Root: HKLM; \
+Root: HKCU; \
   Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1"; \
   ValueType: string; ValueName: "Publisher"; \
   ValueData: "AudiobookMaker"
