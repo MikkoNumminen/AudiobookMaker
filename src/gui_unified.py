@@ -1482,10 +1482,26 @@ class UnifiedApp(ctk.CTk):
     # ---- Chatterbox subprocess ----------------------------------------
 
     def _start_chatterbox_subprocess(self) -> None:
-        if self._input_mode != "pdf" or not self._pdf_path:
-            # Chatterbox runner only supports PDF input.
-            self._fail("Chatterbox tukee vain PDF-syötettä.")
-            return
+        pdf_path = None
+        text_path = None
+
+        if self._input_mode == "pdf":
+            if not self._pdf_path:
+                self._fail(self._s("no_pdf"))
+                return
+            pdf_path = str(self._pdf_path)
+        else:
+            content = self._text_widget.get("1.0", tk.END).strip()
+            if not content or self._text_has_placeholder:
+                self._fail(self._s("no_text"))
+                return
+            # Write text to a temp file for the subprocess.
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8",
+            )
+            tmp.write(content)
+            tmp.close()
+            text_path = tmp.name
 
         python_exe = resolve_chatterbox_python()
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
@@ -1497,8 +1513,9 @@ class UnifiedApp(ctk.CTk):
             return
 
         # Use output path's parent directory, or a sensible default.
-        if self._out_entry.get() and self._out_entry.get() not in ("Ei valittu", "Not selected"):
-            out_dir = Path(self._out_entry.get()).parent
+        out_var = self._out_var.get() if hasattr(self, '_out_var') else ""
+        if out_var and out_var not in ("Ei valittu", "Not selected", ""):
+            out_dir = Path(out_var).parent
         else:
             out_dir = Path.home() / "Documents" / "AudiobookMaker"
         out_dir = out_dir.resolve()
@@ -1512,12 +1529,14 @@ class UnifiedApp(ctk.CTk):
         self._chatterbox_runner = ChatterboxRunner(
             python_exe=str(python_exe),
             script_path=str(runner_script),
-            pdf_path=str(self._pdf_path),
+            pdf_path=pdf_path,
+            text_path=text_path,
             out_dir=str(out_dir),
             extra_args=extra_args,
         )
 
-        self._append_log(f"PDF: {self._pdf_path}")
+        input_label = pdf_path or text_path or "text"
+        self._append_log(f"Input: {input_label}")
         self._append_log(f"Output: {out_dir}")
         self._append_log("Engine: chatterbox_fi")
 

@@ -104,7 +104,12 @@ def parse_args() -> argparse.Namespace:
         description="Generate a full Finnish PDF->MP3 audiobook via "
                     "Chatterbox-TTS + Finnish-NLP finetune.",
     )
-    p.add_argument("--pdf", required=True, help="Input PDF file.")
+    p.add_argument("--pdf", default=None, help="Input PDF file.")
+    p.add_argument(
+        "--text-file",
+        default=None,
+        help="Input plain text file (alternative to --pdf).",
+    )
     p.add_argument(
         "--out",
         default="dist/audiobook",
@@ -439,14 +444,40 @@ def main() -> int:
         return 2
 
     from pydub import AudioSegment
-    from src.pdf_parser import parse_pdf
 
-    pdf_path = Path(args.pdf).expanduser().resolve()
-    if not pdf_path.is_file():
-        print(f"[error] PDF not found: {pdf_path}", flush=True)
+    if not args.pdf and not args.text_file:
+        print("[error] either --pdf or --text-file is required", flush=True)
         return 2
 
-    out_root = Path(args.out).expanduser().resolve() / pdf_path.stem
+    if args.text_file:
+        # Plain text input — create a single-chapter book structure.
+        text_path = Path(args.text_file).expanduser().resolve()
+        if not text_path.is_file():
+            print(f"[error] text file not found: {text_path}", flush=True)
+            return 2
+        from types import SimpleNamespace
+        content = text_path.read_text(encoding="utf-8")
+        chapter = SimpleNamespace(
+            index=0, title="Text", content=content,
+            page_start=0, page_end=0,
+        )
+        book = SimpleNamespace(
+            chapters=[chapter],
+            metadata=SimpleNamespace(title=text_path.stem),
+        )
+        input_stem = text_path.stem
+        print(f"[setup] text file: {text_path.name} ({len(content)} chars)", flush=True)
+    else:
+        from src.pdf_parser import parse_pdf
+        pdf_path = Path(args.pdf).expanduser().resolve()
+        if not pdf_path.is_file():
+            print(f"[error] PDF not found: {pdf_path}", flush=True)
+            return 2
+        book = parse_pdf(str(pdf_path))
+        input_stem = pdf_path.stem
+        print(f"[setup] parsing PDF: {pdf_path.name}", flush=True)
+
+    out_root = Path(args.out).expanduser().resolve() / input_stem
     chunks_dir = out_root / ".chunks"
     progress_path = out_root / ".progress.json"
 
@@ -461,8 +492,6 @@ def main() -> int:
     chunks_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[setup] out={out_root}", flush=True)
-    print(f"[setup] parsing PDF: {pdf_path.name}", flush=True)
-    book = parse_pdf(str(pdf_path))
     only = None
     if args.chapters:
         only = {int(x) for x in args.chapters.split(",") if x.strip()}

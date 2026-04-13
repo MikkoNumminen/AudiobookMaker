@@ -240,13 +240,15 @@ class ChatterboxRunner:
         self,
         python_exe: str,
         script_path: str,
-        pdf_path: str,
-        out_dir: str,
+        pdf_path: Optional[str] = None,
+        text_path: Optional[str] = None,
+        out_dir: str = "",
         extra_args: Optional[list[str]] = None,
     ) -> None:
         self.python_exe = python_exe
         self.script_path = script_path
         self.pdf_path = pdf_path
+        self.text_path = text_path
         self.out_dir = out_dir
         self.extra_args = extra_args or []
         self._state = _RunnerState()
@@ -261,12 +263,17 @@ class ChatterboxRunner:
             raise RuntimeError("runner already started")
 
         parser = ChatterboxLineParser()
+        input_args = []
+        if self.text_path:
+            input_args = ["--text-file", self.text_path]
+        elif self.pdf_path:
+            input_args = ["--pdf", self.pdf_path]
+
         argv = [
             self.python_exe,
             "-u",
             self.script_path,
-            "--pdf",
-            self.pdf_path,
+            *input_args,
             "--out",
             self.out_dir,
             "--device",
