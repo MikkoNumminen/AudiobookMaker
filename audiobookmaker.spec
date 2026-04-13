@@ -73,11 +73,13 @@ binaries = collect_dynamic_libs('onnxruntime')
 binaries += collect_dynamic_libs('piper')
 binaries += collect_dynamic_libs('piper_phonemize')
 
-# Bundle ffmpeg.exe and ffplay.exe from dist/ffmpeg/ into the package root
-# so pydub can find ffmpeg via PATH at runtime (see src/ffmpeg_path.py)
-# and the Listen button can play audio via ffplay.
+# Bundle ffmpeg.exe, ffprobe.exe, and ffplay.exe from dist/ffmpeg/ into the
+# package root so pydub can find them at runtime (see src/ffmpeg_path.py).
+# ffprobe is required by pydub to read audio file metadata (mediainfo_json).
+# ffplay is used by the Listen button.
 datas = [
     (os.path.join('dist', 'ffmpeg', 'ffmpeg.exe'), '.'),
+    (os.path.join('dist', 'ffmpeg', 'ffprobe.exe'), '.'),
     (os.path.join('dist', 'ffmpeg', 'ffplay.exe'), '.'),
 ]
 # piper ships its phonemizer data (espeak-ng-data/) inside the package;
