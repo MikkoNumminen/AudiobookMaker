@@ -1384,6 +1384,11 @@ def combine_audio_files(
     if not input_paths:
         raise ValueError("No audio files to combine.")
 
+    # Ensure pydub can find ffmpeg (safety net in case setup_ffmpeg_path()
+    # was not called or was called before pydub was imported).
+    from src.ffmpeg_path import setup_ffmpeg_path
+    setup_ffmpeg_path()
+
     gap = AudioSegment.silent(duration=inter_chunk_pause_ms)
     combined = AudioSegment.empty()
     for i, path in enumerate(input_paths):
