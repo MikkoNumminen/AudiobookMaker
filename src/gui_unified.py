@@ -578,6 +578,160 @@ class EngineManagerDialog(ctk.CTkToplevel):
 
 
 # ---------------------------------------------------------------------------
+# Cleanup dialog (old installs + orphan shortcuts)
+# ---------------------------------------------------------------------------
+
+
+_CLEANUP_STRINGS = {
+    "fi": {
+        "title": "Vanhojen asennusten siivous",
+        "intro": (
+            "Löysin AudiobookMakerin vanhoja kopioita ja viittauksia. "
+            "Ne saattavat sekoittaa päivityksiä ja näyttää väärän kuvakkeen."
+        ),
+        "old_installs": "Vanhat asennukset",
+        "orphan_shortcuts": "Rikkinäiset pikakuvakkeet",
+        "size": "koko",
+        "target": "kohde",
+        "missing": "(puuttuu)",
+        "clean_btn": "Siivoa kaikki",
+        "later_btn": "Myöhemmin",
+        "cleaning": "Siivotaan...",
+        "done": "Valmis. Poistettu: {n} kohdetta.",
+        "fail_some": "Osa kohteista ei poistunut. Yritä käynnistää sovellus uudelleen.",
+    },
+    "en": {
+        "title": "Clean up old installations",
+        "intro": (
+            "Found old AudiobookMaker copies and broken references. "
+            "These can confuse updates and show the wrong icon."
+        ),
+        "old_installs": "Old installations",
+        "orphan_shortcuts": "Broken shortcuts",
+        "size": "size",
+        "target": "target",
+        "missing": "(missing)",
+        "clean_btn": "Clean up all",
+        "later_btn": "Later",
+        "cleaning": "Cleaning...",
+        "done": "Done. Removed: {n} item(s).",
+        "fail_some": "Some items could not be removed. Try restarting the app.",
+    },
+}
+
+
+class CleanupDialog(ctk.CTkToplevel):
+    """Modal dialog that lists old installs / orphan shortcuts and offers cleanup."""
+
+    def __init__(
+        self, parent, old_installs, orphan_shortcuts,
+        ui_lang: str = "fi",
+    ) -> None:
+        super().__init__(parent)
+        self._strings = _CLEANUP_STRINGS.get(ui_lang, _CLEANUP_STRINGS["fi"])
+        self._old_installs = old_installs
+        self._orphan_shortcuts = orphan_shortcuts
+
+        self.title(self._strings["title"])
+        self.geometry("680x460")
+        self.minsize(560, 360)
+        self.transient(parent)
+        self.grab_set()
+
+        self._build_ui()
+
+    def _s(self, key: str) -> str:
+        return self._strings.get(key, key)
+
+    def _build_ui(self) -> None:
+        # Intro
+        intro = ctk.CTkLabel(
+            self, text=self._s("intro"), wraplength=620, justify="left",
+        )
+        intro.pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        # Scrollable content
+        content = ctk.CTkScrollableFrame(self)
+        content.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        if self._old_installs:
+            ctk.CTkLabel(
+                content, text=self._s("old_installs"),
+                font=ctk.CTkFont(weight="bold", size=14), anchor="w",
+            ).pack(fill=tk.X, padx=4, pady=(4, 2))
+            for inst in self._old_installs:
+                line = f"  {inst.path}  ({inst.size_mb:.0f} MB)"
+                ctk.CTkLabel(
+                    content, text=line, anchor="w",
+                    font=ctk.CTkFont(family="Consolas", size=11),
+                ).pack(fill=tk.X, padx=4, pady=1)
+
+        if self._orphan_shortcuts:
+            ctk.CTkLabel(
+                content, text=self._s("orphan_shortcuts"),
+                font=ctk.CTkFont(weight="bold", size=14), anchor="w",
+            ).pack(fill=tk.X, padx=4, pady=(8, 2))
+            for short in self._orphan_shortcuts:
+                line = f"  {short.shortcut_path.name} \u2192 {short.target_path}"
+                ctk.CTkLabel(
+                    content, text=line, anchor="w",
+                    font=ctk.CTkFont(family="Consolas", size=11),
+                ).pack(fill=tk.X, padx=4, pady=1)
+
+        # Status line
+        self._status = ctk.CTkLabel(self, text="", anchor="w")
+        self._status.pack(fill=tk.X, padx=12, pady=2)
+
+        # Buttons
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill=tk.X, padx=12, pady=(6, 12))
+        self._clean_btn = ctk.CTkButton(
+            btn_row, text=self._s("clean_btn"), command=self._on_clean,
+            width=140,
+        )
+        self._clean_btn.pack(side=tk.RIGHT, padx=(6, 0))
+        self._later_btn = ctk.CTkButton(
+            btn_row, text=self._s("later_btn"), command=self.destroy,
+            width=120,
+        )
+        self._later_btn.pack(side=tk.RIGHT)
+
+    def _on_clean(self) -> None:
+        self._clean_btn.configure(state="disabled")
+        self._later_btn.configure(state="disabled")
+        self._status.configure(text=self._s("cleaning"))
+
+        def worker() -> None:
+            from src.cleanup import remove_old_install, remove_orphan_shortcut
+            removed = 0
+            failed = 0
+            for inst in self._old_installs:
+                ok, _msg = remove_old_install(inst)
+                if ok:
+                    removed += 1
+                else:
+                    failed += 1
+            for short in self._orphan_shortcuts:
+                ok, _msg = remove_orphan_shortcut(short)
+                if ok:
+                    removed += 1
+                else:
+                    failed += 1
+            self.after(0, lambda: self._finished(removed, failed))
+
+        threading.Thread(
+            target=worker, daemon=True, name="cleanup-worker",
+        ).start()
+
+    def _finished(self, removed: int, failed: int) -> None:
+        msg = self._s("done").format(n=removed)
+        if failed:
+            msg += "  " + self._s("fail_some")
+        self._status.configure(text=msg)
+        self._clean_btn.configure(text=self._s("later_btn"), state="normal", command=self.destroy)
+
+
+# ---------------------------------------------------------------------------
 # Main application window
 # ---------------------------------------------------------------------------
 
@@ -634,6 +788,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 target=self._check_update_worker, daemon=True, name="update-check",
             ).start()
             self.after(500, self._poll_update_check)
+
+            # Check for old installs / orphan shortcuts shortly after launch.
+            # Only in frozen mode — dev mode shouldn't trigger cleanup.
+            self.after(1500, self._check_for_old_installs)
 
     # ------------------------------------------------------------------
     # Window helpers
@@ -1449,6 +1607,39 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         dlg = EngineManagerDialog(self, ui_lang=self._ui_lang)
         dlg.transient(self)
         dlg.grab_set()
+
+    # ------------------------------------------------------------------
+    # Old install / orphan shortcut cleanup
+    # ------------------------------------------------------------------
+
+    def _check_for_old_installs(self) -> None:
+        """Background scan for old installs and orphan shortcuts.
+
+        Runs once on startup. If anything is found, shows a confirmation
+        dialog offering to clean up.  Errors are swallowed silently —
+        cleanup is opportunistic, never blocking.
+        """
+        def worker() -> None:
+            try:
+                from src.cleanup import find_old_installs, find_orphan_shortcuts
+                old = find_old_installs()
+                orphans = find_orphan_shortcuts()
+                if old or orphans:
+                    self.after(0, lambda: self._show_cleanup_dialog(old, orphans))
+            except Exception as exc:
+                self.after(0, lambda: self._append_log(
+                    f"Cleanup scan failed: {exc}"
+                ))
+
+        threading.Thread(
+            target=worker, daemon=True, name="cleanup-scan",
+        ).start()
+
+    def _show_cleanup_dialog(self, old_installs, orphan_shortcuts) -> None:
+        """Show a dialog listing old installs and orphan shortcuts."""
+        if not old_installs and not orphan_shortcuts:
+            return
+        CleanupDialog(self, old_installs, orphan_shortcuts, ui_lang=self._ui_lang)
 
     # ------------------------------------------------------------------
     # Auto-update (periodic check + download + install)
