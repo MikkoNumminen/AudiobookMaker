@@ -1343,14 +1343,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             messagebox.showerror(self._s("error"), "Valitse ääni.")
             return
 
-        ffplay_path = self._find_ffplay()
-        if ffplay_path is None:
-            messagebox.showerror(
-                self._s("error"),
-                "ffplay not found. Please install ffmpeg."
-            )
-            return
-
         # Enter listening state.
         self._listening = True
         self._listen_btn.configure(state="disabled", text=self._s("listening"))
@@ -1359,13 +1351,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         threading.Thread(
             target=self._listen_worker,
-            args=(text, engine, voice, ffplay_path),
+            args=(text, engine, voice),
             daemon=True,
             name="listen",
         ).start()
 
     def _listen_worker(
-        self, text: str, engine: TTSEngine, voice: Voice, ffplay_path: str
+        self, text: str, engine: TTSEngine, voice: Voice,
     ) -> None:
         tmp_path: Optional[str] = None
         try:
@@ -1387,26 +1379,24 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 voice_description=voice_desc,
             )
 
-            # Play via ffplay.
-            proc = subprocess.Popen(
-                [ffplay_path, "-nodisp", "-autoexit", tmp_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            self._listen_proc = proc
-            proc.wait()
+            # Play via the system's default audio player.
+            if sys.platform == "win32":
+                os.startfile(tmp_path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", tmp_path])
+            else:
+                subprocess.Popen(["xdg-open", tmp_path])
+            # Give the player time to open the file before cleanup.
+            import time
+            time.sleep(2)
 
         except Exception as exc:
             self.after(0, lambda: self._status_label_val.configure(
                 text=f"Listen error: {exc}"
             ))
         finally:
-            # Clean up temp file.
-            if tmp_path:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+            # Don't delete temp file — the external player still needs it.
+            # OS temp cleanup will handle it eventually.
             self._listen_temp_path = None
             self._listen_proc = None
             self.after(0, self._listen_finished)
