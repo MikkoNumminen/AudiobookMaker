@@ -98,6 +98,44 @@ datas += collect_data_files('customtkinter')
 datas += [(os.path.join('data', 'fi_loanwords.yaml'), 'data')]
 # Chatterbox runner script — invoked as a subprocess by the unified GUI
 datas += [(os.path.join('scripts', 'generate_chatterbox_audiobook.py'), 'scripts')]
+# Bundle src modules needed by the Chatterbox subprocess script.
+# The script is run by the chatterbox venv's Python (not the bundled
+# interpreter) and does `from src.tts_engine import ...`. We bundle
+# the .py files so the script can sys.path.insert(_internal) and import them.
+datas += [
+    (os.path.join('src', '__init__.py'), 'src'),
+    (os.path.join('src', 'tts_engine.py'), 'src'),
+    (os.path.join('src', 'pdf_parser.py'), 'src'),
+    (os.path.join('src', 'fi_loanwords.py'), 'src'),
+]
+# Bundle the entire piper and piper_phonemize package source files.
+# collect_submodules() only adds names to hidden_imports — it does NOT copy
+# the .py files. PyInstaller's normal package discovery sometimes misses
+# packages with non-standard structure, so we explicitly Tree() them.
+try:
+    import piper as _piper_pkg
+    _piper_dir = os.path.dirname(_piper_pkg.__file__)
+    for _root, _dirs, _files in os.walk(_piper_dir):
+        for _f in _files:
+            if _f.endswith('.py'):
+                _full = os.path.join(_root, _f)
+                _rel = os.path.relpath(_root, _piper_dir)
+                _dest = 'piper' if _rel == '.' else os.path.join('piper', _rel)
+                datas.append((_full, _dest))
+except ImportError:
+    pass
+try:
+    import piper_phonemize as _pp_pkg
+    _pp_dir = os.path.dirname(_pp_pkg.__file__)
+    for _root, _dirs, _files in os.walk(_pp_dir):
+        for _f in _files:
+            if _f.endswith('.py'):
+                _full = os.path.join(_root, _f)
+                _rel = os.path.relpath(_root, _pp_dir)
+                _dest = 'piper_phonemize' if _rel == '.' else os.path.join('piper_phonemize', _rel)
+                datas.append((_full, _dest))
+except ImportError:
+    pass
 # Goat icon for the window title bar and taskbar
 datas += [(os.path.join('assets', 'icon.ico'), 'assets')]
 datas += [(os.path.join('assets', 'icon.png'), 'assets')]
