@@ -36,10 +36,10 @@ Read on for the details.
 
 ## Installation
 
-**Download:** [AudiobookMaker v2.1.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v2.1.0)
+**Download:** [AudiobookMaker v2.2.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v2.2.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-2.1.0.exe`
+1. Download `AudiobookMaker-Setup-2.2.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
