@@ -12,6 +12,9 @@ piper-tts==1.4.2
 num2words==0.5.14
 PyYAML>=6.0
 
+# Modern GUI toolkit
+customtkinter>=5.2.0
+
 # Audio processing
 pydub==0.25.1
 
