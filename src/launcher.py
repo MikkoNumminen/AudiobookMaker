@@ -405,6 +405,8 @@ class LauncherApp(tk.Tk):
                 ProgressEvent(kind="log", raw_line=MSG_PARSING)
             )
             book = parse_pdf(str(self._pdf_path))
+            if not book.full_text.strip():
+                raise ValueError("PDF ei sisällä tekstiä (tiedosto voi olla skannattu).")
 
             voice_id = engine.default_voice("fi")
             if voice_id is None:

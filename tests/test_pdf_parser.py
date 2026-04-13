@@ -12,6 +12,7 @@ import fitz  # PyMuPDF
 from src.pdf_parser import (
     BookMetadata,
     Chapter,
+    EmptyPDFError,
     ParsedBook,
     clean_text,
     parse_pdf,
@@ -311,5 +312,22 @@ class TestParsePdfErrors:
             assert not book.chapters[0].content.lower().startswith("listen")
             # Sanity: the intended opening line survives.
             assert "Tämä on ensimmäinen luku" in book.chapters[0].content
+        finally:
+            os.unlink(tmp.name)
+
+
+class TestEmptyPdf:
+    def test_empty_pdf_raises(self) -> None:
+        """A PDF with pages but no text should raise EmptyPDFError."""
+        doc = fitz.open()
+        doc.new_page()  # blank page, no text
+        doc.new_page()
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp.close()  # close before save — Windows locks open files
+        doc.save(tmp.name)
+        doc.close()
+        try:
+            with pytest.raises(EmptyPDFError, match="no extractable text"):
+                parse_pdf(tmp.name)
         finally:
             os.unlink(tmp.name)

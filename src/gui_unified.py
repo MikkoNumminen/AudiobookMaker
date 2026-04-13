@@ -190,6 +190,7 @@ _STRINGS = {
         "listen": "Kuuntele",
         "listening": "Toistetaan...",
         "listen_no_text": "Kirjoita ensin teksti Teksti-välilehdelle.",
+        "pdf_no_text": "PDF ei sisällä tekstiä (tiedosto voi olla skannattu). Kokeile ensin OCR-muunnosta.",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -244,6 +245,7 @@ _STRINGS = {
         "listen": "Listen",
         "listening": "Playing...",
         "listen_no_text": "Enter text in the Text tab first.",
+        "pdf_no_text": "PDF contains no extractable text (it may be scanned). Try OCR first.",
     },
 }
 
@@ -905,6 +907,8 @@ class UnifiedApp(ctk.CTk):
             if not self._pdf_path:
                 raise ValueError(self._s("no_pdf"))
             book = parse_pdf(self._pdf_path)
+            if not book.full_text.strip():
+                raise ValueError(self._s("pdf_no_text"))
             return book.full_text
         else:
             if self._text_has_placeholder:
@@ -1601,6 +1605,8 @@ class UnifiedApp(ctk.CTk):
                 assert pdf_path is not None
                 book = parse_pdf(pdf_path)
                 text = book.full_text
+                if not text.strip():
+                    raise ValueError(self._s("pdf_no_text"))
             else:
                 text = input_text or ""
 

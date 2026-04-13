@@ -14,6 +14,11 @@ from typing import Optional
 import fitz  # PyMuPDF
 
 
+class EmptyPDFError(ValueError):
+    """Raised when a PDF contains no extractable text (e.g. scanned pages)."""
+    pass
+
+
 @dataclass
 class BookMetadata:
     """Metadata extracted from a PDF file."""
@@ -304,4 +309,10 @@ def parse_pdf(file_path: str | Path) -> ParsedBook:
 
     chapters = _split_into_chapters(pages_text)
 
-    return ParsedBook(metadata=metadata, chapters=chapters)
+    book = ParsedBook(metadata=metadata, chapters=chapters)
+    if book.total_chars == 0:
+        raise EmptyPDFError(
+            f"PDF contains no extractable text ({metadata.num_pages} pages). "
+            "The file may be scanned — try OCR first."
+        )
+    return book
