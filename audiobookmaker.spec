@@ -96,6 +96,9 @@ datas += collect_data_files('customtkinter')
 datas += [(os.path.join('data', 'fi_loanwords.yaml'), 'data')]
 # Chatterbox runner script — invoked as a subprocess by the unified GUI
 datas += [(os.path.join('scripts', 'generate_chatterbox_audiobook.py'), 'scripts')]
+# Goat icon for the window title bar and taskbar
+datas += [(os.path.join('assets', 'icon.ico'), 'assets')]
+datas += [(os.path.join('assets', 'icon.png'), 'assets')]
 
 a = Analysis(
     [os.path.join('src', 'main.py')],
