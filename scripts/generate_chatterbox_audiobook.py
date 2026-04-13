@@ -495,7 +495,12 @@ def main() -> int:
     only = None
     if args.chapters:
         only = {int(x) for x in args.chapters.split(",") if x.strip()}
-    selected = _select_chapters(book, only)
+    if args.text_file:
+        # Text-file input: skip prose heuristics — the user explicitly
+        # wants this text synthesized regardless of length.
+        selected = list(enumerate(book.chapters, start=1))
+    else:
+        selected = _select_chapters(book, only)
     if not selected:
         print("[error] no chapters passed skip heuristics; nothing to do",
               flush=True)

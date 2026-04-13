@@ -1423,11 +1423,23 @@ def text_to_speech(
     if not chunks:
         raise ValueError("Text produced no chunks after splitting.")
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    tmp_dir = tempfile.mkdtemp(prefix="abm_tts_")
+    try:
         mp3_files = asyncio.run(
             _synthesize_all_chunks(chunks, config, tmp_dir, progress_cb)
         )
         combine_audio_files(mp3_files, output_path)
+    finally:
+        # Clean up temp files. On Windows, pydub may hold locks briefly
+        # so we retry with a small delay if deletion fails.
+        import shutil
+        import time
+        for attempt in range(3):
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                break
+            except OSError:
+                time.sleep(0.5)
 
     if progress_cb:
         progress_cb(len(chunks), len(chunks), "Valmis!")
