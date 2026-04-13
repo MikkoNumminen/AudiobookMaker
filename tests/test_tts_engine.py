@@ -33,6 +33,7 @@ from src.tts_engine import (
     _split_sentences,
     _roman_to_int,
     _expand_acronyms,
+    _synthesize_chunk,
     MAX_CHUNK_CHARS,
 )
 
@@ -1230,3 +1231,32 @@ class TestShortRangeGovernorInflection:
         result = normalize_finnish_text("vuonna 1500-1800")
         assert "tuhat viisisataa" in result
         assert "tuhat kahdeksansataa" in result
+
+
+# ---------------------------------------------------------------------------
+# Edge-TTS chunk timeout
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeChunkTimeout:
+    @pytest.mark.asyncio
+    async def test_timeout_raises_runtime_error(self) -> None:
+        """Edge-TTS chunk synthesis should raise RuntimeError on timeout."""
+        import sys
+
+        # Create a coroutine that never completes — simulates a network stall.
+        async def hang_forever(*_args, **_kwargs):
+            await asyncio.sleep(9999)
+
+        mock_communicate = MagicMock()
+        mock_communicate.save = hang_forever
+
+        mock_edge_module = MagicMock()
+        mock_edge_module.Communicate.return_value = mock_communicate
+
+        # Inject a fake edge_tts module so the lazy import inside
+        # _synthesize_chunk picks it up from sys.modules.
+        with patch.dict(sys.modules, {"edge_tts": mock_edge_module}), \
+             patch("src.tts_engine._EDGE_CHUNK_TIMEOUT", 0.1):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await _synthesize_chunk("test", "voice", "+0%", "+0%", "/tmp/out.mp3")

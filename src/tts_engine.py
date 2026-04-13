@@ -1257,6 +1257,12 @@ def _force_split(text: str, max_chars: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+# Per-chunk timeout in seconds.  Edge-tts normally takes 2-10 seconds per
+# chunk; 120 seconds is generous enough to handle slow connections while
+# still catching genuine stalls.
+_EDGE_CHUNK_TIMEOUT = 120
+
+
 async def _synthesize_chunk(
     text: str,
     voice: str,
@@ -1268,7 +1274,13 @@ async def _synthesize_chunk(
     import edge_tts  # lazy import — see note at top of file
 
     communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, volume=volume)
-    await communicate.save(output_path)
+    try:
+        await asyncio.wait_for(communicate.save(output_path), timeout=_EDGE_CHUNK_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise RuntimeError(
+            f"Edge-TTS timed out after {_EDGE_CHUNK_TIMEOUT}s synthesizing a chunk. "
+            "Check your internet connection."
+        )
 
 
 async def _synthesize_all_chunks(
