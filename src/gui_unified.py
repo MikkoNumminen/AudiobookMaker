@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,7 +33,7 @@ import customtkinter as ctk
 
 from src import app_config
 from src.auto_updater import check_for_update, download_update, apply_update, APP_VERSION, UpdateInfo
-from src.ffmpeg_path import setup_ffmpeg_path
+from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
 from src.pdf_parser import parse_pdf
 from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engines
@@ -172,6 +173,9 @@ _STRINGS = {
         "update_downloading": "Ladataan päivitystä...",
         "update_installing": "Asennetaan päivitys...",
         "update_failed": "Päivitys epäonnistui.",
+        "listen": "Kuuntele",
+        "listening": "Toistetaan...",
+        "listen_no_text": "Kirjoita ensin teksti Teksti-välilehdelle.",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -223,6 +227,9 @@ _STRINGS = {
         "update_downloading": "Downloading update...",
         "update_installing": "Installing update...",
         "update_failed": "Update failed.",
+        "listen": "Listen",
+        "listening": "Playing...",
+        "listen_no_text": "Enter text in the Text tab first.",
     },
 }
 
@@ -252,6 +259,9 @@ class UnifiedApp(ctk.CTk):
         self._cancel_requested = False
         self._cancel_flag = threading.Event()
         self._testing_voice = False
+        self._listening = False
+        self._listen_proc: Optional[subprocess.Popen] = None
+        self._listen_temp_path: Optional[str] = None
         self._chatterbox_runner: Optional[ChatterboxRunner] = None
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
         self._log_visible = False
@@ -410,7 +420,9 @@ class UnifiedApp(ctk.CTk):
         if not self._synth_running:
             self._status_label_val.configure(text=s("select_input_prompt"))
 
-        # Convert / cancel / open folder buttons.
+        # Listen / convert / cancel / open folder buttons.
+        if not self._listening:
+            self._listen_btn.configure(text=s("listen"))
         self._convert_btn.configure(text=s("convert"))
         if not self._cancel_requested:
             self._cancel_btn.configure(text=s("cancel"))
@@ -761,22 +773,27 @@ class UnifiedApp(ctk.CTk):
         btn_row = ctk.CTkFrame(pf, fg_color="transparent")
         btn_row.grid(row=3, column=0)
 
+        self._listen_btn = ctk.CTkButton(
+            btn_row, text="Kuuntele", command=self._on_listen_click
+        )
+        self._listen_btn.grid(row=0, column=0, padx=(0, 6))
+
         self._convert_btn = ctk.CTkButton(
             btn_row, text="Muunna", command=self._on_convert_click
         )
-        self._convert_btn.grid(row=0, column=0, padx=(0, 6))
+        self._convert_btn.grid(row=0, column=1, padx=(0, 6))
 
         self._cancel_btn = ctk.CTkButton(
             btn_row, text="Peruuta", command=self._request_cancel
         )
-        self._cancel_btn.grid(row=0, column=1, padx=(0, 6))
+        self._cancel_btn.grid(row=0, column=2, padx=(0, 6))
         self._cancel_btn.grid_remove()
 
         self._open_folder_btn = ctk.CTkButton(
             btn_row, text="Avaa kansio", command=self._open_output_folder,
             state="disabled",
         )
-        self._open_folder_btn.grid(row=0, column=2)
+        self._open_folder_btn.grid(row=0, column=3)
 
     # ---- 5. Log panel (collapsible) -----------------------------------
 
@@ -1151,6 +1168,154 @@ class UnifiedApp(ctk.CTk):
         self.after(0, _play)
 
     # ------------------------------------------------------------------
+    # Listen (synthesize + play without saving)
+    # ------------------------------------------------------------------
+
+    def _find_ffplay(self) -> Optional[str]:
+        """Locate ffplay, checking the bundled ffmpeg dir first."""
+        path = shutil.which("ffplay")
+        if path:
+            return path
+        # On Windows, also check for ffplay.exe next to ffmpeg.
+        ffmpeg_dir = get_ffmpeg_dir()
+        if ffmpeg_dir:
+            candidate = os.path.join(ffmpeg_dir, "ffplay.exe")
+            if os.path.isfile(candidate):
+                return candidate
+        return None
+
+    def _on_listen_click(self) -> None:
+        if self._listening or self._synth_running:
+            return
+
+        # Get text to synthesize.
+        if self._input_mode == "text":
+            if self._text_has_placeholder:
+                text = ""
+            else:
+                text = self._text_widget.get("1.0", tk.END).strip()
+            if not text:
+                messagebox.showerror(self._s("error"), self._s("listen_no_text"))
+                return
+        else:
+            # PDF mode: synthesize first paragraph as preview.
+            if not self._pdf_path:
+                messagebox.showerror(self._s("error"), self._s("no_pdf"))
+                return
+            try:
+                book = parse_pdf(self._pdf_path)
+                text = book.full_text
+            except Exception as exc:
+                messagebox.showerror(self._s("error"), str(exc))
+                return
+            if not text:
+                messagebox.showerror(self._s("error"), self._s("listen_no_text"))
+                return
+
+        # Truncate long text to 1000 chars for preview.
+        if len(text) > 1000:
+            text = text[:1000]
+
+        # Validate engine/voice.
+        engine_id = self._current_engine_id()
+        if not engine_id:
+            messagebox.showerror(self._s("error"), "Valitse TTS-moottori.")
+            return
+
+        if engine_id == "chatterbox_fi":
+            messagebox.showinfo(
+                self._s("listen"),
+                "Chatterbox ei tue kuuntelua tästä käyttöliittymästä."
+                if self._ui_lang == "fi"
+                else "Chatterbox does not support listen preview from this UI."
+            )
+            return
+
+        engine = self._current_engine()
+        voice = self._current_voice()
+        if engine is None:
+            messagebox.showerror(self._s("error"), "Moottoria ei löytynyt.")
+            return
+        if voice is None:
+            messagebox.showerror(self._s("error"), "Valitse ääni.")
+            return
+
+        ffplay_path = self._find_ffplay()
+        if ffplay_path is None:
+            messagebox.showerror(
+                self._s("error"),
+                "ffplay not found. Please install ffmpeg."
+            )
+            return
+
+        # Enter listening state.
+        self._listening = True
+        self._listen_btn.configure(state="disabled", text=self._s("listening"))
+        self._convert_btn.configure(state="disabled")
+        self._status_label_val.configure(text=self._s("listening"))
+
+        threading.Thread(
+            target=self._listen_worker,
+            args=(text, engine, voice, ffplay_path),
+            daemon=True,
+            name="listen",
+        ).start()
+
+    def _listen_worker(
+        self, text: str, engine: TTSEngine, voice: Voice, ffplay_path: str
+    ) -> None:
+        tmp_path: Optional[str] = None
+        try:
+            lang = self._current_language()
+            ref_audio = self._ref_audio_var.get() or None
+            voice_desc = self._voice_desc_var.get() or None
+
+            tmp = tempfile.NamedTemporaryFile(
+                prefix="listen_", suffix=".mp3", delete=False
+            )
+            tmp.close()
+            tmp_path = tmp.name
+            self._listen_temp_path = tmp_path
+
+            engine.synthesize(
+                text, tmp_path, voice.id, lang,
+                lambda c, t, m: None,
+                reference_audio=ref_audio,
+                voice_description=voice_desc,
+            )
+
+            # Play via ffplay.
+            proc = subprocess.Popen(
+                [ffplay_path, "-nodisp", "-autoexit", tmp_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self._listen_proc = proc
+            proc.wait()
+
+        except Exception as exc:
+            self.after(0, lambda: self._status_label_val.configure(
+                text=f"Listen error: {exc}"
+            ))
+        finally:
+            # Clean up temp file.
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            self._listen_temp_path = None
+            self._listen_proc = None
+            self.after(0, self._listen_finished)
+
+    def _listen_finished(self) -> None:
+        self._listening = False
+        self._listen_btn.configure(state="normal", text=self._s("listen"))
+        self._convert_btn.configure(state="normal")
+        if not self._synth_running:
+            self._status_label_val.configure(text=self._s("select_input_prompt"))
+
+    # ------------------------------------------------------------------
     # Config persistence
     # ------------------------------------------------------------------
 
@@ -1296,6 +1461,7 @@ class UnifiedApp(ctk.CTk):
         self._synth_running = True
         self._cancel_requested = False
         self._cancel_flag.clear()
+        self._listen_btn.configure(state="disabled")
         self._convert_btn.configure(state="disabled")
         self._cancel_btn.grid()
         self._open_folder_btn.configure(state="disabled")
@@ -1306,6 +1472,7 @@ class UnifiedApp(ctk.CTk):
 
     def _set_idle_state(self) -> None:
         self._synth_running = False
+        self._listen_btn.configure(state="normal")
         self._convert_btn.configure(state="normal")
         self._cancel_btn.grid_remove()
 
