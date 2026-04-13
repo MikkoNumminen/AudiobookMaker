@@ -255,6 +255,329 @@ _STRINGS = {
 
 
 # ---------------------------------------------------------------------------
+# Engine Manager dialog
+# ---------------------------------------------------------------------------
+
+
+_ENGINE_MGR_STRINGS = {
+    "fi": {
+        "title": "Moottoreiden hallinta",
+        "system": "Järjestelmä",
+        "gpu": "Näytönohjain",
+        "no_gpu": "Ei NVIDIA-GPU:ta",
+        "disk": "Levytila",
+        "python": "Python 3.11",
+        "py_found": "Asennettu",
+        "py_missing": "Ei asennettu (asentuu Chatterboxin yhteydessä)",
+        "engines": "Moottorit",
+        "installed": "Asennettu",
+        "not_installed": "Ei asennettu",
+        "available": "Käytettävissä",
+        "install_btn": "Asenna",
+        "uninstall_btn": "Poista",
+        "cancel_btn": "Peruuta asennus",
+        "installing": "Asennetaan...",
+        "step": "Vaihe",
+        "of": "/",
+        "close": "Sulje",
+        "prereq_fail": "Esivaatimukset eivät täyty:",
+        "confirm_uninstall": "Haluatko varmasti poistaa moottorin?",
+        "uninstall_done": "Poistettu.",
+        "install_done": "Asennus valmis.",
+        "install_failed": "Asennus epäonnistui:",
+    },
+    "en": {
+        "title": "Engine manager",
+        "system": "System",
+        "gpu": "Graphics card",
+        "no_gpu": "No NVIDIA GPU",
+        "disk": "Disk space",
+        "python": "Python 3.11",
+        "py_found": "Installed",
+        "py_missing": "Not installed (installed with Chatterbox)",
+        "engines": "Engines",
+        "installed": "Installed",
+        "not_installed": "Not installed",
+        "available": "Available",
+        "install_btn": "Install",
+        "uninstall_btn": "Uninstall",
+        "cancel_btn": "Cancel install",
+        "installing": "Installing...",
+        "step": "Step",
+        "of": "/",
+        "close": "Close",
+        "prereq_fail": "Prerequisites not met:",
+        "confirm_uninstall": "Really uninstall this engine?",
+        "uninstall_done": "Uninstalled.",
+        "install_done": "Install complete.",
+        "install_failed": "Install failed:",
+    },
+}
+
+
+class EngineManagerDialog(ctk.CTkToplevel):
+    """Modal dialog for installing/managing TTS engines."""
+
+    def __init__(self, parent, ui_lang: str = "fi") -> None:
+        super().__init__(parent)
+        self._ui_lang = ui_lang
+        self._strings = _ENGINE_MGR_STRINGS.get(ui_lang, _ENGINE_MGR_STRINGS["fi"])
+        self._cancel_event: Optional[threading.Event] = None
+        self._install_thread: Optional[threading.Thread] = None
+        self._progress_queue: queue.Queue = queue.Queue()
+        self._engine_rows: dict[str, dict] = {}
+
+        self.title(self._strings["title"])
+        self.geometry("640x520")
+        self.minsize(560, 460)
+
+        self._build_ui()
+        self._refresh_system_info()
+        self._refresh_engine_rows()
+
+    def _s(self, key: str) -> str:
+        return self._strings.get(key, key)
+
+    def _build_ui(self) -> None:
+        # System info section
+        sys_frame = ctk.CTkFrame(self)
+        sys_frame.pack(fill=tk.X, padx=12, pady=(12, 6))
+        sys_frame.columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            sys_frame, text=self._s("system"),
+            font=ctk.CTkFont(weight="bold", size=14),
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
+
+        # Rows for GPU / disk / python (filled in _refresh_system_info)
+        self._gpu_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
+        self._gpu_label.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=2)
+        self._disk_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
+        self._disk_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=2)
+        self._py_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
+        self._py_label.grid(row=3, column=0, columnspan=2, sticky="ew", padx=8, pady=(2, 8))
+
+        # Engines section
+        eng_frame = ctk.CTkFrame(self)
+        eng_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        eng_frame.columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            eng_frame, text=self._s("engines"),
+            font=ctk.CTkFont(weight="bold", size=14),
+        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+
+        self._engines_container = ctk.CTkFrame(eng_frame, fg_color="transparent")
+        self._engines_container.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        self._engines_container.columnconfigure(0, weight=1)
+        eng_frame.rowconfigure(1, weight=1)
+
+        # Progress section (hidden until install starts)
+        self._progress_frame = ctk.CTkFrame(self)
+        self._progress_step_lbl = ctk.CTkLabel(
+            self._progress_frame, text="", anchor="w",
+        )
+        self._progress_step_lbl.pack(fill=tk.X, padx=8, pady=(8, 2))
+        self._progress_bar = ctk.CTkProgressBar(self._progress_frame)
+        self._progress_bar.pack(fill=tk.X, padx=8, pady=2)
+        self._progress_bar.set(0)
+        self._progress_msg_lbl = ctk.CTkLabel(
+            self._progress_frame, text="", anchor="w",
+        )
+        self._progress_msg_lbl.pack(fill=tk.X, padx=8, pady=(2, 8))
+
+        # Close button
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill=tk.X, padx=12, pady=(6, 12))
+        self._close_btn = ctk.CTkButton(
+            btn_row, text=self._s("close"), command=self.destroy, width=120,
+        )
+        self._close_btn.pack(side=tk.RIGHT)
+
+    def _refresh_system_info(self) -> None:
+        from src.system_checks import detect_gpu, check_disk_space, find_python311
+
+        gpu = detect_gpu()
+        if gpu.has_nvidia:
+            vram_gb = gpu.vram_mb / 1024
+            self._gpu_label.configure(
+                text=f"  {self._s('gpu')}: {gpu.gpu_name}  ({vram_gb:.1f} GB VRAM)",
+                text_color="green",
+            )
+        else:
+            self._gpu_label.configure(
+                text=f"  {self._s('gpu')}: {self._s('no_gpu')}",
+                text_color="gray",
+            )
+
+        disk = check_disk_space(str(Path.home()))
+        self._disk_label.configure(
+            text=f"  {self._s('disk')}: {disk.free_gb:.1f} GB / {disk.total_gb:.1f} GB",
+            text_color="green" if disk.free_gb >= 16 else "orange",
+        )
+
+        py = find_python311()
+        if py.found:
+            self._py_label.configure(
+                text=f"  {self._s('python')}: {self._s('py_found')} ({py.version})",
+                text_color="green",
+            )
+        else:
+            self._py_label.configure(
+                text=f"  {self._s('python')}: {self._s('py_missing')}",
+                text_color="gray",
+            )
+
+    def _refresh_engine_rows(self) -> None:
+        # Clear existing rows
+        for child in self._engines_container.winfo_children():
+            child.destroy()
+        self._engine_rows.clear()
+
+        from src.engine_installer import list_installable
+
+        for i, installer in enumerate(list_installable()):
+            row = ctk.CTkFrame(self._engines_container)
+            row.grid(row=i, column=0, sticky="ew", padx=4, pady=4)
+            row.columnconfigure(1, weight=1)
+
+            name_lbl = ctk.CTkLabel(
+                row, text=installer.display_name, anchor="w",
+                font=ctk.CTkFont(weight="bold"),
+            )
+            name_lbl.grid(row=0, column=0, sticky="w", padx=(8, 4), pady=4)
+
+            installed = installer.is_installed()
+            status_text = self._s("installed") if installed else self._s("not_installed")
+            status_color = "green" if installed else "gray"
+            status_lbl = ctk.CTkLabel(
+                row, text=status_text, text_color=status_color, anchor="w",
+            )
+            status_lbl.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+
+            if installed:
+                btn = ctk.CTkButton(
+                    row, text=self._s("uninstall_btn"),
+                    command=lambda inst=installer: self._on_uninstall(inst),
+                    width=110,
+                )
+            else:
+                btn = ctk.CTkButton(
+                    row, text=self._s("install_btn"),
+                    command=lambda inst=installer: self._on_install(inst),
+                    width=110,
+                )
+            btn.grid(row=0, column=2, padx=(4, 8), pady=4)
+
+            self._engine_rows[installer.engine_id] = {
+                "row": row, "status": status_lbl, "btn": btn,
+            }
+
+    def _on_install(self, installer) -> None:
+        # Check prerequisites
+        issues = installer.check_prerequisites()
+        if issues:
+            msg = self._s("prereq_fail") + "\n\n" + "\n".join(f"\u2022 {x}" for x in issues)
+            messagebox.showerror(self._s("title"), msg, parent=self)
+            return
+
+        # Show progress UI
+        self._progress_frame.pack(fill=tk.X, padx=12, pady=6, before=self._close_btn.master)
+        self._progress_step_lbl.configure(text=self._s("installing"))
+        self._progress_msg_lbl.configure(text="")
+        self._progress_bar.set(0)
+
+        # Disable all install buttons, change one to Cancel
+        for row in self._engine_rows.values():
+            row["btn"].configure(state="disabled")
+
+        self._cancel_event = threading.Event()
+
+        def worker() -> None:
+            try:
+                installer.install(
+                    progress_cb=lambda p: self._progress_queue.put(p),
+                    cancel_event=self._cancel_event,
+                )
+            except Exception as exc:
+                from src.engine_installer import InstallProgress
+                self._progress_queue.put(InstallProgress(
+                    error=str(exc), done=True,
+                ))
+
+        self._install_thread = threading.Thread(
+            target=worker, daemon=True, name=f"install-{installer.engine_id}",
+        )
+        self._install_thread.start()
+        self.after(100, self._poll_progress)
+
+    def _poll_progress(self) -> None:
+        try:
+            while True:
+                p = self._progress_queue.get_nowait()
+                self._handle_progress(p)
+        except queue.Empty:
+            pass
+
+        if self._install_thread and self._install_thread.is_alive():
+            self.after(100, self._poll_progress)
+
+    def _handle_progress(self, p) -> None:
+        if p.error:
+            messagebox.showerror(
+                self._s("title"),
+                f"{self._s('install_failed')}\n\n{p.error}",
+                parent=self,
+            )
+            self._install_finished()
+            return
+        if p.done:
+            messagebox.showinfo(
+                self._s("title"), self._s("install_done"), parent=self,
+            )
+            self._install_finished()
+            return
+
+        # Update progress UI
+        if p.total_steps:
+            head = f"{self._s('step')} {p.step}{self._s('of')}{p.total_steps}: {p.step_label}"
+        else:
+            head = p.step_label or self._s("installing")
+        self._progress_step_lbl.configure(text=head)
+        if p.percent:
+            self._progress_bar.set(p.percent / 100.0)
+        self._progress_msg_lbl.configure(text=p.message or "")
+
+    def _install_finished(self) -> None:
+        self._cancel_event = None
+        self._install_thread = None
+        self._progress_frame.pack_forget()
+        self._refresh_engine_rows()
+
+    def _on_uninstall(self, installer) -> None:
+        if not messagebox.askyesno(
+            self._s("title"), self._s("confirm_uninstall"), parent=self,
+        ):
+            return
+        # Best-effort uninstall: remove installer's known directories.
+        try:
+            if hasattr(installer, "_voice_dir") and installer._voice_dir.exists():
+                shutil.rmtree(installer._voice_dir, ignore_errors=True)
+            # For Chatterbox, the venv path is the install marker.
+            if hasattr(installer, "_venv_path"):
+                p = installer._venv_path
+                if p.exists():
+                    shutil.rmtree(p, ignore_errors=True)
+            messagebox.showinfo(
+                self._s("title"), self._s("uninstall_done"), parent=self,
+            )
+        except Exception as exc:
+            messagebox.showerror(self._s("title"), str(exc), parent=self)
+        finally:
+            self._refresh_engine_rows()
+
+
+# ---------------------------------------------------------------------------
 # Main application window
 # ---------------------------------------------------------------------------
 
@@ -1122,17 +1445,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ------------------------------------------------------------------
 
     def _open_engine_manager(self) -> None:
-        """Placeholder for the engine installer dialog."""
-        dlg = ctk.CTkToplevel(self)
-        dlg.title(self._s("engine_manager_title"))
-        dlg.geometry("400x200")
+        """Open the engine installer dialog with system info and per-engine actions."""
+        dlg = EngineManagerDialog(self, ui_lang=self._ui_lang)
         dlg.transient(self)
         dlg.grab_set()
-        ctk.CTkLabel(
-            dlg, text="Engine manager \u2014 coming soon",
-            font=ctk.CTkFont(size=14),
-        ).pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
-        ctk.CTkButton(dlg, text="Sulje", command=dlg.destroy).pack(pady=(0, 16))
 
     # ------------------------------------------------------------------
     # Auto-update (periodic check + download + install)
