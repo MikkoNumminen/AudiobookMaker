@@ -101,6 +101,11 @@ DisableFinishedPage=no
 ; This prevents accidental aborts.
 CloseApplications=yes
 
+; Named mutex used by the app's single-instance guard (src/single_instance.py).
+; When running with /VERYSILENT, Inno Setup uses this to wait for the app
+; to exit before overwriting files — prevents "file in use" failures.
+AppMutex=AudiobookMaker_SingleInstance
+
 ; Restart the application after installation if it was running beforehand
 ; and had to be closed.
 RestartApplications=yes
