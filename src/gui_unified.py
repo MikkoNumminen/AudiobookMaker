@@ -283,12 +283,13 @@ class UnifiedApp(ctk.CTk):
         # Apply UI language (updates all widget texts).
         self._apply_ui_language()
 
-        # Check for updates in background (non-blocking).
+        # Check for updates in background (only in frozen/installed mode).
         self._update_queue: "queue.Queue[UpdateInfo]" = queue.Queue()
-        threading.Thread(
-            target=self._check_update_worker, daemon=True, name="update-check",
-        ).start()
-        self.after(500, self._poll_update_check)
+        if getattr(sys, "frozen", False):
+            threading.Thread(
+                target=self._check_update_worker, daemon=True, name="update-check",
+            ).start()
+            self.after(500, self._poll_update_check)
 
     # ------------------------------------------------------------------
     # Window helpers
