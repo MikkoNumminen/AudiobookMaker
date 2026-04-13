@@ -234,13 +234,14 @@ def apply_update(installer_path: Path) -> None:
     """Launch the installer and restart the application.
 
     The sequence is:
-      1. Release the single-instance mutex so Inno Setup's AppMutex check passes.
+      1. Release the single-instance mutex so Inno Setup's AppMutex check
+         doesn't silently abort the installer (/VERYSILENT + AppMutex = exit 11).
       2. Write a helper batch script that:
          a. Waits for this process to exit (tasklist polling).
-         b. Runs the installer with /VERYSILENT (elevated via PowerShell).
+         b. Runs the installer with /VERYSILENT.
          c. Relaunches the app.
-      3. Launch the batch script detached.
-      4. Exit this process.
+      3. Launch the batch script in a hidden console window.
+      4. Immediately terminate this process.
     """
     from src.single_instance import release as release_mutex
 
@@ -248,37 +249,48 @@ def apply_update(installer_path: Path) -> None:
     current_install_dir = str(Path(sys.executable).parent)
     my_pid = os.getpid()
 
-    # Release the single-instance mutex so the installer doesn't think
-    # the app is still running (Inno Setup checks AppMutex).
     release_mutex()
 
+    log_file = Path(tempfile.gettempdir()) / "audiobookmaker_update.log"
     relaunch_bat = Path(tempfile.gettempdir()) / "audiobookmaker_relaunch.bat"
-    # Use short variable names in the batch script to avoid quoting issues.
-    relaunch_bat.write_text(
-        '@echo off\r\n'
-        f'set "INSTALLER={installer_path}"\r\n'
-        f'set "APPEXE={app_exe}"\r\n'
-        f'set "APPDIR={current_install_dir}"\r\n'
-        f'set "MYPID={my_pid}"\r\n'
-        '\r\n'
-        'echo Waiting for AudiobookMaker to exit...\r\n'
-        ':wait_loop\r\n'
-        'tasklist /FI "PID eq %MYPID%" 2>NUL | find "%MYPID%" >NUL\r\n'
-        'if not errorlevel 1 (\r\n'
-        '    timeout /t 1 /nobreak >NUL\r\n'
-        '    goto wait_loop\r\n'
-        ')\r\n'
-        'echo Running installer...\r\n'
-        '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"\r\n'
-        'echo Restarting app...\r\n'
-        'start "" "%APPEXE%"\r\n'
-        'del "%~f0"\r\n',
-        encoding="utf-8",
-    )
+
+    # Write the batch script using binary mode to prevent any shell layer
+    # (MSYS2/Git Bash) from mangling Windows-specific syntax like ">NUL".
+    #
+    # The script waits 3 seconds for the app to exit, then runs the Inno
+    # Setup installer silently.  We use os._exit(0) below which terminates
+    # the process in milliseconds, so a fixed delay is simpler and more
+    # reliable than PID polling (which requires pipe commands that can fail
+    # without a visible console).
+    #
+    # "waitfor" is used for the delay because "timeout" and "ping" both
+    # fail to delay when cmd.exe runs without a visible console window
+    # (CREATE_NO_WINDOW).  "waitfor /t 3 <signal>" waits up to 3 seconds
+    # for a signal that never arrives, providing a reliable sleep.
+    lines = [
+        "@echo off",
+        f'set "INSTALLER={installer_path}"',
+        f'set "APPEXE={app_exe}"',
+        f'set "APPDIR={current_install_dir}"',
+        f'set "LOG={log_file}"',
+        "",
+        'echo [%date% %time%] Update script started >> "%LOG%"',
+        "waitfor /t 3 AudiobookMakerDummy 2>NUL",
+        'echo [%date% %time%] Running installer... >> "%LOG%"',
+        '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"',
+        'echo [%date% %time%] Installer exit code: %ERRORLEVEL% >> "%LOG%"',
+        'echo [%date% %time%] Launching app... >> "%LOG%"',
+        'start "" "%APPEXE%"',
+        'echo [%date% %time%] Done. >> "%LOG%"',
+        'del "%~f0"',
+    ]
+    relaunch_bat.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-8"))
 
     subprocess.Popen(
         ["cmd.exe", "/c", str(relaunch_bat)],
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
 
-    sys.exit(0)
+    # Use os._exit() for immediate termination. sys.exit() raises SystemExit
+    # which can be delayed by Tkinter cleanup, thread joining, etc.
+    os._exit(0)
