@@ -195,22 +195,35 @@ def download_update(
 
 
 def apply_update(installer_path: Path) -> None:
-    """Launch the installer silently and exit the current application.
+    """Launch the installer silently and restart the application.
 
     The Inno Setup installer runs with ``/VERYSILENT`` so the user sees no
-    UI.  Its ``[Run]`` section is expected to relaunch the new version after
-    installation completes.
+    UI.  After the installer finishes, a helper script relaunches the app.
 
     Must be called from the main thread.
     """
+    import tempfile
+
+    app_exe = str(Path(sys.executable).resolve())
     current_install_dir = str(Path(sys.executable).parent)
 
-    subprocess.Popen([
-        str(installer_path),
-        "/VERYSILENT",
-        "/NORESTART",
-        "/SUPPRESSMSGBOXES",
-        f"/DIR={current_install_dir}",
-    ])
+    # Write a small batch script that waits for the installer to finish,
+    # then relaunches the app. This is needed because /VERYSILENT skips
+    # the [Run] section in Inno Setup.
+    relaunch_bat = Path(tempfile.gettempdir()) / "audiobookmaker_relaunch.bat"
+    relaunch_bat.write_text(
+        f'@echo off\r\n'
+        f'"{installer_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES '
+        f'/DIR="{current_install_dir}"\r\n'
+        f'start "" "{app_exe}"\r\n'
+        f'del "%~f0"\r\n',
+        encoding="utf-8",
+    )
+
+    # Launch the batch script detached and exit.
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(relaunch_bat)],
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+    )
 
     sys.exit(0)
