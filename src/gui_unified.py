@@ -70,6 +70,18 @@ _REPO_ROOT = _APP_ROOT
 ctk.set_appearance_mode("system")  # follows OS dark/light
 ctk.set_default_color_theme("blue")
 
+def _detect_system_language() -> str:
+    """Return 'fi' if the system locale is Finnish, 'en' otherwise."""
+    import locale
+    try:
+        lang = locale.getdefaultlocale()[0] or ""
+        if lang.lower().startswith("fi"):
+            return "fi"
+    except Exception:
+        pass
+    return "en"
+
+
 # ---------------------------------------------------------------------------
 # UI constants
 # ---------------------------------------------------------------------------
@@ -271,7 +283,7 @@ class UnifiedApp(ctk.CTk):
 
         # Load persisted preferences.
         self._user_cfg = app_config.load()
-        self._ui_lang: str = self._user_cfg.ui_language or "fi"
+        self._ui_lang: str = self._user_cfg.ui_language or _detect_system_language()
 
         # Maps populated during engine list init.
         self._engine_display_to_id: dict[str, str] = {}

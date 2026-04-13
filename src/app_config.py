@@ -51,8 +51,9 @@ class UserConfig:
     log_panel_visible: bool = False
     """Whether the log panel was visible last session."""
 
-    ui_language: str = "fi"
-    """UI display language: 'fi' (Finnish) or 'en' (English)."""
+    ui_language: str = ""
+    """UI display language: 'fi' (Finnish) or 'en' (English).
+    Empty string means auto-detect from system locale on first run."""
 
 
 def load() -> UserConfig:
