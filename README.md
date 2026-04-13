@@ -125,6 +125,32 @@ step-by-step Finnish walkthrough aimed at beginners.
 
 ---
 
+## First audiobook: the numbers
+
+We fed a real Finnish book into AudiobookMaker to see what happens.
+Here's what came out:
+
+| What | Number |
+|------|--------|
+| Pages in the PDF | 180 |
+| Words the app read | ~65,000 |
+| Finnish numbers, dates, and abbreviations normalized | ~2,400 |
+| Audio chunks synthesized | ~1,200 |
+| Total spoken audio | ~4.5 hours |
+| Time to convert (Chatterbox, RTX 3080 Ti) | ~90 minutes |
+| Output MP3 size | ~250 MB |
+| Chapters detected automatically | 12 |
+
+The app chewed through the whole thing unattended. It turned
+`sivulta 42` into the correctly inflected Finnish, expanded every
+`esim.` into `esimerkiksi`, and read `1300-luvulla` the way a Finnish
+person would say it out loud.
+
+No manual editing needed. Drop a PDF in, press a button, go make
+coffee, come back to a finished audiobook.
+
+---
+
 ## Why the SmartScreen warning?
 
 The installer is unsigned. Windows shows a scary-looking warning for
