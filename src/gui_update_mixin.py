@@ -28,6 +28,9 @@ class UpdateMixin:
     - self.POLL_INTERVAL_MS: int
     """
 
+    # How often to re-check for updates after a "no update" result (4 hours).
+    _UPDATE_RECHECK_MS = 4 * 60 * 60 * 1000
+
     def _check_update_worker(self) -> None:
         """Background thread: check GitHub for a newer version."""
         try:
@@ -53,6 +56,18 @@ class UpdateMixin:
             )
             self._update_btn.configure(text=self._s("update_now"))
             self._update_banner.grid()
+        else:
+            # No update now — re-check after a delay.
+            self.after(self._UPDATE_RECHECK_MS, self._schedule_update_recheck)
+
+    def _schedule_update_recheck(self) -> None:
+        """Launch another background update check."""
+        import threading
+        threading.Thread(
+            target=self._check_update_worker, daemon=True,
+            name="update-recheck",
+        ).start()
+        self.after(500, self._poll_update_check)
 
     def _on_update_click(self) -> None:
         """User clicked the update button — download and install."""
@@ -117,9 +132,14 @@ class UpdateMixin:
             elif ev.kind == "update_failed":
                 self._update_btn.configure(
                     state="normal",
-                    text=self._s("update_failed"),
+                    text=self._s("update_now"),
                 )
                 self._progress_bar.set(0)
+                from tkinter import messagebox
+                messagebox.showerror(
+                    self._s("error"),
+                    self._s("update_error_detail").format(error=ev.raw_line),
+                )
                 return
 
         self.after(self.POLL_INTERVAL_MS, self._pump_update_download)
