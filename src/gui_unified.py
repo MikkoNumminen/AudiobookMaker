@@ -1731,28 +1731,104 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 # ---------------------------------------------------------------------------
 
 
+def assert_true(condition: bool, msg: str = "") -> None:
+    """Raise AssertionError if *condition* is falsy."""
+    if not condition:
+        raise AssertionError(msg or "assertion failed")
+
+
 def self_test() -> int:
-    """Headless sanity check: construct + destroy the window."""
+    """Headless sanity check: construct + destroy the window, verify core functionality."""
+    errors: list[str] = []
+
+    def check(label: str, fn) -> None:  # noqa: ANN001
+        try:
+            fn()
+            print(f"[self-test] \u2713 {label}", flush=True)
+        except Exception as exc:
+            errors.append(f"{label}: {exc!r}")
+            print(f"[self-test] \u2717 {label}: {exc!r}", flush=True)
+
     try:
+        # -- Engine registry --------------------------------------------------
         engines = list_engines()
         print(
             f"[self-test] engines registered: {[e.id for e in engines]}",
             flush=True,
         )
+
+        for engine in engines:
+            check(
+                f"engine '{engine.id}' status",
+                lambda e=engine: e.check_status(),
+            )
+
+        # -- Module imports ----------------------------------------------------
+        check("pdf_parser import", lambda: __import__("src.pdf_parser"))
+        check("tts_engine import", lambda: __import__("src.tts_engine"))
+
+        # -- App creation ------------------------------------------------------
         app = UnifiedApp()
         app.update_idletasks()
-        print(
-            f"[self-test] window title={app.title()!r} "
-            f"geometry={app.geometry()!r}",
-            flush=True,
-        )
+        print(f"[self-test] window title={app.title()!r}", flush=True)
+
+        # -- Engine dropdown ---------------------------------------------------
         values = list(app._engine_cb.cget("values"))
+        check(
+            "engine dropdown populated",
+            lambda: assert_true(len(values) >= 1, f"got {len(values)} engines"),
+        )
         print(f"[self-test] engine dropdown: {values}", flush=True)
+
+        # -- Settings widgets --------------------------------------------------
+        check("language combobox", lambda: app._lang_cb.cget("values"))
+        check("speed combobox", lambda: app._speed_cb.cget("values"))
+        check("voice combobox", lambda: app._voice_cb.cget("values"))
+
+        # -- Input tabs --------------------------------------------------------
+        check(
+            "input tabs exist",
+            lambda: assert_true(
+                hasattr(app, "_input_nb"), "missing _input_nb tabview"
+            ),
+        )
+        tab_names = list(app._tab_name_map.keys())
+        check(
+            "input tabs switchable",
+            lambda: [app._input_nb.set(t) for t in tab_names],
+        )
+        print(f"[self-test] input tabs: {tab_names}", flush=True)
+
+        # -- Text widget -------------------------------------------------------
+        check(
+            "text widget input",
+            lambda: (
+                app._text_widget.delete("1.0", "end"),
+                app._text_widget.insert("1.0", "Self-test input"),
+            ),
+        )
+
+        # -- Config load/save --------------------------------------------------
+        from src import app_config
+
+        check("config load", lambda: app_config.load())
+        cfg = app_config.load()
+        check("config save", lambda: app_config.save(cfg))
+
+        # -- Cleanup -----------------------------------------------------------
         app.destroy()
-        print("[self-test] OK", flush=True)
+
+        if errors:
+            print(f"\n[self-test] FAILED \u2014 {len(errors)} error(s):", flush=True)
+            for e in errors:
+                print(f"  \u2022 {e}", flush=True)
+            return 1
+
+        print("[self-test] ALL CHECKS PASSED", flush=True)
         return 0
+
     except Exception as exc:
-        print(f"[self-test] FAILED: {exc!r}", flush=True, file=sys.stderr)
+        print(f"[self-test] FATAL: {exc!r}", flush=True, file=sys.stderr)
         return 1
 
 

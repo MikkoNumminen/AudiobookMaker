@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from src.auto_updater import _extract_sha256, UpdateInfo
+import hashlib
+import json
+import threading
+from io import BytesIO
+from unittest.mock import MagicMock, patch
+
+from src.auto_updater import (
+    UpdateInfo,
+    _extract_sha256,
+    check_for_update,
+    download_update,
+)
 
 
 class TestExtractSha256:
@@ -54,3 +65,222 @@ class TestUpdateInfoSha256Field:
             sha256=hash_val,
         )
         assert info.sha256 == hash_val
+
+
+# ---------------------------------------------------------------------------
+# Helpers for mocking
+# ---------------------------------------------------------------------------
+
+
+def _mock_github_response(
+    tag="v3.0.0",
+    asset_name="AudiobookMaker-Setup-3.0.0.exe",
+    body="",
+    assets=None,
+):
+    """Build a mock urllib response that returns a JSON GitHub release payload."""
+    data = {
+        "tag_name": tag,
+        "body": body,
+        "assets": assets
+        if assets is not None
+        else [
+            {
+                "name": asset_name,
+                "browser_download_url": "https://example.com/dl.exe",
+                "size": 1000,
+            }
+        ],
+    }
+    resp = MagicMock()
+    resp.read.return_value = json.dumps(data).encode()
+    resp.__enter__ = lambda s: s
+    resp.__exit__ = MagicMock(return_value=False)
+    return resp
+
+
+def _mock_download_response(content: bytes):
+    """Build a mock urllib response that yields *content* as the download body."""
+    buf = BytesIO(content)
+    resp = MagicMock()
+    resp.read = buf.read
+    resp.headers = {"Content-Length": str(len(content))}
+    resp.__enter__ = lambda s: s
+    resp.__exit__ = MagicMock(return_value=False)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# E2E: check_for_update
+# ---------------------------------------------------------------------------
+
+
+class TestCheckForUpdate:
+    """End-to-end tests for check_for_update with mocked GitHub API."""
+
+    @patch("src.auto_updater.urlopen")
+    def test_newer_version_available(self, mock_urlopen: MagicMock) -> None:
+        mock_urlopen.return_value = _mock_github_response(tag="v3.0.0")
+        info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.latest_version == "3.0.0"
+        assert info.current_version == "2.0.0"
+        assert info.download_url == "https://example.com/dl.exe"
+        assert info.asset_size_bytes == 1000
+
+    @patch("src.auto_updater.urlopen")
+    def test_same_version_not_available(self, mock_urlopen: MagicMock) -> None:
+        mock_urlopen.return_value = _mock_github_response(tag="v2.0.0")
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+
+    @patch("src.auto_updater.urlopen")
+    def test_older_version_not_available(self, mock_urlopen: MagicMock) -> None:
+        mock_urlopen.return_value = _mock_github_response(tag="v1.0.0")
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+
+    @patch("src.auto_updater.urlopen")
+    def test_network_error_returns_not_available(self, mock_urlopen: MagicMock) -> None:
+        from urllib.error import URLError
+
+        mock_urlopen.side_effect = URLError("network down")
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+        assert info.current_version == "2.0.0"
+
+    @patch("src.auto_updater.urlopen")
+    def test_no_exe_asset_returns_not_available(self, mock_urlopen: MagicMock) -> None:
+        mock_urlopen.return_value = _mock_github_response(
+            tag="v3.0.0",
+            assets=[
+                {
+                    "name": "source.tar.gz",
+                    "browser_download_url": "https://example.com/src.tar.gz",
+                    "size": 500,
+                }
+            ],
+        )
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+
+    @patch("src.auto_updater.urlopen")
+    def test_sha256_extracted_from_release_notes(self, mock_urlopen: MagicMock) -> None:
+        sha = "a" * 64
+        mock_urlopen.return_value = _mock_github_response(
+            tag="v3.0.0", body=f"Release notes\nSHA-256: {sha}"
+        )
+        info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.sha256 == sha
+
+
+# ---------------------------------------------------------------------------
+# E2E: download_update
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadUpdate:
+    """End-to-end tests for download_update with mocked urlopen."""
+
+    def _make_update_info(self, sha256: str = "") -> UpdateInfo:
+        return UpdateInfo(
+            available=True,
+            current_version="2.0.0",
+            latest_version="3.0.0",
+            download_url="https://example.com/dl.exe",
+            release_notes="",
+            asset_size_bytes=1000,
+            sha256=sha256,
+        )
+
+    @patch("src.auto_updater.urlopen")
+    def test_download_writes_file(self, mock_urlopen: MagicMock, tmp_path) -> None:
+        content = b"fake-installer-bytes"
+        mock_urlopen.return_value = _mock_download_response(content)
+
+        update = self._make_update_info()
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            dest = download_update(update)
+            assert dest.exists()
+            assert dest.read_bytes() == content
+            assert dest.name == "AudiobookMaker-Setup-3.0.0.exe"
+            # cleanup
+            dest.unlink(missing_ok=True)
+
+    @patch("src.auto_updater.urlopen")
+    def test_sha256_mismatch_raises_and_deletes(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        content = b"fake-installer-bytes"
+        wrong_sha = "b" * 64
+        mock_urlopen.return_value = _mock_download_response(content)
+
+        update = self._make_update_info(sha256=wrong_sha)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            import pytest
+
+            with pytest.raises(RuntimeError, match="Integrity check failed"):
+                download_update(update)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists()
+
+    @patch("src.auto_updater.urlopen")
+    def test_sha256_match_succeeds(self, mock_urlopen: MagicMock, tmp_path) -> None:
+        content = b"fake-installer-bytes"
+        correct_sha = hashlib.sha256(content).hexdigest()
+        mock_urlopen.return_value = _mock_download_response(content)
+
+        update = self._make_update_info(sha256=correct_sha)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            dest = download_update(update)
+            assert dest.exists()
+            assert dest.read_bytes() == content
+            dest.unlink(missing_ok=True)
+
+    @patch("src.auto_updater.urlopen")
+    def test_cancel_event_stops_download(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        cancel = threading.Event()
+        cancel.set()  # pre-cancelled
+
+        mock_urlopen.return_value = _mock_download_response(b"x" * 10000)
+        update = self._make_update_info()
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            import pytest
+
+            with pytest.raises(RuntimeError, match="cancelled"):
+                download_update(update, cancel_event=cancel)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists()
+
+    @patch("src.auto_updater.urlopen")
+    def test_network_error_raises_and_cleans_up(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        from urllib.error import URLError
+
+        mock_urlopen.side_effect = URLError("connection reset")
+        update = self._make_update_info()
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            import pytest
+
+            with pytest.raises(RuntimeError, match="Download failed"):
+                download_update(update)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists()
