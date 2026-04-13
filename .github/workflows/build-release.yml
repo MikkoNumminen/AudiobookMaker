@@ -14,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -109,6 +111,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin master
           git checkout master
           VERSION="${{ steps.version.outputs.VERSION }}"
           sed -i "s|AudiobookMaker v[0-9]\+\.[0-9]\+\.[0-9]\+|AudiobookMaker v${VERSION}|g" README.md
