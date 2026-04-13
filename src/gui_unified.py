@@ -328,14 +328,9 @@ class UnifiedApp(ctk.CTk):
         # Window title.
         self.title(s("window_title"))
 
-        # Input tabview tabs.
-        self._input_nb.set(s("tab_pdf") if self._input_mode_raw == "pdf" else s("tab_text"))
-        # We need to rename tabs. CTkTabview doesn't support renaming,
-        # so we store the current tab names and update _tab_name_map.
-        self._tab_name_map = {
-            s("tab_pdf"): "pdf",
-            s("tab_text"): "text",
-        }
+        # Input tabview tabs — CTkTabview can't rename tabs, so the internal
+        # names are always the Finnish originals ("PDF-tiedosto", "Teksti").
+        # The map must use those original names, not translated ones.
 
         # PDF browse button.
         self._pdf_browse_btn.configure(text=s("browse"))
@@ -1564,12 +1559,22 @@ class UnifiedApp(ctk.CTk):
     def _start_inprocess_engine(self, engine_id: str) -> None:
         self._append_log(f"Engine: {engine_id}")
         self._append_log(f"Output: {self._output_path}")
+        # Capture input on the main thread (thread-safe) before spawning.
+        input_mode = self._input_mode
+        pdf_path = self._pdf_path
+        input_text = None
+        if input_mode == "text" and not self._text_has_placeholder:
+            input_text = self._text_widget.get("1.0", tk.END).strip()
         threading.Thread(
-            target=self._run_inprocess, args=(engine_id,),
+            target=self._run_inprocess,
+            args=(engine_id, input_mode, pdf_path, input_text),
             daemon=True, name=f"tts-{engine_id}",
         ).start()
 
-    def _run_inprocess(self, engine_id: str) -> None:
+    def _run_inprocess(
+        self, engine_id: str, input_mode: str,
+        pdf_path: Optional[str], input_text: Optional[str],
+    ) -> None:
         """Background thread. Communicates with UI only via event queue."""
         try:
             engine = get_engine(engine_id)
@@ -1580,12 +1585,12 @@ class UnifiedApp(ctk.CTk):
                 ProgressEvent(kind="log", raw_line="Luetaan syötettä\u2026")
             )
 
-            if self._input_mode == "pdf":
-                assert self._pdf_path is not None
-                book = parse_pdf(self._pdf_path)
+            if input_mode == "pdf":
+                assert pdf_path is not None
+                book = parse_pdf(pdf_path)
                 text = book.full_text
             else:
-                text = self._text_widget.get("1.0", tk.END).strip()
+                text = input_text or ""
 
             if not text:
                 raise ValueError("Ei tekstiä syntetisoitavaksi.")
