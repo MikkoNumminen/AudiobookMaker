@@ -21,10 +21,17 @@ hidden_imports = [
     'tkinter.messagebox',
     'tkinter.filedialog',
     'asyncio',
+    'asyncio.events',
+    'asyncio.base_events',
     'aiohttp',
     'aiohttp.resolver',
     'aiohttp.connector',
+    'aiohappyeyeballs',
     'certifi',
+    'multidict',
+    'yarl',
+    'aiosignal',
+    'frozenlist',
     # Piper offline TTS + its ONNX runtime backend
     'piper',
     'onnxruntime',
@@ -33,12 +40,15 @@ hidden_imports = [
     'num2words',
     # Unified GUI extras
     'tkinter.scrolledtext',
+    'customtkinter',
+    'darkdetect',
 ]
 
 hidden_imports += collect_submodules('edge_tts')
 hidden_imports += collect_submodules('aiohttp')
 hidden_imports += collect_submodules('piper')
 hidden_imports += collect_submodules('onnxruntime')
+hidden_imports += collect_submodules('customtkinter')
 
 # numpy is now REQUIRED at runtime (onnxruntime/piper need it), so it
 # must NOT appear in excludes.
@@ -71,6 +81,10 @@ datas += collect_data_files('piper')
 # onnxruntime ships a few config/JSON files next to its native libs on
 # some platforms; bundle them to be safe.
 datas += collect_data_files('onnxruntime')
+# edge_tts package data
+datas += collect_data_files('edge_tts')
+# customtkinter assets (themes, icons)
+datas += collect_data_files('customtkinter')
 # Finnish loanword lexicon used by the text normalizer
 datas += [(os.path.join('data', 'fi_loanwords.yaml'), 'data')]
 # Chatterbox runner script — invoked as a subprocess by the unified GUI
