@@ -285,9 +285,59 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
+// UninstallPreviousVersion — Detect a previous AudiobookMaker install via
+// the Inno Setup uninstall registry key (same AppId), and silently remove
+// it before the new install proceeds.  This catches installs at ANY path —
+// Program Files, LocalAppData, C:\AudiobookMaker, D:\koodaamista\..., etc.
+//
+// User preferences in %LocalAppData%\AudiobookMaker\config.json are NOT
+// touched by the uninstaller (they live outside the install directory),
+// so all settings persist across reinstalls automatically.
+// ---------------------------------------------------------------------------
+procedure UninstallPreviousVersion();
+var
+  UninstallString: String;
+  AppId: String;
+  ResultCode: Integer;
+  SubKey: String;
+begin
+  AppId := '{#SetupSetting("AppId")}' + '_is1';
+
+  // Per-user install (current default, HKCU) — and legacy admin HKLM entries
+  SubKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + AppId;
+
+  if RegQueryStringValue(HKCU, SubKey, 'UninstallString', UninstallString) or
+     RegQueryStringValue(HKLM, SubKey, 'UninstallString', UninstallString) or
+     RegQueryStringValue(HKLM32, SubKey, 'UninstallString', UninstallString) then
+  begin
+    // Strip surrounding quotes if present.
+    if (Length(UninstallString) >= 2) and
+       (UninstallString[1] = '"') and
+       (UninstallString[Length(UninstallString)] = '"') then
+    begin
+      UninstallString := Copy(UninstallString, 2, Length(UninstallString) - 2);
+    end;
+
+    if FileExists(UninstallString) then
+    begin
+      // Run the old uninstaller silently. Wait for it to finish before we
+      // start copying new files so there's no race with locked files.
+      Exec(
+        UninstallString,
+        '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES',
+        '',
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ResultCode
+      );
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
 // InitializeSetup — Called before the installer wizard is shown.
-// Use this function to enforce the Windows 10 minimum-version requirement
-// with a friendly error message in addition to the MinVersion directive.
+// Enforces Windows 10+ and triggers silent uninstall of any previous
+// AudiobookMaker install (any location).
 // ---------------------------------------------------------------------------
 function InitializeSetup(): Boolean;
 var
@@ -306,9 +356,13 @@ begin
       MB_OK
     );
     Result := False;
-  end
-  else
-    Result := True;
+    exit;
+  end;
+
+  // Silently remove any previous AudiobookMaker install before proceeding.
+  UninstallPreviousVersion();
+
+  Result := True;
 end;
 
 // ---------------------------------------------------------------------------
