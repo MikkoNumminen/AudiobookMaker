@@ -69,10 +69,12 @@ excludes = [
 # collect_data_files('piper') picks up automatically below.
 binaries = collect_dynamic_libs('onnxruntime')
 
-# Bundle ffmpeg.exe from dist/ffmpeg/ into the package root
-# so pydub can find it via PATH at runtime (see src/ffmpeg_path.py)
+# Bundle ffmpeg.exe and ffplay.exe from dist/ffmpeg/ into the package root
+# so pydub can find ffmpeg via PATH at runtime (see src/ffmpeg_path.py)
+# and the Listen button can play audio via ffplay.
 datas = [
     (os.path.join('dist', 'ffmpeg', 'ffmpeg.exe'), '.'),
+    (os.path.join('dist', 'ffmpeg', 'ffplay.exe'), '.'),
 ]
 # piper ships its phonemizer data (espeak-ng-data/) inside the package;
 # PiperVoice.load() will fail at runtime without it.  collect_data_files
