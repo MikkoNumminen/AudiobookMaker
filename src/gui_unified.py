@@ -1962,6 +1962,44 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 messagebox.showerror(self._s("error"), "Valitse ääni.")
                 return
 
+        # Disk-space sanity check for the output drive.
+        try:
+            from src.system_checks import check_output_disk_space
+            if self._input_mode == "pdf":
+                from src.pdf_parser import parse_pdf
+                try:
+                    text_len = len(parse_pdf(self._pdf_path).full_text)
+                except Exception:
+                    text_len = 0
+            else:
+                text_len = len(
+                    "" if self._text_has_placeholder
+                    else self._text_widget.get("1.0", tk.END).strip()
+                )
+            ok, free_mb, need_mb = check_output_disk_space(
+                self._output_path, text_len, engine_id,
+            )
+            if not ok:
+                messagebox.showerror(
+                    self._s("error"),
+                    f"Levytilaa ei riitä tulostekansiossa.\n\n"
+                    f"Vapaa: {free_mb:.0f} MB\n"
+                    f"Tarvitaan: ~{need_mb:.0f} MB\n\n"
+                    f"Vapauta tilaa tai valitse toinen tallennuspaikka."
+                    if self._ui_lang == "fi"
+                    else
+                    f"Not enough disk space at the output path.\n\n"
+                    f"Free: {free_mb:.0f} MB\n"
+                    f"Needed: ~{need_mb:.0f} MB\n\n"
+                    f"Free some space or pick a different save location."
+                )
+                return
+            self._append_log(
+                f"Levy: vapaa {free_mb:.0f} MB, arvioitu tarve {need_mb:.0f} MB"
+            )
+        except Exception as exc:
+            self._append_log(f"Disk check skipped: {exc}")
+
         # Persist settings before synthesis.
         self._save_current_config()
 
