@@ -193,6 +193,20 @@ work in parallel via git worktrees. To avoid collisions:
 - `~/.audiobookmaker/config.json` — `UserConfig` dataclass; load/save
   in [src/app_config.py](src/app_config.py). Unknown keys are
   filtered, types are checked.
+
+  | Key | Type | Default | Notes |
+  |-----|------|---------|-------|
+  | `engine_id` | str | `"edge"` | Which TTS engine the app starts with |
+  | `language` | str | `"fi"` | Short language code of the last selected language |
+  | `voice_id` | str | `""` | Engine-specific voice id; empty means use engine default |
+  | `speed` | str | `"+0%"` | edge-tts style speed adjustment string |
+  | `reference_audio` | str | `""` | Path to a reference audio file for cloning engines |
+  | `voice_description` | str | `""` | Free-text voice description (VoxCPM2); ignored by engines that don't support it |
+  | `input_mode` | str | `"pdf"` | Last used input mode: `"pdf"` or `"text"` |
+  | `output_mode` | str | `"single"` | `"single"` (one MP3) or `"chapters"` (per chapter) |
+  | `log_panel_visible` | bool | `True` | Whether the log panel is visible |
+  | `ui_language` | str | `""` | UI language: `"fi"`, `"en"`, or empty for locale auto-detect |
+
 - `~/.cache/huggingface/hub/models--rhasspy--piper-voices/` — Piper
   voice models, ~60 MB each. Downloaded on demand by
   [src/tts_piper.py](src/tts_piper.py).
