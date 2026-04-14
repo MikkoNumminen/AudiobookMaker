@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import re
 import tempfile
 import threading
 import tkinter as tk
@@ -72,6 +73,13 @@ if TYPE_CHECKING:
     _Base = _SynthHost
 else:
     _Base = object
+
+
+# Lines that represent a successful chunk/chapter progress step. Mirrors the
+# regex in gui_unified.py so both code paths color progress lines green.
+_PROGRESS_SUCCESS_RE = re.compile(
+    r"\[chapter\s+\d+/\d+\]\s+(?:chunk\s+\d+/\d+|idx=\d+)"
+)
 
 
 class SynthMixin(_Base):
@@ -323,7 +331,12 @@ class SynthMixin(_Base):
                 self._append_log_error(line)
             elif "WARNING" in upper or "WARN:" in upper or "FUTUREWARNING" in upper or "DEPRECATIONWARNING" in upper:
                 self._append_log_warning(line)
-            elif "\u2714" in line or "DONE" in upper or "VALMIS" in upper:
+            elif (
+                "\u2714" in line
+                or "DONE" in upper
+                or "VALMIS" in upper
+                or _PROGRESS_SUCCESS_RE.search(line) is not None
+            ):
                 self._append_log_success(line)
             else:
                 self._append_log(line)

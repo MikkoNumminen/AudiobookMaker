@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -71,6 +72,15 @@ _REPO_ROOT = _APP_ROOT
 
 ctk.set_appearance_mode("system")  # follows OS dark/light
 ctk.set_default_color_theme("blue")
+
+# Lines that represent a successful chunk/chapter progress step. These are
+# routed to the green "success" log tag so every gain is visible at a glance.
+# Examples that should match:
+#   [chapter 1/1] chunk 2/3 (2/3 total) - 0m13s elapsed, ...
+#   [chapter 1/1] idx=0 title='Text' chunks=3
+_PROGRESS_SUCCESS_RE = re.compile(
+    r"\[chapter\s+\d+/\d+\]\s+(?:chunk\s+\d+/\d+|idx=\d+)"
+)
 
 def _detect_system_language() -> str:
     """Return 'fi' if the system locale is Finnish, 'en' otherwise."""
@@ -1259,15 +1269,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     def _default_output_dir(self) -> Path:
         """Return the default folder where generated MP3s go.
 
-        Installed (frozen) mode: next to the running .exe, in an
-        "audiobooks" subfolder. Keeps everything in one place and lets
-        the user find output without digging through their Documents.
-
+        Installed (frozen) mode: next to the running .exe (install root).
         Dev mode: Documents\\AudiobookMaker (no sensible install root
         when running from source).
         """
         if getattr(sys, "frozen", False):
-            return Path(sys.executable).resolve().parent / "audiobooks"
+            return Path(sys.executable).resolve().parent
         return Path.home() / "Documents" / "AudiobookMaker"
 
     def _auto_output_path(self) -> None:
@@ -2199,7 +2206,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
               or "FUTUREWARNING" in upper
               or "DEPRECATIONWARNING" in upper):
             self._append_log_warning(line)
-        elif "\u2714" in line or "VALMIS" in upper or line.startswith("[done]"):
+        elif (
+            "\u2714" in line
+            or "VALMIS" in upper
+            or line.startswith("[done]")
+            or _PROGRESS_SUCCESS_RE.search(line) is not None
+        ):
             self._append_log_success(line)
         else:
             self._append_log(line)

@@ -409,6 +409,34 @@ class TestAutoSeverityDetection:
         assert "log_error" not in tags
         assert "log_success" not in tags
 
+    def test_chunk_progress_routed_to_success(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event(
+            "[chapter 1/1] chunk 1/3 (1/3 total) - 0m13s elapsed, "
+            "~0m26s remaining, RTF 1.14x"
+        ))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_success" in tags
+
+    def test_chapter_idx_routed_to_success(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event(
+            "[chapter 1/1] idx=0 title='Text' chunks=3"
+        ))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_success" in tags
+
+    def test_generic_tts_line_stays_plain(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event("[tts] loading voice model"))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_success" not in tags
+        assert "log_warning" not in tags
+        assert "log_error" not in tags
+
 
 # ---------------------------------------------------------------------------
 # Output-path auto-increment

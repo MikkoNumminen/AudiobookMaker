@@ -237,8 +237,8 @@ Root: HKCU; \
 [UninstallDelete]
 
 ; Clean up app-owned runtime artefacts in the install dir.
-; NOTE: We deliberately do NOT remove {app}\audiobooks — that folder holds
-; the user's generated MP3 files and must survive uninstall / reinstall.
+; NOTE: *.mp3 files are the user's generated audiobooks — they live in
+; {app} directly and MUST survive uninstall / reinstall.
 Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.tmp"
 
