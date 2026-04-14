@@ -18,6 +18,32 @@ _mutex_handle = None  # Windows: keep the handle alive for the process lifetime
 _lock_file: Optional[Path] = None
 
 
+_STRINGS = {
+    "fi": {
+        "title": "AudiobookMaker",
+        "already_running": (
+            "AudiobookMaker on jo käynnissä.\n\n"
+            "Haluatko avata uuden ikkunan silti?\n"
+            "(Useampi ikkuna voi aiheuttaa ongelmia GPU-moottoreiden kanssa.)"
+        ),
+    },
+    "en": {
+        "title": "AudiobookMaker",
+        "already_running": (
+            "AudiobookMaker is already running.\n\n"
+            "Do you want to open a new window anyway?\n"
+            "(Multiple windows may cause issues with GPU engines.)"
+        ),
+    },
+}
+
+
+def _s(key: str, ui_lang: str) -> str:
+    """Look up a user-facing string. Falls back to Finnish on unknown language."""
+    table = _STRINGS.get(ui_lang, _STRINGS["fi"])
+    return table.get(key, _STRINGS["fi"][key])
+
+
 def _acquire_windows_mutex() -> bool:
     """Try to acquire a named mutex. Returns True if we got it (no other instance)."""
     global _mutex_handle
@@ -93,20 +119,8 @@ def check_single_instance(ui_lang: str = "fi") -> bool:
         return True
 
     # Another instance is running — ask the user.
-    if ui_lang == "fi":
-        title = "AudiobookMaker"
-        msg = (
-            "AudiobookMaker on jo käynnissä.\n\n"
-            "Haluatko avata uuden ikkunan silti?\n"
-            "(Useampi ikkuna voi aiheuttaa ongelmia GPU-moottoreiden kanssa.)"
-        )
-    else:
-        title = "AudiobookMaker"
-        msg = (
-            "AudiobookMaker is already running.\n\n"
-            "Do you want to open a new window anyway?\n"
-            "(Multiple windows may cause issues with GPU engines.)"
-        )
+    title = _s("title", ui_lang)
+    msg = _s("already_running", ui_lang)
 
     result = messagebox.askyesno(title, msg)
     if result:
