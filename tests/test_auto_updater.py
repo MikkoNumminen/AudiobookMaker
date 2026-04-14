@@ -12,7 +12,11 @@ from src.auto_updater import (
     UpdateInfo,
     _extract_sha256,
     check_for_update,
+    clear_pending_marker,
     download_update,
+    read_pending_marker,
+    verify_pending_update,
+    _write_pending_marker,
 )
 
 
@@ -284,3 +288,90 @@ class TestDownloadUpdate:
 
             expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
             assert not expected_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Pending update marker — self-heal for failed silent installs
+# ---------------------------------------------------------------------------
+
+
+class TestPendingMarker:
+    """Tests for the marker file that lets the app detect a failed silent update."""
+
+    def _patch_marker(self, tmp_path):
+        """Context helper that redirects PENDING_MARKER to tmp_path."""
+        from pathlib import Path
+        marker = tmp_path / "marker.json"
+        return patch("src.auto_updater.PENDING_MARKER", marker), marker
+
+    def test_write_and_read_roundtrip(self, tmp_path) -> None:
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            result = read_pending_marker()
+            assert result is not None
+            assert result["expected_version"] == "3.0.0"
+            assert "installer.exe" in result["installer_path"]
+
+    def test_read_returns_none_when_missing(self, tmp_path) -> None:
+        ctx, _ = self._patch_marker(tmp_path)
+        with ctx:
+            assert read_pending_marker() is None
+
+    def test_clear_removes_marker(self, tmp_path) -> None:
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            assert marker.exists()
+            clear_pending_marker()
+            assert not marker.exists()
+
+    def test_verify_success_when_version_matches(self, tmp_path) -> None:
+        """When running version >= expected, marker is cleared."""
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            result = verify_pending_update("3.0.0")
+            assert result is None
+            assert not marker.exists()
+
+    def test_verify_returns_marker_when_version_still_old(self, tmp_path) -> None:
+        """When running version < expected, the silent install failed → return marker."""
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            result = verify_pending_update("2.9.0")
+            assert result is not None
+            assert result["expected_version"] == "3.0.0"
+            assert marker.exists()  # kept for the GUI to handle
+
+    def test_verify_ignores_stale_marker_older_than_24h(self, tmp_path) -> None:
+        import json
+        import time
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        with ctx:
+            marker.write_text(json.dumps({
+                "expected_version": "3.0.0",
+                "installer_path": "/fake/installer.exe",
+                "started_at": time.time() - 25 * 3600,  # > 24h ago
+            }))
+            result = verify_pending_update("2.9.0")
+            assert result is None
+            assert not marker.exists()
+
+    def test_verify_returns_none_when_no_marker(self, tmp_path) -> None:
+        ctx, _ = self._patch_marker(tmp_path)
+        with ctx:
+            assert verify_pending_update("2.0.0") is None
+
+    def test_verify_handles_corrupt_marker(self, tmp_path) -> None:
+        ctx, marker = self._patch_marker(tmp_path)
+        with ctx:
+            marker.write_text("not json")
+            # Should return None (treats corrupt as "no marker")
+            assert verify_pending_update("2.0.0") is None

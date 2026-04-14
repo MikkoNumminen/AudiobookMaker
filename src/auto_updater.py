@@ -28,6 +28,7 @@ APP_VERSION = "2.0.0"
 GITHUB_REPO = "MikkoNumminen/AudiobookMaker"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_DIR = Path(tempfile.gettempdir()) / "audiobookmaker-update"
+PENDING_MARKER = Path(tempfile.gettempdir()) / "audiobookmaker_update_pending.json"
 
 CHUNK_SIZE = 256 * 1024  # 256 KB
 API_TIMEOUT = 10  # seconds
@@ -230,24 +231,113 @@ def download_update(
     return dest
 
 
-def apply_update(installer_path: Path) -> None:
+def _write_pending_marker(expected_version: str, installer_path: Path) -> None:
+    """Record that an update is in flight so the next launch can verify it."""
+    import time
+    try:
+        PENDING_MARKER.write_text(json.dumps({
+            "expected_version": expected_version,
+            "installer_path": str(installer_path),
+            "started_at": time.time(),
+        }), encoding="utf-8")
+    except OSError as exc:
+        logger.debug("Could not write pending marker: %s", exc)
+
+
+def read_pending_marker() -> Optional[dict]:
+    """Return the pending-update marker dict, or None if no update is pending."""
+    if not PENDING_MARKER.exists():
+        return None
+    try:
+        return json.loads(PENDING_MARKER.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def clear_pending_marker() -> None:
+    """Remove the pending-update marker (after verifying success or giving up)."""
+    try:
+        PENDING_MARKER.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def verify_pending_update(current_version: str) -> Optional[dict]:
+    """Return the pending marker if the update FAILED, else clear and return None.
+
+    Called on app launch. If the current version matches the expected
+    version in the marker, the update succeeded — remove the marker.
+    Otherwise the silent install didn't take effect; return the marker
+    so the GUI can offer a visible-installer fallback.
+    """
+    marker = read_pending_marker()
+    if marker is None:
+        return None
+
+    expected = marker.get("expected_version", "")
+    if expected and _parse_version(current_version) >= _parse_version(expected):
+        # Update succeeded.
+        clear_pending_marker()
+        return None
+
+    # Ignore stale markers older than 24h — something went very wrong
+    # and the user has since done something else.
+    import time
+    started = marker.get("started_at", 0)
+    if started and (time.time() - started) > 24 * 3600:
+        clear_pending_marker()
+        return None
+
+    return marker
+
+
+def run_installer_visibly(installer_path: Path) -> None:
+    """Launch the installer via Windows' default handler (os.startfile).
+
+    Used as a fallback when the silent batch approach fails. Opens the
+    installer the same way double-clicking it does — handles UAC, file
+    associations, and anything else the OS needs to do.
+
+    The caller must exit immediately after this returns so the installer
+    can replace the running .exe.
+    """
+    from src.single_instance import release as release_mutex
+    release_mutex()
+
+    try:
+        os.startfile(str(installer_path))  # type: ignore[attr-defined]
+    except OSError as exc:
+        logger.error("os.startfile failed: %s", exc)
+        raise
+
+
+def apply_update(installer_path: Path, expected_version: str = "") -> None:
     """Launch the installer and restart the application.
 
     The sequence is:
-      1. Release the single-instance mutex so Inno Setup's AppMutex check
+      1. Write a pending-update marker so the next launch can verify the
+         installer actually took effect (self-healing).
+      2. Release the single-instance mutex so Inno Setup's AppMutex check
          doesn't silently abort the installer (/VERYSILENT + AppMutex = exit 11).
-      2. Write a helper batch script that:
-         a. Waits for this process to exit (tasklist polling).
+      3. Write a helper batch script that:
+         a. Waits for this process to exit.
          b. Runs the installer with /VERYSILENT.
          c. Relaunches the app.
-      3. Launch the batch script in a hidden console window.
-      4. Immediately terminate this process.
+      4. Launch the batch script in a hidden console window.
+      5. Immediately terminate this process.
+
+    If the silent install fails (file lock, permission, etc.), the marker
+    written in step 1 will be detected on the next launch and the app will
+    offer a visible-installer fallback.
     """
     from src.single_instance import release as release_mutex
 
     app_exe = str(Path(sys.executable).resolve())
     current_install_dir = str(Path(sys.executable).parent)
     my_pid = os.getpid()
+
+    if expected_version:
+        _write_pending_marker(expected_version, installer_path)
 
     release_mutex()
 

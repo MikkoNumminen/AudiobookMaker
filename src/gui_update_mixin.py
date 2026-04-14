@@ -127,7 +127,11 @@ class UpdateMixin:
                 self._progress_bar.set(1.0)
                 self._update_btn.configure(text=self._s("update_installing"))
                 installer_path = Path(ev.raw_line)
-                self.after(200, lambda: apply_update(installer_path))
+                expected = (
+                    self._pending_update.latest_version
+                    if self._pending_update else ""
+                )
+                self.after(200, lambda: apply_update(installer_path, expected))
                 return
             elif ev.kind == "update_failed":
                 self._update_btn.configure(

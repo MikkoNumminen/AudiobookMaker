@@ -630,6 +630,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Check for updates in background (only in frozen/installed mode).
         self._update_queue: "queue.Queue[UpdateInfo]" = queue.Queue()
         if getattr(sys, "frozen", False):
+            # Self-heal: if the last in-app update didn't take effect,
+            # offer a visible-installer fallback.
+            self.after(800, self._check_pending_update_marker)
+
             threading.Thread(
                 target=self._check_update_worker, daemon=True, name="update-check",
             ).start()
@@ -1467,6 +1471,69 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         dlg = EngineManagerDialog(self, ui_lang=self._ui_lang)
         dlg.transient(self)
         dlg.grab_set()
+
+    # ------------------------------------------------------------------
+    # Update self-heal: fallback when silent install didn't take effect
+    # ------------------------------------------------------------------
+
+    def _check_pending_update_marker(self) -> None:
+        """If the last update failed, offer a visible-installer fallback.
+
+        apply_update() writes a marker before exiting. On next launch we
+        compare our version to the expected one — if we're still old,
+        the silent install didn't work. Offer to run the downloaded
+        installer visibly via os.startfile.
+        """
+        from src.auto_updater import (
+            verify_pending_update, clear_pending_marker, run_installer_visibly,
+            APP_VERSION,
+        )
+        marker = verify_pending_update(APP_VERSION)
+        if marker is None:
+            return  # No marker, or update succeeded — nothing to do.
+
+        expected = marker.get("expected_version", "")
+        installer_path = Path(marker.get("installer_path", ""))
+
+        if not installer_path.exists():
+            # The installer file is gone — can't recover automatically.
+            clear_pending_marker()
+            self._append_log(
+                f"Aiempi päivitys v{expected} epäonnistui; "
+                "asennustiedosto ei ole enää saatavilla."
+            )
+            return
+
+        # Tell the user and offer the visible fallback.
+        if self._ui_lang == "fi":
+            msg = (
+                f"Automaattinen päivitys versioon {expected} epäonnistui. "
+                f"Haluatko käynnistää asentajan nyt?\n\n"
+                f"Asennustiedosto: {installer_path.name}"
+            )
+            title = "Päivityksen korjaus"
+        else:
+            msg = (
+                f"The auto-update to version {expected} did not take effect. "
+                f"Run the installer now?\n\n"
+                f"Installer: {installer_path.name}"
+            )
+            title = "Update recovery"
+
+        if messagebox.askyesno(title, msg):
+            self._append_log(
+                f"Käynnistetään näkyvä asennus: {installer_path}"
+            )
+            try:
+                run_installer_visibly(installer_path)
+                # Must exit so the installer can replace our files.
+                self.after(100, lambda: os._exit(0))
+            except Exception as exc:
+                messagebox.showerror(title, str(exc))
+                clear_pending_marker()
+        else:
+            # User declined — clear the marker so we don't nag them again.
+            clear_pending_marker()
 
     # ------------------------------------------------------------------
     # Old install / orphan shortcut cleanup
