@@ -12,23 +12,7 @@ from src.tts_base import (
     list_engines,
     register_engine,
     registered_ids,
-    _REGISTRY,
 )
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def clean_registry():
-    """Isolate each test from the real engine registry."""
-    saved = dict(_REGISTRY)
-    _REGISTRY.clear()
-    yield
-    _REGISTRY.clear()
-    _REGISTRY.update(saved)
 
 
 # ---------------------------------------------------------------------------

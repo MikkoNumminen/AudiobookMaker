@@ -25,16 +25,6 @@ from src.tts_base import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def clean_registry():
-    """Isolate each test from the real engine registry."""
-    saved = dict(_REGISTRY)
-    _REGISTRY.clear()
-    yield
-    _REGISTRY.clear()
-    _REGISTRY.update(saved)
-
-
 @pytest.fixture(scope="module")
 def _shared_app():
     """Module-scoped: create one UnifiedApp for all GUI tests.

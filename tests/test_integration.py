@@ -21,25 +21,14 @@ from src.tts_base import (
     ProgressCallback,
     TTSEngine,
     Voice,
-    _REGISTRY,
     register_engine,
 )
 from src.tts_engine import combine_audio_files, split_text_into_chunks
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def clean_registry():
-    """Isolate each test from the real engine registry."""
-    saved = dict(_REGISTRY)
-    _REGISTRY.clear()
-    yield
-    _REGISTRY.clear()
-    _REGISTRY.update(saved)
 
 
 def _make_test_pdf(pages: list[str], title: str = "Test Book") -> str:
