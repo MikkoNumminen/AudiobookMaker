@@ -35,6 +35,33 @@ right now.
 
 ## What's new
 
+**v3.2** -- Polish pass on the install and update experience:
+
+- **Goat splash on startup and during updates** -- the goat icon
+  appears the moment the app starts, and stays on screen through
+  the 10-15 second update gap so you never wonder if the app crashed
+- **Running version shown in the title bar** -- `AudiobookMaker v3.2.0`
+  so you can confirm which build is actually running after an update
+- **Progress bar reaches 100%** -- "Valmis!" no longer appears while
+  the bar is still at 85%. Every gain counts, visibly
+- **Chunk progress lines are green** -- successful `[chapter N/N]
+  chunk M/K` steps render green so you can watch progress at a glance
+- **Warning-free log panel** -- upstream cosmetic warnings from torch,
+  diffusers, transformers, and HuggingFace Hub are suppressed at the
+  source. Real warnings still show up yellow
+- **Chatterbox alignment fix shown as info** -- when our EOS loop-break
+  kicks in, the log shows one calm `[info] alignment fix applied...`
+  line instead of two scary red warnings
+- **Generated files save to the install folder root** -- no more
+  burrowing into an `audiobooks\` subdirectory. MP3s land next to the
+  app .exe and survive uninstall/reinstall
+- **Auto-bump output filenames** -- `Muunna` never overwrites a
+  previous `texttospeech_N.mp3`; the next free number is picked
+  automatically
+- **Self-healing auto-updater** -- if the silent install fails for
+  any reason, the next launch detects it and offers a visible
+  installer fallback
+
 **v2.3** -- Major update. Modern UI, more voices, auto-updates, and
 a lot of fixes to make everything actually work reliably:
 
