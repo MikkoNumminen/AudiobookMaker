@@ -162,6 +162,29 @@ class TestCheckDiskSpace:
         assert info.free_gb == 0.0
         assert info.total_gb == 0.0
 
+    def test_walks_up_to_existing_parent(self, tmp_path) -> None:
+        """Checking a non-existent directory walks up to its nearest ancestor.
+
+        Use case: ChatterboxInstaller checks disk space at the venv target
+        path (e.g. C:\\AudiobookMaker\\.venv-chatterbox) BEFORE the install
+        has created it. The check must report the drive's free space, not
+        0 GB.
+        """
+        fake_usage = MagicMock(total=1000 * 1024**3, free=500 * 1024**3)
+        probe_path = tmp_path / "does" / "not" / "exist" / "yet"
+
+        with patch("src.system_checks.shutil.disk_usage",
+                   return_value=fake_usage) as mock_du:
+            info = check_disk_space(str(probe_path))
+
+        # disk_usage should be called with tmp_path (the nearest existing parent)
+        called_with = mock_du.call_args[0][0]
+        assert Path(called_with) == tmp_path
+        # free_gb should be reported from the parent
+        assert info.free_gb == 500.0
+        # But the path field keeps the original
+        assert info.path == str(probe_path)
+
 
 # ---------------------------------------------------------------------------
 # find_python311

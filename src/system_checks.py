@@ -141,11 +141,22 @@ def check_disk_space(path: str = "") -> DiskInfo:
     """Check free disk space at the given path.
 
     If path is empty, checks the drive where the user profile lives.
+    If path doesn't exist, walks up to the nearest existing ancestor
+    so callers can check disk space for a directory that will be
+    created later (e.g. an install target that's not there yet).
     """
     if not path:
         path = str(Path.home())
+
+    probe = Path(path)
+    while not probe.exists():
+        parent = probe.parent
+        if parent == probe:
+            break  # Reached the drive root
+        probe = parent
+
     try:
-        usage = shutil.disk_usage(path)
+        usage = shutil.disk_usage(str(probe))
         return DiskInfo(
             path=path,
             free_gb=round(usage.free / (1024**3), 1),
