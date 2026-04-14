@@ -17,6 +17,10 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### mikkonumminen.dev — voice-first web identity
+- [ ] Record a Chatterbox-clonable voice sample for mikkonumminen.dev. Same quality bar as the v7 Finnish audiobook run — 12–20 s, well-lit room, no clipping, Input volume ~85%, loudness −25…−15 dBFS, SNR 40+ dB. Produce a clean WAV at 22050 Hz for the site. 🟢 ⚡ Sonnet
+- [ ] Wire that cloned voice into the site so the primary experience is audio-first, with visuals as support: every section/page loads with a short TTS narration in the user's voice, transcript visible below, play/pause control. Think podcast landing page, not a portfolio card gallery. 🔴 🧠 Opus
+
 ### Next session — three candidate paths (pick one)
 
 The Finnish normalizer is at a natural stopping point: 16 passes shipped, 419 tests green, Tier 1 mechanical layer complete. These are the three realistic ways to push further, in order of "user impact vs effort":
