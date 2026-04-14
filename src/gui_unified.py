@@ -1456,14 +1456,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 if not old and not orphans:
                     return
 
+                # Rescue user MP3s from any old install into the currently
+                # running install's output folder (the new v3.3+ default:
+                # {app} root). Users never lose audiobooks to cleanup.
+                rescue_dir = self._default_output_dir()
                 removed = 0
                 for inst in old:
-                    ok, _ = remove_old_install(inst)
+                    ok, msg = remove_old_install(inst, rescue_to=rescue_dir)
                     if ok:
                         removed += 1
-                        self.after(0, lambda p=inst.path: self._append_log(
-                            f"Poistettu vanha asennus: {p}"
-                        ))
+                        self.after(0, lambda p=inst.path, m=msg:
+                                   self._append_log(
+                                       f"Poistettu vanha asennus: {p} ({m})"
+                                   ))
                 for short in orphans:
                     ok, _ = remove_orphan_shortcut(short)
                     if ok:
