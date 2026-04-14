@@ -194,6 +194,37 @@ _STRINGS = {
         "listening": "Toistetaan...",
         "listen_no_text": "Kirjoita ensin teksti Teksti-välilehdelle.",
         "pdf_no_text": "PDF ei sisällä tekstiä (tiedosto voi olla skannattu). Kokeile ensin OCR-muunnosta.",
+        "voice_sample_title": "Ääninäyte",
+        "chatterbox_no_sample": "Chatterbox ei tue ääninäytettä tästä käyttöliittymästä.",
+        "select_engine_voice": "Valitse ensin moottori ja ääni.",
+        "synthesizing_sample": "Syntetisoidaan ääninäytettä\u2026",
+        "sample_failed": "Näyteen luonti epäonnistui: {error}",
+        "sample_saved": "Ääninäyte tallennettu: {path}",
+        "playback_failed": "\u2718 Toisto epäonnistui: {error}",
+        "select_tts_engine": "Valitse TTS-moottori.",
+        "engine_not_found": "Moottoria ei löytynyt.",
+        "select_voice": "Valitse ääni.",
+        "listen_convert_first": "Muunna teksti ensin \u2014 Esikuuntele toistaa sen jälkeen valmiin MP3-tiedoston.",
+        "listen_error": "Listen error: {error}",
+        "generic_error": "\u2718 Virhe: {error}",
+        "disk_space_log": "\u2718 Levytilaa ei riitä: vapaa {free} MB, tarvitaan ~{need} MB",
+        "disk_space_msg": "Levytilaa ei riitä tulostekansiossa.\n\nVapaa: {free} MB\nTarvitaan: ~{need} MB\n\nVapauta tilaa tai valitse toinen tallennuspaikka.",
+        "pdf_selected": "PDF valittu.",
+        "chatterbox_venv_missing": "Chatterbox-venviä ei löytynyt. Asenna se ensin suorittamalla scripts/setup_chatterbox_windows.bat.",
+        "subprocess_failed": "Subprocess ei käynnistynyt: {error}",
+        "engine_not_found_id": "Moottoria '{engine_id}' ei löytynyt.",
+        "reading_input": "Luetaan syötettä\u2026",
+        "no_text_to_synth": "Ei tekstiä syntetisoitavaksi.",
+        "engine_no_voice_for_lang": "Moottorilla ei ole ääntä valitulle kielelle.",
+        "user_cancelled_synth": "Käyttäjä peruutti synteesin.",
+        "chapters_only_edge": "Lukukohtainen tulostus on tällä hetkellä tuettu vain Edge-TTS-moottorilla.",
+        "cancelled": "Peruutettu.",
+        "total_chunks": "Yhteensä {n} palaa synteesissä.",
+        "cache_resume": "Jatketaan välimuistista: {done}/{total} palaa valmiina.",
+        "chapter_chunk_status": "Luku {ci}/{ct}, pala {chi}/{cht}",
+        "elapsed_eta": "Kulunut {elapsed} min \u2014 jäljellä noin {eta} min",
+        "synth_in_progress": "Synteesi käynnissä\u2026",
+        "error_exit_code": "\u2718 {error} (exit code {rc})",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -250,6 +281,37 @@ _STRINGS = {
         "listening": "Playing...",
         "listen_no_text": "Enter text in the Text tab first.",
         "pdf_no_text": "PDF contains no extractable text (it may be scanned). Try OCR first.",
+        "voice_sample_title": "Voice sample",
+        "chatterbox_no_sample": "Chatterbox does not support voice sampling from this interface.",
+        "select_engine_voice": "Please select an engine and voice first.",
+        "synthesizing_sample": "Synthesizing voice sample\u2026",
+        "sample_failed": "Sample generation failed: {error}",
+        "sample_saved": "Voice sample saved: {path}",
+        "playback_failed": "\u2718 Playback failed: {error}",
+        "select_tts_engine": "Please select a TTS engine.",
+        "engine_not_found": "Engine not found.",
+        "select_voice": "Please select a voice.",
+        "listen_convert_first": "Convert the text first \u2014 Preview plays the resulting MP3 file afterwards.",
+        "listen_error": "Listen error: {error}",
+        "generic_error": "\u2718 Error: {error}",
+        "disk_space_log": "\u2718 Not enough disk space: free {free} MB, need ~{need} MB",
+        "disk_space_msg": "Not enough disk space at the output path.\n\nFree: {free} MB\nNeeded: ~{need} MB\n\nFree some space or pick a different save location.",
+        "pdf_selected": "PDF selected.",
+        "chatterbox_venv_missing": "Chatterbox venv not found. Install it first by running scripts/setup_chatterbox_windows.bat.",
+        "subprocess_failed": "Subprocess failed to start: {error}",
+        "engine_not_found_id": "Engine '{engine_id}' not found.",
+        "reading_input": "Reading input\u2026",
+        "no_text_to_synth": "No text to synthesize.",
+        "engine_no_voice_for_lang": "Engine has no voice for the selected language.",
+        "user_cancelled_synth": "User cancelled synthesis.",
+        "chapters_only_edge": "Per-chapter output is currently only supported with the Edge-TTS engine.",
+        "cancelled": "Cancelled.",
+        "total_chunks": "Total {n} chunks to synthesize.",
+        "cache_resume": "Resuming from cache: {done}/{total} chunks ready.",
+        "chapter_chunk_status": "Chapter {ci}/{ct}, chunk {chi}/{cht}",
+        "elapsed_eta": "Elapsed {elapsed} min \u2014 about {eta} min remaining",
+        "synth_in_progress": "Synthesis in progress\u2026",
+        "error_exit_code": "\u2718 {error} (exit code {rc})",
     },
 }
 
@@ -1756,9 +1818,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._pdf_entry.delete(0, tk.END)
             self._pdf_entry.insert(0, path)
             self._pdf_entry.configure(state="disabled")
-            self._status_label_val.configure(
-                text="PDF valittu." if self._ui_lang == "fi" else "PDF selected."
-            )
+            self._status_label_val.configure(text=self._s("pdf_selected"))
             self._auto_output_path()
 
     def _browse_reference_audio(self) -> None:
@@ -2017,18 +2077,18 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         if eid == "chatterbox_fi":
             messagebox.showinfo(
-                "Ääninäyte",
-                "Chatterbox ei tue ääninäytettä tästä käyttöliittymästä."
+                self._s("voice_sample_title"),
+                self._s("chatterbox_no_sample"),
             )
             return
 
         if engine is None or voice is None:
-            messagebox.showerror(self._s("error"), "Valitse ensin moottori ja ääni.")
+            messagebox.showerror(self._s("error"), self._s("select_engine_voice"))
             return
 
         self._testing_voice = True
         self._test_btn.configure(state="disabled")
-        self._status_label_val.configure(text="Syntetisoidaan ääninäytettä\u2026")
+        self._status_label_val.configure(text=self._s("synthesizing_sample"))
 
         threading.Thread(
             target=self._test_voice_worker, daemon=True, name="voice-test"
@@ -2060,7 +2120,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._safe_play_sample(tmp.name)
         except Exception as exc:
             self.after(0, lambda: self._status_label_val.configure(
-                text=f"Näyteen luonti epäonnistui: {exc}"
+                text=self._s("sample_failed").format(error=exc)
             ))
         finally:
             self.after(0, lambda: self._test_btn.configure(state="normal"))
@@ -2068,7 +2128,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _safe_play_sample(self, path: str) -> None:
         def _play() -> None:
-            self._status_label_val.configure(text=f"Ääninäyte tallennettu: {path}")
+            self._status_label_val.configure(text=self._s("sample_saved").format(path=path))
             try:
                 if sys.platform == "win32":
                     os.startfile(path)  # type: ignore[attr-defined]
@@ -2117,7 +2177,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     else:
                         subprocess.Popen(["xdg-open", str(out_file)])
                 except Exception as exc:
-                    self._append_log_error(f"\u2718 Toisto epäonnistui: {exc}")
+                    self._append_log_error(self._s("playback_failed").format(error=exc))
                 return
 
         # Priority 2: synthesize a short preview from the input text.
@@ -2151,7 +2211,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Validate engine/voice.
         engine_id = self._current_engine_id()
         if not engine_id:
-            messagebox.showerror(self._s("error"), "Valitse TTS-moottori.")
+            messagebox.showerror(self._s("error"), self._s("select_tts_engine"))
             return
 
         if engine_id == "chatterbox_fi":
@@ -2159,17 +2219,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             # no existing MP3 to play. Tell the user to run Muunna first.
             messagebox.showinfo(
                 self._s("listen"),
-                "Muunna teksti ensin \u2014 Esikuuntele toistaa sen jälkeen "
-                "valmiin MP3-tiedoston."
-                if self._ui_lang == "fi"
-                else "Convert the text first \u2014 Preview plays the "
-                "resulting MP3 file afterwards."
+                self._s("listen_convert_first"),
             )
             return
 
         engine = self._current_engine()
         if engine is None:
-            messagebox.showerror(self._s("error"), "Moottoria ei löytynyt.")
+            messagebox.showerror(self._s("error"), self._s("engine_not_found"))
             return
         status = engine.check_status()
         if not status.available:
@@ -2179,7 +2235,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             return
         voice = self._current_voice()
         if voice is None:
-            messagebox.showerror(self._s("error"), "Valitse ääni.")
+            messagebox.showerror(self._s("error"), self._s("select_voice"))
             return
 
         # Enter listening state.
@@ -2249,9 +2305,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             time.sleep(2)
 
         except Exception as exc:
-            self.after(0, lambda: self._append_log_error(f"\u2718 Virhe: {exc}"))
+            self.after(0, lambda: self._append_log_error(self._s("generic_error").format(error=exc)))
             self.after(0, lambda: self._status_label_val.configure(
-                text=f"Listen error: {exc}"
+                text=self._s("listen_error").format(error=exc)
             ))
         finally:
             # Don't delete temp file — the external player still needs it.
@@ -2382,14 +2438,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         engine_id = self._current_engine_id()
         if not engine_id:
-            messagebox.showerror(self._s("error"), "Valitse TTS-moottori.")
+            messagebox.showerror(self._s("error"), self._s("select_tts_engine"))
             return
 
         # For registry engines, verify availability.
         if engine_id != "chatterbox_fi":
             engine = self._current_engine()
             if engine is None:
-                messagebox.showerror(self._s("error"), "Moottoria ei löytynyt.")
+                messagebox.showerror(self._s("error"), self._s("engine_not_found"))
                 return
             status = engine.check_status()
             if not status.available:
@@ -2399,7 +2455,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 return
             voice = self._current_voice()
             if voice is None:
-                messagebox.showerror(self._s("error"), "Valitse ääni.")
+                messagebox.showerror(self._s("error"), self._s("select_voice"))
                 return
 
         # Disk-space sanity check for the output drive.
@@ -2421,21 +2477,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             )
             if not ok:
                 self._append_log_error(
-                    f"\u2718 Levytilaa ei riitä: vapaa {free_mb:.0f} MB, "
-                    f"tarvitaan ~{need_mb:.0f} MB"
+                    self._s("disk_space_log").format(
+                        free=f"{free_mb:.0f}", need=f"{need_mb:.0f}"
+                    )
                 )
                 messagebox.showerror(
                     self._s("error"),
-                    f"Levytilaa ei riitä tulostekansiossa.\n\n"
-                    f"Vapaa: {free_mb:.0f} MB\n"
-                    f"Tarvitaan: ~{need_mb:.0f} MB\n\n"
-                    f"Vapauta tilaa tai valitse toinen tallennuspaikka."
-                    if self._ui_lang == "fi"
-                    else
-                    f"Not enough disk space at the output path.\n\n"
-                    f"Free: {free_mb:.0f} MB\n"
-                    f"Needed: ~{need_mb:.0f} MB\n\n"
-                    f"Free some space or pick a different save location."
+                    self._s("disk_space_msg").format(
+                        free=f"{free_mb:.0f}", need=f"{need_mb:.0f}"
+                    ),
                 )
                 return
             self._append_log(

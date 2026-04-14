@@ -131,10 +131,7 @@ class SynthMixin(_Base):
         python_exe = resolve_chatterbox_python()
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
         if python_exe is None or not runner_script.exists():
-            self._fail(
-                "Chatterbox-venviä ei löytynyt. Asenna se ensin "
-                "suorittamalla scripts/setup_chatterbox_windows.bat."
-            )
+            self._fail(self._s("chatterbox_venv_missing"))
             return
 
         # Use output path's parent directory, or a sensible default.
@@ -168,7 +165,7 @@ class SynthMixin(_Base):
         try:
             self._chatterbox_runner.start()
         except Exception as exc:
-            self._fail(f"Subprocess ei käynnistynyt: {exc}")
+            self._fail(self._s("subprocess_failed").format(error=exc))
             return
 
         threading.Thread(
@@ -211,10 +208,12 @@ class SynthMixin(_Base):
         try:
             engine = get_engine(engine_id)
             if engine is None:
-                raise RuntimeError(f"Moottoria '{engine_id}' ei löytynyt.")
+                raise RuntimeError(
+                    self._s("engine_not_found_id").format(engine_id=engine_id)
+                )
 
             self._event_queue.put(
-                ProgressEvent(kind="log", raw_line="Luetaan syötettä\u2026")
+                ProgressEvent(kind="log", raw_line=self._s("reading_input"))
             )
 
             if input_mode == "pdf":
@@ -227,16 +226,14 @@ class SynthMixin(_Base):
                 text = input_text or ""
 
             if not text:
-                raise ValueError("Ei tekstiä syntetisoitavaksi.")
+                raise ValueError(self._s("no_text_to_synth"))
 
             voice = self._current_voice()
             if voice is None:
                 # Fallback to engine default.
                 voice_id = engine.default_voice(self._current_language())
                 if voice_id is None:
-                    raise RuntimeError(
-                        "Moottorilla ei ole ääntä valitulle kielelle."
-                    )
+                    raise RuntimeError(self._s("engine_no_voice_for_lang"))
             else:
                 voice_id = voice.id
 
@@ -248,7 +245,7 @@ class SynthMixin(_Base):
 
             def progress_cb(current: int, total: int, msg: str) -> None:
                 if self._cancel_flag.is_set():
-                    raise InterruptedError("Käyttäjä peruutti synteesin.")
+                    raise InterruptedError(self._s("user_cancelled_synth"))
                 self._event_queue.put(
                     ProgressEvent(
                         kind="chunk",
@@ -271,10 +268,7 @@ class SynthMixin(_Base):
                         chapters, self._output_path, config, progress_cb
                     )
                 else:
-                    raise RuntimeError(
-                        "Lukukohtainen tulostus on tällä hetkellä tuettu "
-                        "vain Edge-TTS-moottorilla."
-                    )
+                    raise RuntimeError(self._s("chapters_only_edge"))
             else:
                 engine.synthesize(
                     text, self._output_path, voice_id, lang,
@@ -292,7 +286,7 @@ class SynthMixin(_Base):
 
         except InterruptedError:
             self._event_queue.put(
-                ProgressEvent(kind="signal", raw_line="Peruutettu.")
+                ProgressEvent(kind="signal", raw_line=self._s("cancelled"))
             )
             self._event_queue.put(ProgressEvent(kind="exit", returncode=0))
         except Exception as exc:
@@ -336,30 +330,35 @@ class SynthMixin(_Base):
 
         if ev.kind == "setup_total":
             self._eta_label.configure(
-                text=f"Yhteensä {ev.total_chunks} palaa synteesissä."
+                text=self._s("total_chunks").format(n=ev.total_chunks)
             )
         elif ev.kind == "setup_cached":
             self._progress_bar.set(ev.total_done / max(ev.total_chunks, 1))
             self._eta_label.configure(
-                text=f"Jatketaan välimuistista: "
-                f"{ev.total_done}/{ev.total_chunks} palaa valmiina."
+                text=self._s("cache_resume").format(
+                    done=ev.total_done, total=ev.total_chunks
+                )
             )
         elif ev.kind == "chunk":
             if ev.total_chunks > 0:
                 self._progress_bar.set(ev.total_done / ev.total_chunks)
             if ev.chapter_total > 0:
                 self._status_label_val.configure(
-                    text=f"Luku {ev.chapter_idx}/{ev.chapter_total}, "
-                    f"pala {ev.chunk_idx}/{ev.chunk_total}"
+                    text=self._s("chapter_chunk_status").format(
+                        ci=ev.chapter_idx, ct=ev.chapter_total,
+                        chi=ev.chunk_idx, cht=ev.chunk_total,
+                    )
                 )
                 if ev.elapsed_s or ev.eta_s:
                     self._eta_label.configure(
-                        text=f"Kulunut {int(ev.elapsed_s // 60)} min \u2014 "
-                        f"jäljellä noin {int(ev.eta_s // 60)} min"
+                        text=self._s("elapsed_eta").format(
+                            elapsed=int(ev.elapsed_s // 60),
+                            eta=int(ev.eta_s // 60),
+                        )
                     )
             else:
                 self._status_label_val.configure(
-                    text=ev.raw_line or "Synteesi käynnissä\u2026"
+                    text=ev.raw_line or self._s("synth_in_progress")
                 )
         elif ev.kind in ("full_done", "chapter_done"):
             if ev.output_path:
@@ -392,7 +391,9 @@ class SynthMixin(_Base):
                 tail = "\n".join(self._chatterbox_runner.tail_lines(15))
             self._status_label_val.configure(text=f"{self._s('error')} \u2014 log")
             self._append_log_error(
-                f"\u2718 {self._s('error')} (exit code {returncode})"
+                self._s("error_exit_code").format(
+                    error=self._s("error"), rc=returncode
+                )
             )
             messagebox.showerror(
                 self._s("error"),
