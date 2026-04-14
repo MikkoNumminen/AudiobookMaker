@@ -318,3 +318,100 @@ class TestEngineStatusDisplay:
         status = engine.check_status()
         assert not status.available
         assert "install" in status.reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# Log panel color coding
+# ---------------------------------------------------------------------------
+
+
+def _tags_at_end(log_widget) -> list[str]:
+    """Return the list of tags applied to the last line of the log."""
+    try:
+        inner = log_widget._textbox  # CTkTextbox wraps a Tk Text
+    except AttributeError:
+        inner = log_widget
+    # Position of the second-to-last char (skip the final newline).
+    last_line_start = inner.index("end-2l linestart")
+    return list(inner.tag_names(last_line_start))
+
+
+class TestLogColoring:
+    """Verify that log lines get the right severity tag based on content."""
+
+    def test_warning_line_gets_warning_tag(self, app):
+        app._clear_log()
+        app._append_log_warning("WARNING: something odd happened")
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_warning" in tags
+
+    def test_error_line_gets_error_tag(self, app):
+        app._clear_log()
+        app._append_log_error("\u2718 Something broke")
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_error" in tags
+
+    def test_success_line_gets_success_tag(self, app):
+        app._clear_log()
+        app._append_log_success("\u2714 Valmis! Tallennettu: out.mp3")
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_success" in tags
+
+    def test_plain_line_has_no_severity_tag(self, app):
+        app._clear_log()
+        app._append_log("Setup: engine=chatterbox_fi")
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_warning" not in tags
+        assert "log_error" not in tags
+        assert "log_success" not in tags
+
+
+class TestAutoSeverityDetection:
+    """Verify _handle_event routes lines to the right color based on content."""
+
+    def _make_event(self, raw_line: str, kind: str = "log"):
+        from src.launcher_bridge import ProgressEvent
+        return ProgressEvent(kind=kind, raw_line=raw_line)
+
+    def test_warning_keyword_routed_to_warning(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event("WARNING: deprecated feature"))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_warning" in tags
+
+    def test_futurewarning_routed_to_warning(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event(
+            "FutureWarning: `LoRACompatibleLinear` is deprecated"
+        ))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_warning" in tags
+
+    def test_error_kind_routed_to_error(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event("Something failed", kind="error"))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_error" in tags
+
+    def test_checkmark_routed_to_success(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event("\u2714 Valmis! out.mp3"))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_success" in tags
+
+    def test_plain_info_stays_plain(self, app):
+        app._clear_log()
+        app._handle_event(self._make_event("[setup] device=cuda"))
+        app.update_idletasks()
+        tags = _tags_at_end(app._log_text)
+        assert "log_warning" not in tags
+        assert "log_error" not in tags
+        assert "log_success" not in tags

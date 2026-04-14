@@ -266,7 +266,18 @@ class SynthMixin:
 
     def _handle_event(self, ev: ProgressEvent) -> None:
         if ev.raw_line:
-            self._append_log(ev.raw_line)
+            # Auto-detect severity from the content so WARNING lines
+            # from the Chatterbox runner show up yellow and errors red.
+            line = ev.raw_line
+            upper = line.upper()
+            if ev.kind == "error" or "ERROR:" in upper or "TRACEBACK" in upper or "\u2718" in line:
+                self._append_log_error(line)
+            elif "WARNING" in upper or "WARN:" in upper or "FUTUREWARNING" in upper or "DEPRECATIONWARNING" in upper:
+                self._append_log_warning(line)
+            elif "\u2714" in line or "DONE" in upper or "VALMIS" in upper:
+                self._append_log_success(line)
+            else:
+                self._append_log(line)
 
         if ev.kind == "setup_total":
             self._eta_label.configure(
@@ -318,12 +329,16 @@ class SynthMixin:
             messagebox.showinfo(self._s("done"), f"{out_name}")
         elif self._cancel_requested:
             self._status_label_val.configure(text=self._s("cancelling"))
+            self._append_log_error(f"\u2718 {self._s('cancelling')}")
             self._cancel_requested = False
         else:
             tail = ""
             if self._chatterbox_runner is not None:
                 tail = "\n".join(self._chatterbox_runner.tail_lines(15))
             self._status_label_val.configure(text=f"{self._s('error')} \u2014 log")
+            self._append_log_error(
+                f"\u2718 {self._s('error')} (exit code {returncode})"
+            )
             messagebox.showerror(
                 self._s("error"),
                 tail or self._s("error"),
