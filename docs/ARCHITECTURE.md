@@ -102,9 +102,10 @@ model, all installed into its own venv so the main app bundle stays
 
 ```mermaid
 flowchart LR
-    PDF[PDF] --> Parser[pdf_parser.py<br/>PyMuPDF]
+    PDF[PDF] --> Parsers[pdf_parser.py / epub_parser.py]
+    EPUB[EPUB] --> Parsers
     Text[Plain text] --> Chunker
-    Parser --> Chunker[tts_chunking.py<br/>chapter + chunk splits]
+    Parsers --> Chunker[tts_chunking.py<br/>chapter + chunk splits]
     Chunker --> Norm[tts_normalizer_fi.py<br/>16 passes]
     Norm --> Engine[engine.synthesize]
     Engine --> Wav[chunk WAV/MP3]
@@ -113,6 +114,7 @@ flowchart LR
 ```
 
 - `pdf_parser.py` — PyMuPDF, extracts chapters heuristically
+- `epub_parser.py` — EPUB chapter extraction (same output shape as `pdf_parser`)
 - `tts_chunking.py` — splits long text at sentence boundaries under a
   length cap the engine can handle
 - `tts_normalizer_fi.py` — 16 transformation passes that make Finnish
@@ -229,6 +231,7 @@ src/
   tts_audio.py               # pydub/ffmpeg wrappers
   tts_engine.py              # TTSConfig + chapters_to_speech pipeline
   pdf_parser.py              # PyMuPDF chapter extraction
+  epub_parser.py             # EPUB chapter extraction (same shape as pdf_parser)
   fi_loanwords.py            # loanword respelling lookup
   app_config.py              # settings persistence
   voice_recorder.py          # in-app mic capture for cloning
@@ -241,6 +244,25 @@ installer/
 
 audiobookmaker.spec          # PyInstaller spec (main app bundle)
 ```
+
+## Legacy modules
+
+Two earlier entry points are still on disk but are no longer the surface
+new work should touch:
+
+- `src/gui.py` — the original advanced-mode Tkinter window. Predates
+  `gui_unified.py` and has hardcoded Finnish literals instead of the
+  `_STRINGS` table. Kept so older build paths and any external callers
+  that still import `src.gui` do not break.
+- `src/launcher.py` — the first minimal launcher ("pick PDF, click
+  button, get MP3"). Still frozen by `audiobookmaker_launcher.spec` and
+  installed by `installer/launcher.iss`, plus exercised by
+  `.github/workflows/build-launcher.yml`, so it cannot simply be
+  deleted.
+
+Both files carry a header docstring marking them as legacy. Extend
+`src/gui_unified.py` instead — these two modules exist only for
+backward compatibility.
 
 ## Updating this document
 

@@ -32,7 +32,7 @@ Releases and offers a one-click upgrade.
 ## Architecture in one screen
 
 ```
-PDF/text ─► pdf_parser ─► tts_normalizer_fi ─► tts_chunking ─► engine.synthesize ─► tts_audio ─► MP3
+PDF/EPUB/text ─► pdf_parser / epub_parser ─► tts_normalizer_fi ─► tts_chunking ─► engine.synthesize ─► tts_audio ─► MP3
                                                                     │
                                                   ┌─────────────────┼─────────────────┐
                                                   ▼                 ▼                 ▼
