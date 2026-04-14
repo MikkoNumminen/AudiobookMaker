@@ -2610,13 +2610,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     )
 
             elif ev.kind in ("chapter_done", "full_done"):
-                # Chatterbox writes to {out_dir}/{book_stem}/NN_title.mp3.
-                # Remember the last produced MP3 so we can copy it to the
-                # user's requested output path when the job finishes.
+                # A file was written — treat this as "done enough" for
+                # progress-bar purposes. Chatterbox's final "assembling
+                # MP3" phase doesn't produce chunk events, so the bar
+                # would otherwise stay stuck at the last chunk count.
+                self._progress_bar.set(1.0)
                 self._chatterbox_last_mp3 = ev.output_path
 
             elif ev.kind == "done":
+                # Force the bar to full and flush pending paint events
+                # so the user sees 100% when Valmis! appears — not the
+                # last partial chunk value left over from progress pulses.
                 self._progress_bar.set(1.0)
+                self.update_idletasks()
                 self._status_label_val.configure(text=self._s("done"))
                 # If this was Chatterbox, move its output to where the user
                 # asked for it. Chatterbox doesn't honor a --output-file path.
@@ -2627,6 +2633,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 if self._output_path:
                     self._log_success_summary(self._output_path)
                 self._set_idle_state()
+                # One final set(1.0) after idle-state toggles anything
+                # that might have reset the widget.
+                self._progress_bar.set(1.0)
+                self.update_idletasks()
                 return  # Stop pumping.
 
             elif ev.kind == "error":

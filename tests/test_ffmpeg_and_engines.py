@@ -209,6 +209,18 @@ class TestApplyUpdateBatchScript:
         assert ">> \"%LOG%\"" in content
         assert "audiobookmaker_update.log" in content
 
+    def test_batch_launches_splash_before_installer(self, tmp_path: Path) -> None:
+        """During the install phase the user must see the goat splash so
+        the 10-15s gap after the app exits doesn't look like a crash."""
+        content = self._generate_batch(tmp_path)
+        # PowerShell splash invocation
+        assert "powershell" in content.lower()
+        assert "SPLASH" in content
+        # Splash must come BEFORE the installer runs so it covers the gap.
+        splash_idx = content.lower().find("powershell")
+        installer_idx = content.find("/VERYSILENT")
+        assert splash_idx < installer_idx, "splash must start before installer"
+
     def test_batch_written_as_bytes_not_text(self, tmp_path: Path) -> None:
         """Verify write_bytes is used (prevents MSYS2 >NUL mangling)."""
         content = self._generate_batch(tmp_path)

@@ -357,14 +357,54 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     # fail to delay when cmd.exe runs without a visible console window
     # (CREATE_NO_WINDOW).  "waitfor /t 3 <signal>" waits up to 3 seconds
     # for a signal that never arrives, providing a reliable sleep.
+    # Splash script: borderless WinForms window with the goat icon centered
+    # on screen, auto-closes after 25 s (safety cap — usually the installer
+    # + new-app launch is done in 10-15 s and the relaunched app's own
+    # PyInstaller splash takes over seamlessly).
+    splash_ps1 = Path(tempfile.gettempdir()) / "audiobookmaker_splash.ps1"
+    icon_png = Path(current_install_dir) / "_internal" / "assets" / "icon.png"
+    if not icon_png.is_file():
+        # Fallback: try alongside the exe (legacy onefile layouts).
+        icon_png = Path(current_install_dir) / "assets" / "icon.png"
+    splash_ps1.write_text(
+        'Add-Type -AssemblyName System.Windows.Forms, System.Drawing\n'
+        '$form = New-Object System.Windows.Forms.Form\n'
+        '$form.Text = "AudiobookMaker"\n'
+        '$form.Width = 280\n'
+        '$form.Height = 280\n'
+        '$form.StartPosition = "CenterScreen"\n'
+        '$form.FormBorderStyle = "None"\n'
+        '$form.BackColor = [System.Drawing.Color]::White\n'
+        '$form.TopMost = $true\n'
+        '$form.ControlBox = $false\n'
+        'try {\n'
+        f'  $img = [System.Drawing.Image]::FromFile("{icon_png}")\n'
+        '  $pic = New-Object System.Windows.Forms.PictureBox\n'
+        '  $pic.Image = $img\n'
+        '  $pic.SizeMode = "Zoom"\n'
+        '  $pic.Dock = "Fill"\n'
+        '  $form.Controls.Add($pic)\n'
+        '} catch {}\n'
+        '$timer = New-Object System.Windows.Forms.Timer\n'
+        '$timer.Interval = 25000\n'
+        '$timer.Add_Tick({ $form.Close() })\n'
+        '$timer.Start()\n'
+        '$form.ShowDialog() | Out-Null\n',
+        encoding="utf-8",
+    )
+
     lines = [
         "@echo off",
         f'set "INSTALLER={installer_path}"',
         f'set "APPEXE={app_exe}"',
         f'set "APPDIR={current_install_dir}"',
         f'set "LOG={log_file}"',
+        f'set "SPLASH={splash_ps1}"',
         "",
         'echo [%date% %time%] Update script started >> "%LOG%"',
+        # Bring up the splash immediately (fire-and-forget — has its own
+        # 25 s self-destruct timer so it can never zombie-persist).
+        'start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%SPLASH%"',
         "waitfor /t 3 AudiobookMakerDummy 2>NUL",
         'echo [%date% %time%] Running installer... >> "%LOG%"',
         '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"',
