@@ -607,6 +607,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._listen_proc: Optional[subprocess.Popen] = None
         self._listen_temp_path: Optional[str] = None
         self._chatterbox_runner: Optional[ChatterboxRunner] = None
+        self._chatterbox_last_mp3: str = ""
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
         self._log_visible = True
         self._pending_update: Optional[UpdateInfo] = None
@@ -1573,7 +1574,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                             f"Poistettu rikkinäinen pikakuvake: {p.name}"
                         ))
             except Exception as exc:
-                self.after(0, lambda: self._append_log(
+                self.after(0, lambda: self._append_log_warning(
                     f"Siivous epäonnistui: {exc}"
                 ))
 
@@ -1865,8 +1866,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
             elapsed = time.perf_counter() - t0
             size_kb = os.path.getsize(tmp_path) / 1024
-            self.after(0, lambda: self._append_log(
-                f"Synteesi valmis: {elapsed:.1f}s, {size_kb:.0f} KB"
+            self.after(0, lambda: self._append_log_success(
+                f"\u2714 Synteesi valmis: {elapsed:.1f}s, {size_kb:.0f} KB"
             ))
 
             self.after(0, lambda: self._append_log("Toistetaan ääntä..."))
@@ -1882,7 +1883,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             time.sleep(2)
 
         except Exception as exc:
-            self.after(0, lambda: self._append_log(f"Virhe: {exc}"))
+            self.after(0, lambda: self._append_log_error(f"\u2718 Virhe: {exc}"))
             self.after(0, lambda: self._status_label_val.configure(
                 text=f"Listen error: {exc}"
             ))
@@ -2047,6 +2048,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 self._output_path, text_len, engine_id,
             )
             if not ok:
+                self._append_log_error(
+                    f"\u2718 Levytilaa ei riitä: vapaa {free_mb:.0f} MB, "
+                    f"tarvitaan ~{need_mb:.0f} MB"
+                )
                 messagebox.showerror(
                     self._s("error"),
                     f"Levytilaa ei riitä tulostekansiossa.\n\n"
@@ -2065,7 +2070,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 f"Levy: vapaa {free_mb:.0f} MB, arvioitu tarve {need_mb:.0f} MB"
             )
         except Exception as exc:
-            self._append_log(f"Disk check skipped: {exc}")
+            self._append_log_warning(f"Disk check skipped: {exc}")
 
         # Persist settings before synthesis.
         self._save_current_config()
@@ -2223,14 +2228,28 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                         text=f"{ev.total_done}/{ev.total_chunks}"
                     )
 
+            elif ev.kind in ("chapter_done", "full_done"):
+                # Chatterbox writes to {out_dir}/{book_stem}/NN_title.mp3.
+                # Remember the last produced MP3 so we can copy it to the
+                # user's requested output path when the job finishes.
+                self._chatterbox_last_mp3 = ev.output_path
+
             elif ev.kind == "done":
                 self._progress_bar.set(1.0)
                 self._status_label_val.configure(text=self._s("done"))
-                self._output_path = ev.output_path
+                # If this was Chatterbox, move its output to where the user
+                # asked for it. Chatterbox doesn't honor a --output-file path.
+                self._finalize_chatterbox_output_if_needed()
+                if ev.output_path:
+                    self._output_path = ev.output_path
+                # Show a friendly green summary at the bottom of the log.
+                if self._output_path:
+                    self._log_success_summary(self._output_path)
                 self._set_idle_state()
                 return  # Stop pumping.
 
             elif ev.kind == "error":
+                self._append_log_error(ev.raw_line or "Unknown error")
                 self._fail(ev.raw_line or "Unknown error")
                 return  # Stop pumping.
 
@@ -2240,6 +2259,53 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Reschedule if still running.
         if self._synth_running:
             self.after(self.POLL_INTERVAL_MS, self._pump_events)
+
+    def _finalize_chatterbox_output_if_needed(self) -> None:
+        """Copy Chatterbox's per-chapter MP3 to the user's target path.
+
+        Chatterbox writes `{out_dir}/{book_stem}/01_Title.mp3` (and
+        `00_full.mp3` for multi-chapter books). The user requested a
+        single file at `self._output_path` — copy the result there and
+        log the final location.
+        """
+        src = getattr(self, "_chatterbox_last_mp3", "")
+        if not src or not self._output_path:
+            return
+
+        src_path = Path(src)
+        if not src_path.is_absolute():
+            # Chatterbox reports relative paths for chapters; resolve
+            # against the out_dir passed to the runner.
+            runner = self._chatterbox_runner
+            if runner is None:
+                return
+            src_path = Path(runner.out_dir) / src_path
+            if not src_path.exists():
+                # Chatterbox nests: {out_dir}/{book_stem}/NN_*.mp3
+                # Try finding the newest .mp3 under out_dir.
+                candidates = sorted(
+                    Path(runner.out_dir).rglob("*.mp3"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                if candidates:
+                    src_path = candidates[0]
+
+        dst_path = Path(self._output_path)
+        if src_path.resolve() == dst_path.resolve():
+            return  # Already at target
+
+        if not src_path.exists():
+            self._append_log(f"Chatterbox output not found: {src_path}")
+            return
+
+        try:
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, dst_path)
+            self._append_log(f"Saved: {dst_path}")
+            self._chatterbox_last_mp3 = ""
+        except OSError as exc:
+            self._append_log(f"Could not move output to {dst_path}: {exc}")
 
     # ------------------------------------------------------------------
     # Running/idle state management
@@ -2314,6 +2380,74 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._log_text.insert(tk.END, line + "\n")
         self._log_text.see(tk.END)
         self._log_text.configure(state="disabled")
+
+    def _append_log_styled(self, line: str, severity: str = "info") -> None:
+        """Append a log line with a colored/bold tag based on severity.
+
+        severity values:
+          success → bold green
+          warning → bold amber/yellow (for issues, not failures)
+          error   → bold red
+          info    → default (no styling)
+        """
+        self._log_text.configure(state="normal")
+        start_index = self._log_text.index(tk.END + "-1c")
+        self._log_text.insert(tk.END, line + "\n")
+        end_index = self._log_text.index(tk.END + "-1c")
+
+        palette = {
+            "success": ("#2e7d32", ("Consolas", 12, "bold")),   # dark green
+            "warning": ("#b8860b", ("Consolas", 12, "bold")),   # dark goldenrod
+            "error":   ("#c62828", ("Consolas", 12, "bold")),   # dark red
+        }
+        if severity in palette:
+            color, font_tuple = palette[severity]
+            try:
+                inner = self._log_text._textbox  # type: ignore[attr-defined]
+                inner.tag_configure(
+                    f"log_{severity}",
+                    foreground=color, font=font_tuple,
+                )
+                inner.tag_add(f"log_{severity}", start_index, end_index)
+            except Exception:
+                pass  # Fall back to plain text if tag setup fails
+
+        self._log_text.see(tk.END)
+        self._log_text.configure(state="disabled")
+
+    def _append_log_success(self, line: str) -> None:
+        self._append_log_styled(line, severity="success")
+
+    def _append_log_warning(self, line: str) -> None:
+        self._append_log_styled(line, severity="warning")
+
+    def _append_log_error(self, line: str) -> None:
+        self._append_log_styled(line, severity="error")
+
+    def _log_success_summary(self, saved_path: str, elapsed_s: Optional[float] = None) -> None:
+        """Write a friendly final summary line to the log after a job finishes."""
+        size_note = ""
+        try:
+            size_kb = Path(saved_path).stat().st_size / 1024
+            if size_kb > 1024:
+                size_note = f" ({size_kb / 1024:.1f} MB)"
+            else:
+                size_note = f" ({size_kb:.0f} KB)"
+        except OSError:
+            pass
+
+        time_note = ""
+        if elapsed_s is not None and elapsed_s > 0:
+            if elapsed_s >= 60:
+                time_note = f" \u2014 {int(elapsed_s // 60)}m {int(elapsed_s % 60)}s"
+            else:
+                time_note = f" \u2014 {elapsed_s:.1f}s"
+
+        if self._ui_lang == "fi":
+            msg = f"\u2714 Valmis! Tallennettu: {saved_path}{size_note}{time_note}"
+        else:
+            msg = f"\u2714 Done! Saved: {saved_path}{size_note}{time_note}"
+        self._append_log_success(msg)
 
     # ------------------------------------------------------------------
     # Error helper
