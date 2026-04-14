@@ -139,8 +139,22 @@ pyz = PYZ(
     cipher=block_cipher,
 )
 
+# Splash shown by the PyInstaller bootloader the moment the .exe starts —
+# covers the 3-5 s unpack + Python import delay so the user sees the goat
+# icon immediately rather than wondering if the app crashed. Closed from
+# src/main.py once the Tk window is visible via pyi_splash.close().
+splash = Splash(
+    os.path.join('assets', 'icon.png'),
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=None,          # No status text — the icon alone is cleaner.
+    text_size=12,
+    text_color='black',
+)
+
 exe = EXE(
     pyz,
+    splash,
     a.scripts,
     [],
     exclude_binaries=True,
@@ -163,6 +177,7 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
+    splash.binaries,
     strip=False,
     upx=True,
     upx_exclude=[],
