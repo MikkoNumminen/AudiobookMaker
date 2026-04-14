@@ -209,7 +209,7 @@ class TestDownloadUpdate:
         content = b"fake-installer-bytes"
         mock_urlopen.return_value = _mock_download_response(content)
 
-        update = self._make_update_info()
+        update = self._make_update_info(sha256=hashlib.sha256(content).hexdigest())
 
         with patch("src.auto_updater.UPDATE_DIR", tmp_path):
             dest = download_update(update)
@@ -218,6 +218,25 @@ class TestDownloadUpdate:
             assert dest.name == "AudiobookMaker-Setup-3.0.0.exe"
             # cleanup
             dest.unlink(missing_ok=True)
+
+    @patch("src.auto_updater.urlopen")
+    def test_missing_sha256_raises_before_download(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """Without a published SHA-256 we must refuse to download at all."""
+        mock_urlopen.return_value = _mock_download_response(b"anything")
+        update = self._make_update_info(sha256="")
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            import pytest
+
+            with pytest.raises(RuntimeError, match="No SHA-256"):
+                download_update(update)
+
+            # Network must not have been hit and no file should exist.
+            mock_urlopen.assert_not_called()
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists()
 
     @patch("src.auto_updater.urlopen")
     def test_sha256_mismatch_raises_and_deletes(
@@ -260,7 +279,7 @@ class TestDownloadUpdate:
         cancel.set()  # pre-cancelled
 
         mock_urlopen.return_value = _mock_download_response(b"x" * 10000)
-        update = self._make_update_info()
+        update = self._make_update_info(sha256="d" * 64)
 
         with patch("src.auto_updater.UPDATE_DIR", tmp_path):
             import pytest
@@ -278,7 +297,7 @@ class TestDownloadUpdate:
         from urllib.error import URLError
 
         mock_urlopen.side_effect = URLError("connection reset")
-        update = self._make_update_info()
+        update = self._make_update_info(sha256="e" * 64)
 
         with patch("src.auto_updater.UPDATE_DIR", tmp_path):
             import pytest

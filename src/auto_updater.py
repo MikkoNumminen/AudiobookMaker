@@ -180,6 +180,12 @@ def download_update(
     RuntimeError
         On download failure or cancellation.
     """
+    if not update.sha256:
+        raise RuntimeError(
+            "No SHA-256 hash published in release notes; "
+            "refusing to install for security reasons."
+        )
+
     UPDATE_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"AudiobookMaker-Setup-{update.latest_version}.exe"
     dest = UPDATE_DIR / filename
@@ -215,18 +221,15 @@ def download_update(
         dest.unlink(missing_ok=True)
         raise RuntimeError(f"Download failed: {exc}") from exc
 
-    # Verify integrity if a SHA-256 hash was provided in the release notes.
-    if update.sha256:
-        file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()
-        if file_hash != update.sha256:
-            dest.unlink(missing_ok=True)
-            raise RuntimeError(
-                f"Integrity check failed: expected SHA-256 {update.sha256[:16]}…, "
-                f"got {file_hash[:16]}…. Download may be corrupted."
-            )
-        logger.info("SHA-256 verified: %s", file_hash[:16])
-    else:
-        logger.warning("No SHA-256 hash in release notes — skipping integrity check")
+    # Verify integrity — SHA-256 is mandatory (checked at function entry).
+    file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()
+    if file_hash != update.sha256:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Integrity check failed: expected SHA-256 {update.sha256[:16]}…, "
+            f"got {file_hash[:16]}…. Download may be corrupted."
+        )
+    logger.info("SHA-256 verified: %s", file_hash[:16])
 
     return dest
 
