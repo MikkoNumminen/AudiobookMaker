@@ -1525,39 +1525,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._update_label.configure(text=msg)
         self._update_banner.grid()
 
-    def _on_update_click(self) -> None:
-        """User clicked 'Update now' — download and install."""
-        if self._pending_update is None:
-            return
-        self._update_btn.configure(
-            state="disabled", text=self._s("update_downloading"),
-        )
-        threading.Thread(
-            target=self._download_and_apply_update, daemon=True,
-            name="update-download",
-        ).start()
-
-    def _download_and_apply_update(self) -> None:
-        """Background thread: download installer, then apply on main thread."""
-        try:
-            update = self._pending_update
-            if update is None:
-                return
-
-            def progress_cb(done: int, total: int) -> None:
-                if total > 0:
-                    self.after(0, lambda: self._progress_bar.set(done / total))
-
-            path = download_update(update, progress_cb=progress_cb)
-            # Apply must run on the main thread (it calls sys.exit).
-            self.after(0, lambda: apply_update(path))
-        except Exception as exc:
-            self.after(0, lambda: self._update_btn.configure(
-                state="normal", text=self._s("update_now"),
-            ))
-            self.after(0, lambda: messagebox.showerror(
-                self._s("error"), f"{self._s('update_failed')}\n{exc}",
-            ))
+    # Note: _on_update_click and the download worker live in
+    # src/gui_update_mixin.py. Earlier copies here shadowed the mixin
+    # and silently swallowed errors (no messagebox, no expected_version
+    # passed through to apply_update). Removed so the mixin's more
+    # robust event-queue version is the single source of truth.
 
     # ------------------------------------------------------------------
     # Voice preview
