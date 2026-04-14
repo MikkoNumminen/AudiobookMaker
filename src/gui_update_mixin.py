@@ -5,16 +5,36 @@ from __future__ import annotations
 import queue
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from src.auto_updater import UpdateInfo, check_for_update, download_update, apply_update, APP_VERSION
 from src.launcher_bridge import ProgressEvent
 
 if TYPE_CHECKING:
-    pass
+    class _UpdateHost(Protocol):
+        """Static contract describing host attributes UpdateMixin reads/writes."""
+
+        _update_queue: "queue.Queue[UpdateInfo]"
+        _pending_update: Optional[UpdateInfo]
+        _event_queue: "queue.Queue[ProgressEvent]"
+
+        # Widgets (typed as Any to avoid heavy stub deps)
+        _update_label: Any
+        _update_btn: Any
+        _update_banner: Any
+        _progress_bar: Any
+
+        POLL_INTERVAL_MS: int
+
+        def _s(self, key: str) -> str: ...
+        def after(self, ms: int, func: Optional[Callable[..., Any]] = ...) -> str: ...
+
+    _Base = _UpdateHost
+else:
+    _Base = object
 
 
-class UpdateMixin:
+class UpdateMixin(_Base):
     """Mixin providing auto-update check, download, and install UI logic.
 
     Expects the host class to provide:

@@ -8,7 +8,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
 from src.pdf_parser import parse_pdf
@@ -16,10 +16,65 @@ from src.tts_base import TTSEngine, get_engine
 from src.tts_engine import TTSConfig, chapters_to_speech
 
 if TYPE_CHECKING:
-    pass
+    from src.tts_base import Voice
+
+    class _SynthHost(Protocol):
+        """Static contract describing host attributes SynthMixin reads/writes."""
+
+        # Run-state flags
+        _synth_running: bool
+        _cancel_requested: bool
+        _cancel_flag: threading.Event
+
+        # Widgets (CTk/Tk — typed as Any to avoid heavy stub deps)
+        _listen_btn: Any
+        _convert_btn: Any
+        _cancel_btn: Any
+        _open_folder_btn: Any
+        _progress_bar: Any
+        _status_label_val: Any
+        _eta_label: Any
+        _text_widget: Any
+        _output_mode_cb: Any
+        _speed_cb: Any
+        _log_text: Any
+
+        # Tk variables
+        _ref_audio_var: Any
+        _voice_desc_var: Any
+        _out_var: Any
+
+        # Input/output state
+        _input_mode: str
+        _pdf_path: Optional[str]
+        _text_has_placeholder: bool
+        _output_path: Optional[str]
+        _output_user_chosen: bool
+        _ui_lang: str
+
+        # Runtime plumbing
+        _chatterbox_runner: Optional[ChatterboxRunner]
+        _event_queue: "queue.Queue[ProgressEvent]"
+        POLL_INTERVAL_MS: int
+
+        # Methods
+        def _s(self, key: str) -> str: ...
+        def after(self, ms: int, func: Optional[Callable[..., Any]] = ...) -> str: ...
+        def _fail(self, msg: str) -> None: ...
+        def _clear_log(self) -> None: ...
+        def _append_log(self, line: str) -> None: ...
+        def _append_log_error(self, line: str) -> None: ...
+        def _append_log_warning(self, line: str) -> None: ...
+        def _append_log_success(self, line: str) -> None: ...
+        def _current_voice(self) -> "Optional[Voice]": ...
+        def _current_language(self) -> str: ...
+
+    _Base = _SynthHost
+else:
+    _Base = object
 
 
-class SynthMixin:
+class SynthMixin(_Base):
     """Mixin providing synthesis orchestration (in-process and subprocess).
 
     Expects the host class to provide:
