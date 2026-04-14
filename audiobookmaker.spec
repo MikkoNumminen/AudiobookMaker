@@ -80,10 +80,10 @@ excludes = [
 ]
 
 binaries = _all_onnx[1] + _all_piper[1] + _all_pathvalidate[1]
-# Explicit dynamic libs — collect_all already does this, but piper ships a
-# .pyd (espeakbridge) that is lazy-imported from inside EspeakPhonemizer.__init__,
-# and past releases have sometimes missed it. Belt-and-braces.
-binaries += collect_dynamic_libs('piper')
+# collect_all('piper') already collects espeakbridge.pyd under piper/.
+# Do NOT also add it via collect_dynamic_libs — that bundles a second copy
+# at the top level, and Python refuses to load the same native module twice
+# ("cannot load module more than once per process").
 hidden_imports += ['piper.espeakbridge', 'piper.voice', 'piper.config',
                    'piper.phonemize_espeak', 'piper.phoneme_ids', 'piper.const']
 
