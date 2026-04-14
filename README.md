@@ -92,10 +92,10 @@ a lot of fixes to make everything actually work reliably:
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.0.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.0.1)
+**Download:** [AudiobookMaker v3.0.2](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.0.2)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.0.1.exe`
+1. Download `AudiobookMaker-Setup-3.0.2.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
@@ -365,6 +365,7 @@ AudiobookMaker/
 ## License
 
 MIT
+
 
 
 
