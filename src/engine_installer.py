@@ -64,6 +64,43 @@ DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
 
 # ---------------------------------------------------------------------------
+# User-facing strings (bilingual)
+# ---------------------------------------------------------------------------
+
+_STRINGS = {
+    "fi": {
+        "disk_under_200mb": "Levytilaa alle 200 MB",
+        "no_nvidia_gpu": "NVIDIA-näytönohjainta ei löytynyt",
+        "low_vram": "Näytönohjaimessa vain {vram} MB muistia (suositus 8 GB+)",
+        "low_disk": "Levytilaa vain {free} GB (tarvitaan vähintään 16 GB)",
+        "python_install_failed": "Python-asennus epäonnistui (koodi {code})",
+        "venv_create_failed": "Ympäristön luonti epäonnistui: {err}",
+        "torch_install_failed": "torch-asennus epäonnistui",
+        "chatterbox_install_failed": "chatterbox-asennus epäonnistui",
+    },
+    "en": {
+        "disk_under_200mb": "Less than 200 MB of disk space",
+        "no_nvidia_gpu": "No NVIDIA graphics card found",
+        "low_vram": "Graphics card has only {vram} MB of memory (8 GB+ recommended)",
+        "low_disk": "Only {free} GB of disk space (at least 16 GB required)",
+        "python_install_failed": "Python install failed (code {code})",
+        "venv_create_failed": "Virtualenv creation failed: {err}",
+        "torch_install_failed": "torch install failed",
+        "chatterbox_install_failed": "chatterbox install failed",
+    },
+}
+
+
+def _s(key: str, ui_lang: str = "fi", **fmt) -> str:
+    """Look up a user-facing string. Falls back to Finnish on unknown language."""
+    table = _STRINGS.get(ui_lang, _STRINGS["fi"])
+    text = table.get(key, _STRINGS["fi"][key])
+    if fmt:
+        return text.format(**fmt)
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Progress reporting
 # ---------------------------------------------------------------------------
 
@@ -107,8 +144,13 @@ class EngineInstaller(ABC):
     engine_id: str = ""
     display_name: str = ""
 
+    # UI language for user-facing error strings. Callers may override this
+    # (e.g. the engine dialog sets it from the app config) before invoking
+    # check_prerequisites() or install().
+    ui_lang: str = "fi"
+
     @abstractmethod
-    def check_prerequisites(self) -> list[str]:
+    def check_prerequisites(self, ui_lang: str = "fi") -> list[str]:
         """Return list of unmet prerequisites (empty = all OK)."""
 
     @abstractmethod
@@ -267,11 +309,11 @@ class PiperInstaller(EngineInstaller):
             / PIPER_VOICE_DIR_NAME
         )
 
-    def check_prerequisites(self) -> list[str]:
+    def check_prerequisites(self, ui_lang: str = "fi") -> list[str]:
         issues = []
         disk = check_disk_space(str(Path.home()))
         if disk.free_gb < 0.2:
-            issues.append("Levytilaa alle 200 MB")
+            issues.append(_s("disk_under_200mb", ui_lang))
         return issues
 
     def get_steps(self) -> list[InstallStep]:
@@ -353,22 +395,16 @@ class ChatterboxInstaller(EngineInstaller):
             return self._venv_path / "Scripts" / "python.exe"
         return self._venv_path / "bin" / "python"
 
-    def check_prerequisites(self) -> list[str]:
+    def check_prerequisites(self, ui_lang: str = "fi") -> list[str]:
         issues = []
         gpu = detect_gpu()
         if not gpu.has_nvidia:
-            issues.append("NVIDIA-näytönohjainta ei löytynyt")
+            issues.append(_s("no_nvidia_gpu", ui_lang))
         elif gpu.vram_mb < 6000:
-            issues.append(
-                f"Näytönohjaimessa vain {gpu.vram_mb} MB muistia "
-                "(suositus 8 GB+)"
-            )
+            issues.append(_s("low_vram", ui_lang, vram=gpu.vram_mb))
         disk = check_disk_space(str(self._venv_path.parent))
         if disk.free_gb < 16:
-            issues.append(
-                f"Levytilaa vain {disk.free_gb} GB "
-                "(tarvitaan vähintään 16 GB)"
-            )
+            issues.append(_s("low_disk", ui_lang, free=disk.free_gb))
         return issues
 
     def get_steps(self) -> list[InstallStep]:
@@ -535,7 +571,7 @@ class ChatterboxInstaller(EngineInstaller):
 
         if result.returncode != 0:
             raise RuntimeError(
-                f"Python-asennus epäonnistui (koodi {result.returncode})"
+                _s("python_install_failed", self.ui_lang, code=result.returncode)
             )
 
         # Re-detect after install.
@@ -576,7 +612,7 @@ class ChatterboxInstaller(EngineInstaller):
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"Ympäristön luonti epäonnistui: {result.stderr.strip()}"
+                _s("venv_create_failed", self.ui_lang, err=result.stderr.strip())
             )
         if not self._venv_python.exists():
             raise RuntimeError(
@@ -619,7 +655,7 @@ class ChatterboxInstaller(EngineInstaller):
             cancel_event=cancel_event,
         )
         if result.returncode != 0:
-            raise RuntimeError("torch-asennus epäonnistui")
+            raise RuntimeError(_s("torch_install_failed", self.ui_lang))
 
         if cancel_event.is_set():
             return
@@ -634,7 +670,7 @@ class ChatterboxInstaller(EngineInstaller):
             cancel_event=cancel_event,
         )
         if result.returncode != 0:
-            raise RuntimeError("chatterbox-asennus epäonnistui")
+            raise RuntimeError(_s("chatterbox_install_failed", self.ui_lang))
 
     def _prefetch_models(
         self,
