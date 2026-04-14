@@ -151,7 +151,7 @@ _STRINGS = {
         "language_label": "Kieli:",
         "speed_label": "Nopeus:",
         "voice_label": "Ääni:",
-        "test_voice": "Kuuntele näyte",
+        "test_voice": "Testaa ääni",
         "ref_audio_label": "Ref. ääni:",
         "browse": "Selaa\u2026",
         "clear": "Tyhjennä",
@@ -190,7 +190,7 @@ _STRINGS = {
         "update_installing": "Asennetaan päivitys...",
         "update_failed": "Päivitys epäonnistui.",
         "update_error_detail": "Päivitys epäonnistui: {error}",
-        "listen": "Kuuntele",
+        "listen": "Esikuuntele",
         "listening": "Toistetaan...",
         "listen_no_text": "Kirjoita ensin teksti Teksti-välilehdelle.",
         "pdf_no_text": "PDF ei sisällä tekstiä (tiedosto voi olla skannattu). Kokeile ensin OCR-muunnosta.",
@@ -207,7 +207,7 @@ _STRINGS = {
         "language_label": "Language:",
         "speed_label": "Speed:",
         "voice_label": "Voice:",
-        "test_voice": "Preview voice",
+        "test_voice": "Test voice",
         "ref_audio_label": "Ref. audio:",
         "browse": "Browse\u2026",
         "clear": "Clear",
@@ -246,7 +246,7 @@ _STRINGS = {
         "update_installing": "Installing update...",
         "update_failed": "Update failed.",
         "update_error_detail": "Update failed: {error}",
-        "listen": "Listen",
+        "listen": "Preview",
         "listening": "Playing...",
         "listen_no_text": "Enter text in the Text tab first.",
         "pdf_no_text": "PDF contains no extractable text (it may be scanned). Try OCR first.",
@@ -724,13 +724,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._pdf_entry.insert(0, s("no_file_selected"))
             self._pdf_entry.configure(state="disabled")
 
-        # Settings frame header label.
-        self._settings_header.configure(text=s("settings_frame"))
+        # Settings header button (collapsible label).
+        if hasattr(self, "_settings_header_btn"):
+            arrow = "\u25BE" if self._settings_open else "\u25B8"
+            self._settings_header_btn.configure(
+                text=f"{arrow} {s('settings_frame')}"
+            )
 
-        # UI language label.
-        self._ui_lang_label.configure(text=s("ui_language"))
-
-        # Engine label + install button.
+        # Engine label + engine manager button (header bar).
         self._engine_label.configure(text=s("engine_label"))
         self._install_engines_btn.configure(text=s("install_engines"))
 
@@ -831,18 +832,115 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self.rowconfigure(0, weight=1)
         main.columnconfigure(0, weight=1)
         # Let log panel row stretch.
-        main.rowconfigure(6, weight=1)
+        main.rowconfigure(7, weight=1)
 
         # Track current input mode for tab renaming during language changes.
         self._input_mode_raw = "pdf"
         self._tab_name_map: dict[str, str] = {}
 
+        # New layout (top → bottom):
+        #   0  Update banner (hidden by default)
+        #   1  Header bar (language toggle, engine manager, about)
+        #   2  Input tabs (PDF / Text) — the primary user surface
+        #   3  Action row (big Muunna + small secondaries + progress + inline status)
+        #   4  Asetukset header (collapse / expand)
+        #   5  Asetukset body (all engine/voice/path/output options; hidden by default)
+        #   6  Log toggle
+        #   7  Log panel (visible by default)
         self._build_update_banner(main, row=0)
-        self._build_input_tabs(main, row=1)
-        self._build_settings_frame(main, row=2)
-        self._build_output_frame(main, row=3)
-        self._build_progress_frame(main, row=4)
-        self._build_log_panel(main, row=5, stretch_row=6)
+        self._build_header_bar(main, row=1)
+        self._build_input_tabs(main, row=2)
+        self._build_action_row(main, row=3)
+        self._build_settings_frame(main, row=4)  # header + body
+        self._build_log_panel(main, row=6, stretch_row=7)
+
+    # ---- Header bar (language toggle, engine manager, about) ----------
+
+    def _build_header_bar(self, parent: ctk.CTkFrame, row: int) -> None:
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
+        bar.grid(row=row, column=0, sticky="ew", pady=(0, 6))
+        bar.columnconfigure(0, weight=1)
+
+        # Right-aligned icon buttons.
+        right = ctk.CTkFrame(bar, fg_color="transparent")
+        right.grid(row=0, column=1, sticky="e")
+
+        # Language toggle — compact combobox (kept as _ui_lang_cb so existing
+        # language-change handler keeps working). Replaces the old
+        # "Käyttöliittymä" row in Asetukset.
+        self._ui_lang_cb = ctk.CTkComboBox(
+            right,
+            values=["Suomi", "English"], state="readonly", width=100,
+            command=self._on_ui_language_changed,
+        )
+        self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
+        self._ui_lang_cb.grid(row=0, column=0, padx=(0, 6))
+
+        # Engine manager button (moved out of Asetukset).
+        self._install_engines_btn = ctk.CTkButton(
+            right, text="Moottorit\u2026",
+            command=self._open_engine_manager, width=120,
+        )
+        self._install_engines_btn.grid(row=0, column=1)
+
+    # ---- Primary action row (big Muunna + secondaries + progress) ----
+
+    def _build_action_row(self, parent: ctk.CTkFrame, row: int) -> None:
+        ar = ctk.CTkFrame(parent, fg_color="transparent")
+        ar.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        ar.columnconfigure(0, weight=1)
+
+        # Top: big primary + small secondaries.
+        btn_row = ctk.CTkFrame(ar, fg_color="transparent")
+        btn_row.grid(row=0, column=0, sticky="ew")
+        btn_row.columnconfigure(0, weight=1)
+
+        # The star of the show — wide, bold, clearly the primary action.
+        self._convert_btn = ctk.CTkButton(
+            btn_row, text="Muunna", command=self._on_convert_click,
+            height=44,
+            font=ctk.CTkFont(size=16, weight="bold"),
+        )
+        self._convert_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        self._listen_btn = ctk.CTkButton(
+            btn_row, text="Esikuuntele", command=self._on_listen_click,
+            height=44, width=120,
+        )
+        self._listen_btn.grid(row=0, column=1, padx=(0, 6))
+
+        self._cancel_btn = ctk.CTkButton(
+            btn_row, text="Peruuta", command=self._request_cancel,
+            height=44, width=100,
+            fg_color=("#c62828", "#8b0000"),
+            hover_color=("#8b0000", "#5c0000"),
+        )
+        self._cancel_btn.grid(row=0, column=2, padx=(0, 6))
+        self._cancel_btn.grid_remove()  # Only visible while running.
+
+        self._open_folder_btn = ctk.CTkButton(
+            btn_row, text="Avaa kansio", command=self._open_output_folder,
+            height=44, width=120, state="disabled",
+        )
+        self._open_folder_btn.grid(row=0, column=3)
+
+        # Bottom: progress bar + inline status (small, right-aligned).
+        progress_row = ctk.CTkFrame(ar, fg_color="transparent")
+        progress_row.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        progress_row.columnconfigure(0, weight=1)
+
+        self._progress_bar = ctk.CTkProgressBar(progress_row)
+        self._progress_bar.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self._progress_bar.set(0)
+
+        self._status_label_val = ctk.CTkLabel(
+            progress_row, text="", text_color="gray", width=180, anchor="e",
+        )
+        self._status_label_val.grid(row=0, column=1, sticky="e")
+
+        # ETA label (kept for existing code paths; placed unobtrusively).
+        self._eta_label = ctk.CTkLabel(ar, text="", text_color="gray")
+        self._eta_label.grid(row=2, column=0, sticky="e", pady=(2, 0))
 
     # ---- 0. Update banner ---------------------------------------------
 
@@ -933,74 +1031,63 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ---- 2. Settings frame --------------------------------------------
 
     def _build_settings_frame(self, parent: ctk.CTkFrame, row: int) -> None:
-        # CTkFrame with a header label to replace LabelFrame.
-        settings_outer = ctk.CTkFrame(parent)
-        settings_outer.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        settings_outer.columnconfigure(0, weight=1)
+        # Collapsible header bar + hidden body.
+        self._settings_open = False
 
-        self._settings_header = ctk.CTkLabel(
-            settings_outer, text="Asetukset",
-            font=ctk.CTkFont(size=14, weight="bold"),
+        header_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        header_frame.grid(row=row, column=0, sticky="ew", pady=(4, 2))
+        header_frame.columnconfigure(0, weight=1)
+
+        self._settings_header_btn = ctk.CTkButton(
+            header_frame,
+            text="\u25B8 Asetukset",
+            command=self._toggle_settings,
+            anchor="w",
+            height=32,
+            fg_color="transparent",
+            text_color=("gray20", "gray80"),
+            hover_color=("gray90", "gray25"),
         )
-        self._settings_header.grid(row=0, column=0, sticky="w", padx=8, pady=(4, 2))
+        self._settings_header_btn.grid(row=0, column=0, sticky="ew")
+
+        settings_outer = ctk.CTkFrame(parent)
+        settings_outer.grid(row=row + 1, column=0, sticky="ew", pady=(0, 8))
+        settings_outer.columnconfigure(0, weight=1)
+        self._settings_outer = settings_outer
+        settings_outer.grid_remove()  # Collapsed by default
 
         self._settings_frame = ctk.CTkFrame(settings_outer, fg_color="transparent")
-        self._settings_frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+        self._settings_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
         self._settings_frame.columnconfigure(1, weight=1)
         self._settings_frame.columnconfigure(3, weight=1)
         settings = self._settings_frame
 
         srow = 0
 
-        # Row 0: UI language selector
-        self._ui_lang_label = ctk.CTkLabel(settings, text="Käyttöliittymä:")
-        self._ui_lang_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6)
-        )
-        self._ui_lang_cb = ctk.CTkComboBox(
-            settings,
-            values=["Suomi", "English"], state="readonly", width=140,
-            command=self._on_ui_language_changed,
-        )
-        self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
-        self._ui_lang_cb.grid(row=srow, column=1, sticky="w")
-        srow += 1
-
-        # Row 1: Engine + install button
+        # Row 0: Engine dropdown (status shown inline via label decoration
+        # inside _populate_engine_list, no separate row needed).
         self._engine_label = ctk.CTkLabel(settings, text="Moottori:")
         self._engine_label.grid(
             row=srow, column=0, sticky="w", padx=(0, 6)
         )
-        engine_frame = ctk.CTkFrame(settings, fg_color="transparent")
-        engine_frame.grid(row=srow, column=1, columnspan=3, sticky="ew")
-        engine_frame.columnconfigure(0, weight=1)
         self._engine_cb = ctk.CTkComboBox(
-            engine_frame, state="readonly",
+            settings, state="readonly",
             command=self._on_engine_changed,
         )
-        self._engine_cb.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self._install_engines_btn = ctk.CTkButton(
-            engine_frame, text="Asenna moottoreita\u2026",
-            command=self._open_engine_manager, width=160,
-        )
-        self._install_engines_btn.grid(row=0, column=1)
+        self._engine_cb.grid(row=srow, column=1, columnspan=3, sticky="ew")
         self._populate_engine_list()
         srow += 1
 
-        # Row 2: Engine status
+        # Hidden compatibility widget for legacy engine-status hook points.
         self._engine_status_lbl = ctk.CTkLabel(
-            settings, text="",
-            text_color=_CLR_READY, wraplength=560,
+            settings, text="", text_color=_CLR_READY, wraplength=560,
         )
-        self._engine_status_lbl.grid(
-            row=srow, column=0, columnspan=4, sticky="w", pady=(2, 4)
-        )
-        srow += 1
+        # Not gridded — other code can still call .configure(text=...).
 
-        # Row 3: Language + Speed
+        # Row 1: Language + Speed
         self._tts_lang_label = ctk.CTkLabel(settings, text="Kieli:")
         self._tts_lang_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6)
+            row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
         )
         self._lang_cb = ctk.CTkComboBox(
             settings,
@@ -1008,21 +1095,21 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             command=self._on_language_changed,
         )
         self._lang_cb.set("Suomi")
-        self._lang_cb.grid(row=srow, column=1, sticky="w")
+        self._lang_cb.grid(row=srow, column=1, sticky="w", pady=(6, 0))
 
         self._speed_label = ctk.CTkLabel(settings, text="Nopeus:")
         self._speed_label.grid(
-            row=srow, column=2, sticky="w", padx=(16, 6)
+            row=srow, column=2, sticky="w", padx=(16, 6), pady=(6, 0)
         )
         self._speed_cb = ctk.CTkComboBox(
             settings,
             values=list(SPEED_OPTIONS["fi"].keys()), state="readonly", width=200,
         )
         self._speed_cb.set("Normaali")
-        self._speed_cb.grid(row=srow, column=3, sticky="w")
+        self._speed_cb.grid(row=srow, column=3, sticky="w", pady=(6, 0))
         srow += 1
 
-        # Row 4: Voice + preview
+        # Row 2: Voice + test-voice button (renamed: Testaa ääni)
         self._voice_label = ctk.CTkLabel(settings, text="Ääni:")
         self._voice_label.grid(
             row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
@@ -1037,13 +1124,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         self._voice_cb.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self._test_btn = ctk.CTkButton(
-            voice_frame, text="Kuuntele näyte", command=self._on_test_voice,
+            voice_frame, text="Testaa ääni", command=self._on_test_voice,
             width=120,
         )
         self._test_btn.grid(row=0, column=1)
         srow += 1
 
-        # Row 5: Reference audio (cloning) — hidden when unsupported
+        # Row 3: Reference audio (voice cloning) — hidden when unsupported
         self._ref_label = ctk.CTkLabel(settings, text="Ref. ääni:")
         self._ref_label.grid(
             row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
@@ -1070,7 +1157,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._ref_clear_btn.grid(row=0, column=2, padx=(4, 0))
         srow += 1
 
-        # Row 6: Voice description — hidden when unsupported
+        # Row 4: Voice description — hidden when unsupported
         self._desc_label = ctk.CTkLabel(settings, text="Äänityyli:")
         self._desc_label.grid(
             row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
@@ -1084,17 +1171,38 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         srow += 1
 
-        # Row 7: Output mode
-        self._output_mode_label = ctk.CTkLabel(settings, text="Tuloste:")
-        self._output_mode_label.grid(
+        # Row 5: Tallenna + Tuloste on the SAME row (merged output controls).
+        self._save_label = ctk.CTkLabel(settings, text="Tallenna:")
+        self._save_label.grid(
             row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
         )
+        out_frame = ctk.CTkFrame(settings, fg_color="transparent")
+        out_frame.grid(
+            row=srow, column=1, columnspan=3, sticky="ew", pady=(6, 0)
+        )
+        out_frame.columnconfigure(0, weight=1)
+
+        self._out_entry = ctk.CTkEntry(out_frame, state="disabled")
+        self._out_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        self._out_browse_btn = ctk.CTkButton(
+            out_frame, text="Vaihda\u2026", command=self._browse_output,
+            width=80,
+        )
+        self._out_browse_btn.grid(row=0, column=1, padx=(0, 8))
+
+        self._output_mode_label = ctk.CTkLabel(out_frame, text="Tuloste:")
+        self._output_mode_label.grid(row=0, column=2, sticky="w", padx=(0, 4))
+
         self._output_mode_cb = ctk.CTkComboBox(
-            settings,
+            out_frame,
             values=list(OUTPUT_MODES["fi"].keys()), state="readonly",
+            width=140,
         )
         self._output_mode_cb.set("Yksi MP3")
-        self._output_mode_cb.grid(row=srow, column=1, columnspan=3, sticky="ew", pady=(6, 0))
+        self._output_mode_cb.grid(row=0, column=3, sticky="w")
+        # Set initial auto-generated path.
+        self._auto_output_path()
 
         # Initially hide capability-specific widgets.
         self._ref_label.grid_remove()
@@ -1102,72 +1210,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._desc_label.grid_remove()
         self._voice_desc_entry.grid_remove()
 
-    # ---- 3. Output frame -----------------------------------------------
-
-    def _build_output_frame(self, parent: ctk.CTkFrame, row: int) -> None:
-        out_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        out_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        out_frame.columnconfigure(1, weight=1)
-
-        self._save_label = ctk.CTkLabel(out_frame, text="Tallenna:")
-        self._save_label.grid(
-            row=0, column=0, sticky="w", padx=(0, 6)
-        )
-        self._out_entry = ctk.CTkEntry(out_frame, state="disabled")
-        self._out_entry.grid(
-            row=0, column=1, sticky="ew", padx=(0, 6)
-        )
-        self._out_browse_btn = ctk.CTkButton(
-            out_frame, text="Vaihda\u2026", command=self._browse_output,
-            width=80,
-        )
-        self._out_browse_btn.grid(row=0, column=2)
-        # Set initial auto-generated path.
-        self._auto_output_path()
-
-    # ---- 4. Progress frame --------------------------------------------
-
-    def _build_progress_frame(self, parent: ctk.CTkFrame, row: int) -> None:
-        pf = ctk.CTkFrame(parent, fg_color="transparent")
-        pf.grid(row=row, column=0, sticky="ew", pady=(0, 4))
-        pf.columnconfigure(0, weight=1)
-
-        self._status_label_val = ctk.CTkLabel(
-            pf, text="Valitse syöte ja paina Muunna.", wraplength=680
-        )
-        self._status_label_val.grid(row=0, column=0, sticky="ew")
-
-        self._eta_label = ctk.CTkLabel(pf, text="", text_color="gray")
-        self._eta_label.grid(row=1, column=0, sticky="ew", pady=(2, 4))
-
-        self._progress_bar = ctk.CTkProgressBar(pf)
-        self._progress_bar.grid(row=2, column=0, sticky="ew", pady=(0, 8))
-        self._progress_bar.set(0)
-
-        btn_row = ctk.CTkFrame(pf, fg_color="transparent")
-        btn_row.grid(row=3, column=0)
-
-        self._listen_btn = ctk.CTkButton(
-            btn_row, text="Kuuntele", command=self._on_listen_click
-        )
-        self._listen_btn.grid(row=0, column=0, padx=(0, 6))
-
-        self._convert_btn = ctk.CTkButton(
-            btn_row, text="Muunna", command=self._on_convert_click
-        )
-        self._convert_btn.grid(row=0, column=1, padx=(0, 6))
-
-        self._cancel_btn = ctk.CTkButton(
-            btn_row, text="Peruuta", command=self._request_cancel
-        )
-        self._cancel_btn.grid(row=0, column=2, padx=(0, 6))
-        self._cancel_btn.grid_remove()
-
-        self._open_folder_btn = ctk.CTkButton(
-            btn_row, text="Avaa kansio", command=self._open_output_folder,
-            state="disabled",
-        )
-        self._open_folder_btn.grid(row=0, column=3)
+    def _toggle_settings(self) -> None:
+        """Show/hide the Asetukset body."""
+        self._settings_open = not self._settings_open
+        if self._settings_open:
+            self._settings_outer.grid()
+            self._settings_header_btn.configure(text="\u25BE Asetukset")
+        else:
+            self._settings_outer.grid_remove()
+            self._settings_header_btn.configure(text="\u25B8 Asetukset")
 
     # ---- 5. Log panel (collapsible) -----------------------------------
 
@@ -1213,23 +1264,26 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """
         self._engine_display_to_id.clear()
 
+        # Status dots give the user a glanceable read of each engine:
+        #   🟢 ready    🟡 needs download (voice or model)    🔴 not available
         for engine in list_engines():
-            label = engine.display_name
+            dot = "\U0001F7E2"  # green circle — default: ready
             try:
                 status = engine.check_status()
                 if not status.available:
-                    label = f"{engine.display_name}  \u2014  ei käytettävissä"
+                    dot = "\U0001F534"  # red circle
                 elif status.needs_download:
-                    label = f"{engine.display_name}  \u2014  lataa ensin"
+                    dot = "\U0001F7E1"  # yellow circle
             except Exception:
                 pass
+            label = f"{dot}  {engine.display_name}"
             self._engine_display_to_id[label] = engine.id
 
         # Chatterbox-Finnish via subprocess bridge.
         chatterbox_py = resolve_chatterbox_python()
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
         if chatterbox_py is not None and runner_script.exists():
-            label = "Chatterbox Finnish (paras laatu, NVIDIA)"
+            label = "\U0001F7E2  Chatterbox Finnish (paras laatu, NVIDIA)"
             self._engine_display_to_id[label] = "chatterbox_fi"
 
         labels = list(self._engine_display_to_id.keys())
@@ -1381,6 +1435,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # File dialogs
     # ------------------------------------------------------------------
 
+    def _default_output_dir(self) -> Path:
+        """Return the default folder where generated MP3s go.
+
+        Installed (frozen) mode: next to the running .exe, in an
+        "audiobooks" subfolder. Keeps everything in one place and lets
+        the user find output without digging through their Documents.
+
+        Dev mode: Documents\\AudiobookMaker (no sensible install root
+        when running from source).
+        """
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).resolve().parent / "audiobooks"
+        return Path.home() / "Documents" / "AudiobookMaker"
+
     def _auto_output_path(self) -> None:
         """Generate an automatic output path based on current input mode."""
         if self._input_mode == "pdf" and self._pdf_path:
@@ -1388,7 +1456,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             suggested = str(Path(self._pdf_path).with_suffix(".mp3"))
         else:
             # Auto-increment: texttospeech_1.mp3, texttospeech_2.mp3, ...
-            out_dir = Path.home() / "Documents" / "AudiobookMaker"
+            out_dir = self._default_output_dir()
             out_dir.mkdir(parents=True, exist_ok=True)
             n = 1
             while True:
@@ -1758,7 +1826,26 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._listening or self._synth_running:
             return
 
-        # Get text to synthesize.
+        # Priority 1: if a finished MP3 already exists at the output path,
+        # just play that file. Works for every engine (Chatterbox included)
+        # after a successful conversion — the user gets instant playback
+        # instead of a new synthesis run.
+        if self._output_path:
+            out_file = Path(self._output_path)
+            if out_file.is_file() and out_file.suffix.lower() == ".mp3":
+                self._append_log(f"Toistetaan: {out_file}")
+                try:
+                    if sys.platform == "win32":
+                        os.startfile(str(out_file))  # type: ignore[attr-defined]
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", str(out_file)])
+                    else:
+                        subprocess.Popen(["xdg-open", str(out_file)])
+                except Exception as exc:
+                    self._append_log_error(f"\u2718 Toisto epäonnistui: {exc}")
+                return
+
+        # Priority 2: synthesize a short preview from the input text.
         if self._input_mode == "text":
             if self._text_has_placeholder:
                 text = ""
@@ -1793,11 +1880,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             return
 
         if engine_id == "chatterbox_fi":
+            # Chatterbox is too slow for an on-demand preview, and there's
+            # no existing MP3 to play. Tell the user to run Muunna first.
             messagebox.showinfo(
                 self._s("listen"),
-                "Chatterbox ei tue kuuntelua tästä käyttöliittymästä."
+                "Muunna teksti ensin \u2014 Esikuuntele toistaa sen jälkeen "
+                "valmiin MP3-tiedoston."
                 if self._ui_lang == "fi"
-                else "Chatterbox does not support listen preview from this UI."
+                else "Convert the text first \u2014 Preview plays the "
+                "resulting MP3 file afterwards."
             )
             return
 
@@ -2152,7 +2243,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             )
 
             # Create output directory.
-            out = Path(output_path) if output_path else Path.home() / "Documents" / "AudiobookMaker" / "output.mp3"
+            out = Path(output_path) if output_path else (
+                self._default_output_dir() / "output.mp3"
+            )
             out.parent.mkdir(parents=True, exist_ok=True)
 
             def progress_cb(current: int, total: int, msg: str = "") -> None:

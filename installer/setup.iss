@@ -236,10 +236,11 @@ Root: HKCU; \
 ; -----------------------------------------------------------------------------
 [UninstallDelete]
 
-; Remove any files or directories that the application may have created at
-; runtime inside the installation folder (e.g. logs, temp files) that would
-; otherwise be left behind after the standard file removal step.
-Type: filesandordirs; Name: "{app}"
+; Clean up app-owned runtime artefacts in the install dir.
+; NOTE: We deliberately do NOT remove {app}\audiobooks — that folder holds
+; the user's generated MP3 files and must survive uninstall / reinstall.
+Type: files; Name: "{app}\*.log"
+Type: files; Name: "{app}\*.tmp"
 
 
 ; -----------------------------------------------------------------------------
