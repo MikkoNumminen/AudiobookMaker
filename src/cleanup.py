@@ -273,16 +273,72 @@ def find_orphan_shortcuts() -> list[OrphanShortcut]:
 # ---------------------------------------------------------------------------
 
 
-def remove_old_install(install: OldInstall, timeout: int = 60) -> tuple[bool, str]:
+def _rescue_user_mp3s(install_dir: Path, rescue_to: Optional[Path]) -> int:
+    """Move user MP3s out of an install dir before it's removed.
+
+    Covers both output-folder layouts we have shipped:
+      * v3.3+ — MP3s at the install root (e.g. AudiobookMaker\\book.mp3)
+      * v3.2 and earlier — MP3s under `audiobooks\\` inside the install
+
+    Returns the number of files rescued. Never raises. If *rescue_to* is
+    None, falls back to %USERPROFILE%\\Documents\\AudiobookMaker\\rescued
+    so the user never loses generated audio.
+    """
+    if rescue_to is None:
+        docs = Path(os.environ.get("USERPROFILE", ".")) / "Documents"
+        rescue_to = docs / "AudiobookMaker" / "rescued"
+
+    rescued = 0
+    sources: list[Path] = []
+    # Root MP3s (new layout)
+    sources.extend(p for p in install_dir.glob("*.mp3") if p.is_file())
+    # Legacy audiobooks/ subfolder — take *.mp3 recursively
+    legacy = install_dir / "audiobooks"
+    if legacy.is_dir():
+        sources.extend(p for p in legacy.rglob("*.mp3") if p.is_file())
+
+    if not sources:
+        return 0
+
+    try:
+        rescue_to.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return 0
+
+    for src in sources:
+        # Avoid overwriting: prefix with install dir name if a clash.
+        dest = rescue_to / src.name
+        if dest.exists():
+            dest = rescue_to / f"{install_dir.name}__{src.name}"
+        try:
+            shutil.move(str(src), str(dest))
+            rescued += 1
+        except OSError:
+            pass
+    return rescued
+
+
+def remove_old_install(
+    install: OldInstall,
+    timeout: int = 60,
+    rescue_to: Optional[Path] = None,
+) -> tuple[bool, str]:
     """Remove an old install. Tries the uninstaller first, falls back to rmtree.
+
+    Before deleting, any *.mp3 the user generated (either at the install
+    root or inside the legacy `audiobooks\\` subfolder) is moved to
+    *rescue_to* (default: ~/Documents/AudiobookMaker/rescued) so the
+    user never loses audiobooks they made with an earlier version.
 
     Returns (success, message). Never raises.
     """
+    rescued = _rescue_user_mp3s(install.path, rescue_to)
+    rescue_note = f" (rescued {rescued} MP3)" if rescued else ""
+
     if install.has_uninstaller:
         uninstaller = install.path / "unins000.exe"
         try:
-            # Inno Setup silent flags: /SILENT shows progress, /VERYSILENT hides it
-            proc = subprocess.run(
+            subprocess.run(
                 [str(uninstaller), "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"],
                 timeout=timeout,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
@@ -290,20 +346,20 @@ def remove_old_install(install: OldInstall, timeout: int = 60) -> tuple[bool, st
             # Inno Setup may leave the directory behind even after success.
             if install.path.exists():
                 shutil.rmtree(install.path, ignore_errors=True)
-            return (True, f"Uninstalled via {uninstaller.name}")
-        except (subprocess.TimeoutExpired, OSError) as exc:
+            return (True, f"Uninstalled via {uninstaller.name}{rescue_note}")
+        except (subprocess.TimeoutExpired, OSError):
             # Fall through to rmtree
             pass
 
     try:
         shutil.rmtree(install.path, ignore_errors=False)
-        return (True, "Directory removed")
+        return (True, f"Directory removed{rescue_note}")
     except OSError as exc:
         # Best-effort second pass with ignore_errors
         shutil.rmtree(install.path, ignore_errors=True)
         if install.path.exists():
-            return (False, f"Could not fully remove: {exc}")
-        return (True, "Directory removed (some files locked)")
+            return (False, f"Could not fully remove: {exc}{rescue_note}")
+        return (True, f"Directory removed (some files locked){rescue_note}")
 
 
 def remove_orphan_shortcut(shortcut: OrphanShortcut) -> tuple[bool, str]:

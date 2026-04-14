@@ -263,3 +263,68 @@ class TestRemoveOrphanShortcut:
         short = OrphanShortcut(shortcut_path=lnk, target_path="C:/missing.exe")
         ok, _msg = remove_orphan_shortcut(short)
         assert ok is False
+
+
+class TestMp3Rescue:
+    """User MP3s in an old install must survive cleanup."""
+
+    def _make_install(self, path: Path) -> OldInstall:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "AudiobookMaker.exe").write_bytes(b"fake")
+        (path / "_internal").mkdir(exist_ok=True)
+        return OldInstall(
+            path=path, exe_path=path / "AudiobookMaker.exe",
+            has_uninstaller=False, size_mb=0.1,
+        )
+
+    def test_rescues_root_level_mp3(self, tmp_path: Path) -> None:
+        old = tmp_path / "old_install"
+        inst = self._make_install(old)
+        (old / "book.mp3").write_bytes(b"audio-data")
+
+        rescue = tmp_path / "rescue"
+        ok, msg = remove_old_install(inst, rescue_to=rescue)
+        assert ok is True
+        assert (rescue / "book.mp3").is_file()
+        assert not old.exists()
+        assert "rescued 1 MP3" in msg
+
+    def test_rescues_legacy_audiobooks_subdir(self, tmp_path: Path) -> None:
+        old = tmp_path / "old_install"
+        inst = self._make_install(old)
+        (old / "audiobooks").mkdir()
+        (old / "audiobooks" / "texttospeech_1.mp3").write_bytes(b"a")
+        (old / "audiobooks" / "texttospeech_2.mp3").write_bytes(b"b")
+
+        rescue = tmp_path / "rescue"
+        ok, msg = remove_old_install(inst, rescue_to=rescue)
+        assert ok is True
+        assert (rescue / "texttospeech_1.mp3").is_file()
+        assert (rescue / "texttospeech_2.mp3").is_file()
+        assert "rescued 2 MP3" in msg
+
+    def test_handles_name_clash(self, tmp_path: Path) -> None:
+        # Rescue dir already has a file with the same name — don't overwrite.
+        old = tmp_path / "v3_install"
+        inst = self._make_install(old)
+        (old / "book.mp3").write_bytes(b"from-old")
+
+        rescue = tmp_path / "rescue"
+        rescue.mkdir()
+        (rescue / "book.mp3").write_bytes(b"pre-existing")
+
+        ok, _msg = remove_old_install(inst, rescue_to=rescue)
+        assert ok is True
+        assert (rescue / "book.mp3").read_bytes() == b"pre-existing"
+        # The rescued file should be namespaced by the install dir name.
+        assert (rescue / "v3_install__book.mp3").read_bytes() == b"from-old"
+
+    def test_no_mp3s_no_rescue_note(self, tmp_path: Path) -> None:
+        old = tmp_path / "empty_install"
+        inst = self._make_install(old)
+        rescue = tmp_path / "rescue"
+        ok, msg = remove_old_install(inst, rescue_to=rescue)
+        assert ok is True
+        assert "rescued" not in msg
+        # Rescue dir should not have been created if nothing was rescued.
+        assert not rescue.exists()
