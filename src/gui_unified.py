@@ -1150,8 +1150,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         # Chatterbox is subprocess-only — no voice list from registry.
         if eid == "chatterbox_fi":
-            self._voice_cb.configure(values=["Oletus"])
-            self._voice_cb.set("Oletus")
+            # "Grandmom" = Chatterbox Finnish default voice — the warm,
+            # slightly elderly narrator tone people loved in the first
+            # real-book test. Proper name, kept untranslated in both UIs.
+            self._voice_cb.configure(values=["Grandmom"])
+            self._voice_cb.set("Grandmom")
             self._engine_status_lbl.configure(text_color=_CLR_READY)
             self._engine_status_lbl.configure(
                 text="Offline, paras laatu. Kesto ~1\u20132 h NVIDIA-koneella."
