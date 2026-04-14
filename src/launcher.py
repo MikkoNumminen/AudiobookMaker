@@ -5,7 +5,7 @@ installer/launcher.iss, so it cannot simply be deleted.
 
 Minimal AudiobookMaker launcher — "pick PDF, click button, get MP3".
 
-This is the simple entry point aimed at non-technical users (Turo etc.).
+This is the simple entry point aimed at non-technical users.
 The existing ``src/gui.py`` is the advanced-mode window with the full
 engine/voice/rate/reference/description settings matrix. This launcher:
 
@@ -599,13 +599,13 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _open_help(self, _event=None) -> None:
-        help_path = _REPO_ROOT / "docs" / "turo_ohjeet_fi.md"
+        help_path = _REPO_ROOT / "README.md"
         if help_path.exists():
             webbrowser.open(help_path.as_uri())
         else:
             webbrowser.open(
-                "https://github.com/MikkoNumminen/AudiobookMaker/blob/"
-                "master/docs/turo_ohjeet_fi.md"
+                "https://github.com/MikkoNumminen/AudiobookMaker"
+                "#readme"
             )
 
     # ------------------------------------------------------------------
