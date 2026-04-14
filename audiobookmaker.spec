@@ -4,12 +4,22 @@
 
 import os
 from PyInstaller.utils.hooks import (
+    collect_all,
     collect_data_files,
     collect_dynamic_libs,
     collect_submodules,
 )
 
 block_cipher = None
+
+# collect_all() returns (datas, binaries, hiddenimports) for a package
+# and grabs EVERYTHING — source .py files, native libs, data files, and
+# submodule names. Use this for packages where piecewise collection has
+# repeatedly missed critical pieces (e.g. onnxruntime.capi is needed for
+# InferenceSession but wasn't being bundled).
+_all_onnx = collect_all('onnxruntime')
+_all_piper = collect_all('piper')
+_all_pathvalidate = collect_all('pathvalidate')  # required by piper-tts
 
 # Collect all submodules for packages that need dynamic imports
 hidden_imports = [
@@ -33,10 +43,11 @@ hidden_imports = [
     'aiosignal',
     'frozenlist',
     # Piper offline TTS + its ONNX runtime backend
+    # (Full submodule trees come from collect_all() below.)
     'piper',
-    'piper_phonemize',
     'onnxruntime',
     'numpy',
+    'pathvalidate',
     # Finnish text normalizer
     'num2words',
     # Unified GUI extras
@@ -47,10 +58,12 @@ hidden_imports = [
 
 hidden_imports += collect_submodules('edge_tts')
 hidden_imports += collect_submodules('aiohttp')
-hidden_imports += collect_submodules('piper')
-hidden_imports += collect_submodules('onnxruntime')
-hidden_imports += collect_submodules('piper_phonemize')
 hidden_imports += collect_submodules('customtkinter')
+# Piper + onnxruntime + pathvalidate: use collect_all() to grab source
+# .py files too. collect_submodules alone only adds names.
+hidden_imports += _all_onnx[2]
+hidden_imports += _all_piper[2]
+hidden_imports += _all_pathvalidate[2]
 
 # numpy is now REQUIRED at runtime (onnxruntime/piper need it), so it
 # must NOT appear in excludes.
@@ -66,12 +79,7 @@ excludes = [
     'docutils',
 ]
 
-# Native shared libraries that onnxruntime ships with (e.g. DirectML and
-# core DLLs on Windows). Piper also pulls in espeak-ng native libs, which
-# collect_data_files('piper') picks up automatically below.
-binaries = collect_dynamic_libs('onnxruntime')
-binaries += collect_dynamic_libs('piper')
-binaries += collect_dynamic_libs('piper_phonemize')
+binaries = _all_onnx[1] + _all_piper[1] + _all_pathvalidate[1]
 
 # Bundle ffmpeg.exe, ffprobe.exe, and ffplay.exe from dist/ffmpeg/ into the
 # package root so pydub can find them at runtime (see src/ffmpeg_path.py).
@@ -82,14 +90,11 @@ datas = [
     (os.path.join('dist', 'ffmpeg', 'ffprobe.exe'), '.'),
     (os.path.join('dist', 'ffmpeg', 'ffplay.exe'), '.'),
 ]
-# piper ships its phonemizer data (espeak-ng-data/) inside the package;
-# PiperVoice.load() will fail at runtime without it.  collect_data_files
-# walks the installed piper package and emits every non-Python file.
-datas += collect_data_files('piper')
-datas += collect_data_files('piper_phonemize')
-# onnxruntime ships a few config/JSON files next to its native libs on
-# some platforms; bundle them to be safe.
-datas += collect_data_files('onnxruntime')
+# Pull piper/onnxruntime/pathvalidate data (includes espeak-ng-data/,
+# onnxruntime config files, etc.) from collect_all().
+datas += _all_onnx[0]
+datas += _all_piper[0]
+datas += _all_pathvalidate[0]
 # edge_tts package data
 datas += collect_data_files('edge_tts')
 # customtkinter assets (themes, icons)
@@ -108,34 +113,6 @@ datas += [
     (os.path.join('src', 'pdf_parser.py'), 'src'),
     (os.path.join('src', 'fi_loanwords.py'), 'src'),
 ]
-# Bundle the entire piper and piper_phonemize package source files.
-# collect_submodules() only adds names to hidden_imports — it does NOT copy
-# the .py files. PyInstaller's normal package discovery sometimes misses
-# packages with non-standard structure, so we explicitly Tree() them.
-try:
-    import piper as _piper_pkg
-    _piper_dir = os.path.dirname(_piper_pkg.__file__)
-    for _root, _dirs, _files in os.walk(_piper_dir):
-        for _f in _files:
-            if _f.endswith('.py'):
-                _full = os.path.join(_root, _f)
-                _rel = os.path.relpath(_root, _piper_dir)
-                _dest = 'piper' if _rel == '.' else os.path.join('piper', _rel)
-                datas.append((_full, _dest))
-except ImportError:
-    pass
-try:
-    import piper_phonemize as _pp_pkg
-    _pp_dir = os.path.dirname(_pp_pkg.__file__)
-    for _root, _dirs, _files in os.walk(_pp_dir):
-        for _f in _files:
-            if _f.endswith('.py'):
-                _full = os.path.join(_root, _f)
-                _rel = os.path.relpath(_root, _pp_dir)
-                _dest = 'piper_phonemize' if _rel == '.' else os.path.join('piper_phonemize', _rel)
-                datas.append((_full, _dest))
-except ImportError:
-    pass
 # Goat icon for the window title bar and taskbar
 datas += [(os.path.join('assets', 'icon.ico'), 'assets')]
 datas += [(os.path.join('assets', 'icon.png'), 'assets')]
