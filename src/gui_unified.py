@@ -428,6 +428,48 @@ class EngineManagerDialog(ctk.CTkToplevel):
                 text_color="gray",
             )
 
+    def _engine_size_text(self, installer) -> str:
+        """Return a human-readable size for an installer.
+
+        Installed: actual disk usage of the voice/model directory.
+        Not installed: sum of estimated_size_mb across planned steps.
+        """
+        try:
+            if installer.is_installed():
+                # Known install locations by engine id.
+                root: Optional[Path] = None
+                if getattr(installer, "_voice_dir", None) is not None:
+                    root = installer._voice_dir
+                elif getattr(installer, "_venv_path", None) is not None:
+                    root = installer._venv_path
+                if root and Path(root).exists():
+                    total_bytes = 0
+                    for r, _d, files in os.walk(str(root)):
+                        for f in files:
+                            try:
+                                total_bytes += os.path.getsize(os.path.join(r, f))
+                            except OSError:
+                                pass
+                    return self._fmt_size_mb(total_bytes / (1024 * 1024))
+                return ""
+            # Not installed — sum the planned step sizes.
+            steps = installer.get_steps()
+            est = sum(getattr(s, "estimated_size_mb", 0) or 0 for s in steps)
+            if est <= 0:
+                return ""
+            prefix = "~"  # estimate marker
+            return f"{prefix}{self._fmt_size_mb(est)}"
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _fmt_size_mb(size_mb: float) -> str:
+        if size_mb >= 1024:
+            return f"{size_mb / 1024:.1f} GB"
+        if size_mb >= 10:
+            return f"{size_mb:.0f} MB"
+        return f"{size_mb:.1f} MB"
+
     def _refresh_engine_rows(self) -> None:
         # Clear existing rows
         for child in self._engines_container.winfo_children():
@@ -455,6 +497,14 @@ class EngineManagerDialog(ctk.CTkToplevel):
             )
             status_lbl.grid(row=0, column=1, sticky="w", padx=4, pady=4)
 
+            # Size (installed: actual on disk; not installed: estimate).
+            size_text = self._engine_size_text(installer)
+            size_lbl = ctk.CTkLabel(
+                row, text=size_text, text_color=("gray40", "gray70"),
+                anchor="e",
+            )
+            size_lbl.grid(row=0, column=2, sticky="e", padx=(4, 8), pady=4)
+
             if installed:
                 btn = ctk.CTkButton(
                     row, text=self._s("uninstall_btn"),
@@ -467,10 +517,10 @@ class EngineManagerDialog(ctk.CTkToplevel):
                     command=lambda inst=installer: self._on_install(inst),
                     width=110,
                 )
-            btn.grid(row=0, column=2, padx=(4, 8), pady=4)
+            btn.grid(row=0, column=3, padx=(4, 8), pady=4)
 
             self._engine_rows[installer.engine_id] = {
-                "row": row, "status": status_lbl, "btn": btn,
+                "row": row, "status": status_lbl, "size": size_lbl, "btn": btn,
             }
 
     def _on_install(self, installer) -> None:
@@ -2365,7 +2415,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             except queue.Empty:
                 break
 
-            self._append_log(ev.raw_line or ev.kind)
+            # Route the line to the right severity color (yellow for
+            # WARNING/FutureWarning/DeprecationWarning, red for ERROR /
+            # Traceback, green for success markers). _log_line_by_severity
+            # wraps _append_log_* with keyword heuristics so subprocess
+            # stdout from Chatterbox gets the same treatment as in-process
+            # events.
+            if ev.raw_line:
+                self._log_line_by_severity(ev.raw_line, kind=ev.kind)
 
             if ev.kind == "chunk":
                 if ev.total_chunks > 0:
@@ -2396,16 +2453,34 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 return  # Stop pumping.
 
             elif ev.kind == "error":
-                self._append_log_error(ev.raw_line or "Unknown error")
                 self._fail(ev.raw_line or "Unknown error")
                 return  # Stop pumping.
-
-            elif ev.kind == "log":
-                pass  # Already appended to log above.
 
         # Reschedule if still running.
         if self._synth_running:
             self.after(self.POLL_INTERVAL_MS, self._pump_events)
+
+    def _log_line_by_severity(self, line: str, kind: str = "log") -> None:
+        """Append a log line and color-code it based on kind + keywords.
+
+        Called from both the main pump loop and the _handle_event mixin
+        method so Chatterbox subprocess stdout gets the same treatment.
+        """
+        upper = line.upper()
+        if (kind == "error"
+            or "ERROR:" in upper
+            or "TRACEBACK" in upper
+            or "\u2718" in line):
+            self._append_log_error(line)
+        elif ("WARNING" in upper
+              or "WARN:" in upper
+              or "FUTUREWARNING" in upper
+              or "DEPRECATIONWARNING" in upper):
+            self._append_log_warning(line)
+        elif "\u2714" in line or "VALMIS" in upper or line.startswith("[done]"):
+            self._append_log_success(line)
+        else:
+            self._append_log(line)
 
     def _finalize_chatterbox_output_if_needed(self) -> None:
         """Copy Chatterbox's per-chapter MP3 to the user's target path.
