@@ -347,6 +347,30 @@ this automatically. We've reported the bug and submitted a fix:
 
 ---
 
+## How it fits together
+
+```mermaid
+flowchart LR
+    User --> GUI[Tkinter GUI]
+    GUI --> Engine[TTS engine<br/>Edge / Piper / Chatterbox]
+    Engine --> FF[ffmpeg]
+    FF --> MP3[book.mp3]
+    GH[GitHub Releases] -.->|auto-update poll| GUI
+```
+
+The GUI hands text + voice choice to one of the TTS engines. Edge-TTS
+and Piper run in-process; Chatterbox runs as a subprocess in its own
+Python 3.11 venv. All three emit audio chunks that ffmpeg stitches into
+a final MP3 saved next to `AudiobookMaker.exe`. The app polls GitHub
+Releases every five minutes for a newer version and can install it in
+place.
+
+For the full architecture — engine registry, text pipeline, subprocess
+bridge, auto-update flow, cleanup — see
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
 ## Project structure
 
 ```
