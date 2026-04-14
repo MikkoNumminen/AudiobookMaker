@@ -50,11 +50,76 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import signal
 import sys
 import time
+import warnings
 from pathlib import Path
+
+# --- Silence cosmetic upstream warnings --------------------------------------
+# These are not actionable for the end user; suppressing them keeps the
+# AudiobookMaker log panel free of yellow WARNING noise. Narrow message
+# filters so any NEW upstream warnings still surface for investigation.
+#
+# Upstream noise comes from THREE distinct channels and each needs its own
+# muzzle:
+#   1. Python `warnings` module       -> warnings.filterwarnings(...)
+#   2. Python `logging` module        -> logger.setLevel(...) per namespace
+#   3. Raw stderr prints (transformers) -> TRANSFORMERS_VERBOSITY env var
+# All three must be set BEFORE the offending libraries import.
+os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+# Belt-and-braces: also push it via PYTHONWARNINGS so subprocesses inherit.
+os.environ.setdefault(
+    "PYTHONWARNINGS",
+    "ignore::FutureWarning,ignore::UserWarning",
+)
+
+warnings.filterwarnings("ignore", message=r".*LoRACompatibleLinear.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=r".*torch\.backends\.cuda\.sdp_kernel.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=r".*output_attentions.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=r".*Reference mel length.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=r".*HF_TOKEN.*unauthenticated requests.*", category=UserWarning)
+
+# Module-level catch-alls for the three noisiest upstreams. Module regex is
+# anchored at the start so sibling packages aren't accidentally silenced.
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"diffusers(\..*)?")
+warnings.filterwarnings("ignore", category=UserWarning, module=r"diffusers(\..*)?")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"transformers\.generation(\..*)?")
+warnings.filterwarnings("ignore", category=UserWarning, module=r"transformers\.generation(\..*)?")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"torch\.backends(\..*)?")
+warnings.filterwarnings("ignore", category=UserWarning, module=r"huggingface_hub(\..*)?")
+# The FutureWarning for `torch.backends.cuda.sdp_kernel()` is raised from
+# inside `contextlib.contextmanager`, so its apparent "module" is
+# `contextlib`, not `torch`. Catch it by category+filename pattern.
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"contextlib")
+
+# The chatterbox AlignmentStreamAnalyzer and the "Reference mel length"
+# notice are emitted through the `logging` module, not `warnings`. Mute
+# them at the logger level. We keep ERROR so real failures still surface.
+logging.getLogger("chatterbox").setLevel(logging.ERROR)
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
+
+class _RefMelFilter(logging.Filter):
+    """Drop the cosmetic "Reference mel length is not equal..." message.
+
+    This comes from `logging.warning(...)` called on the root logger by
+    upstream chatterbox preprocessing, so we can't just silence a child
+    namespace — we attach a narrow filter to the root logger instead.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        msg = record.getMessage()
+        if "Reference mel length" in msg:
+            return False
+        return True
+
+
+logging.getLogger().addFilter(_RefMelFilter())
+# -----------------------------------------------------------------------------
 
 # Make `src.*` importable when the script is run from anywhere.
 _REPO_ROOT = Path(__file__).resolve().parent.parent

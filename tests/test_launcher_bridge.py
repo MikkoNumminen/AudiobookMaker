@@ -351,6 +351,67 @@ class TestRunnerConstruction:
 # ---------------------------------------------------------------------------
 
 
+class TestAlignmentNoiseRewrite:
+    """Upstream chatterbox's AlignmentStreamAnalyzer prints two scary-
+    sounding lines whenever our gemination fix forces an EOS. Reframe them
+    into a single neutral ``[info]`` line so the GUI log doesn't go yellow
+    for a working fix.
+    """
+
+    def test_warning_line_becomes_neutral_info(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        out = ChatterboxLineParser.rewrite_alignment_noise(
+            "WARNING: Detected 2x repetition of token 123 at position 45, "
+            "forcing EOS"
+        )
+        assert out is not None
+        assert "[info]" in out
+        assert "alignment fix applied" in out
+        assert "token 123" in out
+        assert "position 45" in out
+        # Must NOT contain severity keywords that would route the line to
+        # the warning-yellow or error-red GUI color.
+        upper = out.upper()
+        assert "WARNING" not in upper
+        assert "ERROR" not in upper
+
+    def test_warning_without_position_still_rewrites(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        out = ChatterboxLineParser.rewrite_alignment_noise(
+            "WARNING: Detected 3x repetition of token 42"
+        )
+        assert out is not None
+        assert "token 42" in out
+        assert "WARNING" not in out.upper()
+
+    def test_forcing_eos_line_is_suppressed(self) -> None:
+        out = ChatterboxLineParser.rewrite_alignment_noise(
+            "Forcing EOS generation to prevent loop."
+        )
+        assert out is None
+
+    def test_unrelated_line_passes_through(self) -> None:
+        line = "[setup] total chunks to synthesize: 10"
+        assert ChatterboxLineParser.rewrite_alignment_noise(line) == line
+
+    def test_rewritten_line_parses_as_plain_log(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        rewritten = ChatterboxLineParser.rewrite_alignment_noise(
+            "WARNING: Detected 2x repetition of token 7 at position 3"
+        )
+        assert rewritten is not None
+        ev = parser.parse(rewritten)
+        # A plain log event, not an error/warning kind — severity routing
+        # in the GUI is purely keyword-based on raw_line, and the rewritten
+        # line contains neither "WARNING" nor "ERROR".
+        assert ev.kind == "log"
+        assert "WARNING" not in ev.raw_line.upper()
+        assert "ERROR" not in ev.raw_line.upper()
+
+
 class TestProgressEvent:
     def test_default_construction(self) -> None:
         ev = ProgressEvent(kind="log")

@@ -105,6 +105,30 @@ class ChatterboxLineParser:
 
     _HMS_RE = re.compile(r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$")
 
+    # Upstream chatterbox AlignmentStreamAnalyzer prints two scary-looking
+    # lines whenever our gemination fix (token-repetition window raised from
+    # 2 to 10) forces an EOS to break a loop. Two known formats:
+    #   Short (stderr print):
+    #     "WARNING: Detected 2x repetition of token 123 at position 45..."
+    #     "Forcing EOS generation to prevent loop."
+    #   Logger (logging module):
+    #     "WARNING:chatterbox.models.t3.inference.alignment_stream_analyzer:"
+    #       " 💀 Detected 2x repetition of token 6432"
+    #     "WARNING:chatterbox.models.t3.inference.alignment_stream_analyzer:"
+    #       "forcing EOS token, long_tail=tensor(False), ..."
+    # Those are our fix working, not a failure. Reframe the first into a
+    # neutral "[info]" line (no warning/error keywords, so the GUI's
+    # severity router leaves it plain-colored) and swallow the second.
+    _ALIGNMENT_WARN_RE = re.compile(
+        r"WARNING[:\s].*?Detected\s+\d+x\s+repetition of token\s+(\d+)"
+        r"(?:\s+at position\s+(\d+))?",
+        re.IGNORECASE,
+    )
+    _FORCING_EOS_RE = re.compile(
+        r"(?:Forcing EOS generation|forcing EOS token)",
+        re.IGNORECASE,
+    )
+
     @classmethod
     def parse_hms(cls, s: str) -> float:
         """Parse ``"12m30s"`` / ``"1h23m"`` / ``"45s"`` into seconds."""
@@ -115,6 +139,24 @@ class ChatterboxLineParser:
         mi = int(m.group(2) or 0)
         se = int(m.group(3) or 0)
         return h * 3600 + mi * 60 + se
+
+    @classmethod
+    def rewrite_alignment_noise(cls, line: str) -> Optional[str]:
+        """Reframe the upstream AlignmentStreamAnalyzer noise.
+
+        Returns the rewritten line to emit, or ``None`` to drop it entirely
+        (used for the "Forcing EOS generation..." follow-up). Returns the
+        input unchanged if no pattern matches.
+        """
+        m = cls._ALIGNMENT_WARN_RE.search(line)
+        if m:
+            token = m.group(1)
+            pos = m.group(2)
+            where = f" at position {pos}" if pos else ""
+            return f"[info] alignment fix applied on token {token}{where}"
+        if cls._FORCING_EOS_RE.search(line):
+            return None
+        return line
 
     def parse(self, line: str) -> ProgressEvent:
         """Classify one line into a ``ProgressEvent``."""
@@ -379,6 +421,13 @@ class ChatterboxRunner:
                 line = raw.rstrip("\r\n")
                 if not line:
                     continue
+                # Reframe upstream AlignmentStreamAnalyzer "WARNING" + "Forcing
+                # EOS" noise into a single neutral info line before the line
+                # enters the tail buffer or the severity-routing pipeline.
+                rewritten = parser.rewrite_alignment_noise(line)
+                if rewritten is None:
+                    continue
+                line = rewritten
                 self._state.tail.append(line)
                 ev = parser.parse(line)
                 self._state.event_queue.put(ev)
