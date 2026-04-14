@@ -159,18 +159,33 @@ class TestChatterboxInstaller:
 
     def test_is_installed_checks_venv_python(self, tmp_path) -> None:
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
-        assert inst.is_installed() is False
+        # Patch the bridge fallback so a real dev venv on the host doesn't
+        # leak into the unit test result.
+        with patch(
+            "src.launcher_bridge.resolve_chatterbox_python", return_value=None,
+        ):
+            assert inst.is_installed() is False
 
-        # Create the expected python exe path
-        scripts = tmp_path / "venv" / "Scripts"
-        scripts.mkdir(parents=True)
-        (scripts / "python.exe").write_bytes(b"fake")
+            # Create the expected python exe path
+            scripts = tmp_path / "venv" / "Scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "python.exe").write_bytes(b"fake")
 
-        with patch("src.engine_installer.sys") as mock_sys:
-            mock_sys.platform = "win32"
-            # Reinstantiate to pick up the platform
-            inst2 = ChatterboxInstaller(venv_path=tmp_path / "venv")
-            assert inst2.is_installed() is True
+            with patch("src.engine_installer.sys") as mock_sys:
+                mock_sys.platform = "win32"
+                inst2 = ChatterboxInstaller(venv_path=tmp_path / "venv")
+                assert inst2.is_installed() is True
+
+    def test_is_installed_falls_back_to_bridge_resolver(self, tmp_path) -> None:
+        """is_installed() returns True when the bridge locates a venv
+        at any known location — not just the default C:\\AudiobookMaker path.
+        """
+        inst = ChatterboxInstaller(venv_path=tmp_path / "missing_venv")
+        with patch(
+            "src.launcher_bridge.resolve_chatterbox_python",
+            return_value="D:/koodaamista/AudiobookMaker/.venv-chatterbox/Scripts/python.exe",
+        ):
+            assert inst.is_installed() is True
 
     def test_cancel_event_stops_installation(self) -> None:
         inst = ChatterboxInstaller()

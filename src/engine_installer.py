@@ -381,7 +381,16 @@ class ChatterboxInstaller(EngineInstaller):
         ]
 
     def is_installed(self) -> bool:
-        return self._venv_python.exists()
+        # Check the default path first, then fall back to the bridge resolver
+        # which searches every location we've ever used (repo root, D: drive
+        # dev setup, common C:\AudiobookMaker\, sibling of the running exe…).
+        if self._venv_python.exists():
+            return True
+        try:
+            from src.launcher_bridge import resolve_chatterbox_python
+            return resolve_chatterbox_python() is not None
+        except Exception:
+            return False
 
     def install(
         self,
