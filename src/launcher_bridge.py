@@ -440,10 +440,11 @@ class ChatterboxRunner:
                 ev = parser.parse(line)
                 self._state.event_queue.put(ev)
         finally:
-            try:
-                proc.stdout.close()
-            except OSError:
-                pass
+            if proc.stdout is not None:
+                try:
+                    proc.stdout.close()
+                except OSError:
+                    pass
 
     def _waiter_loop(self) -> None:
         proc = self._state.proc

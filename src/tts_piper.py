@@ -218,10 +218,9 @@ def _download_file(
                         if progress_cb and total:
                             progress_cb(downloaded, total, label)
                 os.replace(tmp_path, destination)
-            except (OSError, urllib.error.URLError):
+            finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-                raise
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Failed to download {url}: {exc}") from exc
 
