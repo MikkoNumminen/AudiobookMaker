@@ -611,6 +611,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
         self._log_visible = True
         self._pending_update: Optional[UpdateInfo] = None
+        # True if the user explicitly chose the output path via Vaihda…
+        # Auto-paths get bumped to the next free number before each run
+        # so repeated Muunna presses never overwrite the previous MP3.
+        self._output_user_chosen: bool = False
 
         # Load persisted preferences.
         self._user_cfg = app_config.load()
@@ -1435,6 +1439,47 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # File dialogs
     # ------------------------------------------------------------------
 
+    def _bump_output_path_if_exists(self) -> None:
+        """If the current output path already points at an existing file,
+        bump it to the next free numbered variant so Muunna never
+        overwrites the previous recording.
+
+        Examples:
+            texttospeech_3.mp3 (exists) → texttospeech_4.mp3
+            book.mp3 (exists)           → book_2.mp3
+            book_5.mp3 (exists)         → book_6.mp3
+        """
+        if not self._output_path:
+            return
+        target = Path(self._output_path)
+        if not target.exists():
+            return  # Fresh name, nothing to do.
+
+        stem = target.stem
+        suffix = target.suffix or ".mp3"
+        parent = target.parent
+
+        # Split trailing _N off the stem, defaulting to 1 if not numbered.
+        import re
+        match = re.match(r"^(.*?)_(\d+)$", stem)
+        if match:
+            base, n = match.group(1), int(match.group(2))
+        else:
+            base, n = stem, 1
+
+        while True:
+            n += 1
+            candidate = parent / f"{base}_{n}{suffix}"
+            if not candidate.exists():
+                break
+
+        new_path = str(candidate)
+        self._output_path = new_path
+        self._out_entry.configure(state="normal")
+        self._out_entry.delete(0, tk.END)
+        self._out_entry.insert(0, new_path)
+        self._out_entry.configure(state="disabled")
+
     def _default_output_dir(self) -> Path:
         """Return the default folder where generated MP3s go.
 
@@ -1526,6 +1571,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         else:
             path = str(out_dir)
         self._output_path = path
+        # User explicitly chose this folder — pin the name in the entry.
+        # (Auto-increment on next run is still applied via _bump_output_path.)
+        self._output_user_chosen = True
         self._out_entry.configure(state="normal")
         self._out_entry.delete(0, tk.END)
         self._out_entry.insert(0, path)
@@ -2098,6 +2146,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not self._output_path:
             messagebox.showerror(self._s("error"), self._s("no_pdf"))
             return
+
+        # Never overwrite an existing file — if the target already exists
+        # (from a previous Muunna press this session, or from an earlier
+        # run that auto-picked the same number), bump the filename to the
+        # next free variant.
+        self._bump_output_path_if_exists()
 
         engine_id = self._current_engine_id()
         if not engine_id:

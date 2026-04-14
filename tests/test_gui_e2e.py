@@ -415,3 +415,63 @@ class TestAutoSeverityDetection:
         assert "log_warning" not in tags
         assert "log_error" not in tags
         assert "log_success" not in tags
+
+
+# ---------------------------------------------------------------------------
+# Output-path auto-increment
+# ---------------------------------------------------------------------------
+
+
+class TestBumpOutputPath:
+    """Never overwrite an existing MP3: auto-bump the numeric suffix."""
+
+    def test_bump_numbered_file(self, app, tmp_path) -> None:
+        existing = tmp_path / "texttospeech_3.mp3"
+        existing.write_bytes(b"x")
+        app._output_path = str(existing)
+        app._bump_output_path_if_exists()
+        from pathlib import Path
+        assert Path(app._output_path).name == "texttospeech_4.mp3"
+        assert not Path(app._output_path).exists()
+
+    def test_bump_unnumbered_file_gets_suffix_2(self, app, tmp_path) -> None:
+        existing = tmp_path / "book.mp3"
+        existing.write_bytes(b"x")
+        app._output_path = str(existing)
+        app._bump_output_path_if_exists()
+        from pathlib import Path
+        assert Path(app._output_path).name == "book_2.mp3"
+
+    def test_skips_already_taken_numbers(self, app, tmp_path) -> None:
+        # Gaps get filled but existing files are skipped.
+        (tmp_path / "texttospeech_1.mp3").write_bytes(b"x")
+        (tmp_path / "texttospeech_2.mp3").write_bytes(b"x")
+        (tmp_path / "texttospeech_3.mp3").write_bytes(b"x")
+        app._output_path = str(tmp_path / "texttospeech_1.mp3")
+        app._bump_output_path_if_exists()
+        from pathlib import Path
+        assert Path(app._output_path).name == "texttospeech_4.mp3"
+
+    def test_no_bump_when_target_missing(self, app, tmp_path) -> None:
+        target = tmp_path / "brand_new.mp3"
+        app._output_path = str(target)
+        app._bump_output_path_if_exists()
+        assert app._output_path == str(target)
+
+    def test_entry_widget_updated(self, app, tmp_path) -> None:
+        existing = tmp_path / "texttospeech_1.mp3"
+        existing.write_bytes(b"x")
+        app._output_path = str(existing)
+        app._bump_output_path_if_exists()
+        app.update_idletasks()
+        shown = app._out_entry.get()
+        assert shown.endswith("texttospeech_2.mp3")
+
+    def test_preserves_user_chosen_flag(self, app, tmp_path) -> None:
+        """Bumping doesn't reset the 'user-picked folder' flag."""
+        existing = tmp_path / "my_book.mp3"
+        existing.write_bytes(b"x")
+        app._output_path = str(existing)
+        app._output_user_chosen = True
+        app._bump_output_path_if_exists()
+        assert app._output_user_chosen is True
