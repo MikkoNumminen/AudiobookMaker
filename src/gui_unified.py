@@ -88,7 +88,7 @@ def _detect_system_language() -> str:
 # UI constants
 # ---------------------------------------------------------------------------
 
-WINDOW_TITLE = "AudiobookMaker"
+WINDOW_TITLE = f"AudiobookMaker v{APP_VERSION}"
 WINDOW_MIN_W = 780
 WINDOW_MIN_H = 860
 
@@ -900,8 +900,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """Update ALL widget texts to match ``self._ui_lang``."""
         s = lambda key: self._s(key)  # noqa: E731 — local shorthand
 
-        # Window title.
-        self.title(s("window_title"))
+        # Window title — suffix with the running version so the user can
+        # tell at a glance which build they're on (and post-update verify).
+        self.title(f"{s('window_title')} v{APP_VERSION}")
 
         # Input tabview tabs — CTkTabview can't rename tabs, so the internal
         # names are always the Finnish originals ("PDF-tiedosto", "Teksti").

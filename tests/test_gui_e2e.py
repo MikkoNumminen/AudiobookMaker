@@ -110,8 +110,11 @@ class _UnavailableEngine(TTSEngine):
 
 class TestAppInstantiation:
     def test_app_creates_and_destroys(self, app):
-        """UnifiedApp can be created and has the expected window title."""
-        assert app.title() == "AudiobookMaker"
+        """UnifiedApp title starts with AudiobookMaker and includes a version."""
+        assert app.title().startswith("AudiobookMaker")
+        # Version marker ("v") lets the user verify which build runs after
+        # an update.
+        assert " v" in app.title()
 
     def test_engine_dropdown_populated(self, app):
         """The engine combobox has at least one entry."""
