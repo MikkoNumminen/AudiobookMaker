@@ -90,6 +90,27 @@ before it reaches the engine. Each pass has a single responsibility
 (citation drop, Roman numerals, abbreviations, governor-aware integer
 inflection, etc.). Order matters — comments at each pass document why.
 
+The passes in call order (see `normalize_finnish_text`):
+
+| # | Pass | What it does | Ordering constraint |
+|---|------|--------------|---------------------|
+| 1 | A | Drop bibliographic citations and metadata parens | First — strips parens with periods that would confuse later passes |
+| 2 | J1 | Collapse 3+ dots to ellipsis (`...` → `…`) | Before J2 so TOC dot-leaders remain distinguishable |
+| 3 | J2 | Drop TOC dot-leaders (4+ dots + page number) | After J1 |
+| 4 | J3 | Strip bare ISBN-13 numbers | Before numeric passes so digits don't get spelled out |
+| 5 | B | Split elided-hyphen compounds (insert space) | Runs before abbreviation expansion |
+| 6 | K | Expand Finnish abbreviations | Before C — abbreviation periods must go before period-sensitive patterns |
+| 7 | L | Expand Roman numerals (regnal, chapter, cardinal) | After K so abbreviation periods don't bleed in; before M |
+| 8 | N | Expand whitelisted acronyms (exact case) | After L, before unit expansion |
+| 9 | M | Expand measurement units / currency symbols | Before D/F/G so digit prefix stays for governor detection |
+| 10 | C | Expand century expressions | After unit expansion |
+| 11 | D | Split numeric ranges (3–4 digit) on dash | Before G so each endpoint tokenizes independently |
+| 12 | E | Expand page abbreviations (`s.` → `sivu`, `ss.` → `sivut`) | Digits left for G to inflect |
+| 13 | F | Spell decimals (nominative float) | Before G; decimals rarely take governor case |
+| 14 | G | Governor-aware integer expansion (num2words + case) | After all digit-producing passes |
+| 15 | I | Loanword respelling (foreign names, `-ismi`, `-tio`) | After G (post num2words), before H |
+| 16 | H | Split glued compound-number morphemes | Last — runs after num2words output settles |
+
 To add a pass:
 
 1. Decide where in the order it belongs (read the comments at
