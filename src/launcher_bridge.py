@@ -442,7 +442,7 @@ class ChatterboxRunner:
         finally:
             try:
                 proc.stdout.close()
-            except Exception:
+            except OSError:
                 pass
 
     def _waiter_loop(self) -> None:

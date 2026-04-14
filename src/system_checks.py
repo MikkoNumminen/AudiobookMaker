@@ -128,9 +128,9 @@ def detect_gpu() -> GpuInfo:
                         )
         except (
             FileNotFoundError,
-            subprocess.TimeoutExpired,
+            subprocess.SubprocessError,
+            OSError,
             ValueError,
-            Exception,
         ):
             pass
 

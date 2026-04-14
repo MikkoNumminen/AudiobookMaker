@@ -218,7 +218,7 @@ def _download_file(
                         if progress_cb and total:
                             progress_cb(downloaded, total, label)
                 os.replace(tmp_path, destination)
-            except BaseException:
+            except (OSError, urllib.error.URLError):
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
                 raise
