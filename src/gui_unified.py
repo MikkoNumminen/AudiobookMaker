@@ -38,7 +38,8 @@ from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
-from src.pdf_parser import parse_pdf
+from src.pdf_parser import parse_pdf, BookMetadata, Chapter, ParsedBook
+from src.epub_parser import parse_epub
 from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engines
 from src.tts_engine import TTSConfig, chapters_to_speech
 
@@ -151,7 +152,7 @@ _CLR_UNAVAILABLE = "red"
 _STRINGS = {
     "fi": {
         "window_title": "AudiobookMaker",
-        "tab_pdf": "PDF-tiedosto",
+        "tab_pdf": "Kirja",
         "tab_text": "Teksti",
         "text_placeholder": "Kirjoita tai liitä teksti tähän...",
         "settings_frame": "Asetukset",
@@ -182,9 +183,9 @@ _STRINGS = {
         "cancelling": "Peruutetaan\u2026",
         "done": "Valmis!",
         "error": "Virhe",
-        "no_pdf": "Valitse ensin PDF-tiedosto.",
+        "no_pdf": "Valitse ensin kirjatiedosto (PDF, EPUB tai TXT).",
         "no_text": "Kirjoita tai liitä ensin teksti.",
-        "select_pdf": "Valitse PDF-tiedosto",
+        "select_pdf": "Valitse kirjatiedosto",
         "save_as": "Tallenna nimellä",
         "speed_slow": "Hidas",
         "speed_normal": "Normaali",
@@ -238,7 +239,7 @@ _STRINGS = {
     },
     "en": {
         "window_title": "AudiobookMaker",
-        "tab_pdf": "PDF file",
+        "tab_pdf": "Book",
         "tab_text": "Text",
         "text_placeholder": "Type or paste text here...",
         "settings_frame": "Settings",
@@ -269,9 +270,9 @@ _STRINGS = {
         "cancelling": "Cancelling\u2026",
         "done": "Done!",
         "error": "Error",
-        "no_pdf": "Please select a PDF file first.",
+        "no_pdf": "Please select a book file first (PDF, EPUB, or TXT).",
         "no_text": "Please enter or paste text first.",
-        "select_pdf": "Select PDF file",
+        "select_pdf": "Select book file",
         "save_as": "Save as",
         "speed_slow": "Slow",
         "speed_normal": "Normal",
@@ -327,6 +328,48 @@ _STRINGS = {
 
 
 from src.gui_engine_dialog import EngineManagerDialog, EngineManagerView  # noqa: E402,F401
+
+
+# ---------------------------------------------------------------------------
+# Book input dispatcher
+# ---------------------------------------------------------------------------
+
+
+def parse_book(file_path: str) -> ParsedBook:
+    """Route a book-shaped file to the right parser by extension.
+
+    ``.pdf``  -> :func:`src.pdf_parser.parse_pdf`
+    ``.epub`` -> :func:`src.epub_parser.parse_epub`
+    ``.txt``  -> read UTF-8, wrap as a single-chapter ParsedBook
+
+    Keeping the dispatcher in one place means every call site (conversion,
+    preview, disk-space estimate) stays in sync when new formats are added.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext == ".pdf":
+        return parse_pdf(file_path)
+    if ext == ".epub":
+        return parse_epub(file_path)
+    if ext == ".txt":
+        text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+        meta = BookMetadata(
+            title=Path(file_path).stem.replace("_", " ").title(),
+            author="",
+            subject="",
+            num_pages=1,
+            file_path=str(file_path),
+        )
+        chapter = Chapter(
+            title=meta.title or "Text",
+            content=text,
+            page_start=1,
+            page_end=1,
+            index=0,
+        )
+        return ParsedBook(metadata=meta, chapters=[chapter])
+    # Unknown extension — default to PDF so legacy call sites still raise
+    # the familiar error message.
+    return parse_pdf(file_path)
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +505,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self.title(f"{s('window_title')} v{APP_VERSION}")
 
         # Input tabview tabs — CTkTabview can't rename tabs, so the internal
-        # names are always the Finnish originals ("PDF-tiedosto", "Teksti").
+        # names are always the Finnish originals ("Kirja", "Teksti").
         # The map must use those original names, not translated ones.
 
         # PDF browse button.
@@ -798,8 +841,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         self._input_nb.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
-        # PDF tab
-        pdf_tab_name = "PDF-tiedosto"
+        # Book tab (accepts PDF / EPUB / TXT — the internal tab name is
+        # kept short for the CTkTabview header).
+        pdf_tab_name = "Kirja"
         pdf_frame = self._input_nb.add(pdf_tab_name)
         pdf_frame.columnconfigure(0, weight=1)
 
@@ -1125,7 +1169,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._input_mode == "pdf":
             if not self._pdf_path:
                 raise ValueError(self._s("no_pdf"))
-            book = parse_pdf(self._pdf_path)
+            book = parse_book(self._pdf_path)
             if not book.full_text.strip():
                 raise ValueError(self._s("pdf_no_text"))
             return book.full_text
@@ -1303,9 +1347,27 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._output_path = suggested
 
     def _browse_pdf(self) -> None:
+        # Accept PDF / EPUB / TXT so the same "Kirja" tab works for any
+        # book-shaped input the parsers support.
+        if self._ui_lang == "fi":
+            types = [
+                ("Kirjatiedostot", "*.pdf *.epub *.txt"),
+                ("PDF-tiedostot", "*.pdf"),
+                ("EPUB-tiedostot", "*.epub"),
+                ("Tekstitiedostot", "*.txt"),
+                ("Kaikki tiedostot", "*.*"),
+            ]
+        else:
+            types = [
+                ("Book files", "*.pdf *.epub *.txt"),
+                ("PDF files", "*.pdf"),
+                ("EPUB files", "*.epub"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*"),
+            ]
         path = filedialog.askopenfilename(
             title=self._s("select_pdf"),
-            filetypes=[("PDF", "*.pdf"), ("*", "*.*")],
+            filetypes=types,
         )
         if path:
             self._pdf_path = path
@@ -1934,9 +1996,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         try:
             from src.system_checks import check_output_disk_space
             if self._input_mode == "pdf":
-                from src.pdf_parser import parse_pdf
                 try:
-                    text_len = len(parse_pdf(self._pdf_path).full_text)
+                    text_len = len(parse_book(self._pdf_path).full_text)
                 except Exception:
                     text_len = 0
             else:
@@ -2028,7 +2089,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
             if input_mode == "pdf":
                 assert pdf_path is not None
-                book = parse_pdf(pdf_path)
+                book = parse_book(pdf_path)
                 text = book.full_text
             else:
                 text = input_text or ""

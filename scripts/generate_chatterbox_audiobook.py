@@ -171,9 +171,14 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--pdf", default=None, help="Input PDF file.")
     p.add_argument(
+        "--epub",
+        default=None,
+        help="Input EPUB file (alternative to --pdf).",
+    )
+    p.add_argument(
         "--text-file",
         default=None,
-        help="Input plain text file (alternative to --pdf).",
+        help="Input plain text file (alternative to --pdf / --epub).",
     )
     p.add_argument(
         "--out",
@@ -323,10 +328,15 @@ def _format_hms(seconds: float) -> str:
 
 
 def _dry_run(args) -> int:
-    """Parse PDF, print chunk plan, estimate synth time. No torch."""
-    from src.pdf_parser import parse_pdf
-    print(f"[dry-run] parsing {args.pdf}", flush=True)
-    book = parse_pdf(args.pdf)
+    """Parse the input book, print chunk plan, estimate synth time. No torch."""
+    if args.epub:
+        from src.epub_parser import parse_epub
+        print(f"[dry-run] parsing {args.epub}", flush=True)
+        book = parse_epub(args.epub)
+    else:
+        from src.pdf_parser import parse_pdf
+        print(f"[dry-run] parsing {args.pdf}", flush=True)
+        book = parse_pdf(args.pdf)
     only = None
     if args.chapters:
         only = {int(x) for x in args.chapters.split(",") if x.strip()}
@@ -510,8 +520,9 @@ def main() -> int:
 
     from pydub import AudioSegment
 
-    if not args.pdf and not args.text_file:
-        print("[error] either --pdf or --text-file is required", flush=True)
+    if not args.pdf and not args.text_file and not args.epub:
+        print("[error] one of --pdf, --epub, or --text-file is required",
+              flush=True)
         return 2
 
     # "source_path" is the unified reference written into progress.json,
@@ -535,6 +546,16 @@ def main() -> int:
         input_stem = text_path.stem
         source_path = text_path
         print(f"[setup] text file: {text_path.name} ({len(content)} chars)", flush=True)
+    elif args.epub:
+        from src.epub_parser import parse_epub
+        epub_path = Path(args.epub).expanduser().resolve()
+        if not epub_path.is_file():
+            print(f"[error] EPUB not found: {epub_path}", flush=True)
+            return 2
+        book = parse_epub(str(epub_path))
+        input_stem = epub_path.stem
+        source_path = epub_path
+        print(f"[setup] parsing EPUB: {epub_path.name}", flush=True)
     else:
         from src.pdf_parser import parse_pdf
         pdf_path = Path(args.pdf).expanduser().resolve()

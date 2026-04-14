@@ -14,6 +14,29 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
 from src.pdf_parser import parse_pdf
 from src.tts_base import TTSEngine, get_engine
+
+def _parse_book_any(path: str):
+    """Dispatch to the right parser by extension.
+
+    Kept as a tiny local helper so the mixin doesn't import
+    ``gui_unified`` (that would create a circular import).
+    """
+    from src.epub_parser import parse_epub
+    from pathlib import Path as _P
+    ext = _P(path).suffix.lower()
+    if ext == ".epub":
+        return parse_epub(path)
+    if ext == ".txt":
+        from src.pdf_parser import BookMetadata, Chapter, ParsedBook
+        txt = _P(path).read_text(encoding="utf-8", errors="replace")
+        meta = BookMetadata(
+            title=_P(path).stem.replace("_", " ").title(),
+            num_pages=1, file_path=str(path),
+        )
+        ch = Chapter(title=meta.title or "Text", content=txt,
+                     page_start=1, page_end=1, index=0)
+        return ParsedBook(metadata=meta, chapters=[ch])
+    return parse_pdf(path)
 from src.tts_engine import TTSConfig, chapters_to_speech
 
 if TYPE_CHECKING:
@@ -117,12 +140,22 @@ class SynthMixin(_Base):
 
         pdf_path = None
         text_path = None
+        epub_path = None
 
         if self._input_mode == "pdf":
             if not self._pdf_path:
                 self._fail(self._s("no_pdf"))
                 return
-            pdf_path = str(self._pdf_path)
+            # The "Kirja" tab accepts PDF/EPUB/TXT — pick the right CLI
+            # flag for the Chatterbox subprocess based on extension.
+            from pathlib import Path as _P
+            ext = _P(self._pdf_path).suffix.lower()
+            if ext == ".epub":
+                epub_path = str(self._pdf_path)
+            elif ext == ".txt":
+                text_path = str(self._pdf_path)
+            else:
+                pdf_path = str(self._pdf_path)
         else:
             content = self._text_widget.get("1.0", tk.END).strip()
             if not content or self._text_has_placeholder:
@@ -161,11 +194,12 @@ class SynthMixin(_Base):
             script_path=str(runner_script),
             pdf_path=pdf_path,
             text_path=text_path,
+            epub_path=epub_path,
             out_dir=str(out_dir),
             extra_args=extra_args,
         )
 
-        input_label = pdf_path or text_path or "text"
+        input_label = pdf_path or epub_path or text_path or "text"
         self._append_log(f"Input: {input_label}")
         self._append_log(f"Output: {out_dir}")
         self._append_log("Engine: chatterbox_fi")
@@ -226,7 +260,7 @@ class SynthMixin(_Base):
 
             if input_mode == "pdf":
                 assert pdf_path is not None
-                book = parse_pdf(pdf_path)
+                book = _parse_book_any(pdf_path)
                 text = book.full_text
                 if not text.strip():
                     raise ValueError(self._s("pdf_no_text"))
@@ -265,7 +299,7 @@ class SynthMixin(_Base):
 
             if mode == "chapters" and self._input_mode == "pdf":
                 assert self._pdf_path is not None
-                book = parse_pdf(self._pdf_path)
+                book = _parse_book_any(self._pdf_path)
                 if engine_id == "edge":
                     chapters = [(ch.title, ch.content) for ch in book.chapters]
                     rate = SPEED_OPTIONS[self._ui_lang].get(self._speed_cb.get(), "+0%")

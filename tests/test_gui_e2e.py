@@ -142,15 +142,15 @@ class TestConvertValidation:
         """PDF mode with no file selected should mention PDF in the error."""
         app._pdf_path = None
         # Switch to PDF tab (the Finnish internal tab name).
-        app._input_nb.set("PDF-tiedosto")
+        app._input_nb.set("Kirja")
         app.update_idletasks()
 
         app._on_convert_click()
 
         mock_error.assert_called_once()
         msg = mock_error.call_args[0][1]
-        # The error should be about selecting a PDF, not about voice/engine.
-        assert "pdf" in msg.lower() or "PDF" in msg
+        # The error should be about selecting a book file, not about voice/engine.
+        assert "kirja" in msg.lower() or "book" in msg.lower()
 
     @patch("tkinter.messagebox.showerror")
     def test_convert_empty_text_shows_text_error(self, mock_error, app):
@@ -246,7 +246,7 @@ class TestListenValidation:
     @patch("tkinter.messagebox.showerror")
     def test_listen_pdf_mode_no_file_shows_error(self, mock_error, app):
         """Listen in PDF mode with no file should mention PDF."""
-        app._input_nb.set("PDF-tiedosto")
+        app._input_nb.set("Kirja")
         app._pdf_path = None
         app.update_idletasks()
 
@@ -254,7 +254,7 @@ class TestListenValidation:
 
         mock_error.assert_called_once()
         msg = mock_error.call_args[0][1]
-        assert "pdf" in msg.lower() or "PDF" in msg
+        assert "kirja" in msg.lower() or "book" in msg.lower()
 
     @patch("tkinter.messagebox.showerror")
     def test_listen_unavailable_engine_shows_install_hint(self, mock_error, app):
