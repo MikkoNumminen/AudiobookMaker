@@ -241,6 +241,14 @@ def parse_args() -> argparse.Namespace:
         help="Override reference voice clone WAV. Default: fetch from the "
              "Finnish-NLP/Chatterbox-Finnish repo on HuggingFace.",
     )
+    p.add_argument(
+        "--language",
+        default="fi",
+        choices=["fi", "en"],
+        help="Synthesis language. 'fi' uses the Finnish T3 finetune (Grandmom "
+             "in Finnish). 'en' uses the base multilingual model with a "
+             "voice-clone reference (Grandmom in native English).",
+    )
     return p.parse_args()
 
 
@@ -406,8 +414,34 @@ def _clear_chatterbox_state(engine) -> None:
         pass
 
 
-def _load_engine(device: str, ref_override: str | None):
-    """Load Chatterbox + Finnish finetune. Returns (engine, ref_wav_path)."""
+def _bundled_grandmom_ref() -> str | None:
+    """Return the path to the bundled Grandmom English reference WAV.
+
+    Layout: <repo root or install root>/assets/voices/grandmom_reference.wav
+    In the frozen app the file lives under the app's _internal/assets/voices/.
+    """
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent / "assets" / "voices" / "grandmom_reference.wav",
+        here.parent / "_internal" / "assets" / "voices" / "grandmom_reference.wav",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def _load_engine(device: str, ref_override: str | None, language: str = "fi"):
+    """Load Chatterbox. Returns (engine, ref_wav_path).
+
+    Language routing (see memory/project_english_grandmom.md):
+      - ``fi`` — loads the Finnish-NLP T3 finetune on top of the base
+        multilingual model. Reference WAV is the Finnish-NLP sample
+        (or --ref-audio override). This is Grandmom in Finnish.
+      - ``en`` — base multilingual model only (English is trained in).
+        Reference WAV is the bundled Grandmom clip so the voice-cloning
+        pass carries Grandmom's timbre into native-English synthesis.
+    """
     import torch  # noqa: F401  (imported to verify install before next steps)
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
     from huggingface_hub import hf_hub_download
@@ -418,6 +452,24 @@ def _load_engine(device: str, ref_override: str | None):
     engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
     print(f"[tts] base loaded in {time.time() - t0:.1f}s", flush=True)
 
+    if language == "en":
+        # Native English path — no T3 finetune, use the bundled Grandmom
+        # reference clip for voice cloning.
+        if ref_override:
+            ref_wav_path = ref_override
+        else:
+            bundled = _bundled_grandmom_ref()
+            if bundled is None:
+                raise RuntimeError(
+                    "Grandmom English reference WAV not found. "
+                    "Expected at assets/voices/grandmom_reference.wav"
+                )
+            ref_wav_path = bundled
+        print(f"[tts] English mode: base model + ref wav: {ref_wav_path}",
+              flush=True)
+        return engine, ref_wav_path
+
+    # Finnish path (default) — keep existing finetune loading unchanged.
     if ref_override:
         ref_wav_path = ref_override
     else:
@@ -625,7 +677,8 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, _on_sigint)
 
-    engine, ref_wav_path = _load_engine(device, args.ref_audio)
+    engine, ref_wav_path = _load_engine(device, args.ref_audio,
+                                         language=args.language)
     vad_model, get_speech_timestamps = _make_vad()
 
     wall_start = time.time()
@@ -671,7 +724,7 @@ def main() -> int:
                 t0 = time.time()
                 wav = engine.generate(
                     chunk_text,
-                    language_id="fi",
+                    language_id=args.language,
                     audio_prompt_path=ref_wav_path,
                     repetition_penalty=FI_REPETITION_PENALTY,
                     temperature=FI_TEMPERATURE,

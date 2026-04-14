@@ -299,6 +299,25 @@ class TestRunnerConstruction:
         assert runner.pdf_path == str(tmp_path / "book.pdf")
         assert runner.extra_args == ["--chapters", "1"]
 
+    def test_language_defaults_to_fi(self, tmp_path) -> None:
+        runner = ChatterboxRunner(
+            python_exe=str(tmp_path / "python"),
+            script_path="s.py",
+            pdf_path="/tmp/x.pdf",
+            out_dir="/tmp/out",
+        )
+        assert runner.language == "fi"
+
+    def test_language_kwarg_stored(self, tmp_path) -> None:
+        runner = ChatterboxRunner(
+            python_exe=str(tmp_path / "python"),
+            script_path="s.py",
+            pdf_path="/tmp/x.pdf",
+            out_dir="/tmp/out",
+            language="en",
+        )
+        assert runner.language == "en"
+
     def test_finished_is_false_before_start(self, tmp_path) -> None:
         runner = ChatterboxRunner(
             python_exe=str(tmp_path / "python"),

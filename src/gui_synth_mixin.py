@@ -189,6 +189,11 @@ class SynthMixin(_Base):
         if ref_audio:
             extra_args.extend(["--ref-audio", ref_audio])
 
+        # Language routing: EN -> base multilingual model + bundled ref clip
+        # (produces native English with Grandmom timbre). FI -> Finnish T3
+        # finetune (current default). See memory/project_english_grandmom.md.
+        language = self._current_language()
+
         self._chatterbox_runner = ChatterboxRunner(
             python_exe=str(python_exe),
             script_path=str(runner_script),
@@ -197,6 +202,7 @@ class SynthMixin(_Base):
             epub_path=epub_path,
             out_dir=str(out_dir),
             extra_args=extra_args,
+            language=language,
         )
 
         input_label = pdf_path or epub_path or text_path or "text"

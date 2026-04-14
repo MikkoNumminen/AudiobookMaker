@@ -287,6 +287,7 @@ class ChatterboxRunner:
         epub_path: Optional[str] = None,
         out_dir: str = "",
         extra_args: Optional[list[str]] = None,
+        language: str = "fi",
     ) -> None:
         self.python_exe = python_exe
         self.script_path = script_path
@@ -295,6 +296,7 @@ class ChatterboxRunner:
         self.epub_path = epub_path
         self.out_dir = out_dir
         self.extra_args = extra_args or []
+        self.language = language
         self._state = _RunnerState()
 
     # ------------------------------------------------------------------
@@ -324,6 +326,8 @@ class ChatterboxRunner:
             self.out_dir,
             "--device",
             "auto",
+            "--language",
+            self.language,
             *self.extra_args,
         ]
 

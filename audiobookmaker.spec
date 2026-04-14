@@ -122,6 +122,11 @@ datas += [
 # Goat icon for the window title bar and taskbar
 datas += [(os.path.join('assets', 'icon.ico'), 'assets')]
 datas += [(os.path.join('assets', 'icon.png'), 'assets')]
+# Grandmom voice reference WAV — used by the Chatterbox subprocess when
+# synthesizing English via the multilingual base model + voice cloning.
+# See memory/project_english_grandmom.md for the recipe.
+datas += [(os.path.join('assets', 'voices', 'grandmom_reference.wav'),
+           os.path.join('assets', 'voices'))]
 
 a = Analysis(
     [os.path.join('src', 'main.py')],
