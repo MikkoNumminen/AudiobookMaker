@@ -16,7 +16,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +41,11 @@ class Lexicon:
 # Lazy loader
 # ---------------------------------------------------------------------------
 
-_lexicon_cache: Optional[Lexicon] = None
+_lexicon_cache: Lexicon | None = None
 _load_attempted: bool = False
 
 
-def _load_lexicon() -> Optional[Lexicon]:
+def _load_lexicon() -> Lexicon | None:
     """Load and cache the loanword lexicon from YAML.
 
     Returns ``None`` if the file is missing or PyYAML is unavailable.

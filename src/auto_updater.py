@@ -14,7 +14,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -68,7 +68,7 @@ def _parse_version(version_str: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
-def _find_exe_asset(assets: list[dict]) -> Optional[dict]:
+def _find_exe_asset(assets: list[dict]) -> dict | None:
     """Return the first .exe asset from a GitHub release asset list."""
     for asset in assets:
         name: str = asset.get("name", "")
@@ -91,7 +91,7 @@ def _no_update(current_version: str) -> UpdateInfo:
     )
 
 
-def _extract_sha256(release_notes: str) -> Optional[str]:
+def _extract_sha256(release_notes: str) -> str | None:
     """Extract a SHA-256 hash from the release notes body.
 
     Looks for a line like:
@@ -164,8 +164,8 @@ def check_for_update(current_version: str) -> UpdateInfo:
 
 def download_update(
     update: UpdateInfo,
-    progress_cb: Optional[Callable[[int, int], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
+    progress_cb: Callable[[int, int], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """Download the installer .exe to a temporary directory.
 
@@ -247,7 +247,7 @@ def _write_pending_marker(expected_version: str, installer_path: Path) -> None:
         logger.debug("Could not write pending marker: %s", exc)
 
 
-def read_pending_marker() -> Optional[dict]:
+def read_pending_marker() -> dict | None:
     """Return the pending-update marker dict, or None if no update is pending."""
     if not PENDING_MARKER.exists():
         return None
@@ -265,7 +265,7 @@ def clear_pending_marker() -> None:
         pass
 
 
-def verify_pending_update(current_version: str) -> Optional[dict]:
+def verify_pending_update(current_version: str) -> dict | None:
     """Return the pending marker if the update FAILED, else clear and return None.
 
     Called on app launch. If the current version matches the expected

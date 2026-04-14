@@ -13,17 +13,16 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
 
 
-def get_ffmpeg_dir() -> Optional[str]:
+def get_ffmpeg_dir() -> str | None:
     """Return the directory containing ffmpeg.exe, or None if not found."""
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         return sys._MEIPASS
     return None
 
 
-def get_ffmpeg_exe() -> Optional[str]:
+def get_ffmpeg_exe() -> str | None:
     """Return the full path to ffmpeg.exe, searching multiple locations."""
     # 1. PyInstaller bundle root
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
