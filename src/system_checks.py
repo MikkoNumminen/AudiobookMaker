@@ -166,6 +166,46 @@ def check_disk_space(path: str = "") -> DiskInfo:
         return DiskInfo(path=path)
 
 
+def estimate_synthesis_size_mb(text_chars: int, engine_id: str = "edge") -> float:
+    """Estimate peak disk use (MB) for synthesizing *text_chars* of text.
+
+    Accounts for:
+      - Per-chunk temp files (MP3 for Edge-TTS, WAV for Piper/Chatterbox)
+      - Final combined MP3
+
+    Edge-TTS: ~32 kbps MP3 ≈ 4 KB per second of audio; speech at ~15 chars/s
+      → ~260 bytes per character (peak = chunks + final ≈ 2x)
+    Piper: 22 kHz mono 16-bit WAV ≈ 44 KB/s, similar speech rate
+      → ~3 KB per character (WAV temps dominate)
+    Chatterbox: 24 kHz WAV chunks during synthesis, same order as Piper
+    """
+    if text_chars <= 0:
+        return 0.0
+    per_char_bytes = {
+        "edge": 520,            # ~2x safety for edge MP3 output
+        "piper": 6000,          # WAV temps + MP3 output
+        "chatterbox_fi": 8000,  # WAV temps + MP3 + book-size overhead
+    }.get(engine_id, 2000)
+    return (text_chars * per_char_bytes) / (1024 * 1024)
+
+
+def check_output_disk_space(
+    output_path: str,
+    text_chars: int,
+    engine_id: str = "edge",
+) -> tuple[bool, float, float]:
+    """Return (has_enough, free_mb, needed_mb) for a planned synthesis.
+
+    *output_path* is the target file or directory; disk space is checked
+    on its drive. Walks up to an existing ancestor if the target doesn't
+    exist yet.
+    """
+    needed = estimate_synthesis_size_mb(text_chars, engine_id)
+    disk = check_disk_space(output_path)
+    free_mb = disk.free_gb * 1024
+    return (free_mb >= needed, free_mb, needed)
+
+
 def find_python311() -> PythonInfo:
     """Detect whether Python 3.11 is installed.
 

@@ -14,6 +14,8 @@ from src.system_checks import (
     PythonInfo,
     SystemReport,
     check_disk_space,
+    check_output_disk_space,
+    estimate_synthesis_size_mb,
     detect_gpu,
     find_python311,
     run_full_check,
@@ -184,6 +186,71 @@ class TestCheckDiskSpace:
         assert info.free_gb == 500.0
         # But the path field keeps the original
         assert info.path == str(probe_path)
+
+
+# ---------------------------------------------------------------------------
+# estimate_synthesis_size_mb
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateSynthesisSize:
+    def test_zero_chars_is_zero(self) -> None:
+        assert estimate_synthesis_size_mb(0, "edge") == 0.0
+
+    def test_negative_chars_is_zero(self) -> None:
+        assert estimate_synthesis_size_mb(-100, "edge") == 0.0
+
+    def test_edge_tts_smaller_than_chatterbox(self) -> None:
+        edge = estimate_synthesis_size_mb(10_000, "edge")
+        cbox = estimate_synthesis_size_mb(10_000, "chatterbox_fi")
+        assert cbox > edge
+
+    def test_full_book_chatterbox_is_hundreds_of_mb(self) -> None:
+        # 65k chars ~= 4h Finnish audiobook
+        mb = estimate_synthesis_size_mb(65_000, "chatterbox_fi")
+        assert 400 < mb < 1000
+
+    def test_scales_linearly_with_chars(self) -> None:
+        small = estimate_synthesis_size_mb(1_000, "edge")
+        big = estimate_synthesis_size_mb(10_000, "edge")
+        assert abs(big / small - 10.0) < 0.01
+
+    def test_unknown_engine_uses_default(self) -> None:
+        # Should not crash, returns some positive estimate
+        assert estimate_synthesis_size_mb(1_000, "made_up") > 0
+
+
+# ---------------------------------------------------------------------------
+# check_output_disk_space
+# ---------------------------------------------------------------------------
+
+
+class TestCheckOutputDiskSpace:
+    def test_enough_space_returns_true(self) -> None:
+        fake_usage = MagicMock(total=1000 * 1024**3, free=100 * 1024**3)
+        with patch("src.system_checks.shutil.disk_usage", return_value=fake_usage):
+            ok, free_mb, need_mb = check_output_disk_space(
+                "/some/path", 10_000, "edge",
+            )
+        assert ok is True
+        assert free_mb > need_mb
+
+    def test_insufficient_space_returns_false(self) -> None:
+        # 1 MB free, try to make 500 MB chatterbox
+        fake_usage = MagicMock(total=1000 * 1024**3, free=1 * 1024**2)
+        with patch("src.system_checks.shutil.disk_usage", return_value=fake_usage):
+            ok, free_mb, need_mb = check_output_disk_space(
+                "/some/path", 65_000, "chatterbox_fi",
+            )
+        assert ok is False
+        assert need_mb > free_mb
+
+    def test_zero_text_always_fits(self) -> None:
+        fake_usage = MagicMock(total=1 * 1024**3, free=1 * 1024**2)
+        with patch("src.system_checks.shutil.disk_usage", return_value=fake_usage):
+            ok, _free, need = check_output_disk_space("/x", 0, "edge")
+        assert ok is True
+        assert need == 0.0
 
 
 # ---------------------------------------------------------------------------
