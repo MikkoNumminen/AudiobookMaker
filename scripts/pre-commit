@@ -2,13 +2,30 @@
 # Pre-commit hook: run tests before allowing commits.
 # Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
-echo "Running tests before commit..."
-py -3 -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short 2>&1
+# Windows pytest-asyncio can occasionally hang inside ProactorEventLoop's
+# internal socketpair() during test teardown. pytest-timeout catches it
+# (pytest.ini sets timeout=60), but once in a while an otherwise-green
+# run fails. Retry once before declaring the commit broken — real test
+# failures are reproducible, flakes aren't.
+PYTEST_ARGS="tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short"
 
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "Tests FAILED — commit blocked. Fix the failures and try again."
-    exit 1
+run_tests() {
+    py -3 -m pytest $PYTEST_ARGS 2>&1
+}
+
+echo "Running tests before commit..."
+if run_tests; then
+    echo "All tests passed."
+    exit 0
 fi
 
-echo "All tests passed."
+echo ""
+echo "First test run failed — retrying once in case of a Windows asyncio flake..."
+if run_tests; then
+    echo "All tests passed on retry."
+    exit 0
+fi
+
+echo ""
+echo "Tests FAILED twice — commit blocked. Fix the failures and try again."
+exit 1
