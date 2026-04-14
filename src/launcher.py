@@ -1,4 +1,9 @@
-"""Minimal AudiobookMaker launcher — "pick PDF, click button, get MP3".
+"""Legacy launcher entry point retained for backwards compatibility. New
+work should use src/gui_unified.py — do not extend this file. Still
+frozen by audiobookmaker_launcher.spec and shipped by
+installer/launcher.iss, so it cannot simply be deleted.
+
+Minimal AudiobookMaker launcher — "pick PDF, click button, get MP3".
 
 This is the simple entry point aimed at non-technical users (Turo etc.).
 The existing ``src/gui.py`` is the advanced-mode window with the full

@@ -1,4 +1,7 @@
-"""Tkinter GUI for AudiobookMaker.
+"""Legacy GUI entry point retained for backwards compatibility. New work
+should use src/gui_unified.py — do not extend this file.
+
+Tkinter GUI for AudiobookMaker.
 
 Provides a simple window for selecting a PDF, configuring TTS settings,
 and converting to MP3. Runs TTS in a background thread to keep the UI

@@ -104,10 +104,10 @@ model, all installed into its own venv so the main app bundle stays
 flowchart LR
     PDF[PDF] --> Parsers[pdf_parser.py / epub_parser.py]
     EPUB[EPUB] --> Parsers
-    Text[Plain text] --> Chunker
-    Parsers --> Chunker[tts_chunking.py<br/>chapter + chunk splits]
-    Chunker --> Norm[tts_normalizer_fi.py<br/>16 passes]
-    Norm --> Engine[engine.synthesize]
+    Text[Plain text] --> Norm
+    Parsers --> Norm[tts_normalizer_fi.py<br/>16 passes]
+    Norm --> Chunker[tts_chunking.py<br/>chapter + chunk splits]
+    Chunker --> Engine[engine.synthesize]
     Engine --> Wav[chunk WAV/MP3]
     Wav --> Audio[tts_audio.py<br/>ffmpeg concat]
     Audio --> Final[book.mp3]
@@ -115,11 +115,12 @@ flowchart LR
 
 - `pdf_parser.py` — PyMuPDF, extracts chapters heuristically
 - `epub_parser.py` — EPUB chapter extraction (same output shape as `pdf_parser`)
+- `tts_normalizer_fi.py` — 16 transformation passes that make Finnish
+  abbreviations, numbers, case endings, and dates readable. Runs before
+  chunking so the chunker splits on fully expanded sentences. Covered by
+  400+ unit tests; see [`tts_text_normalization_cases.md`](tts_text_normalization_cases.md)
 - `tts_chunking.py` — splits long text at sentence boundaries under a
   length cap the engine can handle
-- `tts_normalizer_fi.py` — 16 transformation passes that make Finnish
-  abbreviations, numbers, case endings, and dates readable. Covered by
-  400+ unit tests; see [`tts_text_normalization_cases.md`](tts_text_normalization_cases.md)
 - `tts_audio.py` — thin wrapper around `pydub` + bundled ffmpeg
 
 ## Subprocess & cross-process messaging
