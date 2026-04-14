@@ -1,6 +1,10 @@
 # PDF parsing
 PyMuPDF==1.24.5
 
+# EPUB parsing
+ebooklib>=0.18
+beautifulsoup4>=4.12
+
 # Text-to-speech
 edge-tts==7.2.8
 
