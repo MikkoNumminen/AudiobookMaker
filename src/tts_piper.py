@@ -285,10 +285,18 @@ class PiperTTSEngine(TTSEngine):
     def check_status(self) -> EngineStatus:
         try:
             import piper  # noqa: F401
-        except ImportError:
+            # Force the real import chain (voice -> espeakbridge .pyd) so
+            # bundling issues are caught here rather than at synth time.
+            from piper import PiperVoice  # noqa: F401
+        except ImportError as exc:
             return EngineStatus(
                 available=False,
-                reason="Install required: pip install piper-tts",
+                reason=f"Piper import failed: {exc}. Try: pip install piper-tts",
+            )
+        except Exception as exc:
+            return EngineStatus(
+                available=False,
+                reason=f"Piper load error: {type(exc).__name__}: {exc}",
             )
 
         # If at least one voice is cached, we're fully ready; otherwise the

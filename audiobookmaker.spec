@@ -80,6 +80,12 @@ excludes = [
 ]
 
 binaries = _all_onnx[1] + _all_piper[1] + _all_pathvalidate[1]
+# Explicit dynamic libs — collect_all already does this, but piper ships a
+# .pyd (espeakbridge) that is lazy-imported from inside EspeakPhonemizer.__init__,
+# and past releases have sometimes missed it. Belt-and-braces.
+binaries += collect_dynamic_libs('piper')
+hidden_imports += ['piper.espeakbridge', 'piper.voice', 'piper.config',
+                   'piper.phonemize_espeak', 'piper.phoneme_ids', 'piper.const']
 
 # Bundle ffmpeg.exe, ffprobe.exe, and ffplay.exe from dist/ffmpeg/ into the
 # package root so pydub can find them at runtime (see src/ffmpeg_path.py).
