@@ -531,8 +531,16 @@ class EngineManagerDialog(ctk.CTkToplevel):
             messagebox.showerror(self._s("title"), msg, parent=self)
             return
 
-        # Show progress UI
-        self._progress_frame.pack(fill=tk.X, padx=12, pady=6, before=self._close_btn.master)
+        # Show progress UI. Dialog uses pack; the embedded view uses grid.
+        if hasattr(self, "_close_btn"):
+            self._progress_frame.pack(
+                fill=tk.X, padx=12, pady=6, before=self._close_btn.master,
+            )
+        else:
+            self._progress_frame.grid(
+                row=getattr(self, "_progress_row", 3), column=0,
+                sticky="ew", padx=12, pady=6,
+            )
         self._progress_step_lbl.configure(text=self._s("installing"))
         self._progress_msg_lbl.configure(text="")
         self._progress_bar.set(0)
@@ -601,7 +609,15 @@ class EngineManagerDialog(ctk.CTkToplevel):
     def _install_finished(self) -> None:
         self._cancel_event = None
         self._install_thread = None
-        self._progress_frame.pack_forget()
+        # Hide via whichever geometry manager placed it.
+        try:
+            self._progress_frame.pack_forget()
+        except Exception:
+            pass
+        try:
+            self._progress_frame.grid_forget()
+        except Exception:
+            pass
         self._refresh_engine_rows()
 
     def _on_uninstall(self, installer) -> None:
@@ -625,6 +641,135 @@ class EngineManagerDialog(ctk.CTkToplevel):
             messagebox.showerror(self._s("title"), str(exc), parent=self)
         finally:
             self._refresh_engine_rows()
+
+
+# ---------------------------------------------------------------------------
+# Engine manager — in-place view (replaces the Toplevel dialog)
+# ---------------------------------------------------------------------------
+
+
+class EngineManagerView(ctk.CTkFrame):
+    """Embedded settings page with the same content as EngineManagerDialog.
+
+    Lives in the root window's stacked view container and is swapped in
+    via tkraise() instead of opening a new Toplevel. A back-arrow button
+    returns to the main audiobook view.
+    """
+
+    def __init__(self, parent, ui_lang: str = "fi", on_back=None) -> None:
+        super().__init__(parent, fg_color="transparent")
+        self._ui_lang = ui_lang
+        self._strings = _ENGINE_MGR_STRINGS.get(ui_lang, _ENGINE_MGR_STRINGS["fi"])
+        self._on_back = on_back
+        self._cancel_event: Optional[threading.Event] = None
+        self._install_thread: Optional[threading.Thread] = None
+        self._progress_queue: "queue.Queue" = queue.Queue()
+        self._engine_rows: dict[str, dict] = {}
+
+        self._build_ui()
+
+    # Convenience alias so external callers can request a data refresh.
+    def refresh(self) -> None:
+        self._refresh_system_info()
+        self._refresh_engine_rows()
+
+    def _s(self, key: str) -> str:
+        return self._strings.get(key, key)
+
+    # Reuse the dialog's UI/logic by delegation — identical methods
+    # with a different parent. Below is the full in-place version.
+
+    def _build_ui(self) -> None:
+        # Header row with back arrow + title.
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
+        header.columnconfigure(1, weight=1)
+
+        back_btn = ctk.CTkButton(
+            header,
+            text="\u2190  " + (self._s("close") if self._ui_lang == "en" else "Takaisin"),
+            width=120, height=32,
+            command=self._on_back_click,
+            anchor="w",
+        )
+        back_btn.grid(row=0, column=0, sticky="w")
+
+        title_lbl = ctk.CTkLabel(
+            header, text=self._s("title"),
+            font=ctk.CTkFont(size=16, weight="bold"),
+        )
+        title_lbl.grid(row=0, column=1, sticky="w", padx=(12, 0))
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(2, weight=1)  # Engines section stretches.
+
+        # System info section
+        sys_frame = ctk.CTkFrame(self)
+        sys_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=6)
+        sys_frame.columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            sys_frame, text=self._s("system"),
+            font=ctk.CTkFont(weight="bold", size=14),
+        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+
+        self._gpu_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
+        self._gpu_label.grid(row=1, column=0, sticky="ew", padx=8, pady=2)
+        self._disk_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
+        self._disk_label.grid(row=2, column=0, sticky="ew", padx=8, pady=2)
+        self._py_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
+        self._py_label.grid(row=3, column=0, sticky="ew", padx=8, pady=(2, 8))
+
+        # Engines section
+        eng_frame = ctk.CTkFrame(self)
+        eng_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=6)
+        eng_frame.columnconfigure(0, weight=1)
+        eng_frame.rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            eng_frame, text=self._s("engines"),
+            font=ctk.CTkFont(weight="bold", size=14),
+        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+
+        self._engines_container = ctk.CTkFrame(eng_frame, fg_color="transparent")
+        self._engines_container.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        self._engines_container.columnconfigure(0, weight=1)
+
+        # Progress section (hidden until install starts)
+        self._progress_frame = ctk.CTkFrame(self)
+        self._progress_step_lbl = ctk.CTkLabel(
+            self._progress_frame, text="", anchor="w",
+        )
+        self._progress_step_lbl.pack(fill=tk.X, padx=8, pady=(8, 2))
+        self._progress_bar = ctk.CTkProgressBar(self._progress_frame)
+        self._progress_bar.pack(fill=tk.X, padx=8, pady=2)
+        self._progress_bar.set(0)
+        self._progress_msg_lbl = ctk.CTkLabel(
+            self._progress_frame, text="", anchor="w",
+        )
+        self._progress_msg_lbl.pack(fill=tk.X, padx=8, pady=(2, 8))
+        # Grid row reserved; shown via .grid() during install.
+        self._progress_row = 3
+
+        # Initial content.
+        self._refresh_system_info()
+        self._refresh_engine_rows()
+
+    def _on_back_click(self) -> None:
+        if self._on_back:
+            self._on_back()
+
+    # --- Shared logic (same as EngineManagerDialog) ---
+    # Import-by-reference keeps both classes in sync.
+    _engine_size_text = EngineManagerDialog._engine_size_text
+    _fmt_size_mb = EngineManagerDialog._fmt_size_mb
+    _refresh_system_info = EngineManagerDialog._refresh_system_info
+    _refresh_engine_rows = EngineManagerDialog._refresh_engine_rows
+    _on_install = EngineManagerDialog._on_install
+    _poll_progress = EngineManagerDialog._poll_progress
+    _handle_progress = EngineManagerDialog._handle_progress
+    _install_finished = EngineManagerDialog._install_finished
+    _on_uninstall = EngineManagerDialog._on_uninstall
 
 
 # ---------------------------------------------------------------------------
@@ -880,33 +1025,101 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        main = ctk.CTkFrame(self)
-        main.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
+        # Root container holding two stacked views we can swap with tkraise().
+        # Keeps the whole app in a single window — no Toplevel popups for
+        # settings / engine manager.
+        self._view_container = ctk.CTkFrame(self)
+        self._view_container.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
+        self._view_container.columnconfigure(0, weight=1)
+        self._view_container.rowconfigure(0, weight=1)
+
+        # Main view — the normal "create audiobook" screen.
+        main = ctk.CTkFrame(self._view_container, fg_color="transparent")
+        main.grid(row=0, column=0, sticky="nsew")
+        self._main_view = main
         main.columnconfigure(0, weight=1)
         # Let log panel row stretch.
-        main.rowconfigure(7, weight=1)
+        main.rowconfigure(8, weight=1)
 
         # Track current input mode for tab renaming during language changes.
         self._input_mode_raw = "pdf"
         self._tab_name_map: dict[str, str] = {}
 
-        # New layout (top → bottom):
+        # Main view layout (top → bottom):
         #   0  Update banner (hidden by default)
-        #   1  Header bar (language toggle, engine manager, about)
-        #   2  Input tabs (PDF / Text) — the primary user surface
-        #   3  Action row (big Muunna + small secondaries + progress + inline status)
-        #   4  Asetukset header (collapse / expand)
-        #   5  Asetukset body (all engine/voice/path/output options; hidden by default)
-        #   6  Log toggle
-        #   7  Log panel (visible by default)
+        #   1  Header bar (UI language + Moottorit… back-nav)
+        #   2  Input tabs (PDF / Text)
+        #   3  Engine + voice bar (ALWAYS visible — primary model picker)
+        #   4  Action row (big Muunna + small secondaries + progress)
+        #   5  Asetukset header (collapse / expand)
+        #   6  Asetukset body (language, speed, ref audio, voice style, output path)
+        #   7  Log toggle
+        #   8  Log panel (visible by default)
         self._build_update_banner(main, row=0)
         self._build_header_bar(main, row=1)
         self._build_input_tabs(main, row=2)
-        self._build_action_row(main, row=3)
-        self._build_settings_frame(main, row=4)  # header + body
-        self._build_log_panel(main, row=6, stretch_row=7)
+        self._build_engine_bar(main, row=3)
+        self._build_action_row(main, row=4)
+        self._build_settings_frame(main, row=5)  # header at row=5, body at row=6
+        self._build_log_panel(main, row=7, stretch_row=8)
+
+        # Settings view — in-place alternative to the old Toplevel popup.
+        # Stacked in the same grid cell; switched via tkraise().
+        self._settings_view = EngineManagerView(
+            self._view_container, ui_lang=self._ui_lang,
+            on_back=self._show_main_view,
+        )
+        self._settings_view.grid(row=0, column=0, sticky="nsew")
+        main.tkraise()
+
+    # ---- View switching (single-window flow, no popups) --------------
+
+    def _show_settings_view(self) -> None:
+        """Swap to the engine manager view."""
+        self._settings_view.refresh()
+        self._settings_view.tkraise()
+
+    def _show_main_view(self) -> None:
+        """Return to the main audiobook creation view."""
+        # Engine status may have changed (install/uninstall); refresh the dot.
+        self._populate_engine_list()
+        self._main_view.tkraise()
+
+    # ---- Engine + voice picker bar (ALWAYS visible) -------------------
+
+    def _build_engine_bar(self, parent: ctk.CTkFrame, row: int) -> None:
+        """Compact always-visible row: engine + voice dropdowns.
+
+        The user asked for the model picker to be close at hand when
+        creating speech. Placing engine + voice right above Muunna keeps
+        both one click away without opening Asetukset.
+        """
+        bar = ctk.CTkFrame(parent)
+        bar.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        bar.columnconfigure(1, weight=1)
+        bar.columnconfigure(3, weight=1)
+
+        self._engine_label = ctk.CTkLabel(bar, text="Moottori:")
+        self._engine_label.grid(row=0, column=0, sticky="w", padx=(8, 6), pady=6)
+        self._engine_cb = ctk.CTkComboBox(
+            bar, state="readonly",
+            command=self._on_engine_changed,
+        )
+        self._engine_cb.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=6)
+        self._populate_engine_list()
+
+        self._voice_label = ctk.CTkLabel(bar, text="Ääni:")
+        self._voice_label.grid(row=0, column=2, sticky="w", padx=(0, 6), pady=6)
+        self._voice_cb = ctk.CTkComboBox(bar, state="readonly")
+        self._voice_cb.grid(row=0, column=3, sticky="ew", padx=(0, 4), pady=6)
+
+        self._test_btn = ctk.CTkButton(
+            bar, text="Testaa ääni", command=self._on_test_voice,
+            width=110,
+        )
+        self._test_btn.grid(row=0, column=4, padx=(0, 8), pady=6)
 
     # ---- Header bar (language toggle, engine manager, about) ----------
 
@@ -930,10 +1143,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
         self._ui_lang_cb.grid(row=0, column=0, padx=(0, 6))
 
-        # Engine manager button (moved out of Asetukset).
+        # Engine manager — now an in-place view (no Toplevel popup).
         self._install_engines_btn = ctk.CTkButton(
             right, text="Moottorit\u2026",
-            command=self._open_engine_manager, width=120,
+            command=self._show_settings_view, width=120,
         )
         self._install_engines_btn.grid(row=0, column=1)
 
@@ -1118,30 +1331,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         srow = 0
 
-        # Row 0: Engine dropdown (status shown inline via label decoration
-        # inside _populate_engine_list, no separate row needed).
-        self._engine_label = ctk.CTkLabel(settings, text="Moottori:")
-        self._engine_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6)
-        )
-        self._engine_cb = ctk.CTkComboBox(
-            settings, state="readonly",
-            command=self._on_engine_changed,
-        )
-        self._engine_cb.grid(row=srow, column=1, columnspan=3, sticky="ew")
-        self._populate_engine_list()
-        srow += 1
-
         # Hidden compatibility widget for legacy engine-status hook points.
         self._engine_status_lbl = ctk.CTkLabel(
             settings, text="", text_color=_CLR_READY, wraplength=560,
         )
         # Not gridded — other code can still call .configure(text=...).
 
-        # Row 1: Language + Speed
+        # Row 0: Language + Speed
         self._tts_lang_label = ctk.CTkLabel(settings, text="Kieli:")
         self._tts_lang_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
+            row=srow, column=0, sticky="w", padx=(0, 6)
         )
         self._lang_cb = ctk.CTkComboBox(
             settings,
@@ -1149,39 +1348,18 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             command=self._on_language_changed,
         )
         self._lang_cb.set("Suomi")
-        self._lang_cb.grid(row=srow, column=1, sticky="w", pady=(6, 0))
+        self._lang_cb.grid(row=srow, column=1, sticky="w")
 
         self._speed_label = ctk.CTkLabel(settings, text="Nopeus:")
         self._speed_label.grid(
-            row=srow, column=2, sticky="w", padx=(16, 6), pady=(6, 0)
+            row=srow, column=2, sticky="w", padx=(16, 6)
         )
         self._speed_cb = ctk.CTkComboBox(
             settings,
             values=list(SPEED_OPTIONS["fi"].keys()), state="readonly", width=200,
         )
         self._speed_cb.set("Normaali")
-        self._speed_cb.grid(row=srow, column=3, sticky="w", pady=(6, 0))
-        srow += 1
-
-        # Row 2: Voice + test-voice button (renamed: Testaa ääni)
-        self._voice_label = ctk.CTkLabel(settings, text="Ääni:")
-        self._voice_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
-        )
-        voice_frame = ctk.CTkFrame(settings, fg_color="transparent")
-        voice_frame.grid(
-            row=srow, column=1, columnspan=3, sticky="ew", pady=(6, 0)
-        )
-        voice_frame.columnconfigure(0, weight=1)
-        self._voice_cb = ctk.CTkComboBox(
-            voice_frame, state="readonly",
-        )
-        self._voice_cb.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self._test_btn = ctk.CTkButton(
-            voice_frame, text="Testaa ääni", command=self._on_test_voice,
-            width=120,
-        )
-        self._test_btn.grid(row=0, column=1)
+        self._speed_cb.grid(row=srow, column=3, sticky="w")
         srow += 1
 
         # Row 3: Reference audio (voice cloning) — hidden when unsupported
@@ -1634,10 +1812,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ------------------------------------------------------------------
 
     def _open_engine_manager(self) -> None:
-        """Open the engine installer dialog with system info and per-engine actions."""
-        dlg = EngineManagerDialog(self, ui_lang=self._ui_lang)
-        dlg.transient(self)
-        dlg.grab_set()
+        """Legacy entry-point. Routes to the in-place settings view."""
+        self._show_settings_view()
 
     # ------------------------------------------------------------------
     # Update self-heal: fallback when silent install didn't take effect
