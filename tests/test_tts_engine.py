@@ -4,6 +4,7 @@ Network calls to edge-tts are mocked. Only local logic is tested here.
 Integration tests (actual synthesis) require internet access and are skipped in CI.
 
 Finnish-normalizer tests live in ``tests/test_tts_normalizer_fi.py``.
+Chunking tests live in ``tests/test_tts_chunking.py``.
 """
 
 from __future__ import annotations
@@ -26,10 +27,7 @@ from src.tts_engine import (
     TTSConfig,
     VOICES,
     combine_audio_files,
-    split_text_into_chunks,
     text_to_speech,
-    _force_split,
-    _split_sentences,
     _synthesize_chunk,
 )
 
@@ -73,122 +71,6 @@ class TestTTSConfigYearShortening:
     def test_tts_config_year_shortening_can_be_full(self) -> None:
         cfg = TTSConfig(year_shortening="full")
         assert cfg.year_shortening == "full"
-
-
-# ---------------------------------------------------------------------------
-# split_text_into_chunks
-# ---------------------------------------------------------------------------
-
-
-class TestSplitTextIntoChunks:
-    def test_empty_text_returns_empty_list(self) -> None:
-        assert split_text_into_chunks("") == []
-        assert split_text_into_chunks("   ") == []
-
-    def test_short_text_is_single_chunk(self) -> None:
-        text = "Lyhyt teksti."
-        chunks = split_text_into_chunks(text, max_chars=500)
-        assert len(chunks) == 1
-        assert "Lyhyt teksti" in chunks[0]
-
-    def test_chunks_do_not_exceed_max_chars(self) -> None:
-        # Create text with many short sentences
-        text = " ".join(["Lause numero " + str(i) + "." for i in range(200)])
-        chunks = split_text_into_chunks(text, max_chars=200)
-        for chunk in chunks:
-            assert len(chunk) <= 200, f"Chunk too long: {len(chunk)}"
-
-    def test_very_long_single_sentence_is_force_split(self) -> None:
-        long_sentence = "sana " * 1000  # 5000 chars, no punctuation
-        chunks = split_text_into_chunks(long_sentence, max_chars=300)
-        assert len(chunks) > 1
-        for chunk in chunks:
-            assert len(chunk) <= 300
-
-    def test_all_text_preserved_across_chunks(self) -> None:
-        sentences = ["Tämä on lause numero " + str(i) + "." for i in range(50)]
-        text = " ".join(sentences)
-        chunks = split_text_into_chunks(text, max_chars=300)
-        combined = " ".join(chunks)
-        # All original words should appear somewhere
-        for i in range(50):
-            assert str(i) in combined
-
-    def test_no_empty_chunks(self) -> None:
-        text = "A. B. C. D."
-        chunks = split_text_into_chunks(text, max_chars=50)
-        for chunk in chunks:
-            assert chunk.strip() != ""
-
-
-# ---------------------------------------------------------------------------
-# _split_sentences — abbreviation and edge-case handling
-# ---------------------------------------------------------------------------
-
-
-class TestSplitSentences:
-    def test_finnish_abbreviation_esim_does_not_split(self) -> None:
-        text = "Tämä on esim. lause. Toinen lause."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 2
-        assert "esim." in sentences[0]
-
-    def test_finnish_abbreviation_ks_does_not_split(self) -> None:
-        text = "Ks. sivu 45. Seuraava lause alkaa."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 2
-
-    def test_initial_does_not_split(self) -> None:
-        text = "H. Pihlajamäki kirjoitti tämän. Seuraava."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 2
-        assert "H. Pihlajamäki" in sentences[0]
-
-    def test_decimal_number_does_not_split(self) -> None:
-        text = "Arvo on 5.2 metriä. Toinen lause."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 2
-
-    def test_domain_name_does_not_split(self) -> None:
-        text = "Katso google.com sivustoa. Seuraava."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 2
-
-    def test_real_sentence_end_splits(self) -> None:
-        text = "Ensimmäinen lause. Toinen lause. Kolmas lause."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 3
-
-    def test_question_and_exclamation_split(self) -> None:
-        text = "Kysymys? Vastaus! Toteamus."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 3
-
-    def test_english_abbreviations(self) -> None:
-        text = "See Dr. Smith. He is a professor."
-        sentences = _split_sentences(text)
-        assert len(sentences) == 2
-        assert "Dr. Smith" in sentences[0]
-
-
-# ---------------------------------------------------------------------------
-# _force_split
-# ---------------------------------------------------------------------------
-
-
-class TestForceSplit:
-    def test_splits_on_word_boundaries(self) -> None:
-        text = "yksi kaksi kolme neljä viisi"
-        parts = _force_split(text, max_chars=12)
-        assert all(len(p) <= 12 for p in parts)
-        assert " ".join(parts)  # all words present
-
-    def test_single_word_longer_than_max(self) -> None:
-        # Can't split a single word — returns it as-is
-        word = "a" * 500
-        parts = _force_split(word, max_chars=100)
-        assert len(parts) == 1
-        assert parts[0] == word
 
 
 # ---------------------------------------------------------------------------
