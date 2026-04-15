@@ -98,17 +98,57 @@ accepts three input formats:
   footnotes can confuse the text extraction
 - `.txt` — plain text, if you've already cleaned it up yourself
 
-For this walkthrough, we'll use an EPUB. Say it's called `Rubicon.epub`.
+For this walkthrough, we'll use an EPUB called `Rubicon.epub`.
 
-## Extracting a chunk to test with
+There are two ways to run the synthesis: on the **whole book** in one
+go, or on a **short excerpt** you've carved out for testing. Pick
+whichever fits what you're trying to do.
 
-Full audiobooks take hours to synthesize — a typical novel might be 10
-hours of GPU time. For your first run you'll want something smaller to
-confirm the setup works. Let's extract the first two chapters, which
-will produce roughly an hour of audio.
+## Way A — the whole book in one command
 
-The project has a helper to parse an EPUB into a list of chapters. We
-can use it from Python to write the chapters we want into a plain text
+This is the simplest path. Point the script at the EPUB (or PDF) and
+it handles everything: extracting the text, splitting it into
+chapters, normalizing the text, chunking it for the model, and
+stitching the chunks back into one MP3 at the end.
+
+```powershell
+mkdir out
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --epub Rubicon.epub `
+    --out out\rubicon.mp3 `
+    --language en `
+    --device cuda
+```
+
+For a typical novel this runs for several hours. The synthesis caches
+every chunk to disk as it's produced, so if you have to stop and
+restart (power blip, Windows Update, whatever) the same command just
+picks up where it left off — you don't lose the already-synthesized
+material.
+
+If you're starting out and want to know the run time before you
+commit to it, tack on `--dry-run`. That parses the book, splits it
+into chunks, and prints the estimate without using the GPU:
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --epub Rubicon.epub --language en --dry-run
+```
+
+The output tells you how many chunks the model will process, the
+estimated audio length, and the estimated wall time. Useful for
+"can I kick this off overnight?" decisions.
+
+## Way B — a short excerpt for testing
+
+Full audiobooks take hours. For a first run — checking that Chatterbox
+is working, that the voice sounds right, that `--language en` routes
+correctly — you want something much shorter. Carve out two chapters,
+which will produce roughly an hour of audio and take roughly an hour
+of GPU time.
+
+The project has a helper to parse an EPUB into a list of chapters.
+Use it from Python to write the chapters you want into a plain text
 file:
 
 ```powershell
@@ -132,10 +172,7 @@ That lists every chapter, its title, and how many characters it
 contains. The first real narrative chapters are usually the biggest
 ones after the front matter.
 
-## Running the synthesis
-
-Make a folder for the output, then invoke the synthesis script using
-the Chatterbox environment's Python:
+Now run the synthesis on the text file:
 
 ```powershell
 mkdir out
@@ -145,6 +182,26 @@ mkdir out
     --language en `
     --device cuda
 ```
+
+If you already know the chapter indices you want from a full book and
+don't need to edit the text first, there's a faster way that skips the
+extraction step — use `--epub` with `--chapters`:
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --epub Rubicon.epub `
+    --chapters 10,11 `
+    --out out\book.mp3 `
+    --language en `
+    --device cuda
+```
+
+This gives you the same result as Way B's two-step flow in one
+command. The two-step flow is still useful when you want to clean up
+the extracted text, trim a messy chapter heading, or glue together
+chapters from different books.
+
+## Shared details for both ways
 
 The backticks at the end of each line tell PowerShell that the command
 continues on the next line. What the flags do:
