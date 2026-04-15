@@ -277,6 +277,9 @@ _STRINGS = {
         "status_ready_strip": "\U0001F4D6 {name} \u00B7 {chars}k merkki\u00E4 \u00B7 ~{audio_human} audiota \u00B7 synteesi ~{wall_human} ({engine_display})",
         "status_synthesizing_strip": "\U0001F4D6 {name} \u00B7 {pct}% \u00B7 {eta_human} j\u00E4ljell\u00E4 \u00B7 valmis klo {hhmm}{rtf_suffix}",
         "status_done_strip": "\u2714 {name} \u00B7 valmis {wall_human} \u00B7 {size_mb:.0f} MB MP3",
+        "voice_count_label": "{n} {lang_name}-\u00e4\u00e4nt\u00e4",
+        "lang_name_fi": "suomenkielist\u00e4",
+        "lang_name_en": "englanninkielist\u00e4",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -371,6 +374,9 @@ _STRINGS = {
         "status_ready_strip": "\U0001F4D6 {name} \u00B7 {chars}k chars \u00B7 ~{audio_human} audio \u00B7 synthesis ~{wall_human} ({engine_display})",
         "status_synthesizing_strip": "\U0001F4D6 {name} \u00B7 {pct}% \u00B7 {eta_human} remaining \u00B7 done at {hhmm}{rtf_suffix}",
         "status_done_strip": "\u2714 {name} \u00B7 done in {wall_human} \u00B7 {size_mb:.0f} MB MP3",
+        "voice_count_label": "{n} {lang_name} voices",
+        "lang_name_fi": "Finnish",
+        "lang_name_en": "English",
     },
 }
 
@@ -753,36 +759,63 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ---- Engine + voice picker bar (ALWAYS visible) -------------------
 
     def _build_engine_bar(self, parent: ctk.CTkFrame, row: int) -> None:
-        """Compact always-visible row: engine + voice dropdowns.
+        """Compact always-visible row: Kieli + Moottori + Ääni dropdowns.
 
-        The user asked for the model picker to be close at hand when
-        creating speech. Placing engine + voice right above Muunna keeps
-        both one click away without opening Asetukset.
+        Kieli lives up here with Moottori and Ääni so users pick what
+        the voice speaks before they pick the voice itself — the Kieli
+        → Moottori → Ääni funnel promised by the Phase 2 redesign.
+
+        Layout (two rows, each combobox ~200 px):
+            Kieli:  [  Suomi         v ]   Moottori: [ Chatterbox   v ]
+            Ääni:   [  Grandmom      v ]   3 suomi-kielistä ääntä  [Testaa]
         """
         bar = ctk.CTkFrame(parent)
         bar.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         bar.columnconfigure(1, weight=1)
         bar.columnconfigure(3, weight=1)
+        self._engine_bar = bar
+
+        # Row 0: Kieli + Moottori
+        self._tts_lang_label = ctk.CTkLabel(bar, text="Kieli:")
+        self._tts_lang_label.grid(row=0, column=0, sticky="w", padx=(8, 6), pady=6)
+        self._lang_cb = ctk.CTkComboBox(
+            bar,
+            values=list(LANGUAGES.keys()), state="readonly",
+            command=self._on_language_changed,
+        )
+        self._lang_cb.set("Suomi")
+        self._lang_cb.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=6)
 
         self._engine_label = ctk.CTkLabel(bar, text="Moottori:")
-        self._engine_label.grid(row=0, column=0, sticky="w", padx=(8, 6), pady=6)
+        self._engine_label.grid(row=0, column=2, sticky="w", padx=(0, 6), pady=6)
         self._engine_cb = ctk.CTkComboBox(
             bar, state="readonly",
             command=self._on_engine_changed,
         )
-        self._engine_cb.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=6)
+        self._engine_cb.grid(row=0, column=3, sticky="ew", padx=(0, 4), pady=6)
         self._populate_engine_list()
 
+        # Row 1: Ääni + voice-count side label + Testaa
         self._voice_label = ctk.CTkLabel(bar, text="Ääni:")
-        self._voice_label.grid(row=0, column=2, sticky="w", padx=(0, 6), pady=6)
+        self._voice_label.grid(row=1, column=0, sticky="w", padx=(8, 6), pady=6)
         self._voice_cb = ctk.CTkComboBox(bar, state="readonly")
-        self._voice_cb.grid(row=0, column=3, sticky="ew", padx=(0, 4), pady=6)
+        self._voice_cb.grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=6)
+
+        # Grey side-label — honest about how many voices are available in
+        # the selected language without colouring dropdown items (which
+        # CTkComboBox doesn't support).
+        self._voice_count_lbl = ctk.CTkLabel(
+            bar, text="", text_color=("gray40", "gray60"),
+        )
+        self._voice_count_lbl.grid(
+            row=1, column=2, columnspan=2, sticky="w", padx=(0, 6), pady=6
+        )
 
         self._test_btn = ctk.CTkButton(
             bar, text="Testaa ääni", command=self._on_test_voice,
             width=110,
         )
-        self._test_btn.grid(row=0, column=4, padx=(0, 8), pady=6)
+        self._test_btn.grid(row=1, column=4, padx=(0, 8), pady=6)
 
     # ---- Header bar (language toggle, engine manager, about) ----------
 
@@ -1188,29 +1221,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         # Not gridded — other code can still call .configure(text=...).
 
-        # Row 0: Language + Speed
-        self._tts_lang_label = ctk.CTkLabel(settings, text="Kieli:")
-        self._tts_lang_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6)
-        )
-        self._lang_cb = ctk.CTkComboBox(
-            settings,
-            values=list(LANGUAGES.keys()), state="readonly", width=140,
-            command=self._on_language_changed,
-        )
-        self._lang_cb.set("Suomi")
-        self._lang_cb.grid(row=srow, column=1, sticky="w")
-
+        # Row 0: Speed. Kieli lives in the engine bar now, not here, so
+        # the Nopeus widget gets promoted to column 0 and stays on its
+        # own row instead of sharing with a (removed) language picker.
         self._speed_label = ctk.CTkLabel(settings, text="Nopeus:")
         self._speed_label.grid(
-            row=srow, column=2, sticky="w", padx=(16, 6)
+            row=srow, column=0, sticky="w", padx=(0, 6)
         )
         self._speed_cb = ctk.CTkComboBox(
             settings,
             values=list(SPEED_OPTIONS["fi"].keys()), state="readonly", width=200,
         )
         self._speed_cb.set("Normaali")
-        self._speed_cb.grid(row=srow, column=3, sticky="w")
+        self._speed_cb.grid(row=srow, column=1, sticky="w")
         srow += 1
 
         # Row 3: Reference audio (voice cloning) — hidden when unsupported
@@ -1343,13 +1366,31 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         Runs check_status() on every engine so the dropdown label
         reflects current availability (e.g. "Piper (ladattava)" when
-        voices are missing).
+        voices are missing). Also filters by the currently selected
+        Kieli — engines whose supported_languages() does not include
+        the chosen language are hidden from the dropdown, enforcing
+        the Kieli → Moottori → Ääni funnel.
         """
         self._engine_display_to_id.clear()
+
+        # Resolve current language; fall back to 'fi' during the first
+        # build pass where _lang_cb may not exist yet.
+        try:
+            current_lang = self._current_language()
+        except AttributeError:
+            current_lang = "fi"
 
         # Status dots give the user a glanceable read of each engine:
         #   🟢 ready    🟡 needs download (voice or model)    🔴 not available
         for engine in list_engines():
+            # Skip engines that don't speak the selected language at all.
+            try:
+                if current_lang not in engine.supported_languages():
+                    continue
+            except Exception:
+                # Be defensive: a buggy third-party engine must not
+                # break the whole dropdown.
+                pass
             dot = "\U0001F7E2"  # green circle — default: ready
             try:
                 status = engine.check_status()
@@ -1362,17 +1403,22 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             label = f"{dot}  {engine.display_name}"
             self._engine_display_to_id[label] = engine.id
 
-        # Chatterbox-Finnish via subprocess bridge.
+        # Chatterbox via subprocess bridge. It supports both Finnish (T3
+        # finetune) and English (voice-clone reference) so it's shown
+        # for every language we expose.
         chatterbox_py = resolve_chatterbox_python()
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
         if chatterbox_py is not None and runner_script.exists():
-            label = "\U0001F7E2  Chatterbox Finnish (paras laatu, NVIDIA)"
-            self._engine_display_to_id[label] = "chatterbox_fi"
+            if current_lang in _CHATTERBOX_LANG_TAGS:
+                label = "\U0001F7E2  Chatterbox Finnish (paras laatu, NVIDIA)"
+                self._engine_display_to_id[label] = "chatterbox_fi"
 
         labels = list(self._engine_display_to_id.keys())
         self._engine_cb.configure(values=labels)
-        if labels and not self._engine_cb.get():
-            self._engine_cb.set(labels[0])
+        # Preserve selection if it is still valid; otherwise pick the first.
+        current = self._engine_cb.get()
+        if current not in labels:
+            self._engine_cb.set(labels[0] if labels else "")
 
     def _current_engine_id(self) -> str:
         display = self._engine_cb.get()
@@ -1437,9 +1483,30 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._refresh_ready_status_strip()
 
     def _on_language_changed(self, selection: str = "") -> None:
+        # Kieli drives the whole cascade: first re-filter engines so the
+        # user can't stay on one that can't speak the new language, then
+        # re-filter voices inside the surviving engine, then persist.
+        self._populate_engine_list()
         self._refresh_voice_list()
         # Language change affects both audio rate and wall time — refresh.
         self._refresh_ready_status_strip()
+        # Persist the new Kieli so the choice survives across sessions.
+        try:
+            self._save_current_config()
+        except Exception:
+            # _save_current_config touches widgets that may not exist
+            # during the initial build pass; ignore those cases.
+            pass
+
+    def _update_voice_count_label(self, n: int) -> None:
+        """Render the grey side-label e.g. '3 suomenkielist\u00e4 \u00e4\u00e4nt\u00e4'."""
+        if not hasattr(self, "_voice_count_lbl"):
+            return
+        lang = self._current_language()
+        lang_key = f"lang_name_{lang}"
+        lang_name = self._s(lang_key) if lang_key in _STRINGS.get(self._ui_lang, {}) else lang
+        text = self._s("voice_count_label").format(n=n, lang_name=lang_name)
+        self._voice_count_lbl.configure(text=text)
 
     def _refresh_voice_list(self) -> None:
         """Refresh voices, status label, and capability widgets."""
@@ -1456,6 +1523,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             names = _chatterbox_voices_for_language(self._current_language())
             self._voice_cb.configure(values=names)
             self._voice_cb.set(names[0] if names else "")
+            self._update_voice_count_label(len(names))
             self._engine_status_lbl.configure(text_color=_CLR_READY)
             self._engine_status_lbl.configure(
                 text="Offline, paras laatu. Kesto ~1\u20132 h NVIDIA-koneella."
@@ -1469,6 +1537,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if engine is None:
             self._voice_cb.configure(values=[])
             self._voice_cb.set("")
+            self._update_voice_count_label(0)
             self._engine_status_lbl.configure(text="")
             self._update_capability_widgets(False, False)
             return
@@ -1479,6 +1548,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._engine_status_lbl.configure(text=status.reason)
             self._voice_cb.configure(values=[])
             self._voice_cb.set("")
+            self._update_voice_count_label(0)
         elif status.needs_download:
             self._engine_status_lbl.configure(text_color=_CLR_NEEDS_SETUP)
             self._engine_status_lbl.configure(
@@ -1509,6 +1579,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._voice_cb.set(default_name)
         else:
             self._voice_cb.set("")
+        self._update_voice_count_label(len(names))
 
     def _update_capability_widgets(
         self, supports_cloning: bool, supports_description: bool
