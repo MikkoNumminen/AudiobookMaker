@@ -103,6 +103,42 @@ Read this once; it shouldn't change often.
   a checklist of what was verified.
 - Link the TODO.md item if any.
 
+## Use English GUI label names in user-facing prose
+
+Whenever you write narrative prose for a human reader — chat replies,
+release notes, README copy, commit messages, PR bodies, GitHub issues —
+refer to GUI elements by their **English** label names. Do not paste the
+Finnish in-app strings into prose, even though the running app shows
+them in Finnish by default.
+
+| Finnish in-app | Use this in prose |
+|---|---|
+| Kieli | Language |
+| Moottori | Engine |
+| Ääni | Voice |
+| Muunna | Convert |
+| Esikuuntele | Preview |
+| Tee näyte | Make sample |
+| Avaa kansio | Open folder |
+| Asetukset | Settings |
+| Asenna moottoreita | Install engines |
+| Tallenna | Save |
+| Tuloste | Output |
+| Nopeus | Speed |
+| Ref. ääni | Reference audio |
+| Suomi | Finnish |
+| Kirja | Book |
+| Teksti | Text |
+
+The Finnish strings still live in `_STRINGS["fi"]` inside `gui_unified.py`
+— that is the actual UI text, leave it alone. The English equivalents
+live in `_STRINGS["en"]` already. Code identifiers like `_lang_cb`,
+`_engine_cb`, `_voice_cb` are symbol names and stay as-is.
+
+Why: release notes and PR descriptions need to be readable for
+contributors who don't speak Finnish, and inline Finnish UI strings
+look unprofessional in English prose.
+
 ## TODO.md protocol
 
 [TODO.md](../TODO.md) is the shared task list across all parallel
