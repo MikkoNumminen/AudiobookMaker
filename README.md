@@ -40,7 +40,7 @@ right now.
 - **Goat splash on startup and during updates** -- the goat icon
   appears the moment the app starts, and stays on screen through
   the 10-15 second update gap so you never wonder if the app crashed
-- **Running version shown in the title bar** -- `AudiobookMaker v3.5.2`
+- **Running version shown in the title bar** -- `AudiobookMaker v3.6.0`
   so you can confirm which build is actually running after an update
 - **Progress bar reaches 100%** -- "Valmis!" no longer appears while
   the bar is still at 85%. Every gain counts, visibly
@@ -119,10 +119,10 @@ a lot of fixes to make everything actually work reliably:
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.5.2](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.5.2)
+**Download:** [AudiobookMaker v3.6.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.6.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.5.2.exe`
+1. Download `AudiobookMaker-Setup-3.6.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
@@ -416,6 +416,7 @@ AudiobookMaker/
 ## License
 
 MIT
+
 
 
 
