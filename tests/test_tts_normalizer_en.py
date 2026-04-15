@@ -26,6 +26,7 @@ from src.tts_normalizer_en import (
     _pass_k_whitespace,
     _pass_l_currency,
     _pass_m_units,
+    _pass_n_time,
     _roman_to_int,
     normalize_english_text,
 )
@@ -648,6 +649,91 @@ class TestNormalizeEnglishText:
         assert "Mister" in out
         assert "Doctor" in out
         assert "versus" in out
+
+class TestPassNTime:
+    # 12-hour whole hours
+    def test_1_oclock(self):
+        assert _pass_n_time("1:00") == "one o'clock"
+
+    def test_12_oclock_noon(self):
+        assert _pass_n_time("12:00") == "twelve o'clock"
+
+    def test_12_hour_with_minutes(self):
+        assert _pass_n_time("3:30") == "three thirty"
+
+    def test_3_45(self):
+        assert _pass_n_time("3:45") == "three forty-five"
+
+    def test_9_05_oh_something(self):
+        assert _pass_n_time("9:05") == "nine oh five"
+
+    def test_11_59(self):
+        assert _pass_n_time("11:59") == "eleven fifty-nine"
+
+    # 24-hour times
+    def test_13_00_military(self):
+        assert _pass_n_time("13:00") == "thirteen hundred hours"
+
+    def test_15_00_example(self):
+        assert _pass_n_time("15:00") == "fifteen hundred hours"
+
+    def test_23_59(self):
+        assert _pass_n_time("23:59") == "twenty-three fifty-nine"
+
+    def test_18_30(self):
+        assert _pass_n_time("18:30") == "eighteen thirty"
+
+    # Midnight edge
+    def test_0_00_midnight(self):
+        assert _pass_n_time("0:00") == "zero hundred hours"
+
+    def test_0_15(self):
+        assert _pass_n_time("0:15") == "zero fifteen"
+
+    # With a.m./p.m. suffix — full pipeline (Pass C expands a.m./p.m.)
+    def test_pm_suffix_full_pipeline(self):
+        out = normalize_english_text("Meet me at 3:30 p.m.")
+        assert "three thirty" in out
+        assert "p m" in out
+
+    def test_am_suffix_full_pipeline(self):
+        out = normalize_english_text("The alarm rang at 6:45 a.m.")
+        assert "six forty-five" in out
+        assert "a m" in out
+
+    # Idempotence — the regex won't re-fire on letters.
+    def test_idempotent(self):
+        once = _pass_n_time("3:30")
+        twice = _pass_n_time(once)
+        assert once == twice
+
+    # Empty / passthrough
+    def test_empty_string(self):
+        assert _pass_n_time("") == ""
+
+    def test_non_time_text(self):
+        assert _pass_n_time("no times in this sentence") == (
+            "no times in this sentence"
+        )
+
+    # Invalid times left alone
+    def test_invalid_hour_left_alone(self):
+        assert _pass_n_time("25:99") == "25:99"
+
+    def test_invalid_minute_left_alone(self):
+        assert _pass_n_time("10:75") == "10:75"
+
+    # Multiple times in one sentence
+    def test_multiple_times_in_sentence(self):
+        out = _pass_n_time("Open 9:00 until 17:30.")
+        assert "nine o'clock" in out
+        assert "seventeen thirty" in out
+
+    # Inline within prose
+    def test_time_in_sentence(self):
+        out = _pass_n_time("The train leaves at 7:15 sharp.")
+        assert "seven fifteen" in out
+
 
     def test_no_finnish_tokens_in_output(self):
         """Sanity: nothing English-normalized should look Finnish."""

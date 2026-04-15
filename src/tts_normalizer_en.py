@@ -32,6 +32,10 @@ from __future__ import annotations
 
 import re
 
+# NOTE: _pass_o_dates is imported lazily inside normalize_english_text()
+# below to avoid a circular import — _en_pass_o_dates itself imports
+# _cardinal_word / _ordinal_word / _year_to_words from this module.
+
 _MY_LANG = "en"
 
 
@@ -609,6 +613,71 @@ def _pass_m_units(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pass N — time of day
+# ---------------------------------------------------------------------------
+
+# Time-of-day pattern: HH:MM with hour 0-23, minute 0-59. Word boundaries
+# keep it from eating chapter:verse markers written without a colon, and
+# the explicit colon means ratios like "3 to 14" don't trigger here.
+_EN_TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
+
+# Words for the "teens" part of a minute: 01-09 read as "oh one" ... "oh nine"
+# to keep the audiobook cadence natural ("nine oh five" beats "nine five").
+_MINUTE_TENS_WORD = {
+    2: "twenty", 3: "thirty", 4: "forty", 5: "fifty",
+}
+
+
+def _minute_to_words(minute: int) -> str:
+    """Spoken English for the minute half of a time.
+
+    0       → "o'clock"  (caller handles the whole-hour form)
+    1–9     → "oh one" ... "oh nine"
+    10–59   → "ten", "eleven", ..., "twenty one", ..., "fifty nine"
+    """
+    if minute == 0:
+        return "o'clock"
+    if 1 <= minute <= 9:
+        return f"oh {_cardinal_word(minute)}"
+    # num2words yields "twenty-one" with a hyphen; keep that — it matches
+    # the rest of this module (_FRACTION_DENOMINATORS uses "thirty-second"
+    # too) and most TTS engines read hyphenated compounds correctly.
+    return _cardinal_word(minute)
+
+
+def _pass_n_time(text: str) -> str:
+    """Verbalize HH:MM time-of-day strings.
+
+    Whole hours in the 12-hour range render as "<hour> o'clock" because
+    audiobooks almost never want the "twelve hundred hours" military
+    phrasing for civilian times — "it was twelve o'clock" reads naturally
+    while "twelve hundred hours" drops the listener into a war novel.
+    24-hour whole hours (13:00–23:00 and 00:00) keep the military
+    "<hour> hundred hours" form since that's the context in which those
+    digits appear in prose.
+    """
+    def repl(m: re.Match[str]) -> str:
+        hour = int(m.group(1))
+        minute = int(m.group(2))
+        # Defensive re-check; the regex already bounds these but be safe.
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return m.group(0)
+
+        # Whole-hour forms
+        if minute == 0:
+            if 1 <= hour <= 12:
+                return f"{_cardinal_word(hour)} o'clock"
+            # 0:00 and 13:00–23:00 use the military reading.
+            return f"{_cardinal_word(hour)} hundred hours"
+
+        # Minute-bearing forms read naturally in both 12- and 24-hour
+        # contexts: "three forty-five", "fifteen thirty", "nine oh five".
+        return f"{_cardinal_word(hour)} {_minute_to_words(minute)}"
+
+    return _EN_TIME_RE.sub(repl, text)
+
+
+# ---------------------------------------------------------------------------
 # Pass G — cardinal integers
 # ---------------------------------------------------------------------------
 
@@ -756,6 +825,7 @@ def normalize_english_text(
     # digits with the correct context.
     text = _pass_l_currency(text)
     text = _pass_m_units(text)
+    text = _pass_n_time(text)
     text = _pass_f_years(text)
     # Fractions and decimals must run BEFORE the cardinal sweep, otherwise
     # G converts the digits in "1/2" or "3.14" individually and the
