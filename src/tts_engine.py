@@ -67,7 +67,6 @@ VOICE_DISPLAY_NAMES: dict[str, str] = {
     # Finnish
     "fi-FI-NooraNeural": "Noora (suomi, nainen)",
     "fi-FI-HarriNeural": "Harri (suomi, mies)",
-    "fi-FI-SelmaNeural": "Selma (suomi, nainen)",
     # English US
     "en-US-JennyNeural": "Jenny (English US, female)",
     "en-US-AriaNeural": "Aria (English US, female)",
@@ -77,24 +76,41 @@ VOICE_DISPLAY_NAMES: dict[str, str] = {
     "en-US-BrianNeural": "Brian (English US, male)",
     "en-US-EmmaNeural": "Emma (English US, female)",
     "en-US-MichelleNeural": "Michelle (English US, female)",
+    "en-US-AnaNeural": "Ana (English US, female)",
+    "en-US-AndrewMultilingualNeural": "AndrewMultilingual (English US, male)",
+    "en-US-AvaMultilingualNeural": "AvaMultilingual (English US, female)",
+    "en-US-BrianMultilingualNeural": "BrianMultilingual (English US, male)",
+    "en-US-ChristopherNeural": "Christopher (English US, male)",
+    "en-US-EmmaMultilingualNeural": "EmmaMultilingual (English US, female)",
+    "en-US-EricNeural": "Eric (English US, male)",
+    "en-US-RogerNeural": "Roger (English US, male)",
+    "en-US-SteffanNeural": "Steffan (English US, male)",
     # English GB
     "en-GB-SoniaNeural": "Sonia (English GB, female)",
     "en-GB-RyanNeural": "Ryan (English GB, male)",
     "en-GB-LibbyNeural": "Libby (English GB, female)",
     "en-GB-ThomasNeural": "Thomas (English GB, male)",
+    "en-GB-MaisieNeural": "Maisie (English GB, female)",
     # German
     "de-DE-KatjaNeural": "Katja (Deutsch, weiblich)",
     "de-DE-ConradNeural": "Conrad (Deutsch, männlich)",
     "de-DE-AmalaNeural": "Amala (Deutsch, weiblich)",
+    "de-DE-FlorianMultilingualNeural": "FlorianMultilingual (Deutsch, männlich)",
+    "de-DE-KillianNeural": "Killian (Deutsch, männlich)",
+    "de-DE-SeraphinaMultilingualNeural": "SeraphinaMultilingual (Deutsch, weiblich)",
     # Swedish
     "sv-SE-SofieNeural": "Sofie (svenska, kvinna)",
     "sv-SE-MattiasNeural": "Mattias (svenska, man)",
     # French
     "fr-FR-DeniseNeural": "Denise (français, femme)",
     "fr-FR-HenriNeural": "Henri (français, homme)",
+    "fr-FR-EloiseNeural": "Eloise (français, femme)",
+    "fr-FR-RemyMultilingualNeural": "RemyMultilingual (français, homme)",
+    "fr-FR-VivienneMultilingualNeural": "VivienneMultilingual (français, femme)",
     # Spanish
     "es-ES-ElviraNeural": "Elvira (español, mujer)",
     "es-ES-AlvaroNeural": "Alvaro (español, hombre)",
+    "es-ES-XimenaNeural": "Ximena (español, mujer)",
 }
 
 VOICES: dict[str, dict[str, str]] = {
@@ -102,7 +118,6 @@ VOICES: dict[str, dict[str, str]] = {
         "default": "fi-FI-NooraNeural",
         "Noora (suomi, nainen)": "fi-FI-NooraNeural",
         "Harri (suomi, mies)": "fi-FI-HarriNeural",
-        "Selma (suomi, nainen)": "fi-FI-SelmaNeural",
     },
     "en": {
         "default": "en-US-JennyNeural",
@@ -114,16 +129,29 @@ VOICES: dict[str, dict[str, str]] = {
         "Brian (English US, male)": "en-US-BrianNeural",
         "Emma (English US, female)": "en-US-EmmaNeural",
         "Michelle (English US, female)": "en-US-MichelleNeural",
+        "Ana (English US, female)": "en-US-AnaNeural",
+        "AndrewMultilingual (English US, male)": "en-US-AndrewMultilingualNeural",
+        "AvaMultilingual (English US, female)": "en-US-AvaMultilingualNeural",
+        "BrianMultilingual (English US, male)": "en-US-BrianMultilingualNeural",
+        "Christopher (English US, male)": "en-US-ChristopherNeural",
+        "EmmaMultilingual (English US, female)": "en-US-EmmaMultilingualNeural",
+        "Eric (English US, male)": "en-US-EricNeural",
+        "Roger (English US, male)": "en-US-RogerNeural",
+        "Steffan (English US, male)": "en-US-SteffanNeural",
         "Sonia (English GB, female)": "en-GB-SoniaNeural",
         "Ryan (English GB, male)": "en-GB-RyanNeural",
         "Libby (English GB, female)": "en-GB-LibbyNeural",
         "Thomas (English GB, male)": "en-GB-ThomasNeural",
+        "Maisie (English GB, female)": "en-GB-MaisieNeural",
     },
     "de": {
         "default": "de-DE-KatjaNeural",
         "Katja (Deutsch, weiblich)": "de-DE-KatjaNeural",
         "Conrad (Deutsch, männlich)": "de-DE-ConradNeural",
         "Amala (Deutsch, weiblich)": "de-DE-AmalaNeural",
+        "FlorianMultilingual (Deutsch, männlich)": "de-DE-FlorianMultilingualNeural",
+        "Killian (Deutsch, männlich)": "de-DE-KillianNeural",
+        "SeraphinaMultilingual (Deutsch, weiblich)": "de-DE-SeraphinaMultilingualNeural",
     },
     "sv": {
         "default": "sv-SE-SofieNeural",
@@ -134,11 +162,15 @@ VOICES: dict[str, dict[str, str]] = {
         "default": "fr-FR-DeniseNeural",
         "Denise (français, femme)": "fr-FR-DeniseNeural",
         "Henri (français, homme)": "fr-FR-HenriNeural",
+        "Eloise (français, femme)": "fr-FR-EloiseNeural",
+        "RemyMultilingual (français, homme)": "fr-FR-RemyMultilingualNeural",
+        "VivienneMultilingual (français, femme)": "fr-FR-VivienneMultilingualNeural",
     },
     "es": {
         "default": "es-ES-ElviraNeural",
         "Elvira (español, mujer)": "es-ES-ElviraNeural",
         "Alvaro (español, hombre)": "es-ES-AlvaroNeural",
+        "Ximena (español, mujer)": "es-ES-XimenaNeural",
     },
 }
 
