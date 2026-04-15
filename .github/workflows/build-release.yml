@@ -109,34 +109,37 @@ jobs:
           "$hash  AudiobookMaker-Setup-$version.exe" | Out-File `
               -FilePath "installer/Output/AudiobookMaker-Setup-$version.exe.sha256" `
               -Encoding ascii -NoNewline
-          # Render the release notes body to a file so we can inject the hash.
-          $notes = @"
-        ## AudiobookMaker $version
-
-        Unified release — one app, one installer, all engines.
-
-        ### What's new
-
-        - Single unified GUI replaces both the old Main and Launcher installers
-        - Finnish/English UI language toggle
-        - PDF and plain text input modes
-        - In-app engine installer (install Chatterbox without leaving the app)
-        - Edge-TTS, Piper, and Chatterbox Finnish all in one window
-
-        ### Installation
-
-        1. Download ``AudiobookMaker-Setup-$version.exe`` below
-        2. Double-click — click **More info** → **Run anyway** on the SmartScreen warning
-        3. Follow the installer prompts
-        4. Open AudiobookMaker from the Start Menu
-        5. To add Chatterbox (best Finnish quality, needs NVIDIA GPU): click **Install engines** inside the app
-
-        No Python or other dependencies needed — everything is bundled.
-
-        ---
-        SHA-256: $hash
-        "@
-          Set-Content -Path release_notes.md -Value $notes -Encoding utf8
+          # Build the release notes as an array of lines and write to a file.
+          # Using an array (not a here-string) so the YAML literal block can
+          # keep uniform indentation without leaking spaces into the output.
+          $exeName = "AudiobookMaker-Setup-$version.exe"
+          $lines = @(
+            "## AudiobookMaker $version",
+            "",
+            "Unified release - one app, one installer, all engines.",
+            "",
+            "### What's new",
+            "",
+            "- Single unified GUI replaces both the old Main and Launcher installers",
+            "- Finnish/English UI language toggle",
+            "- PDF and plain text input modes",
+            "- In-app engine installer (install Chatterbox without leaving the app)",
+            "- Edge-TTS, Piper, and Chatterbox Finnish all in one window",
+            "",
+            "### Installation",
+            "",
+            "1. Download ``$exeName`` below",
+            "2. Double-click - click **More info** -> **Run anyway** on the SmartScreen warning",
+            "3. Follow the installer prompts",
+            "4. Open AudiobookMaker from the Start Menu",
+            "5. To add Chatterbox (best Finnish quality, needs NVIDIA GPU): click **Install engines** inside the app",
+            "",
+            "No Python or other dependencies needed - everything is bundled.",
+            "",
+            "---",
+            "SHA-256: $hash"
+          )
+          Set-Content -Path release_notes.md -Value $lines -Encoding utf8
         shell: pwsh
 
       # Belt-and-braces: refuse to publish if the rendered body does not
