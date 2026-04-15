@@ -63,6 +63,7 @@ hidden_imports = [
     "src.tts_edge",
     "src.tts_piper",
     "src.tts_engine",
+    "src.tts_normalizer",
     "src.tts_normalizer_fi",
     "src.tts_chunking",
     "src.tts_audio",
