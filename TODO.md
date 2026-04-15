@@ -17,6 +17,18 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Audit Finnish + English output quality holistically
+- [ ] Sit down with a chapter from each language and write down every audible defect (mispronunciations, wrong stress, swallowed words, weird prosody, cross-language artifacts, robotic stretches, garbled numbers/acronyms). Group by root cause: normalizer issue vs model issue vs reference-clip issue vs chunking-boundary issue. The current TODO list has scattered single-symptom items (`s`→`sch`, Roman numerals, long compounds) but no unified picture of where the biggest wins are. Output: a ranked list of "fix these N things and the audio gets noticeably better" so future passes are prioritized by impact, not by what got noticed last. 🟡 🧠 Opus.
+
+### NeMo text-processing for English (future quality upgrade)
+- [ ] If our hand-rolled English normalizer (built from NeMo's grammar rules, see option 3 in the English-normalization plan) ever shows quality gaps that warrant industrial-grade coverage — currency formats, complex date ranges, scientific units, edge-case ordinals — consider adopting `nemo-text-processing` directly for English. Blockers to solve first: (a) `pynini` has no PyPI wheel for Windows, requires conda-forge or third-party wheels, which complicates the PyInstaller build; (b) NeMo does not support Finnish, so this is English-only. Only worth the install pain if the gap is real and audible. 🔴 🧠 Opus.
+
+### Inline audio player in the GUI
+- [ ] Currently the "Esikuuntele" button shells out to the system default audio player, which opens a separate window. Replace with a minimal in-GUI play/stop widget so sample previews (and optionally the finished audiobook) play inside the app. Scope: play/stop only, no seek bar, no volume slider. Library choice: `pygame.mixer` (simplest, ~5 MB) or `miniaudio` (lighter, no SDL). Must stop on window close and stop the previous clip before starting a new one. Estimated effort: ~1 h for samples-only, ~2 h if it also plays the final book MP3. 🟡 ⚡ Sonnet.
+
+### Finnish voice mispronounces "s" as "sch"
+- [ ] Finnish Grandmom (Chatterbox FI finetune) occasionally pronounces plain `s` as `sch` (German-like sibilant) instead of the crisp Finnish `s`. Heard in recent runs. Likely candidates: (a) normalizer passes a phoneme-hostile context around certain `s` positions, (b) loanword respelling or compound-seam insertion creates a consonant cluster the model interprets as `sch`, (c) specific letter-neighborhoods (`st`, `sk`, `sp`, word-final `s`) trigger it more than others. Next step: collect 5–10 concrete words from a test chapter where this happens, then decide whether to add a targeted normalization pass or adjust an existing one. 🟡 🧠 Opus.
+
 ### English path skips Finnish text normalizer
 - [ ] `scripts/generate_chatterbox_audiobook.py` runs `normalize_finnish_text` on the input text unconditionally, regardless of `--language`. When the user picks `--language en` (English Grandmom), the Finnish normalizer is still applied — Roman numerals get expanded as Finnish ordinals (`IV` → `neljäs`), numbers get Finnish case-inflection, loanword respelling fires, etc. Result: English audio occasionally has Finnish words baked in. Heard in tonight's 1-hour Rubicon run on 2026-04-15. Fix: wrap the `normalize_finnish_text(text)` call in `if args.language == "fi":`. For English leave the text untouched (Chatterbox handles English numerals natively) or route through a thin English-only pass later if specific issues come up. 🟢 ⚡ Sonnet.
 
