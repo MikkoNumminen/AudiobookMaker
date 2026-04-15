@@ -22,6 +22,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _TTS_ENGINE = _REPO_ROOT / "src" / "tts_engine.py"
 _TTS_NORMALIZER = _REPO_ROOT / "src" / "tts_normalizer.py"
+_TTS_NORMALIZER_EN = _REPO_ROOT / "src" / "tts_normalizer_en.py"
 _APP_SPEC = _REPO_ROOT / "audiobookmaker.spec"
 _LAUNCHER_SPEC = _REPO_ROOT / "audiobookmaker_launcher.spec"
 
@@ -47,6 +48,7 @@ def _src_siblings_imported_by_tts_engine() -> set[str]:
     return (
         _src_siblings_imported_by(_TTS_ENGINE)
         | _src_siblings_imported_by(_TTS_NORMALIZER)
+        | _src_siblings_imported_by(_TTS_NORMALIZER_EN)
     )
 
 
