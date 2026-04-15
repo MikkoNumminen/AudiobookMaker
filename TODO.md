@@ -17,6 +17,19 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Demo audio clips for README — public-domain only
+- [ ] Ship 2–4 short demo MP3s in the repo and linked from README.md so visitors hear what the app produces before installing. **Conditions — all four must hold:**
+  1. **Source text is public domain.** Project Gutenberg, Wikisource, anything with an expired copyright. No "fair-use-probably" territory.
+  2. **Clips are ≤ 60 s each.** Short enough to load fast on the README; long enough to hear the voice's character.
+  3. **Each clip has its source clearly credited** next to it — title, author, public-domain status ("Project Gutenberg: link"), which voice + language + engine produced it.
+  4. **Files live under `assets/demos/` as `.mp3`** (bundled with the repo; no external hosting), bitrate ~128 kbps so they stay small (<1 MB each).
+- [ ] Candidate mix to produce (one session on the GPU):
+  - English Grandmom reading Gibbon's *Decline and Fall* opening — historical prose, pairs naturally with the history-audiobook use case.
+  - English Grandmom reading Doyle's *A Study in Scarlet* opening — dialogue + pacing, immediate name recognition.
+  - Finnish Grandmom reading Kivi's *Seitsemän veljestä* opening — Finnish classic, showcases the finetuned FI model.
+  - Edge-TTS Finnish sample from the same Kivi passage — lets visitors compare fast-online vs slow-GPU quality head-to-head.
+- [ ] README section to house these: `## Hear it first` with a table (Language · Engine · Voice · Source · Play link). 🟡 ⚡ Sonnet. **Why these conditions:** publishers have been aggressive about AI-generated content from copyrighted sources; a Rubicon clip in the README would be legally grey and could attract a DMCA takedown. Public-domain texts are zero-risk and recognizable, which makes for better demos anyway.
+
 ### Rallienglanti-mode — lean into the Finnish-T3-reads-English charm
 - [ ] Current behaviour when English text is fed into the Finnish T3 finetune: sounds like a Finnish person reading English phonetically (aka "rally English"). User verdict on the Route-A Rubicon clip on 2026-04-15: "horrid" as a default, but "could be fun as a deliberate style preset". Idea is to embrace it — add a Chatterbox preset called something like "Rallienglanti" or "Finnish-reads-English" that (a) always routes through the FI T3 finetune, (b) applies English→Finnish-phonetic text normalizations (`computer` → `kompuutteri`, `shower` → `sauveri`, `th` → `t`/`d`, `w` → `v`, etc.) to make it sound more authentically Finnish-accented, (c) spells out loanwords and Anglicisms the way a real Finn pronouncing English would. Probably its own pass (Pass R?) in `tts_normalizer_fi` gated by the preset. 🟡 🧠 Opus. Fun project; low priority — for after English Grandmom is fully shipped and validated.
 
