@@ -132,6 +132,44 @@ class TestAppInstantiation:
 
 
 # ---------------------------------------------------------------------------
+# Update-banner browser fallback
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateBrowserFallback:
+    """Banner's 'Open in browser' button always works, even when the in-app
+    update flow is broken (v3.3.1-style shadowing bug, file lock, etc.)."""
+
+    def test_button_exists(self, app):
+        assert hasattr(app, "_update_browser_btn")
+
+    def test_click_opens_latest_when_no_pending_update(self, app):
+        import webbrowser
+        from unittest.mock import patch
+        app._pending_update = None
+        with patch.object(webbrowser, "open") as mock_open:
+            app._on_update_browser_click()
+        mock_open.assert_called_once()
+        url = mock_open.call_args[0][0]
+        assert "/releases/latest" in url
+
+    def test_click_opens_specific_version_when_known(self, app):
+        import webbrowser
+        from unittest.mock import patch
+        from src.auto_updater import UpdateInfo
+        app._pending_update = UpdateInfo(
+            available=True, current_version="3.3.1",
+            latest_version="9.9.9", download_url="",
+            release_notes="", asset_size_bytes=0, sha256="",
+        )
+        with patch.object(webbrowser, "open") as mock_open:
+            app._on_update_browser_click()
+        mock_open.assert_called_once()
+        url = mock_open.call_args[0][0]
+        assert "/releases/tag/v9.9.9" in url
+
+
+# ---------------------------------------------------------------------------
 # Convert validation
 # ---------------------------------------------------------------------------
 

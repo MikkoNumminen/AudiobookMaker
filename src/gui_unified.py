@@ -33,7 +33,10 @@ from typing import Optional
 import customtkinter as ctk
 
 from src import app_config
-from src.auto_updater import check_for_update, download_update, apply_update, APP_VERSION, UpdateInfo
+from src.auto_updater import (
+    check_for_update, download_update, apply_update,
+    APP_VERSION, GITHUB_REPO, UpdateInfo,
+)
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
@@ -197,6 +200,7 @@ _STRINGS = {
         "select_input_prompt": "Valitse syöte ja paina Muunna.",
         "update_available": "Versio {version} saatavilla.",
         "update_now": "Päivitä nyt",
+        "update_download_manually": "Lataa selaimella",
         "update_downloading": "Ladataan päivitystä...",
         "update_installing": "Asennetaan päivitys...",
         "update_failed": "Päivitys epäonnistui.",
@@ -284,6 +288,7 @@ _STRINGS = {
         "select_input_prompt": "Select input and press Convert.",
         "update_available": "Version {version} available.",
         "update_now": "Update now",
+        "update_download_manually": "Open in browser",
         "update_downloading": "Downloading update...",
         "update_installing": "Installing update...",
         "update_failed": "Update failed.",
@@ -617,6 +622,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 )
             )
             self._update_btn.configure(text=s("update_now"))
+            self._update_browser_btn.configure(text=s("update_download_manually"))
 
         # UI lang combobox — keep it in sync.
         self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
@@ -828,10 +834,43 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._update_banner, text=self._s("update_now"),
             command=self._on_update_click,
         )
-        self._update_btn.grid(row=0, column=1, padx=(0, 8), pady=4)
+        self._update_btn.grid(row=0, column=1, padx=(0, 4), pady=4)
+
+        # Secondary "open in browser" fallback — always visible when the
+        # banner is shown. Works even if the in-app updater is broken
+        # (as happened on v3.3.1); gives the user a visible escape hatch
+        # without needing to know about the Releases page.
+        self._update_browser_btn = ctk.CTkButton(
+            self._update_banner,
+            text=self._s("update_download_manually"),
+            command=self._on_update_browser_click,
+            fg_color="transparent", border_width=1, border_color="white",
+            text_color="white", hover_color=("#1b5e20", "#0b3d12"),
+        )
+        self._update_browser_btn.grid(row=0, column=2, padx=(0, 8), pady=4)
 
         # Hidden by default.
         self._update_banner.grid_remove()
+
+    def _on_update_browser_click(self) -> None:
+        """Open the latest release page in the user's browser.
+
+        Escape hatch for any case where the in-app update flow can't
+        complete (buggy shadowing method in an older version, file lock,
+        AV quarantine, etc.). Always works because it's just a webbrowser.open.
+        """
+        import webbrowser
+        url = (
+            f"https://github.com/{GITHUB_REPO}/releases/latest"
+            if not self._pending_update or not self._pending_update.latest_version
+            else f"https://github.com/{GITHUB_REPO}/releases/tag/"
+                 f"v{self._pending_update.latest_version}"
+        )
+        try:
+            webbrowser.open(url, new=2)
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror(self._s("error"), f"{url}\n\n{exc}")
 
     # ---- 1. Input tabs ------------------------------------------------
 
