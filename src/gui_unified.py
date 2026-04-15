@@ -26,9 +26,10 @@ import tempfile
 import threading
 import tkinter as tk
 import webbrowser
+from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import Optional
+from typing import Any, Optional
 
 import customtkinter as ctk
 
@@ -43,6 +44,10 @@ from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
 from src.pdf_parser import parse_pdf, BookMetadata, Chapter, ParsedBook
 from src.epub_parser import parse_epub
+try:
+    from src import duration_estimate as _duration_estimate
+except Exception:  # pragma: no cover — module might be stubbed in parallel dev
+    _duration_estimate = None  # type: ignore
 from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engines
 from src.tts_engine import TTSConfig, chapters_to_speech
 
@@ -240,6 +245,9 @@ _STRINGS = {
         "elapsed_eta": "Kulunut {elapsed} min \u2014 jäljellä noin {eta} min",
         "synth_in_progress": "Synteesi käynnissä\u2026",
         "error_exit_code": "\u2718 {error} (exit code {rc})",
+        "status_ready_strip": "\U0001F4D6 {name} \u00B7 {chars}k merkki\u00E4 \u00B7 ~{audio_human} audiota \u00B7 synteesi ~{wall_human} ({engine_display})",
+        "status_synthesizing_strip": "\U0001F4D6 {name} \u00B7 {pct}% \u00B7 {eta_human} j\u00E4ljell\u00E4 \u00B7 valmis klo {hhmm}{rtf_suffix}",
+        "status_done_strip": "\u2714 {name} \u00B7 valmis {wall_human} \u00B7 {size_mb:.0f} MB MP3",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -328,6 +336,9 @@ _STRINGS = {
         "elapsed_eta": "Elapsed {elapsed} min \u2014 about {eta} min remaining",
         "synth_in_progress": "Synthesis in progress\u2026",
         "error_exit_code": "\u2718 {error} (exit code {rc})",
+        "status_ready_strip": "\U0001F4D6 {name} \u00B7 {chars}k chars \u00B7 ~{audio_human} audio \u00B7 synthesis ~{wall_human} ({engine_display})",
+        "status_synthesizing_strip": "\U0001F4D6 {name} \u00B7 {pct}% \u00B7 {eta_human} remaining \u00B7 done at {hhmm}{rtf_suffix}",
+        "status_done_strip": "\u2714 {name} \u00B7 done in {wall_human} \u00B7 {size_mb:.0f} MB MP3",
     },
 }
 
@@ -627,6 +638,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # UI lang combobox — keep it in sync.
         self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
 
+        # Re-render the sticky status strip in the new language (if visible).
+        state = getattr(self, "_status_strip_state", "idle")
+        if state != "idle" and hasattr(self, "_status_strip_frame"):
+            self._set_status_strip(state, **getattr(self, "_status_strip_fields", {}))
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -648,7 +664,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._main_view = main
         main.columnconfigure(0, weight=1)
         # Let log panel row stretch.
-        main.rowconfigure(8, weight=1)
+        main.rowconfigure(9, weight=1)
 
         # Track current input mode for tab renaming during language changes.
         self._input_mode_raw = "pdf"
@@ -660,17 +676,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         #   2  Input tabs (PDF / Text)
         #   3  Engine + voice bar (ALWAYS visible — primary model picker)
         #   4  Action row (big Muunna + small secondaries + progress)
-        #   5  Asetukset header (collapse / expand)
-        #   6  Asetukset body (language, speed, ref audio, voice style, output path)
-        #   7  Log toggle
-        #   8  Log panel (visible by default)
+        #   5  Status strip (sticky one-liner; hidden until a file is picked)
+        #   6  Asetukset header (collapse / expand)
+        #   7  Asetukset body (language, speed, ref audio, voice style, output path)
+        #   8  Log toggle
+        #   9  Log panel (visible by default)
         self._build_update_banner(main, row=0)
         self._build_header_bar(main, row=1)
         self._build_input_tabs(main, row=2)
         self._build_engine_bar(main, row=3)
         self._build_action_row(main, row=4)
-        self._build_settings_frame(main, row=5)  # header at row=5, body at row=6
-        self._build_log_panel(main, row=7, stretch_row=8)
+        self._build_status_strip(main, row=5)
+        self._build_settings_frame(main, row=6)  # header at row=6, body at row=7
+        self._build_log_panel(main, row=8, stretch_row=9)
 
         # Settings view — in-place alternative to the old Toplevel popup.
         # Stacked in the same grid cell; switched via tkraise().
@@ -815,6 +833,154 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # ETA label (kept for existing code paths; placed unobtrusively).
         self._eta_label = ctk.CTkLabel(ar, text="", text_color="gray")
         self._eta_label.grid(row=2, column=0, sticky="e", pady=(2, 0))
+
+    # ---- Sticky status strip (between progress and log) ---------------
+
+    def _build_status_strip(self, parent: ctk.CTkFrame, row: int) -> None:
+        """Build the sticky one-line status strip.
+
+        Hidden by default (via ``grid_remove``). The three visible states
+        (ready / synthesizing / done) set both text and background color
+        via :meth:`_set_status_strip`.
+        """
+        self._status_strip_frame = ctk.CTkFrame(
+            parent, fg_color=("#1976d2", "#0d47a1"), corner_radius=6,
+        )
+        self._status_strip_frame.grid(row=row, column=0, sticky="ew", pady=(0, 6))
+        self._status_strip_frame.columnconfigure(0, weight=1)
+        self._status_strip_label = ctk.CTkLabel(
+            self._status_strip_frame, text="", text_color="white", anchor="w",
+        )
+        self._status_strip_label.grid(row=0, column=0, sticky="ew", padx=10, pady=4)
+        self._status_strip_frame.grid_remove()
+
+        # Cached fields from the latest _set_status_strip call — used to
+        # re-render the strip in the new language when the user toggles UI
+        # language mid-session.
+        self._status_strip_state: str = "idle"
+        self._status_strip_fields: dict[str, Any] = {}
+
+    _STATUS_STRIP_COLORS = {
+        "ready": ("#1976d2", "#0d47a1"),
+        "synthesizing": ("#1976d2", "#0d47a1"),
+        "done": ("green", "darkgreen"),
+    }
+    _STATUS_STRIP_KEYS = {
+        "ready": "status_ready_strip",
+        "synthesizing": "status_synthesizing_strip",
+        "done": "status_done_strip",
+    }
+
+    def _set_status_strip(self, state: str, **fields: Any) -> None:
+        """Update the strip to one of {idle, ready, synthesizing, done}.
+
+        ``idle`` hides the strip. Other states show it, set the background
+        color, and interpolate ``fields`` into the language-appropriate
+        template.
+        """
+        # Always remember the last state so UI-language toggle can re-render.
+        self._status_strip_state = state
+        self._status_strip_fields = dict(fields)
+
+        if state == "idle":
+            if hasattr(self, "_status_strip_frame"):
+                self._status_strip_frame.grid_remove()
+            return
+
+        if not hasattr(self, "_status_strip_frame"):
+            return
+
+        color = self._STATUS_STRIP_COLORS.get(state, ("#1976d2", "#0d47a1"))
+        key = self._STATUS_STRIP_KEYS.get(state)
+        if key is None:
+            return
+
+        template = self._s(key)
+        # ``rtf_suffix`` is optional in the synthesizing template; callers
+        # that don't have a live RTF yet can omit it.
+        if "rtf_suffix" not in fields:
+            fields = {**fields, "rtf_suffix": ""}
+        try:
+            text = template.format(**fields)
+        except (KeyError, ValueError):
+            # Missing field — fall back to a safe minimal line rather than
+            # crashing the UI thread.
+            text = f"{fields.get('name', '')}"
+
+        self._status_strip_frame.configure(fg_color=color)
+        self._status_strip_label.configure(text=text)
+        self._status_strip_frame.grid()
+
+    def _update_synthesizing_strip(self, ev: "ProgressEvent") -> None:
+        """Refresh the strip while a chunk event is being processed."""
+        if not hasattr(self, "_status_strip_frame"):
+            return
+        if ev.total_chunks <= 0:
+            return
+        name = Path(self._pdf_path).name if self._pdf_path else ""
+        ratio = ev.total_done / ev.total_chunks
+        pct = int(round(ratio * 100))
+
+        # ETA: prefer the event's own eta_s if present; else derive from
+        # elapsed-so-far and remaining chunks.
+        eta_s = getattr(ev, "eta_s", None)
+        started = getattr(self, "_synth_started_at", None)
+        if eta_s is None and started is not None and ratio > 0:
+            elapsed = (datetime.now() - started).total_seconds()
+            eta_s = elapsed * (1 - ratio) / ratio if ratio > 0 else 0
+
+        if _duration_estimate is not None and eta_s is not None:
+            eta_human = _duration_estimate.format_duration(eta_s)
+        else:
+            eta_human = "?"
+
+        hhmm = (datetime.now() + timedelta(seconds=eta_s or 0)).strftime("%H:%M")
+
+        # Optional RTF suffix — we only have a rough estimate from running
+        # averages if the event carries audio_s / synth_s. Best-effort.
+        rtf_suffix = ""
+        audio_s = getattr(ev, "audio_s", None)
+        synth_s = getattr(ev, "synth_s", None)
+        if audio_s and synth_s and synth_s > 0:
+            rtf = audio_s / synth_s
+            rtf_suffix = f" \u00B7 RTF {rtf:.2f}x"
+
+        self._set_status_strip(
+            "synthesizing",
+            name=name,
+            pct=pct,
+            eta_human=eta_human,
+            hhmm=hhmm,
+            rtf_suffix=rtf_suffix,
+        )
+
+    def _update_done_strip(self, output_path: Optional[str]) -> None:
+        """Flip the strip into green ``done`` state after a successful run."""
+        if not hasattr(self, "_status_strip_frame"):
+            return
+        name = Path(self._pdf_path).name if self._pdf_path else (
+            Path(output_path).name if output_path else ""
+        )
+        started = getattr(self, "_synth_started_at", None)
+        if started is not None:
+            elapsed = (datetime.now() - started).total_seconds()
+            if _duration_estimate is not None:
+                wall_human = _duration_estimate.format_duration(elapsed)
+            else:
+                wall_human = f"{int(elapsed)} s"
+        else:
+            wall_human = "?"
+
+        size_mb = 0.0
+        if output_path:
+            try:
+                size_mb = Path(output_path).stat().st_size / 1024 / 1024
+            except OSError:
+                pass
+
+        self._set_status_strip(
+            "done", name=name, wall_human=wall_human, size_mb=size_mb,
+        )
 
     # ---- 0. Update banner ---------------------------------------------
 
@@ -1223,9 +1389,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _on_engine_changed(self, selection: str = "") -> None:
         self._refresh_voice_list()
+        # Engine change affects the wall-time estimate — refresh the strip.
+        self._refresh_ready_status_strip()
 
     def _on_language_changed(self, selection: str = "") -> None:
         self._refresh_voice_list()
+        # Language change affects both audio rate and wall time — refresh.
+        self._refresh_ready_status_strip()
 
     def _refresh_voice_list(self) -> None:
         """Refresh voices, status label, and capability widgets."""
@@ -1416,6 +1586,66 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._pdf_entry.configure(state="disabled")
             self._status_label_val.configure(text=self._s("pdf_selected"))
             self._auto_output_path()
+            # Kick off a background parse+estimate so the sticky status
+            # strip shows book metadata without blocking the UI thread.
+            self._start_ready_estimate(path)
+
+    # ---- Sticky status strip: ready-state estimate --------------------
+
+    def _start_ready_estimate(self, path: str) -> None:
+        """Parse the book on a worker thread and update the status strip.
+
+        Parsing even a full EPUB/PDF is typically well under a second, but
+        we still don't want to freeze the UI thread if the user picks a
+        big file. The final text is posted via ``self.after(0, ...)``.
+        """
+        def _worker() -> None:
+            try:
+                book = parse_book(path)
+                chars = sum(len(ch.content) for ch in book.chapters)
+            except Exception:
+                return  # Silent: strip stays in its previous state.
+            self.after(0, lambda: self._apply_ready_estimate(path, chars))
+
+        self._pending_ready_chars = None  # type: ignore[attr-defined]
+        threading.Thread(target=_worker, daemon=True, name="ready-estimate").start()
+
+    def _apply_ready_estimate(self, path: str, chars: int) -> None:
+        """Store char count + refresh the strip on the main thread."""
+        self._pending_ready_chars = chars  # type: ignore[attr-defined]
+        self._refresh_ready_status_strip()
+
+    def _refresh_ready_status_strip(self) -> None:
+        """Recompute and show the ``ready`` strip from cached char count.
+
+        Called on file pick, engine change, and language change. Safe to
+        call when no file is selected (it becomes a no-op).
+        """
+        chars = getattr(self, "_pending_ready_chars", None)
+        if not chars or not self._pdf_path:
+            return
+        if _duration_estimate is None:
+            return  # Sibling agent's module not ready — skip gracefully.
+
+        engine_id = self._current_engine_id() or "edge"
+        lang = self._current_language() or "fi"
+        try:
+            est = _duration_estimate.estimate_job(
+                chars, engine_id, lang, device="cuda",
+            )
+        except Exception:
+            return
+
+        engine_display = self._engine_cb.get() or engine_id
+        name = Path(self._pdf_path).name
+        self._set_status_strip(
+            "ready",
+            name=name,
+            chars=max(1, round(chars / 1000)),
+            audio_human=est.get("audio_human", "?"),
+            wall_human=est.get("wall_human", "?"),
+            engine_display=engine_display,
+        )
 
     def _browse_reference_audio(self) -> None:
         path = filedialog.askopenfilename(
@@ -2230,6 +2460,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     self._status_label_val.configure(
                         text=f"{ev.total_done}/{ev.total_chunks}"
                     )
+                    self._update_synthesizing_strip(ev)
 
             elif ev.kind in ("chapter_done", "full_done"):
                 # A file was written — treat this as "done enough" for
@@ -2254,6 +2485,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 # Show a friendly green summary at the bottom of the log.
                 if self._output_path:
                     self._log_success_summary(self._output_path)
+                self._update_done_strip(self._output_path)
                 self._set_idle_state()
                 # One final set(1.0) after idle-state toggles anything
                 # that might have reset the widget.
@@ -2349,6 +2581,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _set_running_state(self) -> None:
         self._synth_running = True
+        self._synth_started_at = datetime.now()
         self._convert_btn.configure(state="disabled")
         self._listen_btn.configure(state="disabled")
         self._cancel_btn.grid()
@@ -2492,7 +2725,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     def _fail(self, message: str) -> None:
         self._set_idle_state()
         self._status_label_val.configure(text=message)
+        # Revert the sticky strip: no green "done", no lingering progress.
+        if hasattr(self, "_status_strip_frame"):
+            self._set_status_strip("idle")
         messagebox.showerror(self._s("error"), message)
+
+    def _request_cancel(self) -> None:  # type: ignore[override]
+        """Override mixin's cancel to also hide the status strip."""
+        super()._request_cancel()
+        if hasattr(self, "_status_strip_frame"):
+            self._set_status_strip("idle")
 
 
 # ---------------------------------------------------------------------------

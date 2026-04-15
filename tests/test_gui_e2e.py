@@ -534,3 +534,92 @@ class TestBumpOutputPath:
         app._output_user_chosen = True
         app._bump_output_path_if_exists()
         assert app._output_user_chosen is True
+
+
+# ---------------------------------------------------------------------------
+# Sticky status strip
+# ---------------------------------------------------------------------------
+
+
+class TestStatusStrip:
+    """Sticky one-line status strip between progress and log.
+
+    Four states: idle (hidden), ready (blue, book + estimate),
+    synthesizing (blue, live pct + ETA), done (green, wall + size).
+    """
+
+    def test_strip_hidden_by_default(self, app) -> None:
+        # manager() returns {} when the widget isn't gridded.
+        assert app._status_strip_frame.winfo_manager() == ""
+
+    def test_ready_state_shows_name_and_estimates(self, app) -> None:
+        from unittest.mock import patch
+        fake = {
+            "audio_seconds": 3600,
+            "wall_seconds": 120,
+            "chars_per_second_synth": 50.0,
+            "audio_human": "1 h 0 min",
+            "wall_human": "2 min 0 s",
+        }
+        with patch("src.gui_unified._duration_estimate.estimate_job",
+                   return_value=fake):
+            # Simulate what _refresh_ready_status_strip does, but bypass
+            # file I/O by calling the setter directly.
+            app._set_status_strip(
+                "ready",
+                name="Rubicon.epub",
+                chars=809,
+                audio_human=fake["audio_human"],
+                wall_human=fake["wall_human"],
+                engine_display="Edge TTS",
+            )
+            app.update_idletasks()
+        text = app._status_strip_label.cget("text")
+        assert "Rubicon.epub" in text
+        assert "809" in text
+        assert "1 h" in text
+        assert app._status_strip_frame.winfo_manager() == "grid"
+
+    def test_synthesizing_state_shows_pct_and_eta(self, app) -> None:
+        app._set_status_strip(
+            "synthesizing",
+            name="book.pdf",
+            pct=42,
+            eta_human="5 min 30 s",
+            hhmm="14:37",
+            rtf_suffix="",
+        )
+        app.update_idletasks()
+        text = app._status_strip_label.cget("text")
+        assert "book.pdf" in text
+        assert "42" in text
+        assert "5 min" in text
+        assert "14:37" in text
+
+    def test_done_state_uses_success_color(self, app) -> None:
+        app._set_status_strip(
+            "done",
+            name="done_book.pdf",
+            wall_human="3 min 12 s",
+            size_mb=7.5,
+        )
+        app.update_idletasks()
+        fg = app._status_strip_frame.cget("fg_color")
+        # fg_color is a (light, dark) tuple for this frame.
+        assert "green" in str(fg).lower() or "darkgreen" in str(fg).lower()
+        text = app._status_strip_label.cget("text")
+        assert "done_book.pdf" in text
+        assert "8 MB" in text or "7 MB" in text  # rounded via :.0f
+
+    def test_idle_hides_strip(self, app) -> None:
+        # Show first, then flip back to idle.
+        app._set_status_strip(
+            "ready",
+            name="x.pdf", chars=1, audio_human="1 s",
+            wall_human="1 s", engine_display="Edge",
+        )
+        app.update_idletasks()
+        assert app._status_strip_frame.winfo_manager() == "grid"
+        app._set_status_strip("idle")
+        app.update_idletasks()
+        assert app._status_strip_frame.winfo_manager() == ""
