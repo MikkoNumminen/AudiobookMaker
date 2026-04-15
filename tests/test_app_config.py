@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from src import app_config
-from src.app_config import UserConfig, load, save
+from src.app_config import UserConfig, _default_language_from_locale, load, save
 
 
 @pytest.fixture
@@ -24,7 +24,9 @@ class TestDefaults:
     def test_defaults_are_sensible(self) -> None:
         cfg = UserConfig()
         assert cfg.engine_id == "edge"
-        assert cfg.language == "fi"
+        # Empty language means 'auto-detect from system locale on first run'.
+        # The GUI resolves this via _default_language_from_locale().
+        assert cfg.language == ""
         assert cfg.voice_id == ""
         assert cfg.speed == "+0%"
         assert cfg.reference_audio == ""
@@ -195,3 +197,36 @@ class TestBackwardCompatibility:
         # assigned to the bool field as the string "true".
         # This is a known edge case of the current implementation.
         assert cfg.log_panel_visible in (False, "true")
+
+
+class TestDefaultLanguageFromLocale:
+    """First-run Kieli fallback picks Finnish for Finnish-locale systems
+    and English for everyone else, so the app is usable out of the box
+    without a Kieli click."""
+
+    def test_default_language_finnish_locale(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "locale.getdefaultlocale", lambda: ("fi_FI", "UTF-8")
+        )
+        assert _default_language_from_locale() == "fi"
+
+    def test_default_language_other_locale(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "locale.getdefaultlocale", lambda: ("en_US", "UTF-8")
+        )
+        assert _default_language_from_locale() == "en"
+
+    def test_default_language_none_locale(self, monkeypatch) -> None:
+        # Stripped containers can return (None, None); we must fall back
+        # to 'en' rather than crash.
+        monkeypatch.setattr(
+            "locale.getdefaultlocale", lambda: (None, None)
+        )
+        assert _default_language_from_locale() == "en"
+
+    def test_default_language_raising_locale(self, monkeypatch) -> None:
+        def boom() -> tuple[str, str]:
+            raise RuntimeError("older macOS bug")
+
+        monkeypatch.setattr("locale.getdefaultlocale", boom)
+        assert _default_language_from_locale() == "en"

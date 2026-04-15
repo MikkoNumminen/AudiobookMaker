@@ -2253,11 +2253,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """Restore persisted preferences to widgets."""
         cfg = self._user_cfg
 
-        # Language.
+        # Language. Empty config.language = first run — pick a default
+        # based on the system locale so Finnish users get Finnish out
+        # of the box and everyone else defaults to English.
+        lang_code = cfg.language or app_config._default_language_from_locale()
         for label, code in LANGUAGES.items():
-            if code == cfg.language:
+            if code == lang_code:
                 self._lang_cb.set(label)
                 break
+        # Now that the language widget reflects the resolved default,
+        # re-filter the engine list so the Moottori dropdown matches
+        # (it was first populated inside _build_engine_bar before the
+        # config had been applied, and may contain engines for 'fi'
+        # when the user's actual default is 'en').
+        self._populate_engine_list()
 
         # Engine.
         engine = get_engine(cfg.engine_id)

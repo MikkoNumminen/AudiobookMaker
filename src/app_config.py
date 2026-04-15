@@ -10,9 +10,27 @@ Named app_config instead of config to avoid shadowing piper.config.
 from __future__ import annotations
 
 import json
+import locale
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+def _default_language_from_locale() -> str:
+    """Return 'fi' if the system locale is Finnish, else 'en'.
+
+    Used as the Kieli fallback on first run (when the persisted config
+    has an empty language). Wrapped in try/except because
+    locale.getdefaultlocale() can return (None, None) on stripped
+    containers and occasionally raises on older macOS builds.
+    """
+    try:
+        lang = locale.getdefaultlocale()[0] or ""
+    except Exception:
+        return "en"
+    if lang.lower().startswith("fi"):
+        return "fi"
+    return "en"
 
 
 CONFIG_DIR = Path.home() / ".audiobookmaker"
@@ -26,8 +44,10 @@ class UserConfig:
     engine_id: str = "edge"
     """Which TTS engine the user last selected."""
 
-    language: str = "fi"
-    """Short language code of the last selected language."""
+    language: str = ""
+    """Short language code of the last selected language.
+    Empty string means auto-detect from system locale on first run
+    (Finnish if the system locale starts with 'fi', English otherwise)."""
 
     voice_id: str = ""
     """Engine-specific voice id (may be empty = use engine default)."""
