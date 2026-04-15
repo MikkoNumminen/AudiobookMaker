@@ -133,6 +133,23 @@ accepts three input formats:
 - `.txt` — plain text, if you've already cleaned it up yourself
 
 For this walkthrough, we'll use an EPUB called `Rubicon.epub`.
+**If your book is a PDF or a plain text file instead, the flow is the
+same — you just swap a flag and, in Way B, a Python import. The table
+below shows the substitutions:**
+
+| Format | Script flag (Way A) | Parser module + function (Way B) |
+|---|---|---|
+| EPUB | `--epub Rubicon.epub` | `from src.epub_parser import parse_epub` → `parse_epub('Rubicon.epub')` |
+| PDF | `--pdf Rubicon.pdf` | `from src.pdf_parser import parse_pdf` → `parse_pdf('Rubicon.pdf')` |
+| Plain text `.txt` | `--text-file my_book.txt` | No parser needed — the file already contains the text. Skip the extraction step in Way B entirely. |
+
+Everything else — `--language`, `--out`, `--device`, the resume
+behaviour, the progress output, the flag reference table below —
+works identically regardless of input format. PDFs with unusual
+layouts (multi-column academic papers, scanned pages where text is
+actually an image, heavy footnote cross-references) can produce
+noisy text; run your output text through a quick eyeball pass before
+feeding it to a long synthesis.
 
 There are two ways to run the synthesis: on the **whole book** in one
 go, or on a **short excerpt** you've carved out for testing. Pick
