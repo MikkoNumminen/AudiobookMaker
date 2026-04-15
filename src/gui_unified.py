@@ -2617,8 +2617,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     # Sample run: announce the sample path but do NOT
                     # mutate self._output_path — the user's planned full
                     # run target stays as it was so Muunna won't bump.
+                    # Prefer the flat sample path set by the finalizer
+                    # (Chatterbox reports its nested `00_full.mp3` in
+                    # ev.output_path, which we've already relocated).
                     sample_path = (
-                        ev.output_path or self._sample_output_path or ""
+                        self._sample_output_path or ev.output_path or ""
                     )
                     self._status_label_val.configure(
                         text=self._s("sample_run_saved").format(path=sample_path)
@@ -2685,7 +2688,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         log the final location.
         """
         src = getattr(self, "_chatterbox_last_mp3", "")
-        if not src or not self._output_path:
+        # In sample mode, target the flat sibling path instead of the
+        # planned full-run output so the sample lands at
+        # `<out_dir>/<base>_sample.mp3` rather than nested under
+        # `<out_dir>/<base>_sample_xyz/00_full.mp3`.
+        target = (
+            self._sample_output_path if self._is_sample_run
+            else self._output_path
+        )
+        if not src or not target:
             return
 
         src_path = Path(src)
@@ -2707,7 +2718,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 if candidates:
                     src_path = candidates[0]
 
-        dst_path = Path(self._output_path)
+        dst_path = Path(target)
         if src_path.resolve() == dst_path.resolve():
             return  # Already at target
 
@@ -2722,6 +2733,25 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._chatterbox_last_mp3 = ""
         except OSError as exc:
             self._append_log(f"Could not move output to {dst_path}: {exc}")
+            return
+
+        # For sample runs, clean up the nested Chatterbox subfolder
+        # (per-chapter MP3s, .chunks/ cache, .progress.json) — the user
+        # only needs the flat sample file.
+        if self._is_sample_run:
+            nested_dir = src_path.parent
+            try:
+                if (
+                    nested_dir.is_dir()
+                    and nested_dir.resolve() != dst_path.parent.resolve()
+                ):
+                    shutil.rmtree(nested_dir, ignore_errors=True)
+            except OSError as exc:
+                self._append_log(
+                    f"Could not remove sample subfolder {nested_dir}: {exc}"
+                )
+            # Redirect the "done" event's announced path to the flat file.
+            self._sample_output_path = str(dst_path)
 
     # ------------------------------------------------------------------
     # Running/idle state management
