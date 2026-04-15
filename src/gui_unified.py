@@ -806,7 +806,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             command=self._on_engine_changed,
         )
         self._engine_cb.grid(row=0, column=3, sticky="ew", padx=(0, 4), pady=6)
-        self._populate_engine_list()
+        # Engine combobox stays empty until _apply_loaded_config() resolves
+        # the user's saved Language and calls _populate_engine_list() with
+        # the right language context. Populating here would build the
+        # dropdown for "Suomi" first and rebuild it ms later for the
+        # actual saved Language — invisible to the user but flagged by the
+        # sequencing audit as the wrong shape.
 
         # Row 1: Ääni + voice-count side label + Testaa
         self._voice_label = ctk.CTkLabel(bar, text="Ääni:")
