@@ -90,35 +90,93 @@ jobs:
           name: installer
           path: installer/Output/*.exe
 
+      # Auto-update is the lifeline to existing users. Every released installer
+      # MUST publish its SHA-256 — both inside the release notes (where the
+      # auto-updater reads it) and as a sidecar `.exe.sha256` asset (the
+      # in-code fallback path). v3.7.0 shipped without the hash and broke
+      # auto-update for every existing user; this step exists so that can
+      # never happen again. See CONVENTIONS.md "Auto-update is critical".
+      - name: Compute installer SHA-256 and write release notes
+        id: sha
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $exe = "installer/Output/AudiobookMaker-Setup-$version.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "Installer SHA-256: $hash"
+          "HASH=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          # Sidecar asset that the auto-updater can fall back to if it can't
+          # parse the release-notes body for any reason.
+          "$hash  AudiobookMaker-Setup-$version.exe" | Out-File `
+              -FilePath "installer/Output/AudiobookMaker-Setup-$version.exe.sha256" `
+              -Encoding ascii -NoNewline
+          # Render the release notes body to a file so we can inject the hash.
+          $notes = @"
+        ## AudiobookMaker $version
+
+        Unified release — one app, one installer, all engines.
+
+        ### What's new
+
+        - Single unified GUI replaces both the old Main and Launcher installers
+        - Finnish/English UI language toggle
+        - PDF and plain text input modes
+        - In-app engine installer (install Chatterbox without leaving the app)
+        - Edge-TTS, Piper, and Chatterbox Finnish all in one window
+
+        ### Installation
+
+        1. Download ``AudiobookMaker-Setup-$version.exe`` below
+        2. Double-click — click **More info** → **Run anyway** on the SmartScreen warning
+        3. Follow the installer prompts
+        4. Open AudiobookMaker from the Start Menu
+        5. To add Chatterbox (best Finnish quality, needs NVIDIA GPU): click **Install engines** inside the app
+
+        No Python or other dependencies needed — everything is bundled.
+
+        ---
+        SHA-256: $hash
+        "@
+          Set-Content -Path release_notes.md -Value $notes -Encoding utf8
+        shell: pwsh
+
+      # Belt-and-braces: refuse to publish if the rendered body does not
+      # contain a 64-hex SHA-256 line. The auto-updater requires this; without
+      # it every existing user is locked out of updates.
+      - name: Guard — release notes must contain SHA-256
+        run: |
+          if (-not (Select-String -Path release_notes.md -Pattern '(?i)sha-?256:\s*[0-9a-f]{64}' -Quiet)) {
+            Write-Error "release_notes.md is missing a SHA-256 line — refusing to publish. Auto-update would break for every existing user."
+            exit 1
+          }
+          Write-Host "release_notes.md contains a SHA-256 line — OK to publish."
+        shell: pwsh
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: AudiobookMaker ${{ steps.version.outputs.VERSION }}
-          body: |
-            ## AudiobookMaker ${{ steps.version.outputs.VERSION }}
-
-            Unified release — one app, one installer, all engines.
-
-            ### What's new
-
-            - Single unified GUI replaces both the old Main and Launcher installers
-            - Finnish/English UI language toggle
-            - PDF and plain text input modes
-            - In-app engine installer (install Chatterbox without leaving the app)
-            - Edge-TTS, Piper, and Chatterbox Finnish all in one window
-
-            ### Installation
-
-            1. Download `AudiobookMaker-Setup-${{ steps.version.outputs.VERSION }}.exe` below
-            2. Double-click — click **More info** → **Run anyway** on the SmartScreen warning
-            3. Follow the installer prompts
-            4. Open AudiobookMaker from the Start Menu
-            5. To add Chatterbox (best Finnish quality, needs NVIDIA GPU): click **Install engines** inside the app
-
-            No Python or other dependencies needed — everything is bundled.
-          files: installer/Output/*.exe
+          body_path: release_notes.md
+          files: |
+            installer/Output/*.exe
+            installer/Output/*.exe.sha256
           draft: false
           prerelease: false
+
+      # Last line of defence: after the release is live, fetch the published
+      # body via the GitHub API and verify the SHA line survived. Catches the
+      # rare case of a release-process bug that strips the body before publish.
+      - name: Verify published release notes contain SHA-256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $body = gh release view "v$version" -R "${{ github.repository }}" --json body -q .body
+          if (-not ($body -match '(?i)sha-?256:\s*[0-9a-f]{64}')) {
+            Write-Error "Published release v$version is missing the SHA-256 line. Auto-update will fail for every existing user. Restore it before announcing."
+            exit 1
+          }
+          Write-Host "Published release v$version has SHA-256 — auto-update path verified."
+        shell: pwsh
 
       - name: Update README version links
         run: |
