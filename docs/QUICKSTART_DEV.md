@@ -62,11 +62,17 @@ sudo pacman -S python git ffmpeg
 
 Two things no package manager can install for you:
 
-- **An NVIDIA GPU driver with CUDA 12+** (Windows / Linux). Download
-  from [nvidia.com/drivers](https://www.nvidia.com/drivers). Without
-  a supported NVIDIA driver, Chatterbox falls back to CPU and becomes
-  too slow to be practical (days for a novel). macOS has no CUDA at
-  all — see the platform note above.
+- **An NVIDIA GPU driver** (Windows / Linux). Download from
+  [nvidia.com/drivers](https://www.nvidia.com/drivers). You need a
+  driver recent enough to support CUDA 12 — the release notes on the
+  driver page will say. Without a supported driver, Chatterbox falls
+  back to CPU and becomes too slow to be practical (days for a
+  novel). macOS has no CUDA at all — see the platform note above.
+  **You do not need to install the CUDA Toolkit separately.** The
+  CUDA runtime libraries come bundled inside the PyTorch wheel that
+  `pip install` fetches in step 4. The Toolkit (the full nvcc
+  compiler + headers) is only needed if you're compiling CUDA code
+  yourself, which we never do.
 - **Python's "Add to PATH" setting** (Windows only). Tick the box if
   you use the python.org installer instead of winget.
 
