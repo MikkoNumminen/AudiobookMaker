@@ -17,6 +17,9 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Add more Chatterbox voice presets (BLOCKED — needs voice samples first)
+- [ ] Currently the only Chatterbox voice preset is "Grandmom" (with `assets/voices/grandmom_reference.wav`). Adding a new preset is a 5-step change but the hard prerequisite is recording a clean reference WAV: 10–20 s, 22050 Hz mono, SNR 40+ dB, no clipping, loudness in −25…−15 dBFS. Without that source material this can't progress. Once a sample exists, code changes go in (a) `assets/voices/{name}_reference.wav`, (b) `_CHATTERBOX_LANG_TAGS` in `src/gui_unified.py:157`, (c) `_chatterbox_voices_for_language()` in `src/gui_unified.py:163`, (d) `_load_engine()` routing in `scripts/generate_chatterbox_audiobook.py:434`, (e) optional `--voice` CLI argument. 🟡 🧠 Opus.
+
 ### Audit Finnish + English output quality holistically
 - [ ] Sit down with a chapter from each language and write down every audible defect (mispronunciations, wrong stress, swallowed words, weird prosody, cross-language artifacts, robotic stretches, garbled numbers/acronyms). Group by root cause: normalizer issue vs model issue vs reference-clip issue vs chunking-boundary issue. The current TODO list has scattered single-symptom items (`s`→`sch`, Roman numerals, long compounds) but no unified picture of where the biggest wins are. Output: a ranked list of "fix these N things and the audio gets noticeably better" so future passes are prioritized by impact, not by what got noticed last. 🟡 🧠 Opus.
 
