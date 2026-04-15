@@ -161,6 +161,116 @@ class TestChatterboxVoiceHelper:
 
 
 # ---------------------------------------------------------------------------
+# Kieli <-> voice list interaction (Phase 2 engine bar)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _reset_kieli_after(app):
+    """Put the shared app back to its default Kieli after a test so
+    later tests in the module don't inherit Kieli/engine pollution."""
+    yield
+    app._lang_cb.set("Suomi")
+    app._on_language_changed("Suomi")
+    app.update_idletasks()
+
+
+class TestKieliVoiceInteraction:
+    """Kieli in the engine bar drives a Kieli -> Moottori -> Ääni funnel:
+    changing the language re-filters engines and the voice dropdown,
+    and the side-label truthfully reports how many voices are available."""
+
+    def _set_language(self, app, label: str) -> None:
+        """Simulate a user pick on the Kieli combobox."""
+        app._lang_cb.set(label)
+        app._on_language_changed(label)
+        app.update_idletasks()
+
+    def test_kieli_in_engine_bar_not_settings(self, app, _reset_kieli_after) -> None:
+        # _lang_cb must be parented by the engine bar frame, not the
+        # settings frame, so it's visible without expanding Asetukset.
+        assert app._lang_cb.master is app._engine_bar
+        # Sanity: the settings frame still exists but must not host Kieli.
+        for child in app._settings_frame.winfo_children():
+            assert child is not app._lang_cb
+
+    def test_changing_kieli_refilters_edge_voices(self, app, _reset_kieli_after) -> None:
+        # Pin the engine to Edge (which supports both fi and en).
+        from src.tts_edge import EdgeTTSEngine
+
+        edge_label = next(
+            (lbl for lbl, eid in app._engine_display_to_id.items()
+             if eid == "edge"),
+            None,
+        )
+        assert edge_label is not None, "Edge engine missing from dropdown"
+        app._engine_cb.set(edge_label)
+
+        # Switch to English and confirm every listed voice is English.
+        self._set_language(app, "English")
+        voices_en = list(app._voice_cb.cget("values"))
+        assert voices_en, "Edge should offer at least one English voice"
+        en_ids = {v.id for v in EdgeTTSEngine().list_voices("en")}
+        en_display_names = {v.display_name for v in EdgeTTSEngine().list_voices("en")}
+        assert set(voices_en).issubset(en_display_names)
+
+        # And back to Suomi — voices must switch to Finnish.
+        self._set_language(app, "Suomi")
+        voices_fi = list(app._voice_cb.cget("values"))
+        fi_display_names = {v.display_name for v in EdgeTTSEngine().list_voices("fi")}
+        assert set(voices_fi).issubset(fi_display_names)
+        assert voices_fi != voices_en
+
+    def test_chatterbox_grandmom_visible_for_both_languages(self, app, _reset_kieli_after) -> None:
+        # Force a chatterbox_fi entry into the engine map regardless of
+        # whether the dev machine actually has the venv installed — the
+        # voice-list refresh path is what we're testing. The entry has
+        # to be re-applied after each Kieli change because
+        # _on_language_changed rebuilds the engine map from the
+        # registry.
+        fake_label = "test-chatterbox"
+
+        def _force_chatterbox() -> None:
+            app._engine_display_to_id[fake_label] = "chatterbox_fi"
+            app._engine_cb.configure(
+                values=list(app._engine_display_to_id.keys())
+            )
+            app._engine_cb.set(fake_label)
+
+        self._set_language(app, "Suomi")
+        _force_chatterbox()
+        app._refresh_voice_list()
+        fi_voices = list(app._voice_cb.cget("values"))
+        assert fi_voices == ["Grandmom (suomi)"]
+
+        self._set_language(app, "English")
+        _force_chatterbox()
+        app._refresh_voice_list()
+        en_voices = list(app._voice_cb.cget("values"))
+        assert en_voices == ["Grandmom (English)"]
+
+    def test_voice_count_label_updates(self, app, _reset_kieli_after) -> None:
+        edge_label = next(
+            (lbl for lbl, eid in app._engine_display_to_id.items()
+             if eid == "edge"),
+            None,
+        )
+        assert edge_label is not None
+        app._engine_cb.set(edge_label)
+
+        self._set_language(app, "Suomi")
+        text_fi = app._voice_count_lbl.cget("text")
+        # Expect the Finnish side-label to mention a non-zero count.
+        assert text_fi, "Voice count side-label should not be empty"
+        assert any(ch.isdigit() for ch in text_fi)
+
+        self._set_language(app, "English")
+        text_en = app._voice_count_lbl.cget("text")
+        assert text_en
+        assert text_en != text_fi  # count and/or language name differs
+
+
+# ---------------------------------------------------------------------------
 # Update-banner browser fallback
 # ---------------------------------------------------------------------------
 
