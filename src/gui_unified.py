@@ -182,6 +182,9 @@ _STRINGS = {
         "status_label": "Tila:",
         "status_ready_msg": "Valitse PDF tai kirjoita teksti aloittaaksesi.",
         "convert": "Muunna",
+        "make_sample": "Tee n\u00e4yte",
+        "making_sample": "Tehd\u00e4\u00e4n n\u00e4ytett\u00e4\u2026",
+        "sample_run_saved": "N\u00e4yte tallennettu: {path}",
         "cancel": "Peruuta",
         "open_folder": "Avaa kansio",
         "show_log": "Näytä loki",
@@ -273,6 +276,9 @@ _STRINGS = {
         "status_label": "Status:",
         "status_ready_msg": "Select a PDF or enter text to begin.",
         "convert": "Convert",
+        "make_sample": "Make sample",
+        "making_sample": "Generating sample\u2026",
+        "sample_run_saved": "Sample saved: {path}",
         "cancel": "Cancel",
         "open_folder": "Open folder",
         "show_log": "Show log",
@@ -419,6 +425,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._listen_temp_path: Optional[str] = None
         self._chatterbox_runner: Optional[ChatterboxRunner] = None
         self._chatterbox_last_mp3: str = ""
+        # Sample-mode flags. Set by _on_sample_click, cleared by
+        # _on_convert_click and _on_synth_exit so the success path can
+        # show "Sample saved" instead of the generic "Done".
+        self._is_sample_run: bool = False
+        self._sample_output_path: Optional[str] = None
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
         self._log_visible = True
         self._pending_update: Optional[UpdateInfo] = None
@@ -615,6 +626,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not self._listening:
             self._listen_btn.configure(text=s("listen"))
         self._convert_btn.configure(text=s("convert"))
+        self._sample_btn.configure(text=s("make_sample"))
         if not self._cancel_requested:
             self._cancel_btn.configure(text=s("cancel"))
         self._open_folder_btn.configure(text=s("open_folder"))
@@ -795,11 +807,17 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         self._convert_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
 
+        self._sample_btn = ctk.CTkButton(
+            btn_row, text="Tee n\u00e4yte", command=self._on_sample_click,
+            height=44, width=120,
+        )
+        self._sample_btn.grid(row=0, column=1, padx=(0, 6))
+
         self._listen_btn = ctk.CTkButton(
             btn_row, text="Esikuuntele", command=self._on_listen_click,
             height=44, width=120,
         )
-        self._listen_btn.grid(row=0, column=1, padx=(0, 6))
+        self._listen_btn.grid(row=0, column=2, padx=(0, 6))
 
         self._cancel_btn = ctk.CTkButton(
             btn_row, text="Peruuta", command=self._request_cancel,
@@ -807,14 +825,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             fg_color=("#c62828", "#8b0000"),
             hover_color=("#8b0000", "#5c0000"),
         )
-        self._cancel_btn.grid(row=0, column=2, padx=(0, 6))
+        self._cancel_btn.grid(row=0, column=3, padx=(0, 6))
         self._cancel_btn.grid_remove()  # Only visible while running.
 
         self._open_folder_btn = ctk.CTkButton(
             btn_row, text="Avaa kansio", command=self._open_output_folder,
             height=44, width=120, state="disabled",
         )
-        self._open_folder_btn.grid(row=0, column=3)
+        self._open_folder_btn.grid(row=0, column=4)
 
         # Bottom: progress bar + inline status (small, right-aligned).
         progress_row = ctk.CTkFrame(ar, fg_color="transparent")
@@ -2213,9 +2231,110 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # Conversion dispatch
     # ------------------------------------------------------------------
 
+    def _on_sample_click(self) -> None:
+        """Generate a short ~30 s sample from the start of the input.
+
+        Lets the user audition the chosen voice/engine before committing
+        to a full-book synthesis run that may take an hour or more. The
+        sample lands next to the planned full-run MP3 with a ``_sample``
+        suffix, so the user can A/B compare across engines without
+        polluting their Documents folder.
+        """
+        from src.sample_helpers import (
+            compute_sample_output_path,
+            extract_sample_text,
+        )
+
+        if self._synth_running:
+            return
+
+        # Validate input — same rules as Muunna.
+        if self._input_mode == "pdf" and not self._pdf_path:
+            messagebox.showerror(self._s("error"), self._s("no_pdf"))
+            return
+        if self._input_mode == "text":
+            content = "" if self._text_has_placeholder else self._text_widget.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showerror(self._s("error"), self._s("no_text"))
+                return
+
+        # Resolve full-run output path so we can derive the _sample sibling.
+        if not self._output_path:
+            self._auto_output_path()
+        if not self._output_path:
+            messagebox.showerror(self._s("error"), self._s("no_pdf"))
+            return
+
+        # Extract the sample text on the main thread (PDF parsing is
+        # fast enough that blocking briefly is fine).
+        if self._input_mode == "pdf":
+            try:
+                source_text = parse_book(self._pdf_path).full_text
+            except Exception as exc:
+                messagebox.showerror(self._s("error"), str(exc))
+                return
+        else:
+            source_text = self._text_widget.get("1.0", tk.END).strip()
+        sample_text = extract_sample_text(source_text)
+        if not sample_text:
+            messagebox.showerror(self._s("error"), self._s("no_text"))
+            return
+
+        sample_output_path = compute_sample_output_path(self._output_path)
+
+        engine_id = self._current_engine_id()
+        if not engine_id:
+            messagebox.showerror(self._s("error"), self._s("select_tts_engine"))
+            return
+
+        # For registry engines, verify availability + voice.
+        if engine_id != "chatterbox_fi":
+            engine = self._current_engine()
+            if engine is None:
+                messagebox.showerror(self._s("error"), self._s("engine_not_found"))
+                return
+            status = engine.check_status()
+            if not status.available:
+                messagebox.showerror(
+                    self._s("error"), f"{engine.display_name}: {status.reason}"
+                )
+                return
+            voice = self._current_voice()
+            if voice is None:
+                messagebox.showerror(self._s("error"), self._s("select_voice"))
+                return
+
+        # Persist current selections (engine, voice, etc.) before kicking off.
+        self._save_current_config()
+
+        # Mark this run as a sample so _set_running_state shows the
+        # right status text and _on_synth_done announces it correctly.
+        self._is_sample_run = True
+        self._sample_output_path = sample_output_path
+        self._set_running_state()
+        self._append_log(f"Sample: {len(sample_text)} chars → {sample_output_path}")
+
+        if engine_id == "chatterbox_fi":
+            self._start_chatterbox_subprocess(
+                text_override=sample_text,
+                output_basename_override=Path(sample_output_path).stem,
+            )
+        else:
+            self._start_inprocess_engine(
+                engine_id,
+                text_override=sample_text,
+                output_path_override=sample_output_path,
+            )
+
+        self.after(self.POLL_INTERVAL_MS, self._pump_events)
+
     def _on_convert_click(self) -> None:
         if self._synth_running:
             return
+
+        # Reset the sample-run flag — a full Muunna press is never a sample.
+        self._is_sample_run = False
+        self._sample_output_path = None
 
         # Validate input.
         if self._input_mode == "pdf" and not self._pdf_path:
@@ -2313,17 +2432,32 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # In-process engine synthesis (Edge-TTS, Piper, VoxCPM2)
     # ------------------------------------------------------------------
 
-    def _start_inprocess_engine(self, engine_id: str) -> None:
-        """Start synthesis in a background thread for registry engines."""
+    def _start_inprocess_engine(
+        self,
+        engine_id: str,
+        text_override: Optional[str] = None,
+        output_path_override: Optional[str] = None,
+    ) -> None:
+        """Start synthesis in a background thread for registry engines.
+
+        ``text_override`` and ``output_path_override`` let the sample
+        flow inject a truncated text snippet and a sibling ``_sample``
+        output path without mutating the host's state.
+        """
+        output_path = output_path_override or self._output_path
         self._append_log(f"Engine: {engine_id}")
-        self._append_log(f"Output: {self._output_path}")
+        self._append_log(f"Output: {output_path}")
         # Capture input on the main thread (thread-safe).
-        input_mode = self._input_mode
-        pdf_path = self._pdf_path
-        input_text = None
-        if input_mode == "text" and not self._text_has_placeholder:
-            input_text = self._text_widget.get("1.0", tk.END).strip()
-        output_path = self._output_path
+        if text_override is not None:
+            input_mode = "text"
+            pdf_path = None
+            input_text = text_override
+        else:
+            input_mode = self._input_mode
+            pdf_path = self._pdf_path
+            input_text = None
+            if input_mode == "text" and not self._text_has_placeholder:
+                input_text = self._text_widget.get("1.0", tk.END).strip()
         voice = self._current_voice()
         voice_id = voice.id if voice else None
         language = self._current_language()
@@ -2476,16 +2610,30 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 # last partial chunk value left over from progress pulses.
                 self._progress_bar.set(1.0)
                 self.update_idletasks()
-                self._status_label_val.configure(text=self._s("done"))
                 # If this was Chatterbox, move its output to where the user
                 # asked for it. Chatterbox doesn't honor a --output-file path.
                 self._finalize_chatterbox_output_if_needed()
-                if ev.output_path:
-                    self._output_path = ev.output_path
-                # Show a friendly green summary at the bottom of the log.
-                if self._output_path:
-                    self._log_success_summary(self._output_path)
-                self._update_done_strip(self._output_path)
+                if self._is_sample_run:
+                    # Sample run: announce the sample path but do NOT
+                    # mutate self._output_path — the user's planned full
+                    # run target stays as it was so Muunna won't bump.
+                    sample_path = (
+                        ev.output_path or self._sample_output_path or ""
+                    )
+                    self._status_label_val.configure(
+                        text=self._s("sample_run_saved").format(path=sample_path)
+                    )
+                    if sample_path:
+                        self._log_success_summary(sample_path)
+                    self._is_sample_run = False
+                    self._sample_output_path = None
+                else:
+                    self._status_label_val.configure(text=self._s("done"))
+                    if ev.output_path:
+                        self._output_path = ev.output_path
+                    if self._output_path:
+                        self._log_success_summary(self._output_path)
+                    self._update_done_strip(self._output_path)
                 self._set_idle_state()
                 # One final set(1.0) after idle-state toggles anything
                 # that might have reset the widget.
@@ -2584,15 +2732,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._synth_started_at = datetime.now()
         self._convert_btn.configure(state="disabled")
         self._listen_btn.configure(state="disabled")
+        self._sample_btn.configure(state="disabled")
         self._cancel_btn.grid()
         self._progress_bar.set(0)
-        self._status_label_val.configure(text=self._s("converting"))
+        self._status_label_val.configure(
+            text=self._s("making_sample") if self._is_sample_run
+            else self._s("converting")
+        )
         self._clear_log()
 
     def _set_idle_state(self) -> None:
         self._synth_running = False
         self._convert_btn.configure(state="normal")
         self._listen_btn.configure(state="normal")
+        self._sample_btn.configure(state="normal")
         self._cancel_btn.grid_remove()
         self._open_folder_btn.configure(state="normal")
         self._chatterbox_runner = None

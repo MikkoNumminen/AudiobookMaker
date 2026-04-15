@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         # Widgets (CTk/Tk — typed as Any to avoid heavy stub deps)
         _listen_btn: Any
         _convert_btn: Any
+        _sample_btn: Any
         _cancel_btn: Any
         _open_folder_btn: Any
         _progress_bar: Any
@@ -120,10 +121,14 @@ class SynthMixin(_Base):
         self._cancel_flag.clear()
         self._listen_btn.configure(state="disabled")
         self._convert_btn.configure(state="disabled")
+        self._sample_btn.configure(state="disabled")
         self._cancel_btn.grid()
         self._open_folder_btn.configure(state="disabled")
         self._progress_bar.set(0)
-        self._status_label_val.configure(text=self._s("converting"))
+        self._status_label_val.configure(
+            text=self._s("making_sample") if getattr(self, "_is_sample_run", False)
+            else self._s("converting")
+        )
         self._eta_label.configure(text="")
         self._clear_log()
 
@@ -131,18 +136,41 @@ class SynthMixin(_Base):
         self._synth_running = False
         self._listen_btn.configure(state="normal")
         self._convert_btn.configure(state="normal")
+        self._sample_btn.configure(state="normal")
         self._cancel_btn.grid_remove()
 
     # ---- Chatterbox subprocess ----------------------------------------
 
-    def _start_chatterbox_subprocess(self) -> None:
+    def _start_chatterbox_subprocess(
+        self,
+        text_override: Optional[str] = None,
+        output_basename_override: Optional[str] = None,
+    ) -> None:
+        """Spawn the Chatterbox runner. ``text_override`` lets the
+        sample flow inject a 500-char snippet without changing the
+        widget. ``output_basename_override`` controls the temp file
+        stem so the runner produces ``<out_dir>/<stem>/00_full.mp3``.
+        """
         from src.gui_unified import _REPO_ROOT
 
         pdf_path = None
         text_path = None
         epub_path = None
 
-        if self._input_mode == "pdf":
+        if text_override is not None:
+            # Sample path: route the snippet through the runner's
+            # text-input mode regardless of the GUI's current tab.
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w",
+                prefix=(output_basename_override + "_") if output_basename_override else "abm_",
+                suffix=".txt",
+                delete=False,
+                encoding="utf-8",
+            )
+            tmp.write(text_override)
+            tmp.close()
+            text_path = tmp.name
+        elif self._input_mode == "pdf":
             if not self._pdf_path:
                 self._fail(self._s("no_pdf"))
                 return
