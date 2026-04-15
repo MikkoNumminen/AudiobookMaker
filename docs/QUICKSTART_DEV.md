@@ -20,55 +20,105 @@ env's interpreter. You'll create both below.
 
 ## Install once
 
-Install these manually, once per machine:
+Open PowerShell **as Administrator** and install the prerequisites via
+winget (shipped with Windows 10+ / Windows 11). One command each:
 
-- **Python 3.11** from python.org. Tick "Add Python to PATH".
-- **Git for Windows**.
-- **An NVIDIA GPU** with a recent CUDA 12+ driver. Without one
-  Chatterbox falls back to CPU, which is too slow to use in practice
-  (days for a novel, not hours).
-- **ffmpeg and ffprobe** on PATH, or copied into `dist/ffmpeg/` inside
-  the cloned repo. Grab them from ffmpeg.org or gyan.dev.
+```powershell
+winget install Python.Python.3.11         # Python interpreter
+winget install Git.Git                    # Git
+winget install Gyan.FFmpeg                # ffmpeg + ffprobe
+```
 
-Then clone and set up both environments:
+Close and reopen PowerShell afterwards so the new `PATH` takes effect.
+
+Two things winget can't install for you:
+
+- **An NVIDIA GPU driver with CUDA 12+.** Download from
+  [nvidia.com/drivers](https://www.nvidia.com/drivers) and install
+  manually. Without a supported GPU driver, Chatterbox falls back to
+  CPU, which is too slow to be practical (days for a novel).
+- **Python's "Add to PATH" setting.** If you installed Python manually
+  from python.org instead of winget, tick the "Add Python to PATH"
+  checkbox. The winget package handles this automatically.
+
+Quick sanity check before moving on:
+
+```powershell
+python --version         # -> Python 3.11.x
+git --version            # -> git version 2.x
+ffmpeg -version          # -> ffmpeg version n...
+nvidia-smi               # -> table showing your GPU and driver
+```
+
+If any of those four fail, fix it before going further — the steps
+below assume all four work.
+
+Now the step-by-step. Every command below goes into PowerShell (a
+regular non-admin window is fine from here on).
+
+**1. Clone the repo and `cd` into it:**
 
 ```powershell
 git clone https://github.com/MikkoNumminen/AudiobookMaker.git
 cd AudiobookMaker
+```
 
-# Main app environment
+**2. Create the main app environment and install its dependencies:**
+
+```powershell
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-
-# Chatterbox environment (15-30 min — heavy PyTorch + model downloads)
-powershell -ExecutionPolicy Bypass -File scripts\setup_chatterbox_windows.ps1
 ```
 
-The Chatterbox script creates `.venv-chatterbox\`, installs CUDA-
-enabled PyTorch, and downloads the speech models from HuggingFace.
-Models go into `~/.cache/huggingface/hub/` and are shared across all
-projects on the machine, so if you ever rebuild the venv the model
-download won't repeat.
+This creates a `.venv\` folder inside the repo and installs the app's
+Python packages into it. When you see `(.venv)` in your prompt,
+you're working inside that environment.
 
-**Already have Chatterbox installed on this machine?** Check before
-running the setup script — the GUI's "Install engines" button and
-earlier passes through this guide may have already done the work.
+**3. Check whether Chatterbox is already installed somewhere on this
+machine.** The GUI's "Install engines" button and earlier passes
+through this guide may have already done the setup. Save yourself
+15–30 minutes:
 
 ```powershell
 python -c "from src.launcher_bridge import resolve_chatterbox_python; p = resolve_chatterbox_python(); print(p or 'not found')"
 ```
 
-If it prints a path to a `python.exe`, skip the Chatterbox setup and
-use that path wherever this guide says `.venv-chatterbox\Scripts\python.exe`.
+If this prints a path to a `python.exe`, **skip step 4** and use that
+path wherever this guide says `.venv-chatterbox\Scripts\python.exe`.
+If it prints `not found`, continue to step 4.
 
-## Run it
+**4. Create the Chatterbox environment** (skip if step 3 found one):
 
-Drop your book (`.epub`, `.pdf`, or plain `.txt`) in the repo root.
-Then one command produces an MP3:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_chatterbox_windows.ps1
+```
+
+This creates a `.venv-chatterbox\` folder, installs CUDA-enabled
+PyTorch, installs Chatterbox itself, and downloads the speech models
+from HuggingFace. **Takes 15–30 minutes** depending on your internet
+and disk speed. The models land in `~/.cache/huggingface/hub/` and
+are shared across all projects on the machine, so if you ever rebuild
+the venv later the heavy download won't repeat.
+
+**5. Drop your book in the repo root.** An EPUB, a PDF, or a plain
+`.txt` file will all work. Say your book is `Rubicon.epub` — just
+copy it into the `AudiobookMaker\` folder you cloned in step 1.
+
+**6. Make an output folder.** The synthesis script doesn't create it
+for you:
 
 ```powershell
 mkdir out
+```
+
+You're now ready to synthesize. Continue to the next section.
+
+## Run it
+
+One command produces an MP3:
+
+```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
     --epub Rubicon.epub `
     --out out\rubicon.mp3 `
