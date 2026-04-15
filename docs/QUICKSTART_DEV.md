@@ -1,23 +1,16 @@
 # Setting up AudiobookMaker to synthesize a book from the command line
 
 This guide gets you from a fresh machine to an MP3 audiobook read
-aloud by the "Grandmom" voice. Primary target is Windows with an
-NVIDIA graphics card, but the commands below include macOS and Linux
-alternatives where they differ. By the end, one command turns a book
-file into an audiobook.
+aloud by the "Grandmom" voice. It covers **Windows** and **Linux**,
+the two platforms where you can realistically run Chatterbox at speed
+(both need an NVIDIA GPU). By the end, one command turns a book file
+into an audiobook.
 
-**Platform notes before you start:**
-
-- **Windows + NVIDIA GPU** — the fully-supported path. Everything in
-  this guide works as written.
-- **Linux + NVIDIA GPU** — same as Windows, just with bash syntax.
-  Commands below include the Linux variant.
-- **macOS (Apple Silicon)** — Chatterbox requires CUDA, which macOS
-  doesn't have. You can still run the app and use Edge-TTS or Piper,
-  but Chatterbox synthesis on macOS is CPU-only and too slow to use in
-  practice. Commands below show the setup steps in case you want to
-  experiment. Production use: run Chatterbox on a Linux/Windows
-  machine with an NVIDIA GPU.
+**macOS note:** Apple Macs don't have NVIDIA GPUs and therefore can't
+run CUDA. Chatterbox on a Mac falls back to CPU, which is slow enough
+(days per novel) to be impractical. If you're on macOS, use the GUI
+app with Edge-TTS or Piper instead — those don't need a GPU and work
+fine on any platform.
 
 ## Why two Python environments?
 
@@ -44,11 +37,6 @@ winget install Gyan.FFmpeg
 ```
 Close and reopen PowerShell afterwards so `PATH` takes effect.
 
-**macOS** (needs [Homebrew](https://brew.sh)):
-```bash
-brew install python@3.11 git ffmpeg
-```
-
 **Linux — Ubuntu / Debian:**
 ```bash
 sudo apt update
@@ -62,15 +50,14 @@ sudo pacman -S python git ffmpeg
 
 Two things no package manager can install for you:
 
-- **An NVIDIA GPU driver** (Windows / Linux). Download from
+- **An NVIDIA GPU driver.** Download from
   [nvidia.com/drivers](https://www.nvidia.com/drivers). You need a
   driver recent enough to support CUDA 12 — the release notes on the
   driver page will say. Without a supported driver, Chatterbox falls
   back to CPU and becomes too slow to be practical (days for a
-  novel). macOS has no CUDA at all — see the platform note above.
-  **You do not need to install the CUDA Toolkit separately.** The
-  CUDA runtime libraries come bundled inside the PyTorch wheel that
-  `pip install` fetches in step 4. The Toolkit (the full nvcc
+  novel). **You do not need to install the CUDA Toolkit separately.**
+  The CUDA runtime libraries come bundled inside the PyTorch wheel
+  that `pip install` fetches in step 4. The Toolkit (the full nvcc
   compiler + headers) is only needed if you're compiling CUDA code
   yourself, which we never do.
 - **Python's "Add to PATH" setting** (Windows only). Tick the box if
@@ -79,19 +66,18 @@ Two things no package manager can install for you:
 Quick sanity check before moving on:
 
 ```bash
-python --version         # -> Python 3.11.x   (try python3 on macOS/Linux)
+python --version         # -> Python 3.11.x   (try python3 on Linux)
 git --version            # -> git version 2.x
 ffmpeg -version          # -> ffmpeg version n...
-nvidia-smi               # -> GPU + driver table (skip on macOS)
+nvidia-smi               # -> GPU + driver table
 ```
 
-If any of the first three fail, fix them before going further. On
-macOS, skip `nvidia-smi`. On Linux, `python` may be Python 2 on older
-distros — use `python3` (or `python3.11`) explicitly throughout this
-guide.
+If any of the four fail, fix them before going further. On Linux,
+`python` may be Python 2 on older distros — use `python3` (or
+`python3.11`) explicitly throughout this guide.
 
 Now the step-by-step. Commands below show Windows first, then the
-macOS / Linux equivalent where they differ.
+Linux equivalent where they differ.
 
 **1. Clone the repo and `cd` into it:**
 
@@ -109,7 +95,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-macOS / Linux (bash / zsh):
+Linux (bash):
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
@@ -132,7 +118,7 @@ python -c "from src.launcher_bridge import resolve_chatterbox_python; p = resolv
 If this prints a path to a `python` / `python.exe`, **skip step 4**
 and use that path wherever this guide says
 `.venv-chatterbox\Scripts\python.exe` (Windows) or
-`.venv-chatterbox/bin/python` (macOS/Linux). If it prints `not found`,
+`.venv-chatterbox/bin/python` (Linux). If it prints `not found`,
 continue to step 4.
 
 **4. Create the Chatterbox environment** (skip if step 3 found one).
@@ -143,8 +129,8 @@ Windows has a single setup script that does everything:
 powershell -ExecutionPolicy Bypass -File scripts\setup_chatterbox_windows.ps1
 ```
 
-On macOS and Linux there's no setup script yet — run the equivalent
-commands manually:
+On Linux there's no setup script yet — run the equivalent commands
+manually:
 
 ```bash
 # Create the venv (separate from the main .venv)
@@ -152,17 +138,14 @@ python3.11 -m venv .venv-chatterbox
 source .venv-chatterbox/bin/activate
 pip install --upgrade pip
 
-# Install PyTorch 2.6.0.
-# Linux with NVIDIA GPU:
+# PyTorch 2.6.0 with CUDA 12.4 runtime
 pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-# macOS (CPU / MPS — Chatterbox won't actually use MPS well in practice):
-pip install torch==2.6.0 torchaudio==2.6.0
 
 # Chatterbox + the extras the Windows script also installs:
 pip install chatterbox-tts safetensors num2words silero-vad PyMuPDF pydub
 
 # Optional: Finnish "gemination patch" that reduces stuttering on long
-# sequences. Windows applies it automatically. On Unix, open
+# sequences. Windows applies it automatically. On Linux, open
 # .venv-chatterbox/lib/python3.11/site-packages/chatterbox/models/t3/inference/alignment_stream_analyzer.py
 # and refer to scripts/setup_chatterbox_windows.ps1 (Step 7/8) for the
 # exact edits if you want it applied. It's optional and the synthesis
@@ -202,7 +185,7 @@ Windows (PowerShell — backticks are line-continuations):
     --device cuda
 ```
 
-macOS / Linux (bash — backslashes are line-continuations):
+Linux (bash — backslashes are line-continuations):
 ```bash
 .venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py \
     --epub Rubicon.epub \
@@ -210,9 +193,6 @@ macOS / Linux (bash — backslashes are line-continuations):
     --language en \
     --device cuda
 ```
-
-(On macOS use `--device cpu` instead of `cuda` — Apple Silicon has no
-CUDA. Expect a ~20× slowdown; suitable only for short test snippets.)
 
 The backticks at the end of each line tell PowerShell the command
 continues on the next line.
@@ -321,7 +301,7 @@ Other GPUs scale roughly with their tensor compute. Below an RTX
 
 Once the environments are set up, these four commands cover the
 common cases. Replace `Book.epub` / `Book.pdf` with your actual
-filename. Each case shows Windows first, then macOS/Linux.
+filename. Each case shows Windows first, then Linux.
 
 **Finnish EPUB:**
 ```powershell
@@ -355,8 +335,6 @@ filename. Each case shows Windows first, then macOS/Linux.
 .venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py --pdf Book.pdf --out out/book.mp3 --language en --device cuda
 ```
 
-(On macOS, replace `--device cuda` with `--device cpu` — practical
-only for short tests.)
 
 ## Not a developer?
 
