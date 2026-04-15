@@ -63,6 +63,13 @@ class EdgeTTSEngine(TTSEngine):
     # Voices
     # --------------------------------------------------------------------- #
 
+    def supported_languages(self) -> set[str]:
+        # Edge-TTS's upstream catalogue covers ~50 locales, but we only
+        # expose Finnish and English in the UI. Other locales stay code-
+        # only (in VOICES) until someone asks for them with QA hours to
+        # back it up.
+        return {"fi", "en"}
+
     def list_voices(self, language: str) -> list[Voice]:
         lang_voices = _EDGE_VOICES.get(language, {})
         result: list[Voice] = []

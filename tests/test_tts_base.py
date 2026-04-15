@@ -101,6 +101,11 @@ class TestAbstractContract:
         assert engine.check_status().available
         assert engine.list_voices("fi")[0].id == "dummy-1"
 
+    def test_supported_languages_defaults_to_fi(self) -> None:
+        # Back-compat: engines that don't override supported_languages()
+        # should report Finnish-only, keeping legacy behaviour unchanged.
+        assert _DummyEngine().supported_languages() == {"fi"}
+
 
 # ---------------------------------------------------------------------------
 # Registry

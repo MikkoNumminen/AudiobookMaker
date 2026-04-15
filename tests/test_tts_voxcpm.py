@@ -225,3 +225,11 @@ class TestVoiceDescriptionFlag:
 
     def test_supports_voice_cloning_is_true(self) -> None:
         assert VoxCPM2Engine.supports_voice_cloning is True
+
+
+class TestSupportedLanguages:
+    def test_returns_fi_and_en(self) -> None:
+        assert VoxCPM2Engine().supported_languages() == {"fi", "en"}
+
+    def test_returns_a_set(self) -> None:
+        assert isinstance(VoxCPM2Engine().supported_languages(), set)

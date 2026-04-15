@@ -313,6 +313,12 @@ class PiperTTSEngine(TTSEngine):
     # Voices
     # --------------------------------------------------------------------- #
 
+    def supported_languages(self) -> set[str]:
+        # Piper's voice catalogue includes de/sv/etc. but we only expose
+        # fi and en in the UI per the Phase 2 design — every language we
+        # advertise must have a working voice here.
+        return {"fi", "en"}
+
     def list_voices(self, language: str) -> list[Voice]:
         return [
             Voice(

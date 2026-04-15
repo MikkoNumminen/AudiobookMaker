@@ -127,6 +127,11 @@ class VoxCPM2Engine(TTSEngine):
     # Voices
     # --------------------------------------------------------------------- #
 
+    def supported_languages(self) -> set[str]:
+        # The underlying VoxCPM2 model covers 30 languages but we only
+        # advertise the two that _DEFAULT_VOICES has entries for.
+        return {lang for lang in _DEFAULT_VOICES if lang in {"fi", "en"}}
+
     def list_voices(self, language: str) -> list[Voice]:
         spec = _DEFAULT_VOICES.get(language)
         if spec is None:

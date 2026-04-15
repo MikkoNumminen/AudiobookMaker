@@ -174,3 +174,16 @@ class TestSynthesize:
                 "fi",
                 voice_description="warm baritone elderly male",
             )
+
+
+# ---------------------------------------------------------------------------
+# supported_languages
+# ---------------------------------------------------------------------------
+
+
+class TestSupportedLanguages:
+    def test_returns_fi_and_en(self) -> None:
+        assert EdgeTTSEngine().supported_languages() == {"fi", "en"}
+
+    def test_returns_a_set(self) -> None:
+        assert isinstance(EdgeTTSEngine().supported_languages(), set)

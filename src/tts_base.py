@@ -121,6 +121,19 @@ class TTSEngine(ABC):
         the GUI will then show a download prompt. Must not raise.
         """
 
+    def supported_languages(self) -> set[str]:
+        """Return the set of short language codes this engine can speak.
+
+        Drives the Kieli → Moottori → Ääni funnel in the GUI: engines
+        that do not list the currently selected language are hidden from
+        the engine dropdown.
+
+        Default returns ``{"fi"}`` for back-compat with any third-party
+        engine that predates this contract; in-tree engines override to
+        advertise their real coverage. Must not raise.
+        """
+        return {"fi"}
+
     @abstractmethod
     def default_voice(self, language: str) -> Optional[str]:
         """Return the voice id picked by default for `language`.

@@ -231,3 +231,18 @@ def test_cache_dir_is_created() -> None:
     path = _cache_dir()
     assert path.exists()
     assert path.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# supported_languages
+# ---------------------------------------------------------------------------
+
+
+class TestSupportedLanguages:
+    def test_returns_fi_and_en(self) -> None:
+        # Piper's catalogue has de voices too, but we only expose fi/en
+        # in the UI per Phase 2 design.
+        assert PiperTTSEngine().supported_languages() == {"fi", "en"}
+
+    def test_returns_a_set(self) -> None:
+        assert isinstance(PiperTTSEngine().supported_languages(), set)
