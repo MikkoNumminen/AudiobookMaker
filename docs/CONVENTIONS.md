@@ -144,3 +144,33 @@ rules — re-read it before starting any task. Highlights:
 - Anything that affects `master` directly without a branch.
 - Anything that would create a `CLAUDE.md`, `.claude/` directory in
   the repo, or a co-authored commit. Don't.
+
+## Keep `cleanup.py` current ("the trash collector")
+
+`src/cleanup.py` runs silently on every app launch in frozen mode. It
+detects old installs, rescues user MP3s from them, removes orphan
+shortcuts, and rmtrees the leftovers. Whenever you change one of these
+things, ask yourself whether `cleanup.py` needs to learn about it —
+**and if the answer is yes, update it in the same commit.**
+
+Triggers that require a `cleanup.py` update:
+
+| Change | What to update |
+|--------|----------------|
+| New install location (e.g. Inno Setup default path changes, you ship a portable bundle, you add a WinGet manifest) | `_candidate_install_dirs()` |
+| New output file type or location (today: MP3 at `{app}` root, legacy `{app}/audiobooks/*.mp3`) | `_rescue_user_mp3s()` — add the new glob so users never lose generated files |
+| New Start-Menu / Desktop / Taskbar shortcut path | `_candidate_shortcut_dirs()` |
+| User-writable file the user might have under the install dir that *isn't* an MP3 (e.g. custom voice presets, logs they care about) | `_rescue_user_mp3s()` or a new rescue helper; don't silently nuke user data |
+| New app that shares the "AudiobookMaker" name space | scanner's `_is_audiobook_install()` identity check |
+
+Checklist before merging any change that touches install paths, output
+paths, or shortcut creation:
+
+- [ ] Will `find_old_installs()` still find it?
+- [ ] Will `remove_old_install()` preserve the user's generated files?
+- [ ] Are the tests in `tests/test_cleanup.py` updated for the new case?
+
+Why this rule exists: a botched cleanup is a data-loss incident that
+users discover only *after* their audiobooks are gone. Much cheaper to
+audit the checklist on every path-touching PR than to write an apology
+later.
