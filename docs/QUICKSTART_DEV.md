@@ -138,6 +138,49 @@ There are two ways to run the synthesis: on the **whole book** in one
 go, or on a **short excerpt** you've carved out for testing. Pick
 whichever fits what you're trying to do.
 
+## Choosing the voice and the language
+
+Before running the script, decide two things: what language the text
+is in, and what voice should read it. The command-line script handles
+both through one flag each.
+
+The command-line guide here covers one TTS engine — **Chatterbox**.
+It's the highest-quality option, runs on your GPU, and can clone
+voices from a reference clip. AudiobookMaker has two other engines
+(**Edge-TTS** for fast cloud synthesis and **Piper** for offline CPU
+synthesis) — those are best used through the GUI or the parallel
+generator script and aren't covered here.
+
+**Language selection**, via the `--language` flag:
+
+| Flag value | What happens inside |
+|---|---|
+| `--language fi` (default) | Loads the Finnish-NLP T3 fine-tuned model on top of the base multilingual Chatterbox. Reads Finnish text with native Finnish phonemes. Any non-Finnish words come out Finnish-accented. |
+| `--language en` | Loads the base multilingual Chatterbox only (no Finnish finetune). Reads English text with native English phonemes. Feeding Finnish text here would produce English-accented Finnish — so match the flag to the text. |
+
+**Voice selection**, via the `--ref-audio` flag:
+
+| Flag | Voice you get |
+|---|---|
+| No flag (default) | **Grandmom** — the warm-elderly-narrator voice that comes with the project. Works in both languages: pair with `--language fi` for Grandmom reading Finnish, or with `--language en` for Grandmom reading English. Details in `assets/voices/grandmom_reference.wav` and the Finnish-NLP reference clip. |
+| `--ref-audio path\to\voice.wav` | **Any voice you've recorded.** The script clones the timbre of the reference clip. 10–20 s of clean speech, 24 kHz mono WAV. Works with either language. |
+
+So the two common recipes are:
+
+- **Finnish book, Grandmom voice:** `--language fi` alone. Finnish
+  text goes through the Finnish-trained model and out in Grandmom's
+  voice. This is the default — if you pass neither flag, you get this.
+- **English book, Grandmom voice:** `--language en` alone. English
+  text goes through the base English model; Grandmom's timbre is
+  carried over via a bundled reference clip that ships with the app.
+
+Mismatch warning: `--language en` on a Finnish book will still
+produce audio, but the model will try to pronounce Finnish as if it
+were English. It sounds wrong in a specific and charming way. The
+reverse — `--language fi` on English text — sounds like a Finn
+reading English, which is also wrong-in-a-specific-way. Match the
+flag to the text's language.
+
 ## Way A — the whole book in one command
 
 This is the simplest path. Point the script at the EPUB (or PDF) and
