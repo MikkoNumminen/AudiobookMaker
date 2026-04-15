@@ -751,10 +751,15 @@ def _fi_detect_case(
     return "nominative"
 
 
+_MY_LANG = "fi"
+
+
 def normalize_finnish_text(
     text: str,
     drop_citations: bool = True,
     year_shortening: str = "radio",
+    *,
+    _lang: str | None = None,
 ) -> str:
     """Expand Finnish-specific patterns so TTS engines read them correctly.
 
@@ -795,6 +800,13 @@ def normalize_finnish_text(
     Returns:
         Normalized text ready for TTS synthesis.
     """
+    if _lang is not None and _lang != _MY_LANG:
+        from src.tts_normalizer import LanguageMismatchError
+        raise LanguageMismatchError(
+            f"normalize_finnish_text called with _lang={_lang!r}; "
+            f"this module only handles {_MY_LANG!r}. "
+            f"Use src.tts_normalizer.normalize_text instead."
+        )
     if not text:
         return text
     try:
