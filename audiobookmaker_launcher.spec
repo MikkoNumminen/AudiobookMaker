@@ -65,6 +65,7 @@ hidden_imports = [
     "src.tts_engine",
     "src.tts_normalizer",
     "src.tts_normalizer_fi",
+    "src.tts_normalizer_en",
     "src.tts_chunking",
     "src.tts_audio",
     "src.pdf_parser",

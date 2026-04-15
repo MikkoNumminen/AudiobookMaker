@@ -118,6 +118,7 @@ datas += [
     (os.path.join('src', 'tts_engine.py'), 'src'),
     (os.path.join('src', 'tts_normalizer.py'), 'src'),
     (os.path.join('src', 'tts_normalizer_fi.py'), 'src'),
+    (os.path.join('src', 'tts_normalizer_en.py'), 'src'),
     (os.path.join('src', 'tts_chunking.py'), 'src'),
     (os.path.join('src', 'tts_audio.py'), 'src'),
     (os.path.join('src', 'pdf_parser.py'), 'src'),
