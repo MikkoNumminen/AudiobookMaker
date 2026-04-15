@@ -329,6 +329,90 @@ class TestListenValidation:
 
 
 # ---------------------------------------------------------------------------
+# Sample button (Tee n\u00e4yte)
+# ---------------------------------------------------------------------------
+
+
+class TestSampleButton:
+    """Tee n\u00e4yte: generate a 30s sample before a long full run."""
+
+    def test_sample_button_exists(self, app):
+        assert hasattr(app, "_sample_btn")
+
+    @patch("tkinter.messagebox.showerror")
+    def test_sample_pdf_mode_no_file_shows_error(self, mock_error, app):
+        """PDF mode with no file selected should mention the book file."""
+        app._pdf_path = None
+        app._input_nb.set("Kirja")
+        app.update_idletasks()
+
+        app._on_sample_click()
+
+        mock_error.assert_called_once()
+        msg = mock_error.call_args[0][1]
+        assert "kirja" in msg.lower() or "book" in msg.lower()
+
+    @patch("tkinter.messagebox.showerror")
+    def test_sample_empty_text_shows_error(self, mock_error, app):
+        app._input_nb.set("Teksti")
+        app.update_idletasks()
+        app._text_widget.delete("1.0", tk.END)
+        app._text_has_placeholder = False
+        app.update_idletasks()
+
+        app._on_sample_click()
+
+        mock_error.assert_called_once()
+
+    def test_sample_routes_to_inprocess_with_overrides(self, app, tmp_path):
+        """A valid text input must call _start_inprocess_engine with the
+        truncated text and a sibling _sample output path."""
+        from src.tts_base import EngineStatus, Voice
+        app._input_nb.set("Teksti")
+        app.update_idletasks()
+        # Long text with a sentence boundary safely past the 100-char
+        # cutoff floor so extract_sample_text trims at it cleanly.
+        long_text = (
+            ("alku " * 30)
+            + "T\u00e4m\u00e4 on n\u00e4ytteen viimeinen lause. "
+            + ("padding " * 200)
+        )
+        app._text_widget.delete("1.0", tk.END)
+        app._text_widget.insert("1.0", long_text)
+        app._text_has_placeholder = False
+        # Force an output path so _on_sample_click doesn't bail at the
+        # _auto_output_path step.
+        app._output_path = str(tmp_path / "kirja.mp3")
+
+        # Stub out engine/voice resolution so we don't depend on the
+        # default voice combobox population state.
+        fake_voice = Voice(
+            id="fake-voice", display_name="Fake", language="en", gender="",
+        )
+
+        class _FakeEngine:
+            display_name = "Fake"
+            def check_status(self):  # noqa: D401
+                return EngineStatus(available=True)
+
+        with patch.object(app, "_current_engine_id", return_value="edge"), \
+             patch.object(app, "_current_engine", return_value=_FakeEngine()), \
+             patch.object(app, "_current_voice", return_value=fake_voice), \
+             patch.object(app, "_save_current_config"), \
+             patch.object(app, "_start_inprocess_engine") as mock_start:
+            app._on_sample_click()
+
+        mock_start.assert_called_once()
+        kwargs = mock_start.call_args.kwargs
+        assert "text_override" in kwargs
+        assert "output_path_override" in kwargs
+        assert len(kwargs["text_override"]) <= 500
+        assert kwargs["text_override"].endswith(".")
+        assert kwargs["output_path_override"].endswith("kirja_sample.mp3")
+        assert app._is_sample_run is True
+
+
+# ---------------------------------------------------------------------------
 # Engine status display
 # ---------------------------------------------------------------------------
 
