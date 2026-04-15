@@ -210,3 +210,50 @@ Why this rule exists: a botched cleanup is a data-loss incident that
 users discover only *after* their audiobooks are gone. Much cheaper to
 audit the checklist on every path-touching PR than to write an apology
 later.
+
+## Auto-update is critical — it must work for every release
+
+Auto-update is the lifeline to existing users. If it breaks, every user
+on a previous version has to manually find the GitHub release page,
+download the installer, dismiss SmartScreen, and run it themselves.
+Most won't. **Treat a broken auto-update path as a P0 — same severity
+as a data-loss bug.** v3.7.0 shipped without a SHA-256 hash in the
+release notes and locked every existing user out of one-click updates;
+that must never happen again.
+
+Mandatory guarantees for every release:
+
+1. **The release notes contain a `SHA-256: <64-hex>` line.** Enforced
+   by [.github/workflows/build-release.yml](../.github/workflows/build-release.yml)
+   — the build computes the hash from the freshly-built `.exe`, writes
+   it into `release_notes.md`, the "Guard — release notes must contain
+   SHA-256" step refuses to publish without it, and a post-publish
+   verification step re-fetches the live release and re-checks. Do not
+   bypass any of these steps. Do not edit release notes after publish
+   in a way that strips the SHA line.
+2. **A sidecar `AudiobookMaker-Setup-<v>.exe.sha256` asset is uploaded.**
+   Provides a second source of truth for [src/auto_updater.py](../src/auto_updater.py)
+   to recover from. If the body line ever goes missing, the in-code
+   sidecar fallback at `_fetch_sidecar_sha256` self-heals every
+   already-installed client the moment a sidecar exists.
+3. **The auto-updater error message stays actionable.** When the
+   download is blocked, the message must point at the working escape
+   (the "Lataa selaimella" / "Download in browser" button next to it).
+   See `src/auto_updater.py:download_update`.
+
+Before changing anything in the release pipeline, the auto-updater, or
+the release-notes template, ask yourself:
+
+- [ ] Will `check_for_update` still find a SHA-256 (body line OR
+      sidecar) for the freshly-built release?
+- [ ] Does the CI guard step still match the expected SHA pattern?
+- [ ] Will the post-publish verification step still pass?
+- [ ] If something fails, does the user see a message that tells them
+      what to do, not just what went wrong?
+
+If you have a reason to ship a release that violates any of those
+points, the bar is **a written incident-style explanation** in the PR
+description naming the affected user cohort and the migration path.
+"It was a small change" is not a reason. The user has a small support
+team — them — and broken auto-update means every user becomes a
+support ticket.
