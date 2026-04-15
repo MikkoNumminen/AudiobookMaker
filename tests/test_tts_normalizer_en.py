@@ -24,6 +24,8 @@ from src.tts_normalizer_en import (
     _pass_i_fractions,
     _pass_j_periods,
     _pass_k_whitespace,
+    _pass_l_currency,
+    _pass_m_units,
     _roman_to_int,
     normalize_english_text,
 )
@@ -347,6 +349,138 @@ class TestPassFYears:
         # Pass G handles it as a cardinal.
         out = _pass_f_years("1917 pages of footnotes")
         assert "nineteen" not in out  # pass F left it alone
+
+
+# ---------------------------------------------------------------------------
+# Pass L — currency
+# ---------------------------------------------------------------------------
+
+
+class TestPassLCurrency:
+    def test_dollar_simple(self):
+        assert "five dollars" in _pass_l_currency("$5 today")
+
+    def test_dollar_singular(self):
+        assert "one dollar" in _pass_l_currency("$1 only")
+
+    def test_dollar_with_cents(self):
+        out = _pass_l_currency("$5.99")
+        assert "five dollars" in out
+        assert "ninety-nine cents" in out
+
+    def test_dollar_with_thousands_separator(self):
+        out = _pass_l_currency("$1,234.56")
+        assert "thousand" in out.lower()
+        assert "cents" in out
+
+    def test_dollar_magnitude_million(self):
+        out = _pass_l_currency("$1.5M")
+        assert "million" in out
+        assert "dollars" in out
+
+    def test_pound_with_pence(self):
+        out = _pass_l_currency("£3.50")
+        assert "pounds" in out
+        assert "pence" in out
+
+    def test_euro_with_cents(self):
+        out = _pass_l_currency("€2.50")
+        assert "euros" in out
+        assert "cents" in out
+
+    def test_yen_no_decimal(self):
+        out = _pass_l_currency("¥500")
+        assert "yen" in out
+
+    def test_iso_code_usd(self):
+        out = _pass_l_currency("paid 10 USD")
+        assert "ten dollars" in out
+
+    def test_iso_code_with_magnitude(self):
+        out = _pass_l_currency("worth 2.5M EUR")
+        assert "million" in out
+        assert "euros" in out
+
+    def test_no_currency_passes_through(self):
+        text = "no money mentioned"
+        assert _pass_l_currency(text) == text
+
+    def test_idempotent(self):
+        text = "$5.99 each"
+        once = _pass_l_currency(text)
+        twice = _pass_l_currency(once)
+        assert once == twice
+
+    def test_zero_cents_omits_and_clause(self):
+        # $5.00 should read "five dollars" not "five dollars and zero cents".
+        out = _pass_l_currency("$5.00")
+        assert "and" not in out
+        assert "five dollars" in out
+
+
+# ---------------------------------------------------------------------------
+# Pass M — units
+# ---------------------------------------------------------------------------
+
+
+class TestPassMUnits:
+    def test_distance_km(self):
+        assert "kilometers" in _pass_m_units("5 km away")
+
+    def test_distance_singular(self):
+        assert "one mile" in _pass_m_units("1 mi only")
+
+    def test_speed_mph(self):
+        assert "miles per hour" in _pass_m_units("55 mph limit")
+
+    def test_speed_kph(self):
+        assert "kilometers per hour" in _pass_m_units("100 kph zone")
+
+    def test_mass_kg(self):
+        assert "kilograms" in _pass_m_units("15 kg total")
+
+    def test_mass_lbs(self):
+        assert "pounds" in _pass_m_units("180 lbs gross")
+
+    def test_temperature_fahrenheit(self):
+        out = _pass_m_units("32 °F freezing")
+        assert "degrees Fahrenheit" in out
+
+    def test_temperature_celsius_no_space(self):
+        out = _pass_m_units("100°C boiling")
+        assert "degrees Celsius" in out
+
+    def test_temperature_kelvin_with_degree(self):
+        # Kelvin conventionally has no degree symbol but our pattern
+        # requires one. Document the contract via the test.
+        assert "kelvin" in _pass_m_units("273°K cold")
+
+    def test_data_gb(self):
+        assert "gigabytes" in _pass_m_units("8 GB RAM")
+
+    def test_data_mb_lowercase(self):
+        # case-insensitive on the unit token
+        assert "megabytes" in _pass_m_units("256 mb file")
+
+    def test_frequency_ghz(self):
+        assert "gigahertz" in _pass_m_units("3 GHz processor")
+
+    def test_volume_liter(self):
+        assert "liters" in _pass_m_units("2 l of water")
+
+    def test_decimal_amount(self):
+        out = _pass_m_units("1.5 km away")
+        assert "kilometers" in out
+
+    def test_no_units_passes_through(self):
+        text = "no units here"
+        assert _pass_m_units(text) == text
+
+    def test_idempotent(self):
+        text = "5 km drive"
+        once = _pass_m_units(text)
+        twice = _pass_m_units(once)
+        assert once == twice
 
 
 # ---------------------------------------------------------------------------

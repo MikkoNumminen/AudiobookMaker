@@ -405,6 +405,210 @@ _PLURAL_DECADES = {
 
 
 # ---------------------------------------------------------------------------
+# Pass L — currency
+# ---------------------------------------------------------------------------
+
+# Currency symbol → spoken word. Singular/plural decided per-amount.
+_EN_CURRENCY_SYMBOLS = {
+    "$":  ("dollar", "dollars"),
+    "£":  ("pound", "pounds"),
+    "€":  ("euro", "euros"),
+    "¥":  ("yen", "yen"),
+    "₹":  ("rupee", "rupees"),
+    "₽":  ("rouble", "roubles"),
+}
+
+# ISO codes / suffixes after the amount: "5 USD", "10 GBP".
+_EN_CURRENCY_CODES = {
+    "USD": ("dollar", "dollars"),
+    "GBP": ("pound", "pounds"),
+    "EUR": ("euro", "euros"),
+    "JPY": ("yen", "yen"),
+    "INR": ("rupee", "rupees"),
+}
+
+# Magnitude suffix attached to a currency amount: "$1.5M", "€2K".
+_EN_AMOUNT_MAGNITUDES = {
+    "K": "thousand", "M": "million", "B": "billion", "T": "trillion",
+}
+
+# Number with optional thousands separator and optional decimal part.
+_AMOUNT_FRAGMENT = r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?"
+
+# "$1,234.56" / "$5" / "$1.5M"
+_EN_CURRENCY_SYMBOL_RE = re.compile(
+    r"([$£€¥₹₽])\s*(" + _AMOUNT_FRAGMENT + r")(K|M|B|T)?\b"
+)
+# "5 USD" / "10.50 GBP"
+_EN_CURRENCY_CODE_RE = re.compile(
+    r"\b(" + _AMOUNT_FRAGMENT + r")(K|M|B|T)?\s+(USD|GBP|EUR|JPY|INR)\b"
+)
+
+
+def _spoken_amount(amount_str: str) -> tuple[str, float]:
+    """Return ('one thousand two hundred', 1234.0) for '1,234'."""
+    clean = amount_str.replace(",", "")
+    try:
+        value = float(clean)
+    except ValueError:
+        return amount_str, 0.0
+    if value == int(value):
+        return _cardinal_word(int(value)), value
+    # Decimal — split into whole + fractional digits.
+    whole, _, frac = clean.partition(".")
+    whole_w = _cardinal_word(int(whole))
+    frac_w = " ".join(_cardinal_word(int(d)) for d in frac)
+    return f"{whole_w} point {frac_w}", value
+
+
+def _verbalize_currency(amount_str: str, magnitude: str | None,
+                        unit_words: tuple[str, str]) -> str:
+    spoken, value = _spoken_amount(amount_str)
+    singular, plural = unit_words
+    # Magnitude suffix turns it into a count of millions / etc.; the
+    # currency unit becomes plural when the multiplier ≠ 1.
+    if magnitude:
+        mag_word = _EN_AMOUNT_MAGNITUDES[magnitude]
+        unit = plural  # "1.5 million dollars"
+        return f"{spoken} {mag_word} {unit}"
+    # Cents-style decimal: "$5.99" → "five dollars and ninety nine cents".
+    if "." in amount_str and unit_words in (
+            ("dollar", "dollars"), ("pound", "pounds"),
+            ("euro", "euros")):
+        whole_str, _, frac_str = amount_str.replace(",", "").partition(".")
+        whole = int(whole_str)
+        # Pad/truncate to 2 fractional digits for cents.
+        cents_str = (frac_str + "00")[:2]
+        cents = int(cents_str)
+        unit = plural if whole != 1 else singular
+        sub_unit_singular = {
+            ("dollar", "dollars"): "cent",
+            ("pound", "pounds"):   "penny",
+            ("euro", "euros"):     "cent",
+        }[unit_words]
+        sub_unit_plural = {
+            ("dollar", "dollars"): "cents",
+            ("pound", "pounds"):   "pence",
+            ("euro", "euros"):     "cents",
+        }[unit_words]
+        whole_w = _cardinal_word(whole)
+        if cents == 0:
+            return f"{whole_w} {unit}"
+        cents_w = _cardinal_word(cents)
+        sub_unit = sub_unit_plural if cents != 1 else sub_unit_singular
+        return f"{whole_w} {unit} and {cents_w} {sub_unit}"
+    unit = plural if value != 1 else singular
+    return f"{spoken} {unit}"
+
+
+def _pass_l_currency(text: str) -> str:
+    def repl_symbol(m: re.Match[str]) -> str:
+        symbol, amount, mag = m.group(1), m.group(2), m.group(3)
+        unit = _EN_CURRENCY_SYMBOLS[symbol]
+        return _verbalize_currency(amount, mag, unit)
+
+    def repl_code(m: re.Match[str]) -> str:
+        amount, mag, code = m.group(1), m.group(2), m.group(3)
+        unit = _EN_CURRENCY_CODES[code]
+        return _verbalize_currency(amount, mag, unit)
+
+    text = _EN_CURRENCY_SYMBOL_RE.sub(repl_symbol, text)
+    text = _EN_CURRENCY_CODE_RE.sub(repl_code, text)
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Pass M — units / measurements
+# ---------------------------------------------------------------------------
+
+# Unit symbol → (singular, plural). Coverage targets common audiobook
+# encounters: distance, mass, volume, temperature, time, data, speed.
+_EN_UNITS: dict[str, tuple[str, str]] = {
+    # distance
+    "km":  ("kilometer", "kilometers"),
+    "cm":  ("centimeter", "centimeters"),
+    "mm":  ("millimeter", "millimeters"),
+    "m":   ("meter", "meters"),
+    "mi":  ("mile", "miles"),
+    "ft":  ("foot", "feet"),
+    "in":  ("inch", "inches"),
+    "yd":  ("yard", "yards"),
+    # mass / weight
+    "kg":  ("kilogram", "kilograms"),
+    "g":   ("gram", "grams"),
+    "mg":  ("milligram", "milligrams"),
+    "lb":  ("pound", "pounds"),
+    "lbs": ("pound", "pounds"),
+    "oz":  ("ounce", "ounces"),
+    # volume
+    "l":   ("liter", "liters"),
+    "ml":  ("milliliter", "milliliters"),
+    "gal": ("gallon", "gallons"),
+    # temperature — handled separately because they want the degree word
+    # speed
+    "mph": ("mile per hour", "miles per hour"),
+    "kph": ("kilometer per hour", "kilometers per hour"),
+    # data
+    "kb":  ("kilobyte", "kilobytes"),
+    "mb":  ("megabyte", "megabytes"),
+    "gb":  ("gigabyte", "gigabytes"),
+    "tb":  ("terabyte", "terabytes"),
+    "kib": ("kibibyte", "kibibytes"),
+    "mib": ("mebibyte", "mebibytes"),
+    "gib": ("gibibyte", "gibibytes"),
+    # frequency / time
+    "hz":  ("hertz", "hertz"),
+    "khz": ("kilohertz", "kilohertz"),
+    "mhz": ("megahertz", "megahertz"),
+    "ghz": ("gigahertz", "gigahertz"),
+    "ms":  ("millisecond", "milliseconds"),
+    "s":   ("second", "seconds"),
+    "min": ("minute", "minutes"),
+    "hr":  ("hour", "hours"),
+}
+
+# Build a single pattern. Order longer-first so "kib" wins over "k".
+_UNIT_PATTERN = "|".join(
+    re.escape(u) for u in sorted(_EN_UNITS, key=len, reverse=True)
+)
+_EN_UNIT_RE = re.compile(
+    r"\b(" + _AMOUNT_FRAGMENT + r")\s*(" + _UNIT_PATTERN + r")\b",
+    flags=re.IGNORECASE,
+)
+# Temperature needs separate treatment: "32 °F", "100°C".
+_EN_TEMP_RE = re.compile(
+    r"\b(" + _AMOUNT_FRAGMENT + r")\s*°\s*([CFK])\b"
+)
+_TEMP_UNIT = {
+    "C": ("degree Celsius", "degrees Celsius"),
+    "F": ("degree Fahrenheit", "degrees Fahrenheit"),
+    "K": ("kelvin", "kelvin"),
+}
+
+
+def _pass_m_units(text: str) -> str:
+    def repl_temp(m: re.Match[str]) -> str:
+        amount, scale = m.group(1), m.group(2)
+        spoken, value = _spoken_amount(amount)
+        unit = _TEMP_UNIT[scale]
+        word = unit[1] if value != 1 else unit[0]
+        return f"{spoken} {word}"
+
+    def repl_unit(m: re.Match[str]) -> str:
+        amount, unit = m.group(1), m.group(2).lower()
+        units = _EN_UNITS.get(unit)
+        if units is None:
+            return m.group(0)
+        spoken, value = _spoken_amount(amount)
+        word = units[1] if value != 1 else units[0]
+        return f"{spoken} {word}"
+
+    text = _EN_TEMP_RE.sub(repl_temp, text)
+    text = _EN_UNIT_RE.sub(repl_unit, text)
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Pass G — cardinal integers
 # ---------------------------------------------------------------------------
 
@@ -547,6 +751,11 @@ def normalize_english_text(
     text = _pass_c_abbreviations(text)
     text = _pass_d_roman_in_context(text)
     text = _pass_e_ordinal_digits(text)
+    # Phase 2 typed-number passes — must run BEFORE the broad year /
+    # cardinal / decimal sweeps so currency, units, etc. consume their
+    # digits with the correct context.
+    text = _pass_l_currency(text)
+    text = _pass_m_units(text)
     text = _pass_f_years(text)
     # Fractions and decimals must run BEFORE the cardinal sweep, otherwise
     # G converts the digits in "1/2" or "3.14" individually and the
