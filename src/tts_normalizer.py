@@ -16,10 +16,6 @@ language. Cross-contamination becomes architecturally impossible.
 
 from __future__ import annotations
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 SUPPORTED_LANGS: tuple[str, ...] = ("fi", "en")
 
 
@@ -69,14 +65,8 @@ def normalize_text(
         )
 
     if lang == "en":
-        # PR 2 will replace this with the real English normalizer.
-        # Until then, pass through unchanged. Logged once at DEBUG
-        # so it's findable without spamming the console.
-        logger.debug(
-            "normalize_text(lang='en'): English normalizer not yet "
-            "implemented; returning text unchanged."
-        )
-        return text
+        from src.tts_normalizer_en import normalize_english_text
+        return normalize_english_text(text, _lang="en")
 
     raise ValueError(
         f"Unsupported lang {lang!r}; expected one of {SUPPORTED_LANGS}."

@@ -37,14 +37,13 @@ class TestRouting:
         # Finnish normalizer should produce Finnish number words.
         assert "tuhat" in out.lower() or "viisi" in out.lower()
 
-    def test_english_passes_through_unchanged_for_now(self) -> None:
-        """Phase 1: EN dispatcher returns input unchanged.
-
-        PR 2 will replace this with the real English normalizer; for
-        now the contract is "definitely no Finnish rewrites".
-        """
-        text = "In the year 1500 King Henry IV reigned."
-        assert normalize_text(text, "en") == text
+    def test_english_routes_to_en_backend(self) -> None:
+        """`lang='en'` produces English normalization — verify by sentinel."""
+        out = normalize_text("In 1500 King Henry IV reigned.", "en")
+        # Year should be expanded into English words.
+        assert "fifteen hundred" in out or "fifteen" in out
+        # Regnal Roman should expand.
+        assert "the fourth" in out
 
     def test_lang_is_case_insensitive(self) -> None:
         """`'FI'` and `'fi'` both work."""
