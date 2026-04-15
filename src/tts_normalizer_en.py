@@ -817,8 +817,17 @@ def normalize_english_text(
 
     text = _pass_a_metadata_strip(text)
     text = _pass_b_whitespace_quotes(text)
+    # URLs/emails before C — verbalising `@`, `.`, `/` only inside matched
+    # URL spans avoids confusing the abbreviation pass with patterns like
+    # `Mr.` or `etc.` that share the period character.
+    from src._en_pass_r_urls import _pass_r_urls_emails
+    text = _pass_r_urls_emails(text)
     text = _pass_c_abbreviations(text)
     text = _pass_d_roman_in_context(text)
+    # Acronyms after D so `IV`, `XII` etc. (handled by Pass D as Roman
+    # numerals when in a regnal/cardinal context) aren't pre-empted.
+    from src._en_pass_s_acronyms import _pass_s_acronyms
+    text = _pass_s_acronyms(text)
     text = _pass_e_ordinal_digits(text)
     # Phase 2 typed-number passes — must run BEFORE the broad year /
     # cardinal / decimal sweeps so currency, units, etc. consume their
@@ -826,6 +835,11 @@ def normalize_english_text(
     text = _pass_l_currency(text)
     text = _pass_m_units(text)
     text = _pass_n_time(text)
+    from src._en_pass_o_dates import _pass_o_dates  # lazy: avoid circular import
+    text = _pass_o_dates(text)
+    # Telephone before G so phone-shaped digit groups don't get cardinal-read.
+    from src._en_pass_p_telephone import _pass_p_telephone
+    text = _pass_p_telephone(text)
     text = _pass_f_years(text)
     # Fractions and decimals must run BEFORE the cardinal sweep, otherwise
     # G converts the digits in "1/2" or "3.14" individually and the
