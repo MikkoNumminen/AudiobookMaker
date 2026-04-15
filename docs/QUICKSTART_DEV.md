@@ -60,6 +60,40 @@ to the project, so you can delete it and start over without affecting
 other Python projects on your machine. When you see `(.venv)` in your
 prompt, you're working inside that environment.
 
+## Check first — do you already have Chatterbox installed?
+
+If you've run AudiobookMaker on this machine before — either via the
+GUI's "Install engines" button, or via a previous pass through this
+guide — you probably already have a working Chatterbox environment
+and model cache. Setting it up again takes 15 to 30 minutes you don't
+need to spend.
+
+Run this to see what the project can find:
+
+```powershell
+python -c "from src.launcher_bridge import resolve_chatterbox_python; p = resolve_chatterbox_python(); print(p or 'no chatterbox venv found')"
+```
+
+If it prints a path to a `python.exe`, you already have a Chatterbox
+venv ready to go. **Skip the next section.** In the synthesis commands
+further down, replace `.venv-chatterbox\Scripts\python.exe` with
+whatever path this printed — everything else works identically.
+
+The function checks a handful of known locations:
+
+- `<repo>\.venv-chatterbox\Scripts\python.exe` (where the setup script
+  below creates it)
+- `%LOCALAPPDATA%\Programs\AudiobookMaker\.venv-chatterbox\Scripts\python.exe`
+  (where the in-app "Install engines" button creates it on a normal
+  install)
+- A couple of legacy paths from older app versions
+
+The HuggingFace model cache at `~/.cache/huggingface/hub/` is shared
+across all of these, so once one install has downloaded the weights,
+every later install reuses them instantly.
+
+If nothing was found, proceed with the section below.
+
 ## Setting up the Chatterbox environment
 
 Chatterbox has its own setup script because it needs a special version
