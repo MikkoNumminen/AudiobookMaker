@@ -17,6 +17,9 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### Rallienglanti-mode — lean into the Finnish-T3-reads-English charm
+- [ ] Current behaviour when English text is fed into the Finnish T3 finetune: sounds like a Finnish person reading English phonetically (aka "rally English"). User verdict on the Route-A Rubicon clip on 2026-04-15: "horrid" as a default, but "could be fun as a deliberate style preset". Idea is to embrace it — add a Chatterbox preset called something like "Rallienglanti" or "Finnish-reads-English" that (a) always routes through the FI T3 finetune, (b) applies English→Finnish-phonetic text normalizations (`computer` → `kompuutteri`, `shower` → `sauveri`, `th` → `t`/`d`, `w` → `v`, etc.) to make it sound more authentically Finnish-accented, (c) spells out loanwords and Anglicisms the way a real Finn pronouncing English would. Probably its own pass (Pass R?) in `tts_normalizer_fi` gated by the preset. 🟡 🧠 Opus. Fun project; low priority — for after English Grandmom is fully shipped and validated.
+
 ### mikkonumminen.dev — voice-first web identity
 - [ ] Record a Chatterbox-clonable voice sample for mikkonumminen.dev. Same quality bar as the v7 Finnish audiobook run — 12–20 s, well-lit room, no clipping, Input volume ~85%, loudness −25…−15 dBFS, SNR 40+ dB. Produce a clean WAV at 22050 Hz for the site. 🟢 ⚡ Sonnet
 - [ ] Wire that cloned voice into the site so the primary experience is audio-first, with visuals as support: every section/page loads with a short TTS narration in the user's voice, transcript visible below, play/pause control. Think podcast landing page, not a portfolio card gallery. 🔴 🧠 Opus
