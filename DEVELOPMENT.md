@@ -28,6 +28,7 @@ Releases and offers a one-click upgrade.
 | Browse Finnish normalizer cases | [docs/tts_text_normalization_cases.md](docs/tts_text_normalization_cases.md) |
 | Judge audio quality systematically | [docs/audiobook_quality_rubric.md](docs/audiobook_quality_rubric.md) |
 | Set up a dev environment | [README.md](README.md#developer-setup) |
+| Synthesize a book from the command line (step-by-step) | [docs/QUICKSTART_DEV.md](docs/QUICKSTART_DEV.md) |
 
 ## Architecture in one screen
 
