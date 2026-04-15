@@ -132,6 +132,35 @@ class TestAppInstantiation:
 
 
 # ---------------------------------------------------------------------------
+# Chatterbox language-aware voice helper
+# ---------------------------------------------------------------------------
+
+
+class TestChatterboxVoiceHelper:
+    """The helper surfaces Grandmom once per supported language with a
+    parenthetical tag so the voice dropdown is honest about what speaks
+    what, matching the format used by Edge and Piper voices."""
+
+    def test_finnish_returns_grandmom_with_suomi_tag(self) -> None:
+        from src.gui_unified import _chatterbox_voices_for_language
+
+        names = _chatterbox_voices_for_language("fi")
+        assert names == ["Grandmom (suomi)"]
+
+    def test_english_returns_grandmom_with_english_tag(self) -> None:
+        from src.gui_unified import _chatterbox_voices_for_language
+
+        names = _chatterbox_voices_for_language("en")
+        assert names == ["Grandmom (English)"]
+
+    def test_unknown_language_returns_empty(self) -> None:
+        from src.gui_unified import _chatterbox_voices_for_language
+
+        assert _chatterbox_voices_for_language("de") == []
+        assert _chatterbox_voices_for_language("") == []
+
+
+# ---------------------------------------------------------------------------
 # Update-banner browser fallback
 # ---------------------------------------------------------------------------
 

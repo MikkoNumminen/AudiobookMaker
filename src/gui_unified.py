@@ -148,6 +148,32 @@ _SAMPLE_TEXT = {
     "en": "This is a voice sample with the selected voice.",
 }
 
+
+# Display-name tags per language for the single Chatterbox "Grandmom" voice.
+# Same underlying voice, two code paths inside the subprocess:
+#   fi -> T3 Finnish finetune
+#   en -> multilingual base + voice-clone reference audio
+# See scripts/generate_chatterbox_audiobook.py for the routing.
+_CHATTERBOX_LANG_TAGS = {
+    "fi": "suomi",
+    "en": "English",
+}
+
+
+def _chatterbox_voices_for_language(lang: str) -> list[str]:
+    """Return the Chatterbox voice entries to show for ``lang``.
+
+    The engine only has one voice — "Grandmom" — but it works in both
+    Finnish and English, so we surface it once per language with a
+    parenthetical tag matching the format used by Edge/Piper voices.
+    An unknown language returns an empty list so the voice combobox
+    clears instead of offering a voice that can't speak it.
+    """
+    tag = _CHATTERBOX_LANG_TAGS.get(lang)
+    if not tag:
+        return []
+    return [f"Grandmom ({tag})"]
+
 # Engine status colours.
 _CLR_READY = "green"
 _CLR_NEEDS_SETUP = "orange"
@@ -1421,11 +1447,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         # Chatterbox is subprocess-only — no voice list from registry.
         if eid == "chatterbox_fi":
-            # "Grandmom" = Chatterbox Finnish default voice — the warm,
-            # slightly elderly narrator tone people loved in the first
-            # real-book test. Proper name, kept untranslated in both UIs.
-            self._voice_cb.configure(values=["Grandmom"])
-            self._voice_cb.set("Grandmom")
+            # "Grandmom" is the single Chatterbox voice but it works in
+            # both languages: T3 finetune for Finnish, multilingual base
+            # + voice-clone reference for English (see
+            # scripts/generate_chatterbox_audiobook.py). We surface it as
+            # a language-tagged entry so the voice list is honest about
+            # what speaks what, matching the Edge/Piper display format.
+            names = _chatterbox_voices_for_language(self._current_language())
+            self._voice_cb.configure(values=names)
+            self._voice_cb.set(names[0] if names else "")
             self._engine_status_lbl.configure(text_color=_CLR_READY)
             self._engine_status_lbl.configure(
                 text="Offline, paras laatu. Kesto ~1\u20132 h NVIDIA-koneella."
