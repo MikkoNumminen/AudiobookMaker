@@ -1,9 +1,23 @@
 # Setting up AudiobookMaker to synthesize a book from the command line
 
-This guide gets you from a fresh Windows PC to an MP3 audiobook read
-aloud by the "Grandmom" voice. It assumes you have an NVIDIA graphics
-card and are comfortable with a terminal. By the end, one command
-turns a book file into an audiobook.
+This guide gets you from a fresh machine to an MP3 audiobook read
+aloud by the "Grandmom" voice. Primary target is Windows with an
+NVIDIA graphics card, but the commands below include macOS and Linux
+alternatives where they differ. By the end, one command turns a book
+file into an audiobook.
+
+**Platform notes before you start:**
+
+- **Windows + NVIDIA GPU** — the fully-supported path. Everything in
+  this guide works as written.
+- **Linux + NVIDIA GPU** — same as Windows, just with bash syntax.
+  Commands below include the Linux variant.
+- **macOS (Apple Silicon)** — Chatterbox requires CUDA, which macOS
+  doesn't have. You can still run the app and use Edge-TTS or Piper,
+  but Chatterbox synthesis on macOS is CPU-only and too slow to use in
+  practice. Commands below show the setup steps in case you want to
+  experiment. Production use: run Chatterbox on a Linux/Windows
+  machine with an NVIDIA GPU.
 
 ## Why two Python environments?
 
@@ -20,41 +34,58 @@ env's interpreter. You'll create both below.
 
 ## Install once
 
-Open PowerShell **as Administrator** and install the prerequisites via
-winget (shipped with Windows 10+ / Windows 11). One command each:
+Install Python 3.11, Git, and ffmpeg. Pick the block for your OS.
 
+**Windows** (PowerShell as Administrator, winget ships with Win10+):
 ```powershell
-winget install Python.Python.3.11         # Python interpreter
-winget install Git.Git                    # Git
-winget install Gyan.FFmpeg                # ffmpeg + ffprobe
+winget install Python.Python.3.11
+winget install Git.Git
+winget install Gyan.FFmpeg
+```
+Close and reopen PowerShell afterwards so `PATH` takes effect.
+
+**macOS** (needs [Homebrew](https://brew.sh)):
+```bash
+brew install python@3.11 git ffmpeg
 ```
 
-Close and reopen PowerShell afterwards so the new `PATH` takes effect.
+**Linux — Ubuntu / Debian:**
+```bash
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3-pip git ffmpeg
+```
 
-Two things winget can't install for you:
+**Linux — Arch / Manjaro:**
+```bash
+sudo pacman -S python git ffmpeg
+```
 
-- **An NVIDIA GPU driver with CUDA 12+.** Download from
-  [nvidia.com/drivers](https://www.nvidia.com/drivers) and install
-  manually. Without a supported GPU driver, Chatterbox falls back to
-  CPU, which is too slow to be practical (days for a novel).
-- **Python's "Add to PATH" setting.** If you installed Python manually
-  from python.org instead of winget, tick the "Add Python to PATH"
-  checkbox. The winget package handles this automatically.
+Two things no package manager can install for you:
+
+- **An NVIDIA GPU driver with CUDA 12+** (Windows / Linux). Download
+  from [nvidia.com/drivers](https://www.nvidia.com/drivers). Without
+  a supported NVIDIA driver, Chatterbox falls back to CPU and becomes
+  too slow to be practical (days for a novel). macOS has no CUDA at
+  all — see the platform note above.
+- **Python's "Add to PATH" setting** (Windows only). Tick the box if
+  you use the python.org installer instead of winget.
 
 Quick sanity check before moving on:
 
-```powershell
-python --version         # -> Python 3.11.x
+```bash
+python --version         # -> Python 3.11.x   (try python3 on macOS/Linux)
 git --version            # -> git version 2.x
 ffmpeg -version          # -> ffmpeg version n...
-nvidia-smi               # -> table showing your GPU and driver
+nvidia-smi               # -> GPU + driver table (skip on macOS)
 ```
 
-If any of those four fail, fix it before going further — the steps
-below assume all four work.
+If any of the first three fail, fix them before going further. On
+macOS, skip `nvidia-smi`. On Linux, `python` may be Python 2 on older
+distros — use `python3` (or `python3.11`) explicitly throughout this
+guide.
 
-Now the step-by-step. Every command below goes into PowerShell (a
-regular non-admin window is fine from here on).
+Now the step-by-step. Commands below show Windows first, then the
+macOS / Linux equivalent where they differ.
 
 **1. Clone the repo and `cd` into it:**
 
@@ -63,15 +94,23 @@ git clone https://github.com/MikkoNumminen/AudiobookMaker.git
 cd AudiobookMaker
 ```
 
-**2. Create the main app environment and install its dependencies:**
+**2. Create the main app environment and install its dependencies.**
 
+Windows (PowerShell):
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-This creates a `.venv\` folder inside the repo and installs the app's
+macOS / Linux (bash / zsh):
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+This creates a `.venv/` folder inside the repo and installs the app's
 Python packages into it. When you see `(.venv)` in your prompt,
 you're working inside that environment.
 
@@ -80,35 +119,65 @@ machine.** The GUI's "Install engines" button and earlier passes
 through this guide may have already done the setup. Save yourself
 15–30 minutes:
 
-```powershell
+```bash
 python -c "from src.launcher_bridge import resolve_chatterbox_python; p = resolve_chatterbox_python(); print(p or 'not found')"
 ```
 
-If this prints a path to a `python.exe`, **skip step 4** and use that
-path wherever this guide says `.venv-chatterbox\Scripts\python.exe`.
-If it prints `not found`, continue to step 4.
+If this prints a path to a `python` / `python.exe`, **skip step 4**
+and use that path wherever this guide says
+`.venv-chatterbox\Scripts\python.exe` (Windows) or
+`.venv-chatterbox/bin/python` (macOS/Linux). If it prints `not found`,
+continue to step 4.
 
-**4. Create the Chatterbox environment** (skip if step 3 found one):
+**4. Create the Chatterbox environment** (skip if step 3 found one).
+
+Windows has a single setup script that does everything:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup_chatterbox_windows.ps1
 ```
 
-This creates a `.venv-chatterbox\` folder, installs CUDA-enabled
-PyTorch, installs Chatterbox itself, and downloads the speech models
-from HuggingFace. **Takes 15–30 minutes** depending on your internet
-and disk speed. The models land in `~/.cache/huggingface/hub/` and
-are shared across all projects on the machine, so if you ever rebuild
-the venv later the heavy download won't repeat.
+On macOS and Linux there's no setup script yet — run the equivalent
+commands manually:
+
+```bash
+# Create the venv (separate from the main .venv)
+python3.11 -m venv .venv-chatterbox
+source .venv-chatterbox/bin/activate
+pip install --upgrade pip
+
+# Install PyTorch 2.6.0.
+# Linux with NVIDIA GPU:
+pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# macOS (CPU / MPS — Chatterbox won't actually use MPS well in practice):
+pip install torch==2.6.0 torchaudio==2.6.0
+
+# Chatterbox + the extras the Windows script also installs:
+pip install chatterbox-tts safetensors num2words silero-vad PyMuPDF pydub
+
+# Optional: Finnish "gemination patch" that reduces stuttering on long
+# sequences. Windows applies it automatically. On Unix, open
+# .venv-chatterbox/lib/python3.11/site-packages/chatterbox/models/t3/inference/alignment_stream_analyzer.py
+# and refer to scripts/setup_chatterbox_windows.ps1 (Step 7/8) for the
+# exact edits if you want it applied. It's optional and the synthesis
+# works without it.
+
+deactivate  # leave the Chatterbox venv; main .venv is what you use day-to-day
+```
+
+On all platforms this is a one-time **15–30 minute** install (PyTorch
+is ~3 GB, the Chatterbox models another ~5 GB). HuggingFace caches
+the models under `~/.cache/huggingface/hub/`; they're shared across
+all projects on the machine so later rebuilds skip the heavy download.
 
 **5. Drop your book in the repo root.** An EPUB, a PDF, or a plain
-`.txt` file will all work. Say your book is `Rubicon.epub` — just
-copy it into the `AudiobookMaker\` folder you cloned in step 1.
+`.txt` file will all work. Copy `Rubicon.epub` (or whatever book you
+have) into the `AudiobookMaker/` folder you cloned in step 1.
 
 **6. Make an output folder.** The synthesis script doesn't create it
 for you:
 
-```powershell
+```bash
 mkdir out
 ```
 
@@ -116,8 +185,9 @@ You're now ready to synthesize. Continue to the next section.
 
 ## Run it
 
-One command produces an MP3:
+One command produces an MP3.
 
+Windows (PowerShell — backticks are line-continuations):
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
     --epub Rubicon.epub `
@@ -125,6 +195,18 @@ One command produces an MP3:
     --language en `
     --device cuda
 ```
+
+macOS / Linux (bash — backslashes are line-continuations):
+```bash
+.venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py \
+    --epub Rubicon.epub \
+    --out out/rubicon.mp3 \
+    --language en \
+    --device cuda
+```
+
+(On macOS use `--device cpu` instead of `cuda` — Apple Silicon has no
+CUDA. Expect a ~20× slowdown; suitable only for short test snippets.)
 
 The backticks at the end of each line tell PowerShell the command
 continues on the next line.
@@ -233,27 +315,42 @@ Other GPUs scale roughly with their tensor compute. Below an RTX
 
 Once the environments are set up, these four commands cover the
 common cases. Replace `Book.epub` / `Book.pdf` with your actual
-filename.
+filename. Each case shows Windows first, then macOS/Linux.
 
 **Finnish EPUB:**
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py --epub Book.epub --out out\book.mp3 --language fi --device cuda
+```
+```bash
+.venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py --epub Book.epub --out out/book.mp3 --language fi --device cuda
 ```
 
 **Finnish PDF:**
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py --pdf Book.pdf --out out\book.mp3 --language fi --device cuda
 ```
+```bash
+.venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py --pdf Book.pdf --out out/book.mp3 --language fi --device cuda
+```
 
 **English EPUB:**
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py --epub Book.epub --out out\book.mp3 --language en --device cuda
+```
+```bash
+.venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py --epub Book.epub --out out/book.mp3 --language en --device cuda
 ```
 
 **English PDF:**
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py --pdf Book.pdf --out out\book.mp3 --language en --device cuda
 ```
+```bash
+.venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py --pdf Book.pdf --out out/book.mp3 --language en --device cuda
+```
+
+(On macOS, replace `--device cuda` with `--device cpu` — practical
+only for short tests.)
 
 ## Not a developer?
 
