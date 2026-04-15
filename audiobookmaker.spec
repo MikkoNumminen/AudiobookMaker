@@ -116,6 +116,9 @@ datas += [(os.path.join('scripts', 'generate_chatterbox_audiobook.py'), 'scripts
 datas += [
     (os.path.join('src', '__init__.py'), 'src'),
     (os.path.join('src', 'tts_engine.py'), 'src'),
+    (os.path.join('src', 'tts_normalizer_fi.py'), 'src'),
+    (os.path.join('src', 'tts_chunking.py'), 'src'),
+    (os.path.join('src', 'tts_audio.py'), 'src'),
     (os.path.join('src', 'pdf_parser.py'), 'src'),
     (os.path.join('src', 'fi_loanwords.py'), 'src'),
 ]
