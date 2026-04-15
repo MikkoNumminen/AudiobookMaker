@@ -126,6 +126,15 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Point pydub at our bundled ffmpeg/ffprobe. Without this the final MP3
+# assembly step fails with FileNotFoundError when the Chatterbox venv
+# doesn't have ffmpeg on PATH — common in both dev and frozen installs.
+try:
+    from src.ffmpeg_path import setup_ffmpeg_path
+    setup_ffmpeg_path()
+except Exception as _exc:
+    print(f"[setup] ffmpeg path setup failed: {_exc}", flush=True)
+
 FINNISH_REPO = "Finnish-NLP/Chatterbox-Finnish"
 FINNISH_T3_FILE = "models/best_finnish_multilingual_cp986.safetensors"
 FINNISH_REF_WAV = "samples/reference_finnish.wav"

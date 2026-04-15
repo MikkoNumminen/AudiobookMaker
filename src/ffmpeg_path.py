@@ -42,7 +42,14 @@ def get_ffmpeg_exe() -> str | None:
     if os.path.isfile(candidate):
         return candidate
 
-    # 4. System PATH
+    # 4. One level above repo_root — covers the Chatterbox subprocess in
+    # a frozen install, where this file lives at {app}\_internal\src\
+    # and the bundled ffmpeg.exe sits at {app}\ffmpeg.exe.
+    candidate = os.path.join(str(Path(repo_root).parent), 'ffmpeg.exe')
+    if os.path.isfile(candidate):
+        return candidate
+
+    # 5. System PATH
     found = shutil.which('ffmpeg')
     if found:
         return found
