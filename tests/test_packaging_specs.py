@@ -1,12 +1,16 @@
-"""Regression test: PyInstaller specs must bundle every src.tts_engine sibling.
+"""Regression test: PyInstaller specs must bundle every transitively-imported
+sibling that the Chatterbox subprocess might reach at runtime.
 
-The Chatterbox subprocess imports `src.tts_engine`, which in turn imports
-sibling modules (`tts_normalizer_fi`, `tts_chunking`, `tts_audio`) at module
-load time. If a future split adds another sibling and forgets to update the
-.spec files, the installed app crashes with ModuleNotFoundError.
+The Chatterbox subprocess imports `src.tts_engine`, which imports sibling
+modules at module load time, plus `src.tts_normalizer` (the dispatcher),
+which lazily imports per-language modules (`tts_normalizer_fi`,
+`tts_normalizer_en`) inside `normalize_text`. If a new sibling lands in
+either layer and the .spec files don't list it, the installed app crashes
+with ModuleNotFoundError.
 
-This test parses src/tts_engine.py to discover the actual sibling list and
-asserts each sibling appears in both spec files.
+This test parses both `src/tts_engine.py` and `src/tts_normalizer.py` to
+discover the full sibling set and asserts each one is registered in both
+spec files.
 """
 from __future__ import annotations
 
@@ -17,19 +21,33 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _TTS_ENGINE = _REPO_ROOT / "src" / "tts_engine.py"
+_TTS_NORMALIZER = _REPO_ROOT / "src" / "tts_normalizer.py"
 _APP_SPEC = _REPO_ROOT / "audiobookmaker.spec"
 _LAUNCHER_SPEC = _REPO_ROOT / "audiobookmaker_launcher.spec"
 
 
-def _src_siblings_imported_by_tts_engine() -> set[str]:
-    """Return the set of `src.X` module basenames imported by tts_engine.py."""
-    tree = ast.parse(_TTS_ENGINE.read_text(encoding="utf-8"))
+def _src_siblings_imported_by(path: Path) -> set[str]:
+    """Return the set of `src.X` module basenames imported by `path`.
+
+    Walks both top-level `from src.X import …` statements and lazy imports
+    nested inside function bodies — the dispatcher uses the latter to keep
+    the FI and EN normalizers from being eagerly loaded.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    self_module = f"src.{path.stem}"
     siblings: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            if node.module.startswith("src.") and node.module != "src.tts_engine":
+            if node.module.startswith("src.") and node.module != self_module:
                 siblings.add(node.module.removeprefix("src."))
     return siblings
+
+
+def _src_siblings_imported_by_tts_engine() -> set[str]:
+    return (
+        _src_siblings_imported_by(_TTS_ENGINE)
+        | _src_siblings_imported_by(_TTS_NORMALIZER)
+    )
 
 
 @pytest.mark.parametrize("sibling", sorted(_src_siblings_imported_by_tts_engine()))
