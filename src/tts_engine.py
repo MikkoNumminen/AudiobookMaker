@@ -55,6 +55,7 @@ from src.tts_audio import (  # noqa: F401
     _load_audio_with_retry,
     _trim_chunk_silence,
 )
+from src.tts_normalizer import normalize_text  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +273,11 @@ def text_to_speech(
 
     output_path = str(output_path)
 
-    if config.normalize_text and config.language == "fi":
-        text = normalize_finnish_text(
-            text, year_shortening=config.year_shortening
+    if config.normalize_text:
+        text = normalize_text(
+            text,
+            config.language,
+            year_shortening=config.year_shortening,
         )
 
     chunks = split_text_into_chunks(text)

@@ -126,9 +126,9 @@ class TestTextToSpeech:
     def test_text_to_speech_calls_normalizer_for_finnish(self) -> None:
         from pydub import AudioSegment
 
-        with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
+        with patch("src.tts_engine.normalize_text") as mock_norm, \
              patch("src.tts_engine._synthesize_chunk") as mock_synth:
-            mock_norm.side_effect = lambda t, **kw: t + " NORMALIZED"
+            mock_norm.side_effect = lambda t, lang, **kw: t + " NORMALIZED"
 
             async def fake_synth(text, voice, rate, volume, output_path):
                 seg = AudioSegment.silent(duration=50)
@@ -147,16 +147,24 @@ class TestTextToSpeech:
                 )
                 assert mock_norm.called
                 mock_norm.assert_called_with(
-                    "vuonna 1500", year_shortening="radio"
+                    "vuonna 1500", "fi", year_shortening="radio"
                 )
             finally:
                 os.unlink(out)
 
     @requires_ffmpeg
-    def test_text_to_speech_skips_normalizer_for_english(self) -> None:
+    def test_text_to_speech_does_not_finnish_normalize_english(self) -> None:
+        """English path must NOT invoke the Finnish normalizer.
+
+        The dispatcher routes "en" to a pass-through (or, after PR 2,
+        to the English normalizer). What matters here is that the
+        Finnish-specific module is never touched on an English run —
+        that's the bug class this whole architecture exists to
+        prevent.
+        """
         from pydub import AudioSegment
 
-        with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
+        with patch("src.tts_engine.normalize_finnish_text") as mock_fi_norm, \
              patch("src.tts_engine._synthesize_chunk") as mock_synth:
 
             async def fake_synth(text, voice, rate, volume, output_path):
@@ -174,7 +182,7 @@ class TestTextToSpeech:
                     out,
                     config=TTSConfig(language="en"),
                 )
-                assert not mock_norm.called
+                assert not mock_fi_norm.called
             finally:
                 os.unlink(out)
 
@@ -182,7 +190,7 @@ class TestTextToSpeech:
     def test_text_to_speech_skips_normalizer_when_disabled(self) -> None:
         from pydub import AudioSegment
 
-        with patch("src.tts_engine.normalize_finnish_text") as mock_norm, \
+        with patch("src.tts_engine.normalize_text") as mock_norm, \
              patch("src.tts_engine._synthesize_chunk") as mock_synth:
 
             async def fake_synth(text, voice, rate, volume, output_path):

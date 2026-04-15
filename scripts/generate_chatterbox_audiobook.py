@@ -324,11 +324,18 @@ def _select_chapters(book, only: set[int] | None):
     return list(enumerate(selected, start=1))
 
 
-def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int):
-    """Normalize + chunk a chapter's content. Returns list[str]."""
-    from src.tts_engine import normalize_finnish_text, split_text_into_chunks
+def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int,
+                            language: str = "fi"):
+    """Normalize + chunk a chapter's content. Returns list[str].
+
+    Routes through the language-aware dispatcher so English runs
+    don't get Finnish-specific rewrites (Roman numerals expanded
+    as Finnish ordinals, case-inflected numbers, etc.).
+    """
+    from src.tts_engine import split_text_into_chunks
+    from src.tts_normalizer import normalize_text
     content = _trim_to_sentence_start(chapter.content.strip())
-    content = normalize_finnish_text(content)
+    content = normalize_text(content, language)
     chunks = split_text_into_chunks(content, max_chars=chunk_chars)
     if chunks_cap and chunks_cap > 0:
         chunks = chunks[:chunks_cap]
@@ -368,7 +375,8 @@ def _dry_run(args) -> int:
     print(f"[dry-run] {len(selected)} chapters pass filters", flush=True)
     for pos, ch in selected:
         chunks = _prepare_chapter_chunks(ch, args.chunk_chars,
-                                         args.chunks_per_chapter)
+                                         args.chunks_per_chapter,
+                                         language=args.language)
         total_chars += len(ch.content)
         total_chunks += len(chunks)
         title_preview = ch.title[:60] if ch.title else f"chapter {ch.index}"
@@ -663,7 +671,8 @@ def main() -> int:
     total_chunks = 0
     for pos, ch in selected:
         chunks = _prepare_chapter_chunks(ch, args.chunk_chars,
-                                         args.chunks_per_chapter)
+                                         args.chunks_per_chapter,
+                                         language=args.language)
         if not chunks:
             continue
         plan.append((pos, ch, chunks))
