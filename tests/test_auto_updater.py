@@ -185,6 +185,160 @@ class TestCheckForUpdate:
         assert info.sha256 == sha
 
 
+class TestSidecarSha256Fallback:
+    """When the release body lacks a SHA-256 line, fall back to the
+    `.exe.sha256` sidecar asset uploaded by the release pipeline."""
+
+    @patch("src.auto_updater.urlopen")
+    def test_sidecar_used_when_body_lacks_sha(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        sha = "b" * 64
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="Release notes with no SHA line",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        sidecar_response = _mock_download_response(
+            f"{sha}  AudiobookMaker-Setup-3.0.0.exe\n".encode()
+        )
+        mock_urlopen.side_effect = [api_response, sidecar_response]
+
+        info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.sha256 == sha
+
+    @patch("src.auto_updater.urlopen")
+    def test_body_sha_preferred_over_sidecar(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        body_sha = "c" * 64
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body=f"SHA-256: {body_sha}",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        # If the body parses successfully, we should never even fetch the
+        # sidecar. Only one urlopen call should happen.
+        mock_urlopen.return_value = api_response
+
+        info = check_for_update("2.0.0")
+
+        assert info.sha256 == body_sha
+        assert mock_urlopen.call_count == 1
+
+    @patch("src.auto_updater.urlopen")
+    def test_no_sidecar_present_returns_empty_sha(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        mock_urlopen.return_value = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+            ],
+        )
+
+        info = check_for_update("2.0.0")
+
+        # available=True (the .exe exists), but sha256 empty so the
+        # downloader will refuse with the friendly browser-fallback message.
+        assert info.available is True
+        assert info.sha256 == ""
+
+    @patch("src.auto_updater.urlopen")
+    def test_sidecar_with_unparseable_payload_returns_empty(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        garbage = _mock_download_response(b"<html>404 Not Found</html>")
+        mock_urlopen.side_effect = [api_response, garbage]
+
+        info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.sha256 == ""
+
+    @patch("src.auto_updater.urlopen")
+    def test_sidecar_network_error_returns_empty(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        from urllib.error import URLError
+
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        mock_urlopen.side_effect = [api_response, URLError("sidecar 404")]
+
+        info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.sha256 == ""
+
+
 # ---------------------------------------------------------------------------
 # E2E: download_update
 # ---------------------------------------------------------------------------

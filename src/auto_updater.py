@@ -78,6 +78,51 @@ def _find_exe_asset(assets: list[dict]) -> dict | None:
     return None
 
 
+def _find_sha256_sidecar_asset(
+    assets: list[dict], exe_name: str
+) -> dict | None:
+    """Return the ``.exe.sha256`` sidecar asset matching ``exe_name``, if any.
+
+    The release pipeline uploads a sidecar text file alongside the installer
+    so that auto-update can recover when (a) someone published a release with
+    no SHA-256 line in the notes, or (b) GitHub's release-notes propagation
+    is briefly stale right after publish.
+    """
+    target = exe_name + ".sha256"
+    for asset in assets:
+        if asset.get("name") == target:
+            return asset
+    return None
+
+
+def _fetch_sidecar_sha256(
+    asset: dict, current_version: str
+) -> str | None:
+    """Download a tiny `.sha256` sidecar asset and return the hex digest.
+
+    Sidecar format mirrors `sha256sum`: ``<hex>  <filename>`` on one line.
+    Any parse failure or network error returns None — the caller falls back
+    to the existing 'no SHA-256 published' behaviour.
+    """
+    url = asset.get("browser_download_url")
+    if not url:
+        return None
+    try:
+        req = Request(url)
+        req.add_header("User-Agent", f"AudiobookMaker/{current_version}")
+        with urlopen(req, timeout=API_TIMEOUT) as resp:
+            payload = resp.read(512).decode("ascii", errors="replace")
+    except (URLError, OSError) as exc:
+        logger.debug("Sidecar SHA-256 fetch failed: %s", exc)
+        return None
+    import re
+    match = re.search(r"\b([0-9a-fA-F]{64})\b", payload)
+    if not match:
+        logger.debug("Sidecar payload had no 64-hex token: %r", payload[:80])
+        return None
+    return match.group(1).lower()
+
+
 def _no_update(current_version: str) -> UpdateInfo:
     """Return an UpdateInfo indicating no update is available."""
     return UpdateInfo(
@@ -146,6 +191,20 @@ def check_for_update(current_version: str) -> UpdateInfo:
             return _no_update(current_version)
 
         sha256 = _extract_sha256(data.get("body", ""))
+        # Fallback: the release author may have published the sidecar
+        # `.exe.sha256` asset without (or before) editing the body. Both
+        # paths are equally trustworthy because the release author
+        # authenticates either edit.
+        if not sha256:
+            sidecar = _find_sha256_sidecar_asset(
+                data.get("assets", []), asset.get("name", "")
+            )
+            if sidecar is not None:
+                sha256 = _fetch_sidecar_sha256(sidecar, current_version)
+                if sha256:
+                    logger.info(
+                        "Recovered SHA-256 from sidecar asset (release notes lacked one)"
+                    )
 
         return UpdateInfo(
             available=True,
@@ -182,8 +241,10 @@ def download_update(
     """
     if not update.sha256:
         raise RuntimeError(
-            "No SHA-256 hash published in release notes; "
-            "refusing to install for security reasons."
+            "No SHA-256 hash published for this release. "
+            "Auto-update is blocked for security reasons. "
+            "Use the 'Lataa selaimella' / 'Download in browser' button "
+            "to install the new version manually."
         )
 
     UPDATE_DIR.mkdir(parents=True, exist_ok=True)
