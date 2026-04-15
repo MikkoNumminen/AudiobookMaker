@@ -372,3 +372,56 @@ from the [Releases page](https://github.com/MikkoNumminen/AudiobookMaker/release
 You get the same engines and the same Grandmom voice, just without the
 command line. The setup above is for people who want to script things,
 dig into the code, or produce books in batches.
+
+## Cheatsheet — four copy-paste commands
+
+Once both venvs are set up and your book is in the repo root, these
+are the four commands you need, one per language/format pair. All of
+them use the Grandmom voice (the default — no extra flag needed).
+Replace `Book.epub` / `Book.pdf` with your actual filename and adjust
+the `--out` path if you want the MP3 somewhere specific.
+
+**Finnish book, EPUB:**
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --epub Book.epub `
+    --out out\book.mp3 `
+    --language fi `
+    --device cuda
+```
+
+**Finnish book, PDF:**
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --pdf Book.pdf `
+    --out out\book.mp3 `
+    --language fi `
+    --device cuda
+```
+
+**English book, EPUB:**
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --epub Book.epub `
+    --out out\book.mp3 `
+    --language en `
+    --device cuda
+```
+
+**English book, PDF:**
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
+    --pdf Book.pdf `
+    --out out\book.mp3 `
+    --language en `
+    --device cuda
+```
+
+That's it. The only two things that change between the four are the
+input flag (`--epub` vs `--pdf`) and the language (`--language fi` vs
+`--language en`). Everything else is identical — Grandmom voice,
+CUDA device, resume-on-restart, MP3 output.
+
+If you prefer a ready-made script, you can also paste any of these
+into a `.ps1` file (say `run_en_epub.ps1`) and double-click it from
+Explorer.
