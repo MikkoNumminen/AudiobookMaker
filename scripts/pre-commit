@@ -7,7 +7,7 @@
 # exercise docs, so running them costs ~12 s for no safety gain.
 # Safety net: any non-doc file in the stage (even one) falls back to
 # the full run.
-DOC_PATTERN='\.(md|txt|rst|gitattributes|gitignore)$|^(\.gitattributes|\.gitignore|TODO\.md|README\.md|BUILDING\.md|DEVELOPMENT\.md|CONVENTIONS\.md|LICENSE(\.txt)?)$'
+DOC_PATTERN='\.(md|txt|rst|gitattributes|gitignore|mp3|wav|ico|png|jpg|yaml)$|^(\.gitattributes|\.gitignore|TODO\.md|README\.md|BUILDING\.md|DEVELOPMENT\.md|CONVENTIONS\.md|LICENSE(\.txt)?)$'
 
 staged=$(git diff --cached --name-only)
 if [ -z "$staged" ]; then
