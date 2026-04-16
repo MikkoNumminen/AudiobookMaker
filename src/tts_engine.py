@@ -356,7 +356,7 @@ def text_to_speech(
     try:
         mp3_files = _asyncio_run_with_retry(
             lambda: _synthesize_all_chunks(chunks, config, tmp_dir, progress_cb),
-            timeout_s=max(60, len(chunks) * 20),
+            timeout_s=max(15, len(chunks) * 10),
         )
         # On Windows, edge-tts's async transports may hold file handles
         # briefly after asyncio.run() returns. Force GC to release them.
