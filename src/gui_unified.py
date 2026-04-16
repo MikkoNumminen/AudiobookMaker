@@ -463,6 +463,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # show "Sample saved" instead of the generic "Done".
         self._is_sample_run: bool = False
         self._sample_output_path: Optional[str] = None
+        # The most recently produced MP3 from this session — sample or full
+        # run, whichever finished last. Esikuuntele/Preview prefers this
+        # over self._output_path so the user can always re-listen to the
+        # newest result without having to remember which button produced it.
+        self._last_playable_path: Optional[str] = None
         self._event_queue: "queue.Queue[ProgressEvent]" = queue.Queue()
         self._log_visible = True
         self._pending_update: Optional[UpdateInfo] = None
@@ -2038,6 +2043,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         eid = self._current_engine_id()
 
         if eid == "chatterbox_fi":
+            # Chatterbox is too slow to synthesize on demand from the
+            # voice-test button, but we ship pre-baked Grandmom samples
+            # for both supported languages so the button still produces
+            # something the user can hear immediately.
+            lang = self._current_language()
+            bundled = self._bundled_voice_sample(lang)
+            if bundled is not None:
+                self._safe_play_sample(bundled)
+                return
             messagebox.showinfo(
                 self._s("voice_sample_title"),
                 self._s("chatterbox_no_sample"),
@@ -2088,6 +2102,49 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self.after(0, lambda: self._test_btn.configure(state="normal"))
             self.after(0, lambda: setattr(self, "_testing_voice", False))
 
+    def _bundled_voice_sample(self, lang: str) -> Optional[str]:
+        """Return the path to the bundled Grandmom voice sample for ``lang``.
+
+        Used by the Test-voice button on the Chatterbox engine, where
+        on-demand synthesis is too slow to give the user instant feedback.
+        Falls back to None if the bundled file isn't present (dev box
+        without assets, or a fresh checkout).
+
+        Files (relative to install root):
+          assets/voices/grandmom_en_sample.mp3   — English Grandmom
+          assets/voices/grandmom_reference.wav   — Finnish Grandmom (reused
+                                                    from the voice-clone
+                                                    reference; it's a
+                                                    clean ~11 s clip)
+
+        Layout in frozen install: same paths under ``_internal/``.
+        """
+        if lang == "en":
+            filename = "grandmom_en_sample.mp3"
+        else:
+            filename = "grandmom_reference.wav"
+
+        # Same search pattern as _bundled_grandmom_ref in the Chatterbox
+        # subprocess: dev layout, then frozen-install _internal layout.
+        repo_root = Path(__file__).resolve().parent.parent
+        candidates = [
+            repo_root / "assets" / "voices" / filename,
+            repo_root / "_internal" / "assets" / "voices" / filename,
+        ]
+        # In a frozen build src/ lives at {app}/_internal/src/; assets sit
+        # at {app}/_internal/assets/, so repo_root above already points at
+        # _internal/. Cover the legacy {app}/assets/ layout too just in
+        # case an older installer left things there.
+        if getattr(sys, "frozen", False):
+            install_root = Path(sys.executable).parent
+            candidates.append(install_root / "assets" / "voices" / filename)
+            candidates.append(install_root / "_internal" / "assets" / "voices" / filename)
+
+        for cand in candidates:
+            if cand.is_file():
+                return str(cand)
+        return None
+
     def _safe_play_sample(self, path: str) -> None:
         def _play() -> None:
             self._status_label_val.configure(text=self._s("sample_saved").format(path=path))
@@ -2123,21 +2180,26 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._listening or self._synth_running:
             return
 
-        # Priority 1: if a finished MP3 already exists at the output path,
-        # just play that file. Works for every engine (Chatterbox included)
-        # after a successful conversion — the user gets instant playback
-        # instead of a new synthesis run.
-        if self._output_path:
-            out_file = Path(self._output_path)
-            if out_file.is_file() and out_file.suffix.lower() == ".mp3":
-                self._append_log(f"Toistetaan: {out_file}")
+        # Priority 1: play the most recent finished MP3 from this session,
+        # whichever button produced it (Tee näyte / Make sample, or the
+        # full Muunna / Convert run). _last_playable_path is set by both
+        # success paths in _drain_event_queue. Falls back to _output_path
+        # so re-launching the app still finds the user's last planned
+        # output if it still exists on disk.
+        candidates = [
+            p for p in (self._last_playable_path, self._output_path) if p
+        ]
+        for candidate in candidates:
+            cand_file = Path(candidate)
+            if cand_file.is_file() and cand_file.suffix.lower() == ".mp3":
+                self._append_log(f"Toistetaan: {cand_file}")
                 try:
                     if sys.platform == "win32":
-                        os.startfile(str(out_file))  # type: ignore[attr-defined]
+                        os.startfile(str(cand_file))  # type: ignore[attr-defined]
                     elif sys.platform == "darwin":
-                        subprocess.Popen(["open", str(out_file)])
+                        subprocess.Popen(["open", str(cand_file)])
                     else:
-                        subprocess.Popen(["xdg-open", str(out_file)])
+                        subprocess.Popen(["xdg-open", str(cand_file)])
                 except Exception as exc:
                     self._append_log_error(self._s("playback_failed").format(error=exc))
                 return
@@ -2778,6 +2840,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     )
                     if sample_path:
                         self._log_success_summary(sample_path)
+                        self._last_playable_path = sample_path
                     self._is_sample_run = False
                     self._sample_output_path = None
                 else:
@@ -2786,6 +2849,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                         self._output_path = ev.output_path
                     if self._output_path:
                         self._log_success_summary(self._output_path)
+                        self._last_playable_path = self._output_path
                     self._update_done_strip(self._output_path)
                 self._set_idle_state()
                 # One final set(1.0) after idle-state toggles anything

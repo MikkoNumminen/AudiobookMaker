@@ -136,6 +136,11 @@ datas += [(os.path.join('assets', 'icon.png'), 'assets')]
 # See memory/project_english_grandmom.md for the recipe.
 datas += [(os.path.join('assets', 'voices', 'grandmom_reference.wav'),
            os.path.join('assets', 'voices'))]
+# Pre-baked Grandmom English voice sample played by the Test-voice button
+# on the Chatterbox engine, where on-demand synthesis is too slow to give
+# the user instant feedback.
+datas += [(os.path.join('assets', 'voices', 'grandmom_en_sample.mp3'),
+           os.path.join('assets', 'voices'))]
 
 a = Analysis(
     [os.path.join('src', 'main.py')],

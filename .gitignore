@@ -19,6 +19,7 @@ build/
 *.mp3
 *.wav
 !assets/voices/*.wav
+!assets/voices/*.mp3
 # Local model caches used by dev_qwen_tts.py and similar experiments
 models/
 
