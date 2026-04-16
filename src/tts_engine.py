@@ -32,29 +32,12 @@ from typing import Callable, Optional
 # Re-exports — keep the public surface of the old monolith intact so
 # existing call sites like `from src.tts_engine import normalize_finnish_text`
 # keep working.
-from src.tts_normalizer_fi import (  # noqa: F401
-    normalize_finnish_text,
-    _expand_abbreviations,
-    _expand_acronyms,
-    _expand_roman_numerals,
-    _expand_unit_symbols,
-    _fi_detect_case,
-    _fi_split_number_compounds,
-    _roman_to_int,
-)
+from src.tts_normalizer_fi import normalize_finnish_text  # noqa: F401
 from src.tts_chunking import (  # noqa: F401
     MAX_CHUNK_CHARS,
     split_text_into_chunks,
-    _force_split,
-    _split_sentences,
-    _ABBREVIATIONS,
-    _SENTENCE_END,
 )
-from src.tts_audio import (  # noqa: F401
-    combine_audio_files,
-    _load_audio_with_retry,
-    _trim_chunk_silence,
-)
+from src.tts_audio import combine_audio_files  # noqa: F401
 from src.tts_normalizer import normalize_text  # noqa: F401
 
 
