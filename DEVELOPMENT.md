@@ -33,13 +33,12 @@ Releases and offers a one-click upgrade.
 ## Architecture in one screen
 
 ```
-PDF/EPUB/text ─► pdf_parser / epub_parser ─► tts_normalizer_fi ─► tts_chunking ─► engine.synthesize ─► tts_audio ─► MP3
-                                                                    │
-                                                  ┌─────────────────┼─────────────────┐
-                                                  ▼                 ▼                 ▼
-                                              tts_edge.py      tts_piper.py     Chatterbox
-                                              (online HTTP)    (offline ONNX)   (GPU subprocess
-                                                                                via launcher_bridge)
+PDF/EPUB/text ─► pdf_parser / epub_parser ─► tts_normalizer ─► tts_chunking ─► engine.synthesize ─► tts_audio ─► MP3
+                                                  │                                  │
+                                       ┌──────────┴──────────┐         ┌─────────────┼─────────────┐
+                                       ▼                     ▼         ▼             ▼             ▼
+                                tts_normalizer_fi   tts_normalizer_en  tts_edge   tts_piper    Chatterbox
+                                (Finnish, 16 passes)  (English, 12 passes) (online) (offline)  (GPU subprocess)
 ```
 
 Three layers, each replaceable:
@@ -47,13 +46,16 @@ Three layers, each replaceable:
 - **GUI** — `gui_unified.py` is the host class; `gui_synth_mixin.py`,
   `gui_update_mixin.py`, `gui_engine_dialog.py` are the heavy pieces
   extracted out. Mixins use `typing.Protocol` to declare what the host
-  must provide.
+  must provide. The main bar exposes Language, Engine, Voice and the
+  three action buttons (Convert, Make Sample, Preview).
 - **Engines** — anything implementing the `TTSEngine` ABC in
   `src/tts_base.py` and decorated with `@register_engine` shows up in
-  the GUI dropdown. See "Adding a new engine" below.
-- **Pipeline** — `tts_normalizer_fi.py` (text), `tts_chunking.py`
-  (split), `tts_engine.py` (Edge synthesis + chapters orchestration),
-  `tts_audio.py` (combine).
+  the GUI dropdown, gated by the Language picker through the engine's
+  `supported_languages()`. See "Adding a new engine" below.
+- **Pipeline** — `tts_normalizer.py` (language dispatcher) routes to
+  `tts_normalizer_fi.py` or `tts_normalizer_en.py`, then `tts_chunking.py`
+  splits, `tts_engine.py` orchestrates Edge synthesis + chapters,
+  `tts_audio.py` combines.
 
 Detailed module map and Mermaid diagrams live in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -66,12 +68,16 @@ Detailed module map and Mermaid diagrams live in
    `display_name`, `description`, plus the capability flags
    (`requires_gpu`, `requires_internet`, `supports_voice_cloning`,
    `supports_voice_description`).
-3. Implement four methods:
+3. Implement five methods:
    - `check_status()` → `EngineStatus(available, reason, needs_download)`
    - `list_voices(language)` → `list[Voice]`
-   - `default_voice(language)` → `Optional[str]`
+   - `default_voice(language)` → `str | None`
    - `synthesize(text, output_path, voice_id, language, progress_cb,
      reference_audio=None, voice_description=None)`
+   - `supported_languages()` → `set[str]` — which short language codes
+     this engine can speak. The Language combobox uses this to hide
+     engines that don't support the user's choice. Default returns
+     `{"fi"}`; override in your subclass.
 4. Decorate the class with `@register_engine`.
 5. Import the module in `src/gui_unified.py` (a top-level
    `from src import tts_<name>  # noqa: F401` is enough — the decorator
@@ -83,6 +89,25 @@ Detailed module map and Mermaid diagrams live in
 The registry is a plain `dict[str, type[TTSEngine]]`, keyed by `id`.
 `get_engine(id)` returns a fresh instance every call (no caching). Look
 in [src/tts_edge.py](src/tts_edge.py) for the smallest concrete example.
+
+## Text normalizers
+
+Two language-specific normalizers run before chunking, fronted by a
+language dispatcher:
+
+- `src/tts_normalizer.py` — the dispatcher. Public entry
+  `normalize_text(text, language)` routes to the per-language module
+  and lazy-imports it so the unused side stays out of memory.
+  Supported codes: `"fi"` and `"en"` (case-insensitive). Unknown codes
+  raise `ValueError`.
+- `src/tts_normalizer_fi.py` — Finnish normalizer (16 passes).
+- `src/tts_normalizer_en.py` — English normalizer (12 passes A-K + L
+  currency, M units, N time, O dates, P telephone, R URLs/emails, S
+  acronyms; passes O/P/R/S live in `_en_pass_*.py` helper modules).
+
+The Chatterbox subprocess uses the dispatcher: English text bypasses
+the Finnish rules so Roman numerals, abbreviations and number-case
+inflection don't bleed Finnish words into English audio.
 
 ## Finnish normalizer
 
@@ -120,10 +145,23 @@ To add a pass:
 2. Add a `_pass_X_<name>(text: str) -> str` function near the others.
 3. Call it from `normalize_finnish_text` in the right slot.
 4. Add cases to [docs/tts_text_normalization_cases.md](docs/tts_text_normalization_cases.md).
-5. Add tests in `tests/test_tts_engine.py` (the file covers normalizer
-   passes despite its name).
+5. Add tests in `tests/test_tts_normalizer_fi.py`. Most cases use
+   `@pytest.mark.parametrize` per topic — add a row to the existing
+   table for trivial input/output cases.
 
-The whole pipeline has 400+ unit tests. Anything you add should too.
+The whole pipeline has 1000+ unit tests. Anything you add should too.
+
+## English normalizer
+
+`src/tts_normalizer_en.py` mirrors the Finnish normalizer's structure
+with passes for English-specific concerns (Roman numerals as ordinals
+or cardinals, dates, currency symbols, units, telephone numbers,
+URLs/emails, acronyms). Read the file for the call order.
+
+The four heaviest English passes (O dates, P telephone, R URLs, S
+acronyms) live in `src/_en_pass_*.py` so each can be unit-tested in
+isolation. New English passes should follow the same convention if
+they grow past ~100 LoC.
 
 ## Tests
 
@@ -131,15 +169,25 @@ The whole pipeline has 400+ unit tests. Anything you add should too.
 python -m pytest tests/ -x -q --tb=short
 ```
 
-- 600+ tests, mostly fast (<5 s total). Pre-commit hook runs them
-  automatically (`scripts/pre-commit`).
+- 1000+ tests, mostly fast (<15 s total). Pre-commit hook runs them
+  automatically (`scripts/pre-commit`) with a one-shot retry to absorb
+  the Windows asyncio ProactorEventLoop teardown flake.
 - CI on every push runs the same suite plus coverage
   (`--cov=src --cov-report=term-missing`).
 - The voice-recording test (`tests/test_record_voice_sample.py`) needs
   PortAudio and is skipped in CI with `--ignore=…`.
 - Tkinter tests in `tests/test_gui_e2e.py` reuse a single `Tk()` root
   via a module-scoped `_shared_app` fixture — Tkinter crashes if you
-  create and destroy multiple roots in the same interpreter.
+  create and destroy multiple roots in the same interpreter. An
+  autouse `_reset_app_state` fixture wipes per-test mutations to
+  prevent cross-test contamination.
+- Unit tests for GUI validation paths live in `tests/test_gui_unified.py`;
+  use those for fast feedback. Reserve `test_gui_e2e.py` for flows that
+  need a real Tk window.
+- Per-module test files mirror `src/`: `tests/test_tts_normalizer.py`
+  (dispatcher), `tests/test_tts_normalizer_fi.py`,
+  `tests/test_tts_normalizer_en.py`, `tests/test_tts_chunking.py`,
+  `tests/test_tts_audio.py`, etc.
 
 ## Build & release
 
