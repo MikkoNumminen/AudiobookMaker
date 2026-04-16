@@ -67,6 +67,39 @@ def app(_shared_app, clean_registry):
     return _shared_app
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_state(app):
+    """Reset shared app to a known baseline before each test.
+
+    The underlying UnifiedApp instance is module-scoped (Tkinter can't
+    create/destroy multiple roots safely in one interpreter), so without
+    this reset every test inherits whatever engine/language/text state
+    the previous test left behind. This fixture wipes the state that
+    tests actually poke at, so tests run as if they had a fresh app.
+    """
+    # Run-state flags
+    app._synth_running = False
+    app._listening = False
+    app._cancel_requested = False
+    app._is_sample_run = False
+    app._sample_output_path = None
+    # I/O state
+    app._pdf_path = None
+    app._output_path = None
+    app._output_user_chosen = False
+    app._text_has_placeholder = True
+    app._text_widget.delete("1.0", tk.END)
+    # Combobox selections back to a known default
+    app._lang_cb.set("Suomi")
+    engine_values = list(app._engine_cb.cget("values"))
+    if engine_values:
+        app._engine_cb.set(engine_values[0])
+    app._populate_engine_list()
+    app._refresh_voice_list()
+    app.update_idletasks()
+    yield
+
+
 # ---------------------------------------------------------------------------
 # Fake unavailable engine
 # ---------------------------------------------------------------------------
