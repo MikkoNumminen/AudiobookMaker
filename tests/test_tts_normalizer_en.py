@@ -38,25 +38,15 @@ from src.tts_normalizer_en import (
 
 
 class TestPassAMetadataStrip:
-    def test_isbn_13_stripped(self):
-        out = _pass_a_metadata_strip("ISBN: 978-0-385-72353-1 reads.")
-        assert "978" not in out
-
-    def test_isbn_10_stripped(self):
-        out = _pass_a_metadata_strip("ISBN 0-385-72353-X here.")
-        assert "385" not in out
-
-    def test_doi_stripped(self):
-        out = _pass_a_metadata_strip(
-            "See doi:10.1234/example.5678 for details."
-        )
-        assert "10.1234" not in out
-
-    def test_doi_url_stripped(self):
-        out = _pass_a_metadata_strip(
-            "Source: https://doi.org/10.1234/foo cited."
-        )
-        assert "doi.org" not in out
+    @pytest.mark.parametrize("text,absent", [
+        pytest.param("ISBN: 978-0-385-72353-1 reads.", "978", id="isbn_13"),
+        pytest.param("ISBN 0-385-72353-X here.", "385", id="isbn_10"),
+        pytest.param("See doi:10.1234/example.5678 for details.", "10.1234", id="doi"),
+        pytest.param("Source: https://doi.org/10.1234/foo cited.", "doi.org", id="doi_url"),
+        pytest.param("Available under CC-BY-SA 4.0 license.", "CC-BY", id="cc_license"),
+    ])
+    def test_strips(self, text, absent):
+        assert absent not in _pass_a_metadata_strip(text)
 
     def test_copyright_stripped(self):
         out = _pass_a_metadata_strip(
@@ -64,10 +54,6 @@ class TestPassAMetadataStrip:
         )
         assert "2003" not in out
         assert "begins" in out
-
-    def test_cc_license_stripped(self):
-        out = _pass_a_metadata_strip("Available under CC-BY-SA 4.0 license.")
-        assert "CC-BY" not in out
 
     def test_all_rights_reserved_stripped(self):
         out = _pass_a_metadata_strip("All rights reserved. Then text.")
@@ -93,26 +79,19 @@ class TestPassAMetadataStrip:
 
 
 class TestPassBWhitespaceQuotes:
-    def test_smart_single_quotes_to_ascii(self):
-        out = _pass_b_whitespace_quotes("\u2018hello\u2019")
-        assert out == "'hello'"
-
-    def test_smart_double_quotes_to_ascii(self):
-        out = _pass_b_whitespace_quotes("\u201chello\u201d")
-        assert out == '"hello"'
+    @pytest.mark.parametrize("text,expected", [
+        pytest.param("\u2018hello\u2019", "'hello'", id="smart_single_quotes"),
+        pytest.param("\u201chello\u201d", '"hello"', id="smart_double_quotes"),
+        pytest.param("1914\u20131918", "1914-1918", id="en_dash"),
+        pytest.param("hello\u00a0world", "hello world", id="nbsp"),
+    ])
+    def test_exact_replacements(self, text, expected):
+        assert _pass_b_whitespace_quotes(text) == expected
 
     def test_em_dash_to_spaced_hyphen(self):
         out = _pass_b_whitespace_quotes("then\u2014now")
         assert "-" in out
         assert "\u2014" not in out
-
-    def test_en_dash_to_hyphen(self):
-        out = _pass_b_whitespace_quotes("1914\u20131918")
-        assert "1914-1918" == out
-
-    def test_nbsp_to_space(self):
-        out = _pass_b_whitespace_quotes("hello\u00a0world")
-        assert out == "hello world"
 
     def test_ellipsis_collapsed(self):
         out = _pass_b_whitespace_quotes("wait... what")
@@ -142,59 +121,29 @@ class TestPassBWhitespaceQuotes:
 
 
 class TestPassCAbbreviations:
-    def test_mr(self):
-        assert "Mister" in _pass_c_abbreviations("Mr. Smith arrived.")
-
-    def test_mrs(self):
-        assert "Misses" in _pass_c_abbreviations("Mrs. Smith arrived.")
-
-    def test_dr(self):
-        assert "Doctor" in _pass_c_abbreviations("Dr. Watson observed.")
-
-    def test_prof(self):
-        assert "Professor" in _pass_c_abbreviations("Prof. Plum did it.")
-
-    def test_ie(self):
-        assert "that is" in _pass_c_abbreviations("namely, i.e. clearly")
-
-    def test_eg(self):
-        assert "for example" in _pass_c_abbreviations("such as e.g. cats")
-
-    def test_etc(self):
-        assert "et cetera" in _pass_c_abbreviations("dogs, cats, etc.")
-
-    def test_vs(self):
-        assert "versus" in _pass_c_abbreviations("Caesar vs. Pompey")
-
-    def test_us_united_states(self):
-        out = _pass_c_abbreviations("U.S. policy")
-        assert "United States" in out
-
-    def test_uk_united_kingdom(self):
-        out = _pass_c_abbreviations("the U.K. government")
-        assert "United Kingdom" in out
-
-    def test_no_number(self):
-        assert "Number" in _pass_c_abbreviations("No. 7")
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("Mr. Smith arrived.", "Mister", id="mr"),
+        pytest.param("Mrs. Smith arrived.", "Misses", id="mrs"),
+        pytest.param("Dr. Watson observed.", "Doctor", id="dr"),
+        pytest.param("Prof. Plum did it.", "Professor", id="prof"),
+        pytest.param("namely, i.e. clearly", "that is", id="ie"),
+        pytest.param("such as e.g. cats", "for example", id="eg"),
+        pytest.param("dogs, cats, etc.", "et cetera", id="etc"),
+        pytest.param("Caesar vs. Pompey", "versus", id="vs"),
+        pytest.param("U.S. policy", "United States", id="us"),
+        pytest.param("the U.K. government", "United Kingdom", id="uk"),
+        pytest.param("No. 7", "Number", id="no_number"),
+        pytest.param("see pp. 23-25", "pages", id="pages"),
+        pytest.param("St. Peter", "Saint", id="st_saint"),
+        pytest.param("Main St.", "Street", id="st_street"),
+        pytest.param("at 3 a.m. sharp", "a m", id="am_lowercase"),
+    ])
+    def test_expansion(self, text, expected_substr):
+        assert expected_substr in _pass_c_abbreviations(text)
 
     def test_vol_chapter(self):
         out = _pass_c_abbreviations("Vol. III, Ch. 4")
         assert "Volume" in out and "Chapter" in out
-
-    def test_pages(self):
-        assert "pages" in _pass_c_abbreviations("see pp. 23-25")
-
-    def test_st_saint_before_capital(self):
-        out = _pass_c_abbreviations("St. Peter")
-        assert "Saint" in out
-
-    def test_st_street_otherwise(self):
-        out = _pass_c_abbreviations("Main St.")
-        assert "Street" in out
-
-    def test_am_pm_lowercase(self):
-        out = _pass_c_abbreviations("at 3 a.m. sharp")
-        assert "a m" in out
 
     def test_idempotent(self):
         text = "Mr. Smith and Dr. Watson"
@@ -232,30 +181,16 @@ class TestRomanToInt:
 
 
 class TestPassDRomanInContext:
-    def test_chapter_iv_to_four(self):
-        out = _pass_d_roman_in_context("Chapter IV begins.")
-        assert "four" in out
-
-    def test_volume_v_to_five(self):
-        out = _pass_d_roman_in_context("Volume V is heavy.")
-        assert "five" in out
-
-    def test_book_xii_to_twelve(self):
-        out = _pass_d_roman_in_context("Book XII opens.")
-        assert "twelve" in out
-
-    def test_louis_xiv_to_regnal(self):
-        out = _pass_d_roman_in_context("Louis XIV ruled.")
-        assert "the fourteenth" in out
-
-    def test_henry_viii_to_regnal(self):
-        out = _pass_d_roman_in_context("Henry VIII founded.")
-        assert "the eighth" in out
-
-    def test_pope_john_xxiii_to_regnal(self):
-        # "John" is in the regnal context list; XXIII follows John.
-        out = _pass_d_roman_in_context("Pope John XXIII convened.")
-        assert "the twenty" in out  # twenty-third
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("Chapter IV begins.", "four", id="chapter_iv"),
+        pytest.param("Volume V is heavy.", "five", id="volume_v"),
+        pytest.param("Book XII opens.", "twelve", id="book_xii"),
+        pytest.param("Louis XIV ruled.", "the fourteenth", id="louis_xiv_regnal"),
+        pytest.param("Henry VIII founded.", "the eighth", id="henry_viii_regnal"),
+        pytest.param("Pope John XXIII convened.", "the twenty", id="pope_john_xxiii"),
+    ])
+    def test_expansion(self, text, expected_substr):
+        assert expected_substr in _pass_d_roman_in_context(text)
 
     def test_no_context_word_left_alone(self):
         # Bare Roman with no preceding context word should not expand.
@@ -315,13 +250,14 @@ class TestPassEOrdinalDigits:
 
 
 class TestPassFYears:
-    def test_year_after_in(self):
-        out = _pass_f_years("In 1917 the war ended.")
-        assert "nineteen seventeen" in out
-
-    def test_year_after_by(self):
-        out = _pass_f_years("by 1492 they sailed.")
-        assert "fourteen ninety-two" in out
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("In 1917 the war ended.", "nineteen seventeen", id="after_in"),
+        pytest.param("by 1492 they sailed.", "fourteen ninety-two", id="after_by"),
+        pytest.param("the 1920s roared", "twenties", id="decade_s"),
+        pytest.param("the '60s vibe", "sixties", id="apostrophe_decade"),
+    ])
+    def test_year_expansion(self, text, expected_substr):
+        assert expected_substr in _pass_f_years(text)
 
     def test_year_2004_pair_read(self):
         out = _pass_f_years("around 2004 perhaps")
@@ -337,14 +273,6 @@ class TestPassFYears:
         out = _pass_f_years("1914\u20131918 was war.")
         assert "to" in out
 
-    def test_decade_with_s(self):
-        out = _pass_f_years("the 1920s roared")
-        assert "twenties" in out
-
-    def test_apostrophe_decade(self):
-        out = _pass_f_years("the '60s vibe")
-        assert "sixties" in out
-
     def test_year_without_preposition_left_for_g(self):
         # Pass F should NOT touch a bare "1917" without a year preposition;
         # Pass G handles it as a cardinal.
@@ -358,11 +286,14 @@ class TestPassFYears:
 
 
 class TestPassLCurrency:
-    def test_dollar_simple(self):
-        assert "five dollars" in _pass_l_currency("$5 today")
-
-    def test_dollar_singular(self):
-        assert "one dollar" in _pass_l_currency("$1 only")
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("$5 today", "five dollars", id="dollar_simple"),
+        pytest.param("$1 only", "one dollar", id="dollar_singular"),
+        pytest.param("¥500", "yen", id="yen_no_decimal"),
+        pytest.param("paid 10 USD", "ten dollars", id="iso_usd"),
+    ])
+    def test_single_substr(self, text, expected_substr):
+        assert expected_substr in _pass_l_currency(text)
 
     def test_dollar_with_cents(self):
         out = _pass_l_currency("$5.99")
@@ -388,14 +319,6 @@ class TestPassLCurrency:
         out = _pass_l_currency("€2.50")
         assert "euros" in out
         assert "cents" in out
-
-    def test_yen_no_decimal(self):
-        out = _pass_l_currency("¥500")
-        assert "yen" in out
-
-    def test_iso_code_usd(self):
-        out = _pass_l_currency("paid 10 USD")
-        assert "ten dollars" in out
 
     def test_iso_code_with_magnitude(self):
         out = _pass_l_currency("worth 2.5M EUR")
@@ -425,23 +348,22 @@ class TestPassLCurrency:
 
 
 class TestPassMUnits:
-    def test_distance_km(self):
-        assert "kilometers" in _pass_m_units("5 km away")
-
-    def test_distance_singular(self):
-        assert "one mile" in _pass_m_units("1 mi only")
-
-    def test_speed_mph(self):
-        assert "miles per hour" in _pass_m_units("55 mph limit")
-
-    def test_speed_kph(self):
-        assert "kilometers per hour" in _pass_m_units("100 kph zone")
-
-    def test_mass_kg(self):
-        assert "kilograms" in _pass_m_units("15 kg total")
-
-    def test_mass_lbs(self):
-        assert "pounds" in _pass_m_units("180 lbs gross")
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("5 km away", "kilometers", id="distance_km"),
+        pytest.param("1 mi only", "one mile", id="distance_singular"),
+        pytest.param("55 mph limit", "miles per hour", id="speed_mph"),
+        pytest.param("100 kph zone", "kilometers per hour", id="speed_kph"),
+        pytest.param("15 kg total", "kilograms", id="mass_kg"),
+        pytest.param("180 lbs gross", "pounds", id="mass_lbs"),
+        pytest.param("273°K cold", "kelvin", id="temp_kelvin"),
+        pytest.param("8 GB RAM", "gigabytes", id="data_gb"),
+        pytest.param("256 mb file", "megabytes", id="data_mb_lower"),
+        pytest.param("3 GHz processor", "gigahertz", id="freq_ghz"),
+        pytest.param("2 l of water", "liters", id="volume_liter"),
+        pytest.param("1.5 km away", "kilometers", id="decimal_amount"),
+    ])
+    def test_unit_expansion(self, text, expected_substr):
+        assert expected_substr in _pass_m_units(text)
 
     def test_temperature_fahrenheit(self):
         out = _pass_m_units("32 °F freezing")
@@ -450,28 +372,6 @@ class TestPassMUnits:
     def test_temperature_celsius_no_space(self):
         out = _pass_m_units("100°C boiling")
         assert "degrees Celsius" in out
-
-    def test_temperature_kelvin_with_degree(self):
-        # Kelvin conventionally has no degree symbol but our pattern
-        # requires one. Document the contract via the test.
-        assert "kelvin" in _pass_m_units("273°K cold")
-
-    def test_data_gb(self):
-        assert "gigabytes" in _pass_m_units("8 GB RAM")
-
-    def test_data_mb_lowercase(self):
-        # case-insensitive on the unit token
-        assert "megabytes" in _pass_m_units("256 mb file")
-
-    def test_frequency_ghz(self):
-        assert "gigahertz" in _pass_m_units("3 GHz processor")
-
-    def test_volume_liter(self):
-        assert "liters" in _pass_m_units("2 l of water")
-
-    def test_decimal_amount(self):
-        out = _pass_m_units("1.5 km away")
-        assert "kilometers" in out
 
     def test_no_units_passes_through(self):
         text = "no units here"
@@ -547,21 +447,14 @@ class TestPassHDecimals:
 
 
 class TestPassIFractions:
-    def test_one_half(self):
-        out = _pass_i_fractions("1/2")
-        assert "one half" in out
-
-    def test_three_quarters(self):
-        out = _pass_i_fractions("3/4")
-        assert "three quarters" in out
-
-    def test_two_thirds(self):
-        out = _pass_i_fractions("2/3")
-        assert "two thirds" in out
-
-    def test_one_sixteenth(self):
-        out = _pass_i_fractions("1/16")
-        assert "one sixteenth" in out
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("1/2", "one half", id="one_half"),
+        pytest.param("3/4", "three quarters", id="three_quarters"),
+        pytest.param("2/3", "two thirds", id="two_thirds"),
+        pytest.param("1/16", "one sixteenth", id="one_sixteenth"),
+    ])
+    def test_fraction_expansion(self, text, expected_substr):
+        assert expected_substr in _pass_i_fractions(text)
 
     def test_no_fractions_passes_through(self):
         text = "no fractions"
@@ -651,44 +544,22 @@ class TestNormalizeEnglishText:
         assert "versus" in out
 
 class TestPassNTime:
-    # 12-hour whole hours
-    def test_1_oclock(self):
-        assert _pass_n_time("1:00") == "one o'clock"
-
-    def test_12_oclock_noon(self):
-        assert _pass_n_time("12:00") == "twelve o'clock"
-
-    def test_12_hour_with_minutes(self):
-        assert _pass_n_time("3:30") == "three thirty"
-
-    def test_3_45(self):
-        assert _pass_n_time("3:45") == "three forty-five"
-
-    def test_9_05_oh_something(self):
-        assert _pass_n_time("9:05") == "nine oh five"
-
-    def test_11_59(self):
-        assert _pass_n_time("11:59") == "eleven fifty-nine"
-
-    # 24-hour times
-    def test_13_00_military(self):
-        assert _pass_n_time("13:00") == "thirteen hundred hours"
-
-    def test_15_00_example(self):
-        assert _pass_n_time("15:00") == "fifteen hundred hours"
-
-    def test_23_59(self):
-        assert _pass_n_time("23:59") == "twenty-three fifty-nine"
-
-    def test_18_30(self):
-        assert _pass_n_time("18:30") == "eighteen thirty"
-
-    # Midnight edge
-    def test_0_00_midnight(self):
-        assert _pass_n_time("0:00") == "zero hundred hours"
-
-    def test_0_15(self):
-        assert _pass_n_time("0:15") == "zero fifteen"
+    @pytest.mark.parametrize("text,expected", [
+        pytest.param("1:00", "one o'clock", id="1_oclock"),
+        pytest.param("12:00", "twelve o'clock", id="12_oclock_noon"),
+        pytest.param("3:30", "three thirty", id="3_30"),
+        pytest.param("3:45", "three forty-five", id="3_45"),
+        pytest.param("9:05", "nine oh five", id="9_05"),
+        pytest.param("11:59", "eleven fifty-nine", id="11_59"),
+        pytest.param("13:00", "thirteen hundred hours", id="13_00_military"),
+        pytest.param("15:00", "fifteen hundred hours", id="15_00_military"),
+        pytest.param("23:59", "twenty-three fifty-nine", id="23_59"),
+        pytest.param("18:30", "eighteen thirty", id="18_30"),
+        pytest.param("0:00", "zero hundred hours", id="0_00_midnight"),
+        pytest.param("0:15", "zero fifteen", id="0_15"),
+    ])
+    def test_times(self, text, expected):
+        assert _pass_n_time(text) == expected
 
     # With a.m./p.m. suffix — full pipeline (Pass C expands a.m./p.m.)
     def test_pm_suffix_full_pipeline(self):
@@ -716,12 +587,9 @@ class TestPassNTime:
             "no times in this sentence"
         )
 
-    # Invalid times left alone
-    def test_invalid_hour_left_alone(self):
-        assert _pass_n_time("25:99") == "25:99"
-
-    def test_invalid_minute_left_alone(self):
-        assert _pass_n_time("10:75") == "10:75"
+    @pytest.mark.parametrize("text", ["25:99", "10:75"])
+    def test_invalid_time_left_alone(self, text):
+        assert _pass_n_time(text) == text
 
     # Multiple times in one sentence
     def test_multiple_times_in_sentence(self):
