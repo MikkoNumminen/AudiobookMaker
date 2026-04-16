@@ -8,6 +8,8 @@ ordering for the sample and listen handlers.
 from __future__ import annotations
 
 import tkinter as tk
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -379,3 +381,29 @@ class TestSampleRunFlag:
         assert app._is_sample_run is True
         assert app._sample_output_path is not None
         assert str(app._sample_output_path).endswith("kirja_sample.mp3")
+
+
+class TestChatterboxFinalizePreservesNestedCache:
+    """Nested dist/audiobook/<stem>/ must survive sample-run finalization."""
+
+    def test_finalize_keeps_chunks_after_sample_copy(self, app, tmp_path: Path) -> None:
+        out_root = tmp_path / "audiobook"
+        nested = out_root / "book_stem"
+        chunks = nested / ".chunks"
+        chunks.mkdir(parents=True)
+        wav_keep = chunks / "ch01_chunk0000.wav"
+        wav_keep.write_bytes(b"fake wav")
+        src_mp3 = nested / "01_Text.mp3"
+        src_mp3.write_bytes(b"fake mp3")
+        dst_flat = tmp_path / "sample_flat.mp3"
+
+        app._chatterbox_last_mp3 = "book_stem/01_Text.mp3"
+        app._is_sample_run = True
+        app._sample_output_path = str(dst_flat)
+        app._chatterbox_runner = SimpleNamespace(out_dir=str(out_root))
+
+        app._finalize_chatterbox_output_if_needed()
+
+        assert nested.is_dir()
+        assert wav_keep.is_file()
+        assert dst_flat.is_file()

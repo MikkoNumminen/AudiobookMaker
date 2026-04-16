@@ -2972,23 +2972,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._append_log(f"Could not move output to {dst_path}: {exc}")
             return
 
-        # For sample runs, clean up the nested Chatterbox subfolder
-        # (per-chapter MP3s, .chunks/ cache, .progress.json) — the user
-        # only needs the flat sample file.
-        if self._is_sample_run:
-            nested_dir = src_path.parent
-            try:
-                if (
-                    nested_dir.is_dir()
-                    and nested_dir.resolve() != dst_path.parent.resolve()
-                ):
-                    shutil.rmtree(nested_dir, ignore_errors=True)
-            except OSError as exc:
-                self._append_log(
-                    f"Could not remove sample subfolder {nested_dir}: {exc}"
-                )
-            # Redirect the "done" event's announced path to the flat file.
-            self._sample_output_path = str(dst_path)
+        # Do not delete the nested Chatterbox folder after a sample run.
+        # It lives under dist/audiobook/<stem>/ and may hold a full-book
+        # .chunks/ WAV cache; rmtree here wiped user data when sample and
+        # long jobs shared the same output tree.
 
     # ------------------------------------------------------------------
     # Running/idle state management
