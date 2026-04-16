@@ -37,6 +37,7 @@ from src import app_config
 from src.auto_updater import (
     check_for_update, download_update, apply_update,
     APP_VERSION, GITHUB_REPO, UpdateInfo,
+    is_post_update_launch,
 )
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
@@ -489,6 +490,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Check for updates in background (only in frozen/installed mode).
         self._update_queue: "queue.Queue[UpdateInfo]" = queue.Queue()
         if getattr(sys, "frozen", False):
+            # If we just relaunched after a successful auto-update, pop
+            # ourselves to the foreground so the user sees the new version
+            # immediately. Must run BEFORE _check_pending_update_marker
+            # because that call clears the marker on success.
+            if is_post_update_launch(APP_VERSION):
+                self.after(400, self._pop_to_foreground)
+
             # Self-heal: if the last in-app update didn't take effect,
             # offer a visible-installer fallback.
             self.after(800, self._check_pending_update_marker)
@@ -1827,6 +1835,35 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ------------------------------------------------------------------
     # Update self-heal: fallback when silent install didn't take effect
     # ------------------------------------------------------------------
+
+    def _pop_to_foreground(self) -> None:
+        """Force the main window to the active foreground.
+
+        Called when the app launches as the result of a successful
+        auto-update — the user clicked "Päivitä nyt" minutes ago and
+        has likely moved on to other windows during the install. Bring
+        the new version to the front so they see the result.
+
+        Combines three mechanisms because Windows is picky about
+        cross-process foreground stealing:
+          1. ``deiconify()`` in case the window came up minimised.
+          2. Brief ``-topmost True`` flicker — the canonical Tk way to
+             grab focus across processes; the topmost flag is cleared
+             on the next tick so the window doesn't stay always-on-top.
+          3. Tk ``focus_force()`` for keyboard focus.
+
+        The old process (in ``apply_update``) called
+        ``AllowSetForegroundWindow(-1)`` before exiting, granting us
+        the right to do this.
+        """
+        try:
+            self.deiconify()
+            self.lift()
+            self.attributes("-topmost", True)
+            self.after(300, lambda: self.attributes("-topmost", False))
+            self.focus_force()
+        except Exception:
+            pass  # never break the app over a foreground hint
 
     def _check_pending_update_marker(self) -> None:
         """If the last update failed, offer a visible-installer fallback.

@@ -326,6 +326,29 @@ def clear_pending_marker() -> None:
         pass
 
 
+def is_post_update_launch(current_version: str) -> bool:
+    """Return True iff this app launch was triggered by a successful auto-update.
+
+    Peeks at the pending-update marker without modifying it. ``True`` means
+    the user clicked "Päivitä nyt" recently, the silent install ran, and
+    we are now the freshly-installed binary at ``current_version`` matching
+    or exceeding the marker's expected version. Used by the GUI to bring
+    the relaunched window to the foreground (the user clicked an action
+    minutes ago and expects to see the result, not have it open behind a
+    browser tab).
+
+    Safe to call before or after ``verify_pending_update`` — does not
+    clear the marker either way.
+    """
+    marker = read_pending_marker()
+    if marker is None:
+        return False
+    expected = marker.get("expected_version", "")
+    if not expected:
+        return False
+    return _parse_version(current_version) >= _parse_version(expected)
+
+
 def verify_pending_update(current_version: str) -> dict | None:
     """Return the pending marker if the update FAILED, else clear and return None.
 
@@ -484,6 +507,20 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         ["cmd.exe", "/c", str(relaunch_bat)],
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
+
+    # Grant the next process (the relaunched app) the right to call
+    # SetForegroundWindow. Without this Windows blocks the relaunched
+    # exe from popping itself to the front because the user has
+    # presumably clicked elsewhere during the ~10-15 s install. The
+    # relaunched app calls SetForegroundWindow / lift / focus_force on
+    # its main window during init when it detects a post-update launch.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            # ASFW_ANY = -1 — allow any process to take foreground next.
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)
+        except (OSError, AttributeError):
+            pass  # best-effort; nothing breaks if this fails
 
     # Use os._exit() for immediate termination. sys.exit() raises SystemExit
     # which can be delayed by Tkinter cleanup, thread joining, etc.
