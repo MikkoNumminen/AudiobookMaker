@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -256,6 +257,57 @@ async def _synthesize_all_chunks(
 
 
 # ---------------------------------------------------------------------------
+# Windows asyncio socketpair workaround
+# ---------------------------------------------------------------------------
+
+
+def _asyncio_run_with_retry(
+    coro_factory: Callable,
+    timeout_s: float = 120,
+    retries: int = 2,
+):
+    """Run an async coroutine via ``asyncio.run`` with timeout + retry.
+
+    On Windows, both ``ProactorEventLoop`` and ``SelectorEventLoop``
+    call ``socketpair()`` during loop init. ``socketpair()`` uses a
+    loopback TCP connection accepted via ``accept()``, which can
+    deadlock indefinitely under load or when security software
+    interferes. This wrapper runs ``asyncio.run()`` inside a daemon
+    thread with a timeout — if it hangs, the thread is abandoned and
+    a fresh attempt is made.
+
+    *coro_factory* is a zero-arg callable that returns a NEW coroutine
+    each time (coroutine objects are single-use).
+    """
+    import threading
+
+    for attempt in range(retries):
+        result: list = []
+        error: list = []
+
+        def worker():
+            try:
+                result.append(asyncio.run(coro_factory()))
+            except Exception as exc:
+                error.append(exc)
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        t.join(timeout=timeout_s)
+
+        if t.is_alive():
+            if attempt < retries - 1:
+                continue  # retry — abandoned daemon thread leaks a socket, acceptable
+            raise RuntimeError(
+                "Edge-TTS synthesis timed out (Windows asyncio socketpair "
+                "flake). Please try again."
+            )
+        if error:
+            raise error[0]
+        return result[0]
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -302,8 +354,9 @@ def text_to_speech(
 
     tmp_dir = tempfile.mkdtemp(prefix="abm_tts_")
     try:
-        mp3_files = asyncio.run(
-            _synthesize_all_chunks(chunks, config, tmp_dir, progress_cb)
+        mp3_files = _asyncio_run_with_retry(
+            lambda: _synthesize_all_chunks(chunks, config, tmp_dir, progress_cb),
+            timeout_s=max(60, len(chunks) * 20),
         )
         # On Windows, edge-tts's async transports may hold file handles
         # briefly after asyncio.run() returns. Force GC to release them.

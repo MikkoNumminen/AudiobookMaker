@@ -218,7 +218,7 @@ _STRINGS = {
         "hide_log": "Piilota loki",
         "ui_language": "Käyttöliittymä:",
         "converting": "Muunnetaan...",
-        "cancelling": "Peruutetaan\u2026",
+        "cancelling": "Peruuta\u2026",
         "done": "Valmis!",
         "error": "Virhe",
         "no_pdf": "Valitse ensin kirjatiedosto (PDF, EPUB tai TXT).",
