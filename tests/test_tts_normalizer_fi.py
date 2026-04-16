@@ -92,39 +92,30 @@ class TestFinnishGovernorCases:
     ``docs/finnish_governor_cases.md`` (VISK §772 + Kielikello).
     """
 
-    def test_sivulta_takes_ablative(self) -> None:
-        # "sivulta 42" → ablative "neljältäkymmeneltäkahdelta"
+    @pytest.mark.parametrize("text,expected_substrs", [
+        pytest.param(
+            "sivulta 42", ("neljältäkymmeneltä", "kahdelta"), id="sivulta_ablative",
+        ),
+        pytest.param(
+            "sivulla 42", ("neljälläkymmenellä", "kahdella"), id="sivulla_adessive",
+        ),
+        pytest.param(
+            "sivulle 42", ("neljällekymmenelle", "kahdelle"), id="sivulle_allative",
+        ),
+        pytest.param("luvussa 3", ("kolmessa",), id="luvussa_inessive"),
+        pytest.param("kappaleessa 7", ("seitsemässä",), id="kappaleessa_inessive"),
+        pytest.param("kohdassa 4", ("neljässä",), id="kohdassa_inessive"),
+        pytest.param("rivillä 12", ("kahdellatoista",), id="rivilla_adessive"),
+    ])
+    def test_governor_inflection(self, text, expected_substrs):
+        out = normalize_finnish_text(text)
+        for sub in expected_substrs:
+            assert sub in out, f"{sub!r} missing from {out!r}"
+
+    def test_sivulta_clears_digits(self) -> None:
+        # Regression — verify digits actually get rewritten.
         out = normalize_finnish_text("sivulta 42")
-        assert "neljältäkymmeneltä" in out
-        assert "kahdelta" in out
         assert "42" not in out
-
-    def test_sivulla_takes_adessive(self) -> None:
-        out = normalize_finnish_text("sivulla 42")
-        assert "neljälläkymmenellä" in out
-        assert "kahdella" in out
-
-    def test_sivulle_takes_allative(self) -> None:
-        out = normalize_finnish_text("sivulle 42")
-        assert "neljällekymmenelle" in out
-        assert "kahdelle" in out
-
-    def test_luvussa_takes_inessive(self) -> None:
-        # "luvussa 3" → inessive "kolmessa"
-        out = normalize_finnish_text("luvussa 3")
-        assert "kolmessa" in out
-
-    def test_kappaleessa_takes_inessive(self) -> None:
-        out = normalize_finnish_text("kappaleessa 7")
-        assert "seitsemässä" in out
-
-    def test_kohdassa_takes_inessive(self) -> None:
-        out = normalize_finnish_text("kohdassa 4")
-        assert "neljässä" in out
-
-    def test_rivilla_takes_adessive(self) -> None:
-        out = normalize_finnish_text("rivillä 12")
-        assert "kahdellatoista" in out
 
     def test_klo_stays_nominative(self) -> None:
         # "klo 14" — kello is a frozen adverbial, hour stays nominative.
@@ -244,31 +235,26 @@ class TestPageAbbreviation:
 
 
 class TestAbbreviationExpansion:
-    def test_esim_expanded(self) -> None:
-        result = normalize_finnish_text("Esim. tämä")
-        assert "esimerkiksi" in result
-        assert "esim." not in result.lower()
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("Esim. tämä", "esimerkiksi", id="esim"),
+        pytest.param("ja niin edelleen jne.", "ja niin edelleen", id="jne"),
+        pytest.param("koirat, kissat yms.", "ynnä muuta sellaista", id="yms"),
+        pytest.param("vuonna 500 eaa.", "ennen ajanlaskun alkua", id="eaa"),
+        pytest.param("syntyi 100 eKr.", "ennen Kristusta", id="ekr"),
+        pytest.param("prof. Mäkinen puhui", "professori", id="prof"),
+        pytest.param("dos. Korhonen kirjoitti", "dosentti", id="dos"),
+    ])
+    def test_expansion(self, text, expected_substr):
+        assert expected_substr in normalize_finnish_text(text)
 
     def test_mm_with_period_is_muun_muassa(self) -> None:
         result = normalize_finnish_text("Tämä on mm. hyvä.")
         assert "muun muassa" in result
         assert "millimetriä" not in result
 
-    def test_jne(self) -> None:
-        result = normalize_finnish_text("ja niin edelleen jne.")
-        assert "ja niin edelleen" in result
-
-    def test_yms(self) -> None:
-        result = normalize_finnish_text("koirat, kissat yms.")
-        assert "ynnä muuta sellaista" in result
-
-    def test_eaa(self) -> None:
-        result = normalize_finnish_text("vuonna 500 eaa.")
-        assert "ennen ajanlaskun alkua" in result
-
-    def test_ekr(self) -> None:
-        result = normalize_finnish_text("syntyi 100 eKr.")
-        assert "ennen Kristusta" in result
+    def test_esim_removes_abbrev_form(self) -> None:
+        result = normalize_finnish_text("Esim. tämä")
+        assert "esim." not in result.lower()
 
     def test_tri_before_capital_name(self) -> None:
         result = normalize_finnish_text("tri Virtanen tuli")
@@ -286,14 +272,12 @@ class TestAbbreviationExpansion:
             result = normalize_finnish_text(variant)
             assert "toisin sanoen" in result, f"Failed for: {variant!r}"
 
-    def test_prof_expanded(self) -> None:
+    def test_prof_removes_abbrev_form(self) -> None:
         result = normalize_finnish_text("prof. Mäkinen puhui")
-        assert "professori" in result
         assert "prof." not in result
 
-    def test_dos_expanded(self) -> None:
+    def test_dos_removes_abbrev_form(self) -> None:
         result = normalize_finnish_text("dos. Korhonen kirjoitti")
-        assert "dosentti" in result
         assert "dos." not in result
 
     def test_abbrev_does_not_eat_random_word_ending_in_same_letters(self) -> None:
@@ -308,33 +292,20 @@ class TestAbbreviationExpansion:
 
 
 class TestUnitSymbolExpansion:
-    def test_percent_with_space(self) -> None:
-        result = normalize_finnish_text("5 %")
-        assert "viisi prosenttia" in result
-
-    def test_percent_without_space(self) -> None:
-        result = normalize_finnish_text("5%")
-        assert "viisi prosenttia" in result
-
-    def test_per_mille(self) -> None:
-        result = normalize_finnish_text("3 \u2030")
-        assert "kolme promillea" in result
-
-    def test_euros(self) -> None:
-        result = normalize_finnish_text("20 \u20ac")
-        assert "kaksikymmentä euroa" in result
-
-    def test_dollars_prefix(self) -> None:
-        result = normalize_finnish_text("$5")
-        assert "viisi dollaria" in result
-
-    def test_kilometers(self) -> None:
-        result = normalize_finnish_text("3 km")
-        assert "kolme kilometriä" in result
-
-    def test_centimeters(self) -> None:
-        result = normalize_finnish_text("15 cm")
-        assert "viisitoista senttimetriä" in result
+    @pytest.mark.parametrize("text,expected_substr", [
+        pytest.param("5 %", "viisi prosenttia", id="percent_with_space"),
+        pytest.param("5%", "viisi prosenttia", id="percent_without_space"),
+        pytest.param("3 \u2030", "kolme promillea", id="per_mille"),
+        pytest.param("20 \u20ac", "kaksikymmentä euroa", id="euros"),
+        pytest.param("$5", "viisi dollaria", id="dollars_prefix"),
+        pytest.param("3 km", "kolme kilometriä", id="kilometers"),
+        pytest.param("15 cm", "viisitoista senttimetriä", id="centimeters"),
+        pytest.param("2 kg", "kaksi kilogrammaa", id="kilograms"),
+        pytest.param("20 \u00b0C", "kaksikymmentä celsiusastetta", id="celsius_positive"),
+        pytest.param("5 min", "viisi minuuttia", id="minutes"),
+    ])
+    def test_unit_expansion(self, text, expected_substr):
+        assert expected_substr in normalize_finnish_text(text)
 
     def test_millimeters_unit_not_abbrev(self) -> None:
         # `5 mm` (digit + mm, no period) must expand as unit, not abbreviation
@@ -342,22 +313,10 @@ class TestUnitSymbolExpansion:
         assert "viisi millimetriä" in result
         assert "muun muassa" not in result
 
-    def test_kilograms(self) -> None:
-        result = normalize_finnish_text("2 kg")
-        assert "kaksi kilogrammaa" in result
-
-    def test_temperature_celsius_positive(self) -> None:
-        result = normalize_finnish_text("20 \u00b0C")
-        assert "kaksikymmentä celsiusastetta" in result
-
     def test_temperature_celsius_negative(self) -> None:
         # Negative temperature: -5 °C — the number part is negative
         result = normalize_finnish_text("-5 \u00b0C")
         assert "celsiusastetta" in result
-
-    def test_minutes(self) -> None:
-        result = normalize_finnish_text("5 min")
-        assert "viisi minuuttia" in result
 
     def test_unit_does_not_match_without_digit_prefix(self) -> None:
         result = normalize_finnish_text("kilometrin matka")
@@ -424,57 +383,22 @@ class TestRomanNumeralExpansion:
         result = normalize_finnish_text("Kustaa II Aadolf oli kuningas")
         assert "Kustaa toinen Aadolf oli kuningas" == result
 
-    def test_pius_ix(self) -> None:
-        result = normalize_finnish_text("paavi Pius IX")
-        assert "yhdeksäs" in result
-        assert "IX" not in result
-
-    def test_leo_xiii(self) -> None:
-        result = normalize_finnish_text("Leo XIII")
-        assert "kolmastoista" in result
-        assert "XIII" not in result
-
-    def test_katariina_ii(self) -> None:
-        result = normalize_finnish_text("Katariina II")
-        assert "toinen" in result
-        assert "II" not in result
-
-    def test_henrik_viii(self) -> None:
-        result = normalize_finnish_text("Henrik VIII")
-        assert "kahdeksas" in result
-        assert "VIII" not in result
-
-    def test_kuningas_juhana_iii(self) -> None:
-        result = normalize_finnish_text("kuningas Juhana III")
-        assert "kolmas" in result
-        assert "III" not in result
-
-    def test_tsaari_nikolai_ii(self) -> None:
-        result = normalize_finnish_text("tsaari Nikolai II")
-        assert "toinen" in result
-        assert "II" not in result
-
-    # -- Chapter / century ordinals -------------------------------------------
-
-    def test_luku_iv(self) -> None:
-        result = normalize_finnish_text("luku IV käsittelee")
-        assert "neljäs" in result
-        assert "IV" not in result
-
-    def test_xix_vuosisata(self) -> None:
-        result = normalize_finnish_text("XIX vuosisata")
-        assert "yhdeksästoista" in result
-        assert "XIX" not in result
-
-    def test_xx_luvulla(self) -> None:
-        result = normalize_finnish_text("XX luvulla")
-        assert "kahdeskymmenes" in result
-        assert "XX" not in result
-
-    def test_pykala_xii(self) -> None:
-        result = normalize_finnish_text("pykälä XII")
-        assert "kahdestoista" in result
-        assert "XII" not in result
+    @pytest.mark.parametrize("text,expected_substr,roman", [
+        pytest.param("paavi Pius IX", "yhdeksäs", "IX", id="pius_ix"),
+        pytest.param("Leo XIII", "kolmastoista", "XIII", id="leo_xiii"),
+        pytest.param("Katariina II", "toinen", "II", id="katariina_ii"),
+        pytest.param("Henrik VIII", "kahdeksas", "VIII", id="henrik_viii"),
+        pytest.param("kuningas Juhana III", "kolmas", "III", id="juhana_iii"),
+        pytest.param("tsaari Nikolai II", "toinen", "II", id="nikolai_ii"),
+        pytest.param("luku IV käsittelee", "neljäs", "IV", id="luku_iv"),
+        pytest.param("XIX vuosisata", "yhdeksästoista", "XIX", id="xix_vuosisata"),
+        pytest.param("XX luvulla", "kahdeskymmenes", "XX", id="xx_luvulla"),
+        pytest.param("pykälä XII", "kahdestoista", "XII", id="pykala_xii"),
+    ])
+    def test_regnal_and_chapter_expansion(self, text, expected_substr, roman):
+        result = normalize_finnish_text(text)
+        assert expected_substr in result
+        assert roman not in result
 
     # -- Cardinal fallback -----------------------------------------------------
 
@@ -497,21 +421,15 @@ class TestRomanNumeralExpansion:
 
     # -- Blacklist checks ------------------------------------------------------
 
-    def test_dc_not_expanded(self) -> None:
-        result = normalize_finnish_text("DC power")
-        assert "DC" in result
-
-    def test_cv_not_expanded(self) -> None:
-        result = normalize_finnish_text("lähetä CV")
-        assert "CV" in result
-
-    def test_mvp_not_expanded(self) -> None:
-        result = normalize_finnish_text("tämän kauden MVP")
-        assert "MVP" in result
-
-    def test_lcd_not_expanded(self) -> None:
-        result = normalize_finnish_text("LCD näyttö")
-        assert "LCD" in result
+    @pytest.mark.parametrize("text,token", [
+        pytest.param("DC power", "DC", id="dc"),
+        pytest.param("lähetä CV", "CV", id="cv"),
+        pytest.param("tämän kauden MVP", "MVP", id="mvp"),
+        pytest.param("LCD näyttö", "LCD", id="lcd"),
+    ])
+    def test_blacklisted_not_expanded(self, text, token):
+        result = normalize_finnish_text(text)
+        assert token in result
 
     # -- Single-letter guard ---------------------------------------------------
 
@@ -553,16 +471,15 @@ class TestRomanNumeralExpansion:
 
     # -- _roman_to_int unit tests ----------------------------------------------
 
-    def test_roman_to_int_basic_values(self) -> None:
-        assert _roman_to_int("IV") == 4
-        assert _roman_to_int("IX") == 9
-        assert _roman_to_int("XIV") == 14
-        assert _roman_to_int("MCM") == 1900
+    @pytest.mark.parametrize("roman,expected", [
+        ("IV", 4), ("IX", 9), ("XIV", 14), ("MCM", 1900),
+    ])
+    def test_roman_to_int_basic_values(self, roman, expected):
+        assert _roman_to_int(roman) == expected
 
-    def test_roman_to_int_invalid_returns_none(self) -> None:
-        assert _roman_to_int("IIII") is None
-        assert _roman_to_int("VV") is None
-        assert _roman_to_int("") is None
+    @pytest.mark.parametrize("invalid", ["IIII", "VV", ""])
+    def test_roman_to_int_invalid_returns_none(self, invalid):
+        assert _roman_to_int(invalid) is None
 
 
 # ---------------------------------------------------------------------------
@@ -571,25 +488,21 @@ class TestRomanNumeralExpansion:
 
 
 class TestMetadataParenDrop:
-    def test_isbn_paren_dropped(self) -> None:
-        result = normalize_finnish_text("(ISBN 978-951-123-456-7)", drop_citations=True)
-        assert "ISBN" not in result
-        assert "978" not in result
-
-    def test_doi_paren_dropped(self) -> None:
-        result = normalize_finnish_text("(DOI 10.1234/abcd)", drop_citations=True)
-        assert "DOI" not in result
-        assert "10.1234" not in result
-
-    def test_creative_commons_paren_dropped(self) -> None:
-        result = normalize_finnish_text(
-            "(Creative Commons Nimeä 4.0 Kansainvälinen)", drop_citations=True
-        )
-        assert "Creative Commons" not in result
-
-    def test_cc_by_dropped(self) -> None:
-        result = normalize_finnish_text("(CC BY 4.0)", drop_citations=True)
-        assert "CC BY" not in result
+    @pytest.mark.parametrize("text,absent", [
+        pytest.param("(ISBN 978-951-123-456-7)", "ISBN", id="isbn_label"),
+        pytest.param("(ISBN 978-951-123-456-7)", "978", id="isbn_digits"),
+        pytest.param("(DOI 10.1234/abcd)", "DOI", id="doi_label"),
+        pytest.param("(DOI 10.1234/abcd)", "10.1234", id="doi_digits"),
+        pytest.param(
+            "(Creative Commons Nimeä 4.0 Kansainvälinen)",
+            "Creative Commons",
+            id="creative_commons",
+        ),
+        pytest.param("(CC BY 4.0)", "CC BY", id="cc_by"),
+    ])
+    def test_paren_dropped(self, text, absent):
+        result = normalize_finnish_text(text, drop_citations=True)
+        assert absent not in result
 
     def test_nonmetadata_paren_untouched(self) -> None:
         result = normalize_finnish_text("(tämä on huomautus)", drop_citations=True)
@@ -709,73 +622,48 @@ class TestAcronymExpansion:
 
     # --- Positive expansion ---
 
-    def test_eu_expanded(self) -> None:
-        assert _expand_acronyms("EU on liitto") == "Euroopan unioni on liitto"
-
-    def test_yk_expanded(self) -> None:
-        assert _expand_acronyms("YK päätti") == "Yhdistyneet kansakunnat päätti"
-
-    def test_usa_expanded(self) -> None:
-        assert _expand_acronyms("USA oli") == "Yhdysvallat oli"
-
-    def test_nato_expanded(self) -> None:
+    @pytest.mark.parametrize("text,expected", [
+        pytest.param("EU on liitto", "Euroopan unioni on liitto", id="eu"),
+        pytest.param("YK päätti", "Yhdistyneet kansakunnat päätti", id="yk"),
+        pytest.param("USA oli", "Yhdysvallat oli", id="usa"),
         # NATO reads as a word, not letter-by-letter
-        assert _expand_acronyms("NATO jäsenyys") == "Nato jäsenyys"
-
-    def test_alr_letter_by_letter(self) -> None:
-        assert _expand_acronyms("ALR sääti") == "A L R sääti"
-
-    def test_abgb_letter_by_letter(self) -> None:
-        # Hyphen is a non-word char so \b fires between ABGB and -; ABGB IS expanded.
-        assert _expand_acronyms("ABGB-laki") == "A B G B-laki"
-
-    def test_bgb_letter_by_letter(self) -> None:
-        assert _expand_acronyms("BGB § 242") == "B G B § 242"
-
-    def test_hgb_letter_by_letter(self) -> None:
-        assert _expand_acronyms("HGB") == "H G B"
-
-    def test_multiple_acronyms(self) -> None:
-        assert _expand_acronyms("EU ja YK") == "Euroopan unioni ja Yhdistyneet kansakunnat"
+        pytest.param("NATO jäsenyys", "Nato jäsenyys", id="nato_word"),
+        pytest.param("ALR sääti", "A L R sääti", id="alr_letter_by_letter"),
+        # Hyphen is a non-word char so \b fires between ABGB and -.
+        pytest.param("ABGB-laki", "A B G B-laki", id="abgb_with_hyphen"),
+        pytest.param("BGB § 242", "B G B § 242", id="bgb_with_section"),
+        pytest.param("HGB", "H G B", id="hgb"),
+        pytest.param(
+            "EU ja YK",
+            "Euroopan unioni ja Yhdistyneet kansakunnat",
+            id="multiple_acronyms",
+        ),
+        pytest.param("EU päätti.", "Euroopan unioni päätti.", id="sentence_start"),
+        pytest.param(
+            "jäsenyys EU.", "jäsenyys Euroopan unioni.", id="sentence_end",
+        ),
+        # Finnish inflection uses colon: `EU:n`. The colon is a non-word char
+        # so \b fires between `EU` and `:` — EU IS matched and expanded.
+        pytest.param("EU:n", "Euroopan unioni:n", id="eu_colon_suffix"),
+        pytest.param("YK:n", "Yhdistyneet kansakunnat:n", id="yk_colon_suffix"),
+        # Ensures `ABGB` is NOT partially replaced as `A` + `BGB` expansion.
+        pytest.param("ABGB ja BGB", "A B G B ja B G B", id="longest_first_abgb_bgb"),
+    ])
+    def test_acronym_expansion(self, text, expected):
+        assert _expand_acronyms(text) == expected
 
     # --- Negative (don't expand) ---
 
-    def test_lowercase_not_expanded(self) -> None:
+    @pytest.mark.parametrize("original", [
         # `eu` is a Finnish negative prefix and must NOT be expanded
-        original = "eu on suomen kielessä tavu"
-        assert _expand_acronyms(original) == original
-
-    def test_unknown_acronym_untouched(self) -> None:
-        original = "XYZ on akronyymi"
-        assert _expand_acronyms(original) == original
-
-    def test_partial_match_untouched(self) -> None:
+        pytest.param("eu on suomen kielessä tavu", id="lowercase_eu"),
+        pytest.param("XYZ on akronyymi", id="unknown_acronym"),
         # `NATOn` is one word token — no \b inside it; NATO is NOT matched.
         # This is by design: we only expand exact standalone tokens.
-        original = "NATOn jäsenyys"
+        pytest.param("NATOn jäsenyys", id="partial_match_naton"),
+    ])
+    def test_untouched(self, original):
         assert _expand_acronyms(original) == original
-
-    # --- Word-boundary edge cases ---
-
-    def test_acronym_at_sentence_start(self) -> None:
-        assert _expand_acronyms("EU päätti.") == "Euroopan unioni päätti."
-
-    def test_acronym_at_sentence_end(self) -> None:
-        assert _expand_acronyms("jäsenyys EU.") == "jäsenyys Euroopan unioni."
-
-    def test_acronym_with_colon_suffix(self) -> None:
-        # Finnish inflection uses colon: `EU:n`. The colon is a non-word char
-        # so \b fires between `EU` and `:` — EU IS matched and expanded.
-        # `YK:n` likewise.
-        assert _expand_acronyms("EU:n") == "Euroopan unioni:n"
-        assert _expand_acronyms("YK:n") == "Yhdistyneet kansakunnat:n"
-
-    # --- Longest-first disambiguation ---
-
-    def test_abgb_matches_before_bgb(self) -> None:
-        # Ensures `ABGB` is NOT partially replaced as `A` + `BGB` expansion.
-        result = _expand_acronyms("ABGB ja BGB")
-        assert result == "A B G B ja B G B"
 
     # --- Integration: normalize_finnish_text passes through Pass N ---
 
