@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | 4h-onset sentence swallowing (Chatterbox Finnish) | 2026-04-17 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -31,10 +31,12 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### 4h-onset sentence swallowing in long Chatterbox runs [Claude 1, main]
-- [ ] Symptom: Finnish audiobook synthesized end-to-end with Chatterbox is fine for the first ~4h, then sentence endings / words start getting swallowed and it gets worse toward the book's tail. Static-threshold fix in 571c761 cannot explain a time-progressive symptom. Real suspects: model state drift across chunks (KV cache, hook residue, tfmr config not fully restored every N chunks), GPU memory/thermal effects, or accumulating post-processing state. Artifact on disk: `TURO_00_full.mp3.mpeg`. Plan: (1) measure artifact per-window to localize failure, (2) reproduce cheaply with a late-in-run dummy-loop probe, (3) fix root cause (likely periodic model reset / subprocess recycle / explicit cache clear between chunks), (4) add tests that pin the new invariant. 🔴 🧠 Opus.
-
 ## Backlog
+
+### Verify Chatterbox long-run hardening on a real re-synthesis
+- [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Next step: regenerate the tail of the problem Finnish audiobook (from ~hour 4 onward) and confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. If the fix holds, regenerate the whole book; if not, the stats file will show exactly which metric drifts and we can iterate. 🟡 🧠 Opus.
+
+
 
 ### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
 - [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
