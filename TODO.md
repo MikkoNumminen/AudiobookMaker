@@ -17,6 +17,9 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 
 ## Backlog
 
+### "Report a bug" button in the GUI
+- [ ] Add a visible way for users to report bugs from inside the app — a "Report a bug" / "Ilmoita virheestä" link or button (Settings panel or Help menu) that opens the GitHub Issues page (`https://github.com/MikkoNumminen/AudiobookMaker/issues/new`) in the browser. Optionally pre-fill the issue body with the app version (`APP_VERSION`), OS version, installed engines, and the last ~20 log lines so the user doesn't have to copy them manually. 🟢 ⚡ Sonnet.
+
 ### Add more Chatterbox voice presets (BLOCKED — needs voice samples first)
 - [ ] Currently the only Chatterbox voice preset is "Grandmom" (with `assets/voices/grandmom_reference.wav`). Adding a new preset is a 5-step change but the hard prerequisite is recording a clean reference WAV: 10–20 s, 22050 Hz mono, SNR 40+ dB, no clipping, loudness in −25…−15 dBFS. Without that source material this can't progress. Once a sample exists, code changes go in (a) `assets/voices/{name}_reference.wav`, (b) `_CHATTERBOX_LANG_TAGS` in `src/gui_unified.py:157`, (c) `_chatterbox_voices_for_language()` in `src/gui_unified.py:163`, (d) `_load_engine()` routing in `scripts/generate_chatterbox_audiobook.py:434`, (e) optional `--voice` CLI argument. 🟡 🧠 Opus.
 
