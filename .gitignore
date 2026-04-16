@@ -4,7 +4,6 @@
 # shims like `.venv-chatterbox -> .venv-qwen` stay out of git.
 .venv-*
 .claude/
-CLAUDE.md
 # Personal planning notes — kept locally, not part of the repo.
 docs/plans/
 __pycache__/
