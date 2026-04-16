@@ -472,10 +472,21 @@ class TestPendingMarker:
     """Tests for the marker file that lets the app detect a failed silent update."""
 
     def _patch_marker(self, tmp_path):
-        """Context helper that redirects PENDING_MARKER to tmp_path."""
+        """Context helper that redirects PENDING_MARKER to tmp_path.
+
+        Also stubs out the legacy-path migration so tests can't accidentally
+        pick up a real stale marker sitting in the developer's %TEMP%.
+        """
+        from contextlib import ExitStack
         from pathlib import Path
         marker = tmp_path / "marker.json"
-        return patch("src.auto_updater.PENDING_MARKER", marker), marker
+        legacy = tmp_path / "legacy_marker.json"  # does not exist
+        stack = ExitStack()
+        stack.enter_context(patch("src.auto_updater.PENDING_MARKER", marker))
+        stack.enter_context(
+            patch("src.auto_updater._LEGACY_PENDING_MARKER", legacy)
+        )
+        return stack, marker
 
     def test_write_and_read_roundtrip(self, tmp_path) -> None:
         from pathlib import Path
@@ -548,3 +559,35 @@ class TestPendingMarker:
             marker.write_text("not json")
             # Should return None (treats corrupt as "no marker")
             assert verify_pending_update("2.0.0") is None
+
+    def test_legacy_marker_migrated_on_read(self, tmp_path) -> None:
+        """A marker in the old system-temp location is honored once, then removed."""
+        import json
+        new_marker = tmp_path / "marker.json"
+        legacy_marker = tmp_path / "legacy_marker.json"
+        legacy_marker.write_text(json.dumps({
+            "expected_version": "3.0.0",
+            "installer_path": "/fake/installer.exe",
+            "started_at": 0,
+        }))
+        with patch("src.auto_updater.PENDING_MARKER", new_marker), \
+             patch("src.auto_updater._LEGACY_PENDING_MARKER", legacy_marker):
+            result = read_pending_marker()
+            assert result is not None
+            assert result["expected_version"] == "3.0.0"
+            # Legacy file removed after the one-time read.
+            assert not legacy_marker.exists()
+            # Subsequent read finds nothing.
+            assert read_pending_marker() is None
+
+    def test_write_creates_parent_dir(self, tmp_path) -> None:
+        """write_pending_marker creates ~/.audiobookmaker/ if it doesn't exist."""
+        from pathlib import Path
+        new_dir = tmp_path / "subdir" / "nested"
+        new_marker = new_dir / "marker.json"
+        legacy = tmp_path / "legacy.json"
+        with patch("src.auto_updater.PENDING_MARKER", new_marker), \
+             patch("src.auto_updater._LEGACY_PENDING_MARKER", legacy):
+            assert not new_dir.exists()
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            assert new_marker.exists()

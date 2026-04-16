@@ -28,7 +28,17 @@ APP_VERSION = "3.7.0"
 GITHUB_REPO = "MikkoNumminen/AudiobookMaker"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_DIR = Path(tempfile.gettempdir()) / "audiobookmaker-update"
-PENDING_MARKER = Path(tempfile.gettempdir()) / "audiobookmaker_update_pending.json"
+# Per-user dir (not system-wide temp): on a shared Windows machine another
+# local user can write files into %TEMP% and could plant a fake marker that
+# triggers a bogus "update failed" dialog. Keeping the marker under the
+# user's home directory closes that tampering vector.
+_USER_DIR = Path.home() / ".audiobookmaker"
+PENDING_MARKER = _USER_DIR / "update_pending.json"
+# One-time migration: the marker used to live in the system temp dir. Old
+# markers at this path are read once (for self-heal on the very next launch
+# after the upgrade) and then removed. Safe to delete this constant and the
+# migration branch in read_pending_marker() a couple of releases from now.
+_LEGACY_PENDING_MARKER = Path(tempfile.gettempdir()) / "audiobookmaker_update_pending.json"
 
 CHUNK_SIZE = 256 * 1024  # 256 KB
 API_TIMEOUT = 10  # seconds
@@ -299,6 +309,7 @@ def _write_pending_marker(expected_version: str, installer_path: Path) -> None:
     """Record that an update is in flight so the next launch can verify it."""
     import time
     try:
+        PENDING_MARKER.parent.mkdir(parents=True, exist_ok=True)
         PENDING_MARKER.write_text(json.dumps({
             "expected_version": expected_version,
             "installer_path": str(installer_path),
@@ -311,6 +322,21 @@ def _write_pending_marker(expected_version: str, installer_path: Path) -> None:
 def read_pending_marker() -> dict | None:
     """Return the pending-update marker dict, or None if no update is pending."""
     if not PENDING_MARKER.exists():
+        # One-time migration from the old system-temp location. If a marker
+        # was written by a previous version of the app, honor it once so the
+        # user still gets the self-heal flow, then remove it.
+        if _LEGACY_PENDING_MARKER.exists():
+            try:
+                data = json.loads(
+                    _LEGACY_PENDING_MARKER.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                data = None
+            try:
+                _LEGACY_PENDING_MARKER.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return data
         return None
     try:
         return json.loads(PENDING_MARKER.read_text(encoding="utf-8"))
