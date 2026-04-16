@@ -32,9 +32,6 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 ### Finnish voice mispronounces "s" as "sch"
 - [ ] Finnish Grandmom (Chatterbox FI finetune) occasionally pronounces plain `s` as `sch` (German-like sibilant) instead of the crisp Finnish `s`. Heard in recent runs. Likely candidates: (a) normalizer passes a phoneme-hostile context around certain `s` positions, (b) loanword respelling or compound-seam insertion creates a consonant cluster the model interprets as `sch`, (c) specific letter-neighborhoods (`st`, `sk`, `sp`, word-final `s`) trigger it more than others. Next step: collect 5–10 concrete words from a test chapter where this happens, then decide whether to add a targeted normalization pass or adjust an existing one. 🟡 🧠 Opus.
 
-### English path skips Finnish text normalizer
-- [ ] `scripts/generate_chatterbox_audiobook.py` runs `normalize_finnish_text` on the input text unconditionally, regardless of `--language`. When the user picks `--language en` (English Grandmom), the Finnish normalizer is still applied — Roman numerals get expanded as Finnish ordinals (`IV` → `neljäs`), numbers get Finnish case-inflection, loanword respelling fires, etc. Result: English audio occasionally has Finnish words baked in. Heard in tonight's 1-hour Rubicon run on 2026-04-15. Fix: wrap the `normalize_finnish_text(text)` call in `if args.language == "fi":`. For English leave the text untouched (Chatterbox handles English numerals natively) or route through a thin English-only pass later if specific issues come up. 🟢 ⚡ Sonnet.
-
 ### Demo audio clips for README — public-domain only
 - [ ] Ship 2–4 short demo MP3s in the repo and linked from README.md so visitors hear what the app produces before installing. **Conditions — all four must hold:**
   1. **Source text is public domain.** Project Gutenberg, Wikisource, anything with an expired copyright. No "fair-use-probably" territory.
