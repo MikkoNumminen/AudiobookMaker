@@ -13,6 +13,8 @@ def _trim_chunk_silence(
     segment: AudioSegment,
     threshold_db: float = -45.0,
     keep_ms: int = 30,
+    trailing_threshold_db: float = -55.0,
+    trailing_keep_ms: int = 100,
 ) -> AudioSegment:
     """Trim leading and trailing silence from a synthesized chunk.
 
@@ -21,10 +23,18 @@ def _trim_chunk_silence(
     of dead air at every chunk boundary, which sounds like the voice is
     cutting mid-sentence.
 
+    Trailing silence uses a **lower** (more negative) threshold than the
+    leading edge so that quiet language-specific endings (e.g. Finnish
+    unstressed word-final vowels) are not misclassified as silence and
+    clipped.
+
     Args:
         segment: Audio segment to trim.
-        threshold_db: Anything quieter than this is considered silence.
-        keep_ms: Amount of silence to keep at each edge for a natural edge.
+        threshold_db: Anything quieter than this is leading silence.
+        keep_ms: Silence to keep after the leading trim (ms).
+        trailing_threshold_db: Trailing-edge silence threshold (more negative
+            = keep more of a quiet tail).
+        trailing_keep_ms: Silence to keep before the trailing cut (ms).
 
     Returns:
         Trimmed audio segment.
@@ -32,9 +42,11 @@ def _trim_chunk_silence(
     from pydub.silence import detect_leading_silence
 
     lead = detect_leading_silence(segment, silence_threshold=threshold_db)
-    trail = detect_leading_silence(segment.reverse(), silence_threshold=threshold_db)
+    trail = detect_leading_silence(
+        segment.reverse(), silence_threshold=trailing_threshold_db
+    )
     start = max(0, lead - keep_ms)
-    end = len(segment) - max(0, trail - keep_ms)
+    end = len(segment) - max(0, trail - trailing_keep_ms)
     if end <= start:
         # Chunk was entirely silent — return it as-is to avoid a zero-length slice
         return segment

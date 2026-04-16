@@ -7,8 +7,8 @@ swapped in. Applies the proven v7 fix stack from dev_chatterbox_fi.py:
 
   1. Three state-leak workarounds around upstream chatterbox-tts v0.1.7
      (forward-hook clearing, compiled-flag reset, tfmr config restore).
-  2. Silero-VAD "loose Finnish" tail-trim (threshold=0.3,
-     min_silence_duration_ms=500, +100 ms head pad, +200 ms tail pad).
+  2. Silero-VAD "loose Finnish" tail-trim (threshold≈0.25,
+     min_silence_duration_ms=500, +100 ms head pad, +500 ms tail pad).
   3. Finnish text normalization via src.tts_engine.normalize_finnish_text.
   4. Sentence-start preamble trimming (pdf_parser sometimes eats a few
      chars of the body into the chapter title).
@@ -156,6 +156,19 @@ MAX_SINGLE_LETTER_RATIO = 0.2
 
 # Inter-chapter gap in the full-book concat.
 INTER_CHAPTER_SILENCE_MS = 500
+
+# Silero-VAD: English-trained; quiet Finnish word endings can read as silence.
+# Keep tail padding generous — better a slightly long pause than clipped speech.
+VAD_SPEECH_THRESHOLD = 0.25
+VAD_MIN_SILENCE_MS = 500
+VAD_HEAD_PAD_MS = 100
+VAD_TAIL_PAD_MS = 500
+
+# dB fallback when silero-vad is missing: trailing must stay conservative.
+VAD_FALLBACK_HEAD_DB = -42.0
+VAD_FALLBACK_TRAIL_DB = -52.0
+VAD_FALLBACK_HEAD_KEEP_MS = 40
+VAD_FALLBACK_TRAIL_KEEP_MS = 100
 
 SETUP_INSTRUCTIONS = """\
 chatterbox-tts is not installed. To set it up:
@@ -526,10 +539,14 @@ def _vad_trim(seg, vad_model, get_speech_timestamps):
     import torchaudio
     from pydub.silence import detect_leading_silence
     if vad_model is None:
-        lead = detect_leading_silence(seg, silence_threshold=-30.0)
-        trail = detect_leading_silence(seg.reverse(), silence_threshold=-30.0)
-        start = max(0, lead - 30)
-        end = len(seg) - max(0, trail - 30)
+        lead = detect_leading_silence(
+            seg, silence_threshold=VAD_FALLBACK_HEAD_DB,
+        )
+        trail = detect_leading_silence(
+            seg.reverse(), silence_threshold=VAD_FALLBACK_TRAIL_DB,
+        )
+        start = max(0, lead - VAD_FALLBACK_HEAD_KEEP_MS)
+        end = len(seg) - max(0, trail - VAD_FALLBACK_TRAIL_KEEP_MS)
         return seg[start:end] if end > start else seg
 
     samples = torch.tensor(seg.get_array_of_samples(),
@@ -539,12 +556,16 @@ def _vad_trim(seg, vad_model, get_speech_timestamps):
     wav16 = torchaudio.functional.resample(samples, seg.frame_rate, 16000)
     ts = get_speech_timestamps(
         wav16, vad_model, sampling_rate=16000,
-        threshold=0.3, min_silence_duration_ms=500,
+        threshold=VAD_SPEECH_THRESHOLD,
+        min_silence_duration_ms=VAD_MIN_SILENCE_MS,
     )
     if not ts:
         return seg
-    first_start_ms = max(0, int(ts[0]["start"] * 1000 / 16000) - 100)
-    last_end_ms = min(len(seg), int(ts[-1]["end"] * 1000 / 16000) + 200)
+    first_start_ms = max(0, int(ts[0]["start"] * 1000 / 16000) - VAD_HEAD_PAD_MS)
+    last_end_ms = min(
+        len(seg),
+        int(ts[-1]["end"] * 1000 / 16000) + VAD_TAIL_PAD_MS,
+    )
     if last_end_ms <= first_start_ms:
         return seg
     return seg[first_start_ms:last_end_ms]
