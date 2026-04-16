@@ -2,8 +2,8 @@
 PyMuPDF==1.24.5
 
 # EPUB parsing
-ebooklib>=0.18
-beautifulsoup4>=4.12
+ebooklib==0.20
+beautifulsoup4==4.14.3
 
 # Text-to-speech
 edge-tts==7.2.8
@@ -14,10 +14,10 @@ piper-tts==1.4.2
 
 # Finnish text normalization
 num2words==0.5.14
-PyYAML>=6.0
+PyYAML==6.0.3
 
 # Modern GUI toolkit
-customtkinter>=5.2.0
+customtkinter==5.2.2
 
 # Audio processing
 pydub==0.25.1
