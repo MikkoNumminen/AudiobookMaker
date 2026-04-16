@@ -5,6 +5,8 @@
 .venv-*
 .claude/
 CLAUDE.md
+# Personal planning notes — kept locally, not part of the repo.
+docs/plans/
 __pycache__/
 *.pyc
 *.pyo
