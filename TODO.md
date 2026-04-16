@@ -8,10 +8,11 @@ In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-
 **🚨 MANDATORY RULES — NO EXCEPTIONS:**
 
 1. **Re-read this file BEFORE starting ANY work** — every single session, every single task.
-2. **NEVER start a task without FIRST moving it to "In Progress" with your name tag.** If you skip this, you are causing collisions.
-3. **If you pause or stop mid-task, your entry MUST stay in "In Progress" until the work is committed and pushed.** Do not remove it just because you stopped — other Claudes need to see it.
-4. **If a task already has an owner tag, do NOT touch it.** Pick something else or wait.
-5. **Violating these rules breaks the shared workflow for all instances.**
+2. **Pick before you start.** Move the task to "In Progress" with your name tag BEFORE touching any code. No tag = no work.
+3. **Update on every state change.** When you start, move the item to "In Progress". When you finish, remove it from the list entirely (commit + push the TODO.md change). When you pause mid-task, the item stays in "In Progress" with your tag — other Claudes need to see it. When you're blocked, add `[BLOCKED: reason]` next to your tag.
+4. **Clear completed work immediately.** Don't batch. The moment your commit is pushed, remove the item from this file and push the updated TODO.md. Stale items mislead other Claudes into thinking work is still pending.
+5. **If a task already has an owner tag, do NOT touch it.** Pick something else or wait.
+6. **This file is the single source of truth.** If it's not in this file, it's not being worked on. If it's still in this file, it's not done. No exceptions — the other Claudes have no other way to know what you're doing.
 
 ## In Progress
 
