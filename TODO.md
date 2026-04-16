@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | 4h-onset sentence swallowing (Chatterbox Finnish) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -30,6 +30,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### 4h-onset sentence swallowing in long Chatterbox runs [Claude 1, main]
+- [ ] Symptom: Finnish audiobook synthesized end-to-end with Chatterbox is fine for the first ~4h, then sentence endings / words start getting swallowed and it gets worse toward the book's tail. Static-threshold fix in 571c761 cannot explain a time-progressive symptom. Real suspects: model state drift across chunks (KV cache, hook residue, tfmr config not fully restored every N chunks), GPU memory/thermal effects, or accumulating post-processing state. Artifact on disk: `TURO_00_full.mp3.mpeg`. Plan: (1) measure artifact per-window to localize failure, (2) reproduce cheaply with a late-in-run dummy-loop probe, (3) fix root cause (likely periodic model reset / subprocess recycle / explicit cache clear between chunks), (4) add tests that pin the new invariant. 🔴 🧠 Opus.
 
 ## Backlog
 
