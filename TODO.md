@@ -33,8 +33,8 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## Backlog
 
-### Listen to demo clips and catalogue audible defects
-- [ ] Play `assets/demos/finnish_grandmom_kivi.mp3` and `assets/demos/english_grandmom_gibbon.mp3`. Write down every word that sounds off — mispronunciations, wrong stress, swallowed words, weird prosody, garbled numbers. Group by root cause: normalizer issue vs model issue vs reference-clip issue vs chunking-boundary issue. Output: a ranked list that drives the next normalizer/audio sprint. **This is the top priority — all quality work is speculation until we hear a real run.** 🟡 🧠 Opus.
+### Turo's feedback: sentence endings swallowed in 4h Finnish audiobook
+- [ ] Turo reported some sentence endings get swallowed/cut off after listening to ~4 hours of the Finnish audiobook. Waiting for specific timestamps or sentences where this happens. Likely root causes: (a) chunk boundary cuts mid-sentence and the TTS trails off, (b) silence trimming (`_trim_chunk_silence`) is too aggressive and clips the tail, (c) Chatterbox model artifact on long sequences where it forces EOS early. Once Turo provides specifics, reproduce and fix. 🟡 🧠 Opus.
 
 ### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
 - [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
