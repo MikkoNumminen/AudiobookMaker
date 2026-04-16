@@ -489,6 +489,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Restore settings from config.
         self._apply_loaded_config()
 
+        # Wire engine-bar combobox callbacks now that all programmatic
+        # .set() calls are done — from here on, only user clicks trigger
+        # the Kieli/Moottori cascade.
+        self._wire_engine_bar_callbacks()
+
         # Apply UI language (updates all widget texts).
         self._apply_ui_language()
 
@@ -791,10 +796,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Row 0: Kieli + Moottori
         self._tts_lang_label = ctk.CTkLabel(bar, text="Kieli:")
         self._tts_lang_label.grid(row=0, column=0, sticky="w", padx=(8, 6), pady=6)
+        # Note: command= is intentionally NOT wired here. CTkComboBox.set()
+        # triggers the command callback, and both _apply_loaded_config()
+        # and the initial .set("Suomi") below would fire the cascade
+        # (re-filter engines, refresh voices, save config) before the rest
+        # of the widget tree exists. We attach the callbacks at the end of
+        # __init__ via _wire_engine_bar_callbacks() so they only ever run
+        # in response to real user clicks.
         self._lang_cb = ctk.CTkComboBox(
             bar,
             values=list(LANGUAGES.keys()), state="readonly",
-            command=self._on_language_changed,
         )
         self._lang_cb.set("Suomi")
         self._lang_cb.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=6)
@@ -803,7 +814,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._engine_label.grid(row=0, column=2, sticky="w", padx=(0, 6), pady=6)
         self._engine_cb = ctk.CTkComboBox(
             bar, state="readonly",
-            command=self._on_engine_changed,
         )
         self._engine_cb.grid(row=0, column=3, sticky="ew", padx=(0, 4), pady=6)
         # Engine combobox stays empty until _apply_loaded_config() resolves
@@ -1509,12 +1519,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Language change affects both audio rate and wall time — refresh.
         self._refresh_ready_status_strip()
         # Persist the new Kieli so the choice survives across sessions.
-        try:
-            self._save_current_config()
-        except Exception:
-            # _save_current_config touches widgets that may not exist
-            # during the initial build pass; ignore those cases.
-            pass
+        # Safe here because the combobox command is only wired after
+        # __init__ finishes — see _wire_engine_bar_callbacks().
+        self._save_current_config()
+
+    def _wire_engine_bar_callbacks(self) -> None:
+        """Attach command= callbacks to the engine-bar comboboxes.
+
+        Called at the end of __init__, AFTER _build_ui() and
+        _apply_loaded_config() have finished programmatically setting
+        initial values. This guarantees the Kieli/Moottori cascade only
+        runs on real user picks, never on construction-time .set() calls.
+        """
+        self._lang_cb.configure(command=self._on_language_changed)
+        self._engine_cb.configure(command=self._on_engine_changed)
 
     def _update_voice_count_label(self, n: int) -> None:
         """Render the grey side-label e.g. '3 suomenkielist\u00e4 \u00e4\u00e4nt\u00e4'."""
