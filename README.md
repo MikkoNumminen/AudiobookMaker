@@ -35,6 +35,93 @@ right now.
 
 ## What's new
 
+**v3.7.0** -- Sample button, language picker up front, and English
+audiobooks that finally sound English:
+
+- **Make Sample button** -- a new button sits next to Convert. Click
+  it and the app generates a ~30-second sample from the start of your
+  book and saves it to `<book>_sample.mp3` next to the planned output.
+  Lets you A/B two engines or voices in seconds before committing to
+  a multi-hour full run
+- **Language picker moved to the main bar** -- "Language" now sits
+  next to Engine and Voice (was buried in Settings). Picking a
+  language filters the Engine and Voice dropdowns so you only see
+  what actually works in that language. The setting sticks across
+  restarts; first launch defaults to Finnish if Windows is in
+  Finnish, English otherwise
+- **English audiobooks read like English audiobooks** -- Chatterbox
+  in English mode no longer quietly applies Finnish rules (Roman
+  numerals as Finnish ordinals, Finnish case inflection on numbers,
+  and so on). The normalizer now dispatches by language
+- **English text normalizer** -- full rules for English currency,
+  units, time, dates, telephone numbers, URLs and emails, and
+  acronyms. Numbers, money, and dates in English books finally sound
+  natural
+- **41 Edge-TTS voices, 25 Piper voices** -- large voice catalogue
+  expansion across the supported languages
+- **Chatterbox Grandmom per language** -- one voice entry per
+  language (Grandmom (Finnish), Grandmom (English)) so the dropdown
+  matches what you actually get
+
+**v3.6** -- Live ETA and an auto-updater that can recover on its own:
+
+- **Sticky status strip with live ETA** -- a status line pinned under
+  the toolbar shows current progress and remaining time, and gives
+  you a pre-synthesis estimate so you know roughly how long a book
+  will take BEFORE you start
+- **Self-healing SHA-256 fallback** -- if the release notes are
+  missing the security hash, the app falls back to a sidecar
+  `.exe.sha256` file. No manual intervention needed
+- **Open in browser fallback** -- when an auto-update is blocked
+  (antivirus, permissions, network hiccup), the update banner now
+  includes an "Open in browser" button so you can always grab the
+  installer manually
+- **Foreground after update** -- the app now pops itself to the
+  front after a successful auto-install instead of silently opening
+  behind your browser
+- **Periodic re-check + real errors** -- the app re-checks for
+  updates every 4 hours, and download failures now show a proper
+  error message instead of failing silently
+- **Chatterbox subprocess hotfix** -- ffmpeg path is now correctly
+  wired into the Chatterbox subprocess, and the audio/chunking/
+  normalizer modules are bundled into the installer so Chatterbox
+  no longer crashes on first run
+
+**v3.5** -- Grandmom speaks English, plus a lot of quiet polish:
+
+- **Grandmom speaks English** -- the default Chatterbox voice now
+  works natively in English via voice-cloning, not just Finnish
+- **Open in browser for every update** -- the update banner always
+  includes a browser-download link as a safety net, no matter what
+  the auto-updater is doing
+- **Launcher help link works again** -- the in-app "Help" link from
+  the launcher now points at the README instead of a dead URL, and
+  stray old-branding references were scrubbed
+- **Hardened cleanup paths** -- Piper and Chatterbox setup no longer
+  leave half-downloaded files behind when something goes wrong
+  mid-download
+
+**v3.4** -- Read EPUB files too:
+
+- **EPUB and TXT input** -- the "Book" tab now accepts EPUB and plain
+  `.txt` files alongside PDF. Same flow: pick a file, pick a voice,
+  press Convert
+
+**v3.3** -- Naming, reliability, and a rescue when you reinstall:
+
+- **Default Chatterbox voice is "Grandmom"** -- the stock cloning
+  voice has a proper name instead of an opaque file id, so you can
+  tell voices apart in the dropdown
+- **Your MP3s survive a reinstall** -- uninstalling or updating no
+  longer wipes MP3s sitting in the install folder. The cleanup step
+  rescues user audio before removing old app files
+- **Piper setup actually finishes** -- the `espeakbridge` native
+  component is now bundled correctly, so Piper no longer fails to
+  load with a cryptic import error on first run
+- **Update button stops double-firing** -- the update banner's
+  click handler no longer runs twice on some clicks, which had
+  occasionally stalled the install
+
 **v3.2** -- Polish pass on the install and update experience:
 
 - **Goat splash on startup and during updates** -- the goat icon
