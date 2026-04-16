@@ -1676,22 +1676,25 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _browse_pdf(self) -> None:
         # Accept PDF / EPUB / TXT so the same "Kirja" tab works for any
-        # book-shaped input the parsers support.
+        # book-shaped input the parsers support. "All files" stays first
+        # so the user can see and pick anything by default — the
+        # book-only filters trimmed legitimate input on some Windows
+        # locales where the extension matching was case-sensitive.
         if self._ui_lang == "fi":
             types = [
+                ("Kaikki tiedostot", "*.*"),
                 ("Kirjatiedostot", "*.pdf *.epub *.txt"),
                 ("PDF-tiedostot", "*.pdf"),
                 ("EPUB-tiedostot", "*.epub"),
                 ("Tekstitiedostot", "*.txt"),
-                ("Kaikki tiedostot", "*.*"),
             ]
         else:
             types = [
+                ("All files", "*.*"),
                 ("Book files", "*.pdf *.epub *.txt"),
                 ("PDF files", "*.pdf"),
                 ("EPUB files", "*.epub"),
                 ("Text files", "*.txt"),
-                ("All files", "*.*"),
             ]
         path = filedialog.askopenfilename(
             title=self._s("select_pdf"),
