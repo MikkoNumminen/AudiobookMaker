@@ -2997,15 +2997,24 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     def _set_running_state(self) -> None:
         self._synth_running = True
         self._synth_started_at = datetime.now()
+        # Reset cancel state from any prior run — without this, a cancel
+        # signal from the previous run can leak into the new one.
+        self._cancel_requested = False
+        self._cancel_flag.clear()
         self._convert_btn.configure(state="disabled")
         self._listen_btn.configure(state="disabled")
         self._sample_btn.configure(state="disabled")
+        # Disable Open-folder mid-run: it would point at the previous file
+        # and confuse the user about which output is current.
+        self._open_folder_btn.configure(state="disabled")
         self._cancel_btn.grid()
         self._progress_bar.set(0)
         self._status_label_val.configure(
             text=self._s("making_sample") if self._is_sample_run
             else self._s("converting")
         )
+        # Clear stale ETA from the previous run before the new ETA arrives.
+        self._eta_label.configure(text="")
         self._clear_log()
 
     def _set_idle_state(self) -> None:
