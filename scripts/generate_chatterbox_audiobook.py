@@ -430,7 +430,39 @@ def _resolve_device(requested: str) -> str:
 
 
 def _clear_chatterbox_state(engine) -> None:
-    """Apply the three v7 state-leak workarounds before each generate()."""
+    """Reset Chatterbox state between chunks — prevent long-run drift.
+
+    The upstream ``chatterbox-tts`` v0.1.7 ``AlignmentStreamAnalyzer`` leaks
+    state in two ways that bite hard over a 4+ hour run:
+
+    1. Forward hooks registered on transformer layers are never removed.
+    2. Transformer config (``output_attentions``, ``_attn_implementation``)
+       is mutated without restoration, and the "originals" are re-saved on
+       every call as already-mutated values.
+
+    See ``docs/upstream/chatterbox/BUG_REPORT.md`` for the full analysis.
+
+    We mitigate the upstream bugs here AND add memory hygiene that the
+    original workaround lacked. Without ``gc.collect()`` +
+    ``torch.cuda.empty_cache()`` the CUDA allocator's cached blocks grow
+    over thousands of chunks; combined with any residual analyzer state
+    this manifests as monotonically worsening quality — sentence endings
+    get swallowed more and more toward the end of a long book.
+
+    Defense-in-depth, called before every ``engine.generate()``:
+
+    * Clear stale forward hooks on all transformer layers.
+    * Force ``compiled = False`` so the next call rebuilds ``patched_model``.
+    * Drop the reference to the previous ``patched_model`` so Python can
+      reclaim its analyzer (and the analyzer's closures over stale tensors).
+    * Restore ``tfmr.config`` to the canonical Chatterbox-multilingual
+      defaults.
+    * ``gc.collect()`` to drop dead Python references promptly.
+    * ``torch.cuda.empty_cache()`` to release the CUDA allocator's idle
+      cached blocks so fragmentation does not accumulate.
+    """
+    import gc
+
     try:
         for layer in engine.t3.tfmr.layers:
             layer.self_attn._forward_hooks.clear()
@@ -438,9 +470,78 @@ def _clear_chatterbox_state(engine) -> None:
         pass
     try:
         engine.t3.compiled = False
+        # Drop the previous patched_model so the old AlignmentStreamAnalyzer
+        # (and its closures over CUDA tensors) can be freed before we build
+        # the next one. Without this, the reference lingers until the next
+        # generate() call overwrites it — which does still happen, but GC
+        # timing is less predictable across thousands of calls.
+        if hasattr(engine.t3, "patched_model"):
+            engine.t3.patched_model = None
         engine.t3.tfmr.config._attn_implementation = "sdpa"
         engine.t3.tfmr.config.output_attentions = False
     except AttributeError:
+        pass
+
+    # Force Python GC so any just-dropped analyzer / patched_model is freed
+    # before the next generate() allocates its replacement.
+    gc.collect()
+
+    # Release CUDA allocator idle blocks. On a long run this keeps the
+    # working set stable instead of creeping upward with fragmentation.
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _chatterbox_hook_count(engine) -> int:
+    """Return total forward-hook count across all transformer layers.
+
+    Used for observability: if this grows beyond a small constant during
+    a long run, ``_clear_chatterbox_state`` is not doing its job.
+    """
+    try:
+        return sum(
+            len(layer.self_attn._forward_hooks)
+            for layer in engine.t3.tfmr.layers
+        )
+    except AttributeError:
+        return -1
+
+
+def _gpu_mem_stats_mb() -> dict[str, float]:
+    """Return CUDA memory stats in MiB, or empty dict if CUDA unavailable.
+
+    Included in per-chunk observability so we can see memory creep over
+    a long run. ``allocated`` is live tensor memory; ``reserved`` is
+    allocator-held memory (the number that grows on fragmentation).
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return {}
+        return {
+            "allocated_mb": torch.cuda.memory_allocated() / (1024 * 1024),
+            "reserved_mb": torch.cuda.memory_reserved() / (1024 * 1024),
+        }
+    except Exception:
+        return {}
+
+
+def _append_chunk_stats(stats_path: Path, record: dict) -> None:
+    """Append a single chunk-stats record to the JSONL sidecar log.
+
+    One line per chunk; survives Ctrl-C. Use this file to diagnose
+    long-run drift — if any metric trends monotonically across chunks,
+    we have a state leak.
+    """
+    try:
+        with stats_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        # Observability is best-effort; never fail the synth loop on it.
         pass
 
 
@@ -660,6 +761,10 @@ def main() -> int:
     out_root = Path(args.out).expanduser().resolve() / input_stem
     chunks_dir = out_root / ".chunks"
     progress_path = out_root / ".progress.json"
+    # Per-chunk observability log — one JSON object per line. Never
+    # cleared by --no-resume, so long-run drift across restarts is still
+    # visible. See _append_chunk_stats.
+    chunk_stats_path = out_root / ".chunk_stats.jsonl"
 
     if not args.resume and chunks_dir.exists():
         print(f"[setup] --no-resume: wiping {chunks_dir}", flush=True)
@@ -775,6 +880,24 @@ def main() -> int:
                 synth_wall_s += dt
                 synth_audio_s += audio_s
                 total_done += 1
+
+                # Per-chunk observability. If any metric trends monotonically
+                # across a long run (e.g. shrinking audio_s_per_char, growing
+                # gpu_reserved_mb, or hook_count creeping above a small
+                # constant), we have a state leak and this log is the evidence.
+                _append_chunk_stats(chunk_stats_path, {
+                    "ts": time.time(),
+                    "chapter_pos": pos,
+                    "chapter_chi": chi,
+                    "global_chunk_idx": total_done,
+                    "input_chars": len(chunk_text),
+                    "audio_s": round(audio_s, 3),
+                    "synth_s": round(dt, 3),
+                    "rtf": round(dt / audio_s, 3) if audio_s > 0 else None,
+                    "s_per_char": round(audio_s / max(1, len(chunk_text)), 4),
+                    "hook_count": _chatterbox_hook_count(engine),
+                    **_gpu_mem_stats_mb(),
+                })
 
                 import torchaudio as ta
                 ta.save(str(cache_path), wav, engine.sr)
