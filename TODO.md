@@ -36,6 +36,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Listen to demo clips and catalogue audible defects
 - [ ] Play `assets/demos/finnish_grandmom_kivi.mp3` and `assets/demos/english_grandmom_gibbon.mp3`. Write down every word that sounds off — mispronunciations, wrong stress, swallowed words, weird prosody, garbled numbers. Group by root cause: normalizer issue vs model issue vs reference-clip issue vs chunking-boundary issue. Output: a ranked list that drives the next normalizer/audio sprint. **This is the top priority — all quality work is speculation until we hear a real run.** 🟡 🧠 Opus.
 
+### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
+- [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
+
 ### "Report a bug" button in the GUI
 - [ ] Add a "Report a bug" / "Ilmoita virheestä" link or button (Settings panel or Help menu) that opens the GitHub Issues page (`https://github.com/MikkoNumminen/AudiobookMaker/issues/new`) in the browser. Optionally pre-fill the issue body with the app version, OS version, installed engines, and the last ~20 log lines. 🟢 ⚡ Sonnet.
 
