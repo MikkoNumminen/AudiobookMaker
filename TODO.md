@@ -5,11 +5,25 @@ Every item must have a size estimate: 🟢 small, 🟡 medium, 🔴 large. LLM m
 In Progress items must show the owner: `[Claude 1, main]`, `[Claude 2, worktree-name]`, etc.
 4 permanent Claude instances: **Claude 1, Claude 2, Claude 3, Claude 4.**
 
+## Status board
+
+Update your line when you start a session, pick a task, finish, or go idle.
+Any Claude can read this section to know instantly what every other Claude is doing.
+
+| Claude | Status | Current task | Since |
+|--------|--------|-------------|-------|
+| Claude 1 | 🟢 idle | — | — |
+| Claude 2 | 🟢 idle | — | — |
+| Claude 3 | 🟢 idle | — | — |
+| Claude 4 | 🟢 idle | — | — |
+
+Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
+
 **🚨 MANDATORY RULES — NO EXCEPTIONS:**
 
-1. **Re-read this file BEFORE starting ANY work** — every single session, every single task.
-2. **Pick before you start.** Move the task to "In Progress" with your name tag BEFORE touching any code. No tag = no work.
-3. **Update on every state change.** When you start, move the item to "In Progress". When you finish, remove it from the list entirely (commit + push the TODO.md change). When you pause mid-task, the item stays in "In Progress" with your tag — other Claudes need to see it. When you're blocked, add `[BLOCKED: reason]` next to your tag.
+1. **Re-read this file BEFORE starting ANY work AND before every commit.** Other Claudes may have pushed changes since you last looked. `git pull` + re-read TODO.md is a single atomic action — do both every time.
+2. **Pick before you start.** Move the task to "In Progress" with your name tag AND update your Status Board line to 🔵 working. BEFORE touching any code. No tag = no work.
+3. **Update on every state change.** When you start, move the item to "In Progress" and set your status to 🔵. When you finish, remove the item from the list, set your status to 🟢 idle, commit + push TODO.md. When you pause mid-task, the item stays in "In Progress" and your status stays 🔵. When you're blocked, add `[BLOCKED: reason]` and set your status to 🟡.
 4. **Clear completed work immediately.** Don't batch. The moment your commit is pushed, remove the item from this file and push the updated TODO.md. Stale items mislead other Claudes into thinking work is still pending.
 5. **If a task already has an owner tag, do NOT touch it.** Pick something else or wait.
 6. **This file is the single source of truth.** If it's not in this file, it's not being worked on. If it's still in this file, it's not done. No exceptions — the other Claudes have no other way to know what you're doing.
