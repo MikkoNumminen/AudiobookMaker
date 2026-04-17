@@ -951,3 +951,201 @@ class TestStatusStrip:
         app._set_status_strip("idle")
         app.update_idletasks()
         assert app._status_strip_frame.winfo_manager() == ""
+
+
+# ---------------------------------------------------------------------------
+# Voice pack import (Slice 4)
+# ---------------------------------------------------------------------------
+
+
+def _make_few_shot_pack(source_dir, name: str = "Test Pack") -> None:
+    """Create a minimal valid few_shot voice pack on disk."""
+    import yaml
+
+    from src.voice_pack.pack import VOICE_PACK_FORMAT_VERSION
+
+    source_dir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "name": name,
+        "language": "fi",
+        "tier": "few_shot",
+        "tier_reason": "3.0 min — few-shot",
+        "total_source_minutes": 3.0,
+        "emotion_coverage": {"neutral": 10},
+        "base_model": "chatterbox-multilingual",
+        "format_version": VOICE_PACK_FORMAT_VERSION,
+        "created_at": "2026-04-18T00:00:00+00:00",
+        "notes": "",
+    }
+    (source_dir / "meta.yaml").write_text(
+        yaml.safe_dump(meta, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    (source_dir / "sample.wav").write_bytes(b"\x00" * 64)
+    (source_dir / "reference.wav").write_bytes(b"\x00" * 64)
+
+
+class TestVoicePackImport:
+    """GUI wire-up of the voice pack import flow (install_pack + list_packs)."""
+
+    def test_import_button_present_and_localized(self, app) -> None:
+        """The Import voice pack button lives in the Settings panel and
+        picks up whichever UI language is active."""
+        assert hasattr(app, "_import_pack_btn")
+        # Finnish default.
+        assert "\u00e4\u00e4nipaketti" in app._import_pack_btn.cget("text").lower()
+
+    def test_import_picks_no_folder_noop(self, app, monkeypatch, tmp_path) -> None:
+        """Cancelled folder picker leaves the dropdown untouched."""
+        root_dir = tmp_path / "packs_root"
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+        with patch("src.gui_unified.filedialog.askdirectory", return_value=""):
+            app._import_voice_pack()
+        assert not root_dir.exists() or not any(root_dir.iterdir())
+
+    def test_import_copies_pack_and_refreshes_dropdown(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """A valid few_shot pack gets copied to the root and shows up
+        next to Grandmom in the Chatterbox voice dropdown."""
+        root_dir = tmp_path / "packs_root"
+        source_dir = tmp_path / "incoming_pack"
+        _make_few_shot_pack(source_dir, name="Granny Fixture")
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+
+        # Switch to Chatterbox so pack voices surface in the dropdown.
+        chatterbox_display = next(
+            (d for d, eid in app._engine_display_to_id.items()
+             if eid == "chatterbox_fi"),
+            None,
+        )
+        if chatterbox_display is None:
+            pytest.skip("Chatterbox engine not registered in this test run")
+        app._engine_cb.set(chatterbox_display)
+
+        with patch(
+            "src.gui_unified.filedialog.askdirectory",
+            return_value=str(source_dir),
+        ):
+            app._import_voice_pack()
+        app.update_idletasks()
+
+        # Pack copied to user-data root.
+        assert root_dir.exists()
+        copied = list(root_dir.iterdir())
+        assert len(copied) == 1, "install_pack should copy exactly one pack"
+
+        # Dropdown now contains an entry tagged with the voice-pack label.
+        values = list(app._voice_cb.cget("values"))
+        tagged = [v for v in values if "Granny Fixture" in v]
+        assert tagged, f"Expected pack entry in {values}"
+
+        # Active selection points at the newly imported pack.
+        assert "Granny Fixture" in app._voice_cb.get()
+
+    def test_import_rejects_invalid_folder(self, app, monkeypatch, tmp_path) -> None:
+        """A folder without meta.yaml raises an error dialog and does
+        not touch the packs root."""
+        root_dir = tmp_path / "packs_root"
+        bogus_dir = tmp_path / "bogus"
+        bogus_dir.mkdir()
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+
+        errors: list[tuple[str, str]] = []
+        with patch(
+            "src.gui_unified.filedialog.askdirectory",
+            return_value=str(bogus_dir),
+        ), patch(
+            "src.gui_unified.messagebox.showerror",
+            side_effect=lambda title, msg: errors.append((title, msg)),
+        ):
+            app._import_voice_pack()
+        assert errors, "Invalid pack should trigger an error dialog"
+        assert not root_dir.exists() or not any(root_dir.iterdir())
+
+    def test_voice_pack_reference_auto_populated(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """Selecting an imported few_shot pack makes
+        ``_effective_reference_audio`` return the pack's reference.wav
+        even when the user hasn't typed anything into Ref. ääni."""
+        root_dir = tmp_path / "packs_root"
+        source_dir = tmp_path / "incoming_pack"
+        _make_few_shot_pack(source_dir, name="Auto Ref")
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+
+        from src.tts_base import Voice
+
+        with patch(
+            "src.gui_unified.filedialog.askdirectory",
+            return_value=str(source_dir),
+        ):
+            app._import_voice_pack()
+
+        # Resolve the installed pack back to its slug, then simulate the
+        # pick without going through combobox display-name plumbing.
+        packs = app._list_installed_voice_packs()
+        assert len(packs) == 1
+        pack = packs[0]
+        voice = Voice(
+            id=f"voicepack:{pack.root.name}",
+            display_name=pack.display_name,
+            language="fi",
+        )
+        resolved = app._effective_reference_audio(voice, manual_ref=None)
+        assert resolved is not None
+        assert resolved.endswith("reference.wav")
+
+    def test_manual_ref_overrides_pack_reference(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """If the user has typed a Ref. ääni path, it wins over the
+        pack's default — lets power users tweak per-run without
+        un-picking the pack from the dropdown."""
+        root_dir = tmp_path / "packs_root"
+        source_dir = tmp_path / "incoming_pack"
+        _make_few_shot_pack(source_dir, name="Override Me")
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+
+        from src.tts_base import Voice
+
+        with patch(
+            "src.gui_unified.filedialog.askdirectory",
+            return_value=str(source_dir),
+        ):
+            app._import_voice_pack()
+
+        packs = app._list_installed_voice_packs()
+        voice = Voice(
+            id=f"voicepack:{packs[0].root.name}",
+            display_name=packs[0].display_name,
+            language="fi",
+        )
+        manual = str(tmp_path / "manual.wav")
+        resolved = app._effective_reference_audio(voice, manual_ref=manual)
+        assert resolved == manual
