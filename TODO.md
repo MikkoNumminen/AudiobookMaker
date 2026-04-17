@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 3 | 🔵 working | UI builder extraction from UnifiedApp god-object | 2026-04-18 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -42,7 +42,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Chatterbox-Finnish: collect pronunciation failure corpus
 - [ ] User reported 4 mispronunciations in the `turo_stressitesti_tulokset_fi` sample: `löysimme` → `löys imme` (mid-word pause), `lopetti` → `loopetti` (vowel-length hallucination), `ennen vain` → `ennenvän` (word-boundary collapse), `äänikirja` → `aanikirja` (ää → aa substitution). Lowering `FI_TEMPERATURE` to 0.5 cleared the length/boundary symptoms in a fresh A/B sweep, but the `ää → aa` umlaut drop and the mid-word pause pattern are likely in-weights. Keep collecting: each new failing word adds a data point for Pass I lexicon respelling (try `ää` → `ä ä` or a hyphenated form) and for the known `s → sch` bucket. Target: 20 concrete words across ≥3 failure categories before attempting a targeted fix. 🟡 🧠 Opus.
 
-### UI builder extraction — follow-up to synthesis orchestrator
+### UI builder extraction — follow-up to synthesis orchestrator [Claude 3, main]
 - [ ] `UnifiedApp._build_engine_bar` (143 lines), `_build_header_bar`, `_build_action_row`, `_build_settings_frame` still live on the god-object. They're pure widget composition (no business logic after the orchestrator extraction), so they can move to helper modules (e.g. `src/gui_builders/`) that take the host + parent frame and return the built row. Callers still mount the returned widgets on `self`. Target: shrink `gui_unified.py` by another ~500 lines without changing behavior. 🟡 🧠 Opus.
 
 ### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
