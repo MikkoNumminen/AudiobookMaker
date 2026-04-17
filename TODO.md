@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -31,10 +31,8 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-## Backlog
-
-### Verify Chatterbox long-run hardening on a real re-synthesis
-- [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Next step: regenerate the tail of the problem Finnish audiobook (from ~hour 4 onward) and confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. If the fix holds, regenerate the whole book; if not, the stats file will show exactly which metric drifts and we can iterate. 🟡 🧠 Opus.
+### Verify Chatterbox long-run hardening [Claude 1, main]
+- [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Tier 1 validation in progress: `scripts/stress_test_chatterbox_longrun.py` runs 500 `engine.generate()` calls in one process to catch drift fast before committing to a 5h re-synth. If Tier 1 passes, next is Tier 2 (regenerate the tail of the problem Finnish audiobook from ~hour 4 onward using existing `.chunks/` cache). Confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. 🟡 🧠 Opus.
 
 
 
