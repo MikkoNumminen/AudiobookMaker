@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🔵 working | Synthesis orchestrator extraction | 2026-04-17 |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -31,9 +31,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### Synthesis orchestrator extraction [Claude 3, synthesis-orchestrator]
-- [ ] `src/gui_unified.py` is 3,630 lines with ~100 private methods on one class. `_on_convert_click` (104 lines), `_on_listen_click` (164 lines), `_build_engine_bar` (143 lines) all belong elsewhere. Introduce `src/synthesis_orchestrator.py` that owns book loading, engine dispatch, output paths, progress relay; GUI becomes a thin adapter subscribing to orchestrator events. UI builders (`_build_engine_bar`, `_build_header_bar`, `_build_action_row`, `_build_settings_frame`) extract to helper modules. 🔴 🧠 Opus.
-
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
 - [ ] **Tier 2 first pass DONE 2026-04-17** — tail re-synth of Turo's audiobook (chapters 5-8 = ~4h-onward stretch) completed 979/979 chunks with `FI_TEMPERATURE=0.5` + normalizer Pass H + `_clear_chatterbox_state` memory hygiene. Memory trend clean (`hook_count=0`, `allocated_mb` flat). **BUT** Turo reported the swallowed-sentence symptom is still present (e.g. `asianosaisaloitteinen menettely` → `…menet`). Telemetry confirmed 261 of 979 chunks (27%) had `s_per_char < 0.040` — far below the ~0.06 s/char Finnish baseline = T3 sampler early-stop. Root-caused to three bugs in upstream `AlignmentStreamAnalyzer` (see chatterbox commit `fix(t3): tighten EOS suppression and token-repetition heuristic`). Also added audiobook-side retry guard in `scripts/generate_chatterbox_audiobook.py` (commit `cb7e13a`).
@@ -44,6 +41,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus
 - [ ] User reported 4 mispronunciations in the `turo_stressitesti_tulokset_fi` sample: `löysimme` → `löys imme` (mid-word pause), `lopetti` → `loopetti` (vowel-length hallucination), `ennen vain` → `ennenvän` (word-boundary collapse), `äänikirja` → `aanikirja` (ää → aa substitution). Lowering `FI_TEMPERATURE` to 0.5 cleared the length/boundary symptoms in a fresh A/B sweep, but the `ää → aa` umlaut drop and the mid-word pause pattern are likely in-weights. Keep collecting: each new failing word adds a data point for Pass I lexicon respelling (try `ää` → `ä ä` or a hyphenated form) and for the known `s → sch` bucket. Target: 20 concrete words across ≥3 failure categories before attempting a targeted fix. 🟡 🧠 Opus.
+
+### UI builder extraction — follow-up to synthesis orchestrator
+- [ ] `UnifiedApp._build_engine_bar` (143 lines), `_build_header_bar`, `_build_action_row`, `_build_settings_frame` still live on the god-object. They're pure widget composition (no business logic after the orchestrator extraction), so they can move to helper modules (e.g. `src/gui_builders/`) that take the host + parent frame and return the built row. Callers still mount the returned widgets on `self`. Target: shrink `gui_unified.py` by another ~500 lines without changing behavior. 🟡 🧠 Opus.
 
 ### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
 - [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
