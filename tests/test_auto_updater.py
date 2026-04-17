@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from src.auto_updater import (
     UpdateInfo,
+    _assert_bat_safe_path,
     _extract_sha256,
     check_for_update,
     clear_pending_marker,
@@ -591,3 +592,75 @@ class TestPendingMarker:
             assert not new_dir.exists()
             _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
             assert new_marker.exists()
+
+
+# ---------------------------------------------------------------------------
+# Batch-metacharacter guard for apply_update's relaunch .bat
+# ---------------------------------------------------------------------------
+
+
+class TestAssertBatSafePath:
+    """_assert_bat_safe_path refuses paths that would corrupt the relaunch .bat."""
+
+    def test_safe_windows_path_does_not_raise(self) -> None:
+        from pathlib import Path
+        # Representative of Path.home()/tempfile.gettempdir() output.
+        _assert_bat_safe_path(
+            Path("C:/Users/alice/Downloads/installer.exe"), "installer_path"
+        )
+
+    def test_safe_path_with_spaces_does_not_raise(self) -> None:
+        from pathlib import Path
+        # Spaces are fine — the .bat quotes every substitution.
+        _assert_bat_safe_path(
+            Path("C:/Users/Alice Smith/AppData/Local/Temp/x.exe"),
+            "installer_path",
+        )
+
+    def test_double_quote_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="batch-unsafe"):
+            _assert_bat_safe_path(
+                Path('C:/evil"path/installer.exe'), "installer_path"
+            )
+
+    def test_percent_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="batch-unsafe"):
+            _assert_bat_safe_path(
+                Path("C:/%USERPROFILE%/installer.exe"), "installer_path"
+            )
+
+    def test_caret_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="batch-unsafe"):
+            _assert_bat_safe_path(
+                Path("C:/weird^path/installer.exe"), "installer_path"
+            )
+
+    def test_ampersand_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="batch-unsafe"):
+            _assert_bat_safe_path(
+                Path("C:/a&b/installer.exe"), "installer_path"
+            )
+
+    def test_newline_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="batch-unsafe"):
+            _assert_bat_safe_path(
+                Path("C:/a\nb/installer.exe"), "installer_path"
+            )
+
+    def test_error_message_includes_label(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="installer_path"):
+            _assert_bat_safe_path(
+                Path('C:/bad"path.exe'), "installer_path"
+            )

@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -125,12 +126,39 @@ def _fetch_sidecar_sha256(
     except (URLError, OSError) as exc:
         logger.debug("Sidecar SHA-256 fetch failed: %s", exc)
         return None
-    import re
     match = re.search(r"\b([0-9a-fA-F]{64})\b", payload)
     if not match:
         logger.debug("Sidecar payload had no 64-hex token: %r", payload[:80])
         return None
     return match.group(1).lower()
+
+
+# Characters that would break the Windows relaunch batch script if present
+# in a substituted path. `"` ends a quoted string, `%` starts a variable
+# expansion, `^` is the cmd.exe escape character, `&` chains commands, and
+# CR/LF terminate a line. Today all substituted paths come from
+# Path.home() / tempfile.gettempdir() / sys.executable so this is a defense
+# in depth — but we want to fail loud if that assumption ever slips.
+_BAT_UNSAFE_CHARS = ('"', '%', '^', '&', '\r', '\n')
+
+
+def _assert_bat_safe_path(path: Path, label: str) -> None:
+    """Raise ValueError if *path* contains characters that break a .bat script.
+
+    The relaunch batch script built in :func:`apply_update` substitutes
+    several paths via f-strings into ``set "VAR=..."`` lines and quoted
+    command invocations. If any substituted path contains a batch
+    metacharacter the script is malformed and the silent update flow
+    silently corrupts (or worse, executes the wrong command). Paths we
+    control today are safe, but this assertion makes the invariant loud.
+    """
+    s = str(path)
+    for ch in _BAT_UNSAFE_CHARS:
+        if ch in s:
+            raise ValueError(
+                f"{label} contains batch-unsafe character {ch!r}: {s!r}. "
+                "Refusing to build relaunch .bat — would be malformed."
+            )
 
 
 def _no_update(current_version: str) -> UpdateInfo:
@@ -154,7 +182,6 @@ def _extract_sha256(release_notes: str) -> str | None:
     or:
         `abc123...` (64 hex chars on their own)
     """
-    import re
     # Pattern: "SHA-256: <hex>" or "sha256: <hex>"  (with optional backticks)
     match = re.search(r"(?i)sha-?256:\s*`?([0-9a-fA-F]{64})`?", release_notes)
     if match:
@@ -505,6 +532,14 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         '$form.ShowDialog() | Out-Null\n',
         encoding="utf-8",
     )
+
+    # Guard the f-string substitutions below — any batch metacharacter in
+    # one of these paths would silently corrupt the relaunch script.
+    _assert_bat_safe_path(installer_path, "installer_path")
+    _assert_bat_safe_path(Path(app_exe), "app_exe")
+    _assert_bat_safe_path(Path(current_install_dir), "current_install_dir")
+    _assert_bat_safe_path(log_file, "log_file")
+    _assert_bat_safe_path(splash_ps1, "splash_ps1")
 
     lines = [
         "@echo off",
