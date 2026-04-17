@@ -1,0 +1,126 @@
+# Finnish governor-word -> num2words grammatical case table.
+#
+# Loaded by src/tts_normalizer_fi.py Pass G. Two sections: `before`
+# governors sit to the LEFT of the number (`vuonna 1905`, `sivulta 42`);
+# `after` governors sit to the RIGHT (`5 prosenttia`, `3 kertaa`).
+# All keys are lowercase. The machine-readable form of
+# docs/finnish_governor_cases.md §1 and docs/finnish_normalizer_design.md.
+#
+# `year_governors` lists the subset of `before` entries that trigger
+# radio-convention (nominative) year reading for 4-digit literals
+# 1000–2100 when TTSConfig.year_shortening == "radio".
+#
+# Add new entries by LEMMA surface form, not by abstract lemma —
+# morphology is handled by listing each case form explicitly.
+
+before:
+  # Year governors. In the default `year_shortening="radio"` mode
+  # these are overridden to nominative for 4-digit year literals
+  # (1000–2100) to match the Kielikello radio convention.
+  vuonna: nominative
+  vuoden: nominative
+  vuodelta: ablative
+  vuoteen: illative
+  vuodesta: elative
+  vuosina: essive
+  # Page governors — singular
+  sivu: nominative
+  sivut: nominative
+  sivulla: adessive
+  sivulta: ablative
+  sivulle: allative
+  sivusta: elative
+  sivuun: illative
+  # Page governors — plural
+  sivuilla: adessive
+  sivuilta: ablative
+  sivuille: allative
+  sivuista: elative
+  sivuihin: illative
+  # Chapter / section / paragraph governors
+  luku: nominative
+  luvussa: inessive
+  lukuun: illative
+  luvun: genitive
+  luvusta: elative
+  luvulla: adessive
+  pykälä: nominative
+  pykälässä: inessive
+  pykälästä: elative
+  pykälään: illative
+  kappale: nominative
+  kappaleessa: inessive
+  kappaleesta: elative
+  osa: nominative
+  osassa: inessive
+  osasta: elative
+  kohta: nominative
+  kohdassa: inessive
+  kohdasta: elative
+  kohtaan: illative
+  kohdalla: adessive
+  # Row / line positions — singular
+  rivi: nominative
+  rivillä: adessive
+  riviltä: ablative
+  riville: allative
+  # Row / line positions — plural
+  riveillä: adessive
+  riveiltä: ablative
+  riveille: allative
+  # Clock-time — frozen adverbials; hour itself stays nominative
+  klo: nominative
+  kello: nominative
+
+after:
+  # Partitive head nouns (VISK §772, Kielikello). Numeral stays
+  # NOMINATIVE; the head noun carries partitive. Recorded here so
+  # the detector recognises the construction and doesn't fall
+  # through to an earlier before-governor in the same window.
+  prosenttia: nominative
+  prosentin: nominative
+  promillea: nominative
+  kertaa: nominative
+  kerran: nominative
+  kappaletta: nominative
+  kpl: nominative
+  vuotta: nominative
+  kuukautta: nominative
+  viikkoa: nominative
+  päivää: nominative
+  tuntia: nominative
+  minuuttia: nominative
+  sekuntia: nominative
+  metriä: nominative
+  kilometriä: nominative
+  senttiä: nominative
+  senttimetriä: nominative
+  millimetriä: nominative
+  grammaa: nominative
+  kiloa: nominative
+  kilogrammaa: nominative
+  euroa: nominative
+  markkaa: nominative
+  # Added for Pass M unit expansion
+  milligrammaa: nominative
+  millilitraa: nominative
+  desilitraa: nominative
+  senttilitraa: nominative
+  litraa: nominative
+  tonnia: nominative
+  celsiusastetta: nominative
+  fahrenheitastetta: nominative
+  dollaria: nominative
+  puntaa: nominative
+  miljoonaa: nominative
+  miljardia: nominative
+
+# Subset of `before` governors that trigger radio-convention (nominative)
+# reading for 4-digit year literals (1000–2100) in year_shortening="radio".
+year_governors:
+- vuonna
+- vuoden
+- vuodelta
+- vuoteen
+- vuodesta
+- vuosina

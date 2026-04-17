@@ -10,6 +10,7 @@ Pure text in / text out. No audio or synthesis dependencies.
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Optional
 
@@ -78,48 +79,24 @@ _FI_SPACE_BEFORE_PUNCT_RE = re.compile(r" +([.,;:!?])")
 # The `tri` trigger is special — it has no trailing period and only
 # expands before a space + capital letter (a person's name).
 
-_FI_ABBREV_MAP: dict[str, str] = {
-    # Reference abbreviations (sorted longest-first for regex alternation)
-    "yms.": "ynnä muuta sellaista",
-    "tms.": "tai muuta sellaista",
-    "jne.": "ja niin edelleen",
-    "vrt.": "vertaa",
-    "huom.": "huomaa",
-    "esim.": "esimerkiksi",
-    "ts.": "toisin sanoen",
-    "ks.": "katso",
-    "ym.": "ynnä muuta",
-    "mm.": "muun muassa",
-    "nk.": "niin kutsuttu",
-    "ns.": "niin sanottu",
-    "ko.": "kyseinen",
-    "ao.": "asianomainen",
-    "ed.": "edellinen",
-    # Era abbreviations
-    "eKr.": "ennen Kristusta",
-    "jKr.": "jälkeen Kristuksen",
-    "eaa.": "ennen ajanlaskun alkua",
-    "jaa.": "jälkeen ajanlaskun alun",
-    # Titles
-    "prof.": "professori",
-    "dos.": "dosentti",
-    "fil.": "filosofian",
-    "maist.": "maisteri",
-    "kand.": "kandidaatti",
-    "toim.": "toimittaja",
-    # Count / quantity
-    "kpl.": "kappaletta",
-    "milj.": "miljoonaa",
-    "mrd.": "miljardia",
-}
+# Abbreviation table — lexicon lives in data/fi_abbreviations.yaml.
+@functools.lru_cache(maxsize=1)
+def _fi_abbrev_map() -> dict[str, str]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("fi_abbreviations") or {}
+    return {str(k): str(v) for k, v in raw.items()}
 
-# Build one regex alternation sorted longest-first to prevent partial matches.
-_FI_ABBREV_RE = re.compile(
-    r"\b(" + "|".join(
-        re.escape(k) for k in sorted(_FI_ABBREV_MAP, key=len, reverse=True)
-    ) + r")",
-    re.IGNORECASE,
-)
+
+@functools.lru_cache(maxsize=1)
+def _fi_abbrev_re() -> re.Pattern[str]:
+    # Build one regex alternation sorted longest-first to prevent partial matches.
+    keys = sorted(_fi_abbrev_map(), key=len, reverse=True)
+    if not keys:
+        return re.compile(r"(?!x)x")
+    return re.compile(
+        r"\b(" + "|".join(re.escape(k) for k in keys) + r")",
+        re.IGNORECASE,
+    )
 
 # `tri` without period: only expand when followed by space + capital letter
 # (i.e. a person's name). Word boundary at start; lookahead for the name.
@@ -133,16 +110,18 @@ def _expand_abbreviations(text: str) -> str:
     The special case `tri` (without a period) is expanded to `tohtori` only
     when immediately followed by a space and a capital letter (a person's name).
     """
+    abbrev_map = _fi_abbrev_map()
+
     def _abbrev_sub(m: re.Match) -> str:
         key = m.group(1).lower()
         # eKr. and jKr. have mixed case keys — look up both variants
-        expansion = _FI_ABBREV_MAP.get(key)
+        expansion = abbrev_map.get(key)
         if expansion is None:
             # Try original capitalisation (for eKr. / jKr.)
-            expansion = _FI_ABBREV_MAP.get(m.group(1))
+            expansion = abbrev_map.get(m.group(1))
         return expansion if expansion is not None else m.group(1)
 
-    text = _FI_ABBREV_RE.sub(_abbrev_sub, text)
+    text = _fi_abbrev_re().sub(_abbrev_sub, text)
     text = _FI_TRI_RE.sub("tohtori", text)
     return text
 
@@ -158,42 +137,24 @@ def _expand_abbreviations(text: str) -> str:
 #
 # Run AFTER Pass K (abbreviations) and BEFORE Pass M (units).
 
-_FI_ACRONYM_LOOKUP: dict[str, str] = {
-    # Political / international organizations
-    "EU": "Euroopan unioni",
-    "EY": "Euroopan yhteisö",
-    "EEC": "Euroopan talousyhteisö",
-    "YK": "Yhdistyneet kansakunnat",
-    "USA": "Yhdysvallat",
-    "NATO": "Nato",  # Read as a word, not letter-by-letter
-    "UNESCO": "Unesco",
-    "WTO": "W T O",  # Letter-by-letter
-    "ILO": "I L O",
-    "UN": "U N",
-    # German-language legal acronyms (common in Finnish legal history)
-    "ALR": "A L R",  # Allgemeines Landrecht
-    "ABGB": "A B G B",  # Österreichisches Allgemeines Bürgerliches Gesetzbuch
-    "BGB": "B G B",  # Bürgerliches Gesetzbuch
-    "HGB": "H G B",  # Handelsgesetzbuch
-    "StGB": "St G B",  # Strafgesetzbuch
-    "StPO": "St P O",  # Strafprozessordnung
-    "ZPO": "Z P O",  # Zivilprozessordnung
-    # Finnish legal acronyms
-    "RL": "R L",  # Rikoslaki
-    "SL": "S L",  # Siviililaki
-    # Common modern
-    "PDF": "P D F",
-    "URL": "U R L",
-    "API": "A P I",
-}
+# Acronym lookup — lexicon lives in data/fi_acronyms.yaml.
+@functools.lru_cache(maxsize=1)
+def _fi_acronym_lookup() -> dict[str, str]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("fi_acronyms") or {}
+    return {str(k): str(v) for k, v in raw.items()}
 
-# Build a regex alternation sorted longest-first so `ABGB` matches before
-# `BGB`, etc. Case-sensitive: `EU` ≠ `eu` (negative prefix in Finnish).
-_FI_ACRONYM_RE = re.compile(
-    r"\b(" + "|".join(
-        re.escape(k) for k in sorted(_FI_ACRONYM_LOOKUP, key=len, reverse=True)
-    ) + r")\b"
-)
+
+@functools.lru_cache(maxsize=1)
+def _fi_acronym_re() -> re.Pattern[str]:
+    # Build a regex alternation sorted longest-first so `ABGB` matches
+    # before `BGB`, etc. Case-sensitive: `EU` ≠ `eu` (negative prefix).
+    keys = sorted(_fi_acronym_lookup(), key=len, reverse=True)
+    if not keys:
+        return re.compile(r"(?!x)x")
+    return re.compile(
+        r"\b(" + "|".join(re.escape(k) for k in keys) + r")\b"
+    )
 
 
 def _expand_acronyms(text: str) -> str:
@@ -208,9 +169,11 @@ def _expand_acronyms(text: str) -> str:
       between ``ABGB`` and ``-``; ``ABGB`` IS matched and expanded.
     - Unknown all-caps tokens are left unchanged (no heuristic fallback).
     """
+    lookup = _fi_acronym_lookup()
+
     def _sub(m: re.Match) -> str:
-        return _FI_ACRONYM_LOOKUP[m.group(1)]
-    return _FI_ACRONYM_RE.sub(_sub, text)
+        return lookup[m.group(1)]
+    return _fi_acronym_re().sub(_sub, text)
 
 
 # Pass M: measurement unit / currency symbol expansion.
@@ -222,49 +185,38 @@ def _expand_acronyms(text: str) -> str:
 # Units are ordered longest-first in the alternation to avoid partial matches
 # (e.g. `°C` before bare `C`, `km` before bare `m`).
 
-_FI_UNIT_MAP: list[tuple[str, str]] = [
-    # Temperature (allow optional negative sign on the digit)
-    ("°C", "celsiusastetta"),
-    ("°F", "fahrenheitastetta"),
-    # Length (multi-char first)
-    ("km", "kilometriä"),
-    ("cm", "senttimetriä"),
-    ("mm", "millimetriä"),
-    ("m", "metriä"),
-    # Mass (multi-char first)
-    ("kg", "kilogrammaa"),
-    ("mg", "milligrammaa"),
-    ("g", "grammaa"),
-    ("t", "tonnia"),
-    # Volume (multi-char first)
-    ("ml", "millilitraa"),
-    ("dl", "desilitraa"),
-    ("cl", "senttilitraa"),
-    ("l", "litraa"),
-    # Time
-    ("min", "minuuttia"),
-    # Currency (suffix — after number)
-    ("€", "euroa"),
-    ("£", "puntaa"),
-    # Percent / per-mille
-    ("%", "prosenttia"),
-    ("‰", "promillea"),
-    # Legacy Finnish currency
-    ("mk", "markkaa"),
-]
+# Unit/currency table — lexicon lives in data/fi_units.yaml. The order
+# of entries in the YAML is preserved by safe_load because it is written
+# as a YAML sequence; we rely on that order for multi-char-first regex
+# alternation (e.g. `km` before `m`, `°C` before `C`).
+@functools.lru_cache(maxsize=1)
+def _fi_unit_map() -> list[tuple[str, str]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("fi_units") or []
+    return [(str(pair[0]), str(pair[1])) for pair in raw]
 
-# Build a single regex: (-?\d+(?:[.,]\d+)?)\s*(<unit>) followed by a
-# negative lookahead for word characters so word-character units like `km`
-# are not greedily matched mid-word, while symbol units like `%` and `€`
-# (which are non-word chars and don't support `\b`) still match correctly.
-# Units are sorted longest-first.
-_FI_UNIT_RE = re.compile(
-    r"(-?\d+(?:[.,]\d+)?)\s*("
-    + "|".join(
-        re.escape(sym) for sym, _ in _FI_UNIT_MAP
+
+@functools.lru_cache(maxsize=1)
+def _fi_unit_re() -> re.Pattern[str]:
+    # Build a single regex: (-?\d+(?:[.,]\d+)?)\s*(<unit>) followed by a
+    # negative lookahead for word characters so word-character units like
+    # `km` are not greedily matched mid-word, while symbol units like
+    # `%` and `€` (which are non-word chars and don't support `\b`) still
+    # match correctly. Units follow the YAML order (longest-first).
+    units = _fi_unit_map()
+    if not units:
+        return re.compile(r"(?!x)x")
+    return re.compile(
+        r"(-?\d+(?:[.,]\d+)?)\s*("
+        + "|".join(re.escape(sym) for sym, _ in units)
+        + r")(?!\w)",
     )
-    + r")(?!\w)",
-)
+
+
+@functools.lru_cache(maxsize=1)
+def _fi_unit_lookup() -> dict[str, str]:
+    return {sym: word for sym, word in _fi_unit_map()}
+
 
 # Dollar sign precedes the number: $5 → 5 dollaria
 _FI_DOLLAR_RE = re.compile(r"\$\s*(\d+(?:[.,]\d+)?)")
@@ -276,9 +228,6 @@ _FI_DOLLAR_RE = re.compile(r"\$\s*(\d+(?:[.,]\d+)?)")
 # visible to Pass G's ±3-word scan; the nearer one wins (typically the
 # inserted `pykälä` at distance 1).
 _FI_SECTION_SIGN_RE = re.compile(r"§\s*(?=\d)")
-
-# Lookup dict for unit expansion (symbol → Finnish word).
-_FI_UNIT_LOOKUP: dict[str, str] = {sym: word for sym, word in _FI_UNIT_MAP}
 
 
 def _expand_unit_symbols(text: str) -> str:
@@ -293,29 +242,32 @@ def _expand_unit_symbols(text: str) -> str:
     # Section sign (§): prefix form — `§ 242` → `pykälä 242`.
     text = _FI_SECTION_SIGN_RE.sub("pykälä ", text)
 
+    lookup = _fi_unit_lookup()
+
     def _unit_sub(m: re.Match) -> str:
         number = m.group(1)
         sym = m.group(2)
-        word = _FI_UNIT_LOOKUP.get(sym, sym)
+        word = lookup.get(sym, sym)
         return f"{number} {word}"
 
-    return _FI_UNIT_RE.sub(_unit_sub, text)
+    return _fi_unit_re().sub(_unit_sub, text)
 
 
 # Pass C: century/era expressions — digit + "-luku" declension suffix.
-_FI_CENTURY_SUFFIXES = (
-    "luvulla",
-    "luvulta",
-    "luvulle",
-    "luvuilla",
-    "luvusta",
-    "luvut",
-    "luvun",
-    "luku",
-)
-_FI_CENTURY_RE = re.compile(
-    r"(\d+)-(" + "|".join(_FI_CENTURY_SUFFIXES) + r")\b"
-)
+# Suffix list lives in data/fi_century_suffixes.yaml.
+@functools.lru_cache(maxsize=1)
+def _fi_century_suffixes() -> tuple[str, ...]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("fi_century_suffixes") or []
+    return tuple(str(s) for s in raw)
+
+
+@functools.lru_cache(maxsize=1)
+def _fi_century_re() -> re.Pattern[str]:
+    suffixes = _fi_century_suffixes()
+    if not suffixes:
+        return re.compile(r"(?!x)x")
+    return re.compile(r"(\d+)-(" + "|".join(suffixes) + r")\b")
 
 # Pass D: numeric ranges. Matches 1–4 digit numbers on both sides of
 # a hyphen or en-dash so short ranges like `sivuilta 42-45` also get
@@ -345,125 +297,21 @@ _FI_TOKEN_RE = re.compile(
 
 # Governor-word → num2words case. "Before" governors sit left of the
 # number (`vuonna 1905`, `sivulta 42`); "after" governors sit right
-# (`5 prosenttia`, `3 kertaa`). All keys are lowercase. The table is the
-# machine-readable form of `docs/finnish_governor_cases.md` and
-# `docs/finnish_normalizer_design.md` §1. Add new entries by lemma, not
-# by surface form — morphology is handled by listing each case form we
-# care about as its own key.
-_FI_GOVERNOR_BEFORE: dict[str, str] = {
-    # Year governors. In the default `year_shortening="radio"` mode
-    # these are *overridden* to nominative for 4-digit year literals
-    # (1000–2100) to match the Kielikello radio convention. Set
-    # `year_shortening="full"` in TTSConfig to honor the table below.
-    "vuonna": "nominative",
-    "vuoden": "nominative",
-    "vuodelta": "ablative",
-    "vuoteen": "illative",
-    "vuodesta": "elative",
-    "vuosina": "essive",
-    # Page governors — singular.
-    "sivu": "nominative",
-    "sivut": "nominative",
-    "sivulla": "adessive",
-    "sivulta": "ablative",
-    "sivulle": "allative",
-    "sivusta": "elative",
-    "sivuun": "illative",
-    # Page governors — plural (e.g. `sivuilta 42-45` → ablative both).
-    "sivuilla": "adessive",
-    "sivuilta": "ablative",
-    "sivuille": "allative",
-    "sivuista": "elative",
-    "sivuihin": "illative",
-    # Chapter / section / paragraph governors.
-    "luku": "nominative",
-    "luvussa": "inessive",
-    "lukuun": "illative",
-    "luvun": "genitive",
-    "luvusta": "elative",
-    "luvulla": "adessive",
-    "pykälä": "nominative",
-    "pykälässä": "inessive",
-    "pykälästä": "elative",
-    "pykälään": "illative",
-    "kappale": "nominative",
-    "kappaleessa": "inessive",
-    "kappaleesta": "elative",
-    "osa": "nominative",
-    "osassa": "inessive",
-    "osasta": "elative",
-    "kohta": "nominative",
-    "kohdassa": "inessive",
-    "kohdasta": "elative",
-    "kohtaan": "illative",
-    "kohdalla": "adessive",
-    # Row / line positions — singular.
-    "rivi": "nominative",
-    "rivillä": "adessive",
-    "riviltä": "ablative",
-    "riville": "allative",
-    # Row / line positions — plural.
-    "riveillä": "adessive",
-    "riveiltä": "ablative",
-    "riveille": "allative",
-    # Clock-time: `klo` / `kello` are frozen adverbials; the hour itself
-    # stays nominative. See Q2 in docs/finnish_governor_cases.md.
-    "klo": "nominative",
-    "kello": "nominative",
-}
+# (`5 prosenttia`, `3 kertaa`). All keys are lowercase. The tables live
+# in data/fi_governors.yaml and are the machine-readable form of
+# `docs/finnish_governor_cases.md` and `docs/finnish_normalizer_design.md`
+# §1. Add new entries by lemma, not by surface form — morphology is
+# handled by listing each case form we care about as its own key.
+@functools.lru_cache(maxsize=1)
+def _fi_governors() -> tuple[dict[str, str], dict[str, str], frozenset[str]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("fi_governors") or {}
+    before = {str(k): str(v) for k, v in (raw.get("before") or {}).items()}
+    after = {str(k): str(v) for k, v in (raw.get("after") or {}).items()}
+    year_g = frozenset(str(w) for w in (raw.get("year_governors") or []))
+    return before, after, year_g
 
-_FI_GOVERNOR_AFTER: dict[str, str] = {
-    # Partitive head nouns. By VISK §772 and Kielikello "viisi kertaa",
-    # the numeral stays NOMINATIVE — the head noun carries the partitive
-    # on its own. We still record these here so the detector recognizes
-    # the construction and does not fall through to some earlier
-    # before-governor in the same window.
-    "prosenttia": "nominative",
-    "prosentin": "nominative",
-    "promillea": "nominative",
-    "kertaa": "nominative",
-    "kerran": "nominative",
-    "kappaletta": "nominative",
-    "kpl": "nominative",
-    "vuotta": "nominative",
-    "kuukautta": "nominative",
-    "viikkoa": "nominative",
-    "päivää": "nominative",
-    "tuntia": "nominative",
-    "minuuttia": "nominative",
-    "sekuntia": "nominative",
-    "metriä": "nominative",
-    "kilometriä": "nominative",
-    "senttiä": "nominative",
-    "senttimetriä": "nominative",
-    "millimetriä": "nominative",
-    "grammaa": "nominative",
-    "kiloa": "nominative",
-    "kilogrammaa": "nominative",
-    "euroa": "nominative",
-    "senttiä": "nominative",
-    "markkaa": "nominative",
-    # Added for Pass M unit expansion
-    "milligrammaa": "nominative",
-    "millilitraa": "nominative",
-    "desilitraa": "nominative",
-    "senttilitraa": "nominative",
-    "litraa": "nominative",
-    "tonnia": "nominative",
-    "celsiusastetta": "nominative",
-    "fahrenheitastetta": "nominative",
-    "dollaria": "nominative",
-    "puntaa": "nominative",
-    "miljoonaa": "nominative",
-    "miljardia": "nominative",
-}
 
-# Year governors — trigger last-part / radio-convention handling when
-# `year_shortening == "radio"` (default) and the bare integer looks like
-# a 4-digit year.
-_FI_YEAR_GOVERNORS = frozenset({
-    "vuonna", "vuoden", "vuodelta", "vuoteen", "vuodesta", "vuosina",
-})
 
 # Pass L: Roman numeral expansion.
 #
@@ -474,44 +322,30 @@ _FI_ROMAN_RE = re.compile(
     r"\b(?=[IVXLCDM]{2,}\b)(M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))\b"
 )
 
-# Tokens that are modern acronyms but happen to be valid Roman numerals.
-# Case-sensitive — matched against the raw (upper-cased) token.
-_FI_ROMAN_BLACKLIST = frozenset({
-    "DC",   # direct current
-    "LCD",  # liquid crystal display
-    "MVP",  # most valuable player
-    "CV",   # curriculum vitae
-    "CI",   # continuous integration / confidence interval
-    "MD",   # doctor of medicine
-    "ID",   # identification
-})
-
-# Regnal first names and ecclesial / political titles that, when they
-# immediately precede a Roman numeral, make it an ordinal (e.g. "Kustaa II").
-_FI_ROMAN_REGNAL_NAMES = frozenset({
-    "Kustaa", "Kaarle", "Juhana", "Eerik", "Henrik", "Pius", "Leo",
-    "Aleksanteri", "Nikolai", "Katariina", "Elisabet", "Yrjö",
-    "Fredrik", "Adolf", "Oskar", "Erik",
-})
-_FI_ROMAN_TITLES = frozenset({
-    "paavi", "Paavi", "kuningas", "Kuningas", "keisari", "Keisari",
-    "tsaari", "Tsaari", "sulttaani", "Sulttaani",
-})
-
-# Words that follow a Roman numeral and signal ordinal reading
-# (e.g. "XIX vuosisata" → "yhdeksästoista vuosisata").
-_FI_ROMAN_ORDINAL_AFTER = frozenset({
-    "vuosisata", "vuosisadalla", "vuosisadalta", "vuosisatana",
-    "luku", "luvulla", "luvulta", "luvussa", "luvun",
-    "kappale", "kappaleessa", "kappaletta",
-})
-
-# Words that precede a Roman numeral and signal ordinal reading
-# (e.g. "luku IV" → "luku neljäs").
-_FI_ROMAN_ORDINAL_BEFORE = frozenset({
-    "luku", "Luku", "luvussa", "luvun", "pykälä", "Pykälä",
-    "pykälässä", "kohta", "kohdassa",
-})
+# Roman numeral context sets — vocabulary lives in data/fi_roman_contexts.yaml.
+#
+# blacklist         — modern acronyms that also look Roman (DC, LCD, ...).
+# regnal_names      — royal first names (ordinal reading when they precede).
+# titles            — regnal/ecclesial titles (ordinal reading when they precede).
+# ordinal_before    — section keywords (ordinal when before).
+# ordinal_after     — century/chapter keywords (ordinal when after).
+@functools.lru_cache(maxsize=1)
+def _fi_roman_contexts() -> dict[str, frozenset[str]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("fi_roman_contexts") or {}
+    return {
+        "blacklist": frozenset(str(w) for w in (raw.get("blacklist") or [])),
+        "regnal_names": frozenset(
+            str(w) for w in (raw.get("regnal_names") or [])
+        ),
+        "titles": frozenset(str(w) for w in (raw.get("titles") or [])),
+        "ordinal_before": frozenset(
+            str(w) for w in (raw.get("ordinal_before") or [])
+        ),
+        "ordinal_after": frozenset(
+            str(w) for w in (raw.get("ordinal_after") or [])
+        ),
+    }
 
 
 def _roman_to_int(s: str) -> Optional[int]:
@@ -596,11 +430,12 @@ def _expand_roman_numerals(text: str) -> str:
 
     parts: list[str] = []
     cursor = 0
+    ctx = _fi_roman_contexts()
 
     for m in _FI_ROMAN_RE.finditer(text):
         token_str = m.group(0)
         # Blacklist check (case-sensitive on upper form).
-        if token_str.upper() in _FI_ROMAN_BLACKLIST:
+        if token_str.upper() in ctx["blacklist"]:
             continue
         n = _roman_to_int(token_str)
         if n is None:
@@ -614,15 +449,15 @@ def _expand_roman_numerals(text: str) -> str:
             after_words = _nearby_words(tok_idx, +1)
             # Regnal name or title immediately before → ordinal.
             if before_words and (
-                before_words[0] in _FI_ROMAN_REGNAL_NAMES
-                or before_words[0] in _FI_ROMAN_TITLES
+                before_words[0] in ctx["regnal_names"]
+                or before_words[0] in ctx["titles"]
             ):
                 is_ordinal = True
             # Section keyword before → ordinal.
-            elif before_words and before_words[0] in _FI_ROMAN_ORDINAL_BEFORE:
+            elif before_words and before_words[0] in ctx["ordinal_before"]:
                 is_ordinal = True
             # Century/chapter keyword after → ordinal.
-            elif after_words and after_words[0] in _FI_ROMAN_ORDINAL_AFTER:
+            elif after_words and after_words[0] in ctx["ordinal_after"]:
                 is_ordinal = True
 
         if is_ordinal:
@@ -761,19 +596,20 @@ def _fi_detect_case(
             j += step
 
     is_year = 1000 <= n <= 2100
+    before, after, year_governors = _fi_governors()
 
     # Nearest "before" governor wins.
     for lemma in _word_iter(idx - 1, -1):
-        if lemma in _FI_GOVERNOR_BEFORE:
+        if lemma in before:
             if year_shortening == "radio" and is_year \
-                    and lemma in _FI_YEAR_GOVERNORS:
+                    and lemma in year_governors:
                 return "nominative"
-            return _FI_GOVERNOR_BEFORE[lemma]
+            return before[lemma]
 
     # Otherwise look for a partitive-head "after" governor.
     for lemma in _word_iter(idx + 1, 1):
-        if lemma in _FI_GOVERNOR_AFTER:
-            return _FI_GOVERNOR_AFTER[lemma]
+        if lemma in after:
+            return after[lemma]
 
     return "nominative"
 
@@ -947,7 +783,7 @@ def normalize_finnish_text(
     def _century_sub(m: re.Match) -> str:
         return f"{_w(int(m.group(1)))} {m.group(2)}"
 
-    text = _FI_CENTURY_RE.sub(_century_sub, text)
+    text = _fi_century_re().sub(_century_sub, text)
 
     # Pass D — numeric ranges. Split the endpoints on the dash and let
     # Pass G's tokenizer + governor detection handle each endpoint

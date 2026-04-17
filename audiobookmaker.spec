@@ -106,8 +106,10 @@ datas += _all_pathvalidate[0]
 datas += collect_data_files('edge_tts')
 # customtkinter assets (themes, icons)
 datas += collect_data_files('customtkinter')
-# Finnish loanword lexicon used by the text normalizer
-datas += [(os.path.join('data', 'fi_loanwords.yaml'), 'data')]
+# YAML lexicons used by the text normalizers. Non-developers curate
+# these tables; the Python modules load them lazily from data/.
+for _yaml in glob.glob(os.path.join('data', '*.yaml')):
+    datas += [(_yaml, 'data')]
 # Chatterbox runner script — invoked as a subprocess by the unified GUI
 datas += [(os.path.join('scripts', 'generate_chatterbox_audiobook.py'), 'scripts')]
 # Bundle src modules needed by the Chatterbox subprocess script.
@@ -128,6 +130,7 @@ datas += [
     (os.path.join('src', 'tts_audio.py'), 'src'),
     (os.path.join('src', 'pdf_parser.py'), 'src'),
     (os.path.join('src', 'fi_loanwords.py'), 'src'),
+    (os.path.join('src', '_yaml_data.py'), 'src'),
 ]
 # Goat icon for the window title bar and taskbar
 datas += [(os.path.join('assets', 'icon.ico'), 'assets')]

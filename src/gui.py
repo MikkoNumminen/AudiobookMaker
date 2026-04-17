@@ -82,6 +82,7 @@ class App(tk.Tk):
     """Root application window."""
 
     def __init__(self) -> None:
+        """Initialise the window, load persisted preferences, and build the UI."""
         super().__init__()
         self.title(WINDOW_TITLE)
         self.minsize(WINDOW_MIN_W, WINDOW_MIN_H)
@@ -105,6 +106,7 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
 
     def _center_window(self) -> None:
+        """Position the window in the middle of the primary screen."""
         self.update_idletasks()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
@@ -373,6 +375,7 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
 
     def _populate_engine_list(self) -> None:
+        """Fill the engine combobox from the currently registered TTS engines."""
         engines = list_engines()
         self._engine_display_to_id = {e.display_name: e.id for e in engines}
         self._engine_cb["values"] = list(self._engine_display_to_id.keys())
@@ -380,14 +383,17 @@ class App(tk.Tk):
             self._engine_var.set(engines[0].display_name)
 
     def _current_engine(self) -> Optional[TTSEngine]:
+        """Return the TTSEngine for the selected combobox entry, or None."""
         display = self._engine_var.get()
         engine_id = self._engine_display_to_id.get(display)
         return get_engine(engine_id) if engine_id else None
 
     def _current_language(self) -> str:
+        """Return the ISO 639-1 code of the language selected in the UI."""
         return LANGUAGES.get(self._lang_var.get(), "fi")
 
     def _current_voice(self) -> Optional[Voice]:
+        """Return the Voice matching the current selection, or None if unresolved."""
         engine = self._current_engine()
         if not engine:
             return None
@@ -468,6 +474,7 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
 
     def _browse_pdf(self) -> None:
+        """Open a file picker for the input PDF and remember the chosen path."""
         path = filedialog.askopenfilename(
             title="Valitse PDF-tiedosto",
             filetypes=[("PDF-tiedostot", "*.pdf"), ("Kaikki tiedostot", "*.*")],
@@ -483,6 +490,7 @@ class App(tk.Tk):
                 self._output_path = suggested
 
     def _browse_reference_audio(self) -> None:
+        """Open a file picker for a voice-cloning reference audio clip."""
         path = filedialog.askopenfilename(
             title="Valitse referenssiäänitiedosto",
             filetypes=[
@@ -494,9 +502,11 @@ class App(tk.Tk):
             self._ref_audio_var.set(path)
 
     def _clear_reference_audio(self) -> None:
+        """Clear any previously selected reference audio path."""
         self._ref_audio_var.set("")
 
     def _browse_output(self) -> None:
+        """Pick an output MP3 file or directory depending on the output mode."""
         mode = OUTPUT_MODES[self._output_mode_var.get()]
         if mode == "single":
             path = filedialog.asksaveasfilename(
@@ -514,9 +524,11 @@ class App(tk.Tk):
                 self._out_var.set(path)
 
     def _on_language_changed(self, _event: object = None) -> None:
+        """Refresh the voice list when the user picks a different language."""
         self._refresh_voice_list()
 
     def _on_engine_changed(self, _event: object = None) -> None:
+        """Refresh the voice list and capability widgets when the engine changes."""
         self._refresh_voice_list()
 
     # ------------------------------------------------------------------
@@ -524,6 +536,7 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
 
     def _on_test_voice(self) -> None:
+        """Synthesise a short sample with the current settings and play it."""
         if self._testing_voice:
             return
         engine = self._current_engine()
@@ -540,6 +553,7 @@ class App(tk.Tk):
         thread.start()
 
     def _test_voice_worker(self) -> None:
+        """Background worker for the Test voice button; writes to a temp MP3."""
         try:
             engine = self._current_engine()
             voice = self._current_voice()
@@ -574,6 +588,7 @@ class App(tk.Tk):
             self.after(0, lambda: setattr(self, "_testing_voice", False))
 
     def _safe_play_sample(self, path: str) -> None:
+        """Hand playback back to the Tk main thread and open the MP3 externally."""
         def _play() -> None:
             self._test_btn.config(state=tk.NORMAL)
             self._testing_voice = False
@@ -601,6 +616,7 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
 
     def _start_conversion(self) -> None:
+        """Validate inputs and spawn the background PDF-to-audio conversion."""
         if self._converting:
             return
         if not self._pdf_path:
@@ -695,15 +711,18 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
 
     def _safe_update_status(self, msg: str) -> None:
+        """Thread-safe status line update; schedules the change on the Tk loop."""
         self.after(0, lambda: self._status_var.set(msg))
 
     def _safe_update_progress(self, pct: float, msg: str) -> None:
+        """Thread-safe update of the progress bar and status line."""
         def _update() -> None:
             self._progress_var.set(pct)
             self._status_var.set(msg)
         self.after(0, _update)
 
     def _safe_conversion_done(self, success: bool, message: str) -> None:
+        """Reset UI state and show the final success/error dialog from the Tk loop."""
         def _done() -> None:
             self._converting = False
             self._convert_btn.config(state=tk.NORMAL)

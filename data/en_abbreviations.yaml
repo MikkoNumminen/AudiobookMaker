@@ -1,0 +1,44 @@
+# English abbreviation expansion table for the TTS normalizer.
+#
+# Loaded by src/tts_normalizer_en.py Pass C. Each entry is a
+# [abbreviation, expansion] pair. Order matters: longer/more-specific
+# patterns come first so "U.S.A." does not get half-matched by "U.S.".
+# Abbreviations ending in `.` are matched literally; the rest use
+# word-boundary regex anchoring.
+#
+# St. (Saint/Street) is handled separately in Python because the
+# decision is context-dependent (next token capitalisation).
+
+- ["i.e.",  "that is"]
+- ["e.g.",  "for example"]
+- ["etc.",  "et cetera"]
+- ["cf.",   "compare"]
+- ["vs.",   "versus"]
+- ["vs",    "versus"]
+- ["viz.",  "namely"]
+- ["a.m.",  "a m"]
+- ["p.m.",  "p m"]
+- ["A.M.",  "A M"]
+- ["P.M.",  "P M"]
+- ["Mr.",   "Mister"]
+- ["Mrs.",  "Misses"]
+- ["Ms.",   "Miss"]
+- ["Dr.",   "Doctor"]
+- ["Prof.", "Professor"]
+- ["Rev.",  "Reverend"]
+- ["Hon.",  "Honorable"]
+- ["Sr.",   "Senior"]
+- ["Jr.",   "Junior"]
+- ["Mt.",   "Mount"]
+- ["Ft.",   "Fort"]
+- ["U.S.A.", "U S A"]
+- ["U.S.",   "United States"]
+- ["U.K.",   "United Kingdom"]
+- ["U.N.",   "United Nations"]
+- ["No.",   "Number"]
+- ["Vol.",  "Volume"]
+- ["Ch.",   "Chapter"]
+- ["Fig.",  "Figure"]
+- ["Eq.",   "Equation"]
+- ["pp.",   "pages"]
+- ["p.",    "page"]

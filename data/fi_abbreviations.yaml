@@ -1,0 +1,40 @@
+# Finnish abbreviation expansion table for the TTS normalizer Pass K.
+#
+# Loaded by src/tts_normalizer_fi.py. Keys are the abbreviation form
+# (case as written in Finnish); values are the full spoken form.
+# Matching is case-insensitive and the expansion is emitted lowercase,
+# except for the era keys `eKr.` / `jKr.` which are looked up by the
+# original casing so the Kristus / Kristuksen form is preserved.
+
+# Reference abbreviations
+"yms.": "ynnä muuta sellaista"
+"tms.": "tai muuta sellaista"
+"jne.": "ja niin edelleen"
+"vrt.": "vertaa"
+"huom.": "huomaa"
+"esim.": "esimerkiksi"
+"ts.": "toisin sanoen"
+"ks.": "katso"
+"ym.": "ynnä muuta"
+"mm.": "muun muassa"
+"nk.": "niin kutsuttu"
+"ns.": "niin sanottu"
+"ko.": "kyseinen"
+"ao.": "asianomainen"
+"ed.": "edellinen"
+# Era abbreviations (mixed case — looked up case-sensitively as a fallback)
+"eKr.": "ennen Kristusta"
+"jKr.": "jälkeen Kristuksen"
+"eaa.": "ennen ajanlaskun alkua"
+"jaa.": "jälkeen ajanlaskun alun"
+# Titles
+"prof.": "professori"
+"dos.": "dosentti"
+"fil.": "filosofian"
+"maist.": "maisteri"
+"kand.": "kandidaatti"
+"toim.": "toimittaja"
+# Count / quantity
+"kpl.": "kappaletta"
+"milj.": "miljoonaa"
+"mrd.": "miljardia"

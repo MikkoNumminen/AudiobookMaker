@@ -105,6 +105,8 @@ _STRINGS: dict[str, dict[str, str]] = {
 
 @dataclass
 class RecordingResult:
+    """Outcome of a voice recording attempt returned to callers."""
+
     success: bool
     wav_path: Optional[Path] = None
     error: str = ""
@@ -132,6 +134,7 @@ def _read_wav_samples(path: Path) -> tuple[int, int, list[int]]:
 
 
 def _downmix_mono(samples: list[int], n_channels: int) -> list[int]:
+    """Average interleaved multi-channel samples down to a single mono track."""
     if n_channels == 1:
         return samples
     mono: list[int] = []
@@ -142,6 +145,7 @@ def _downmix_mono(samples: list[int], n_channels: int) -> list[int]:
 
 
 def _rms_dbfs(samples: list[int]) -> float:
+    """Return RMS loudness of int16 samples in decibels relative to full scale."""
     if not samples:
         return -100.0
     sq_sum = sum(s * s for s in samples)
@@ -153,6 +157,7 @@ def _rms_dbfs(samples: list[int]) -> float:
 
 
 def _clipping_ratio(samples: list[int]) -> float:
+    """Return the fraction of int16 samples pinned at the positive or negative rails."""
     if not samples:
         return 0.0
     clipped = sum(1 for s in samples if s >= 32767 or s <= -32768)
@@ -183,6 +188,8 @@ def _estimate_snr(samples: list[int], sample_rate: int) -> float:
 
 @dataclass
 class _CheckResult:
+    """Single preflight check outcome with a human-readable detail string."""
+
     name: str
     passed: bool
     detail: str
@@ -236,6 +243,7 @@ def run_preflight(path: Path) -> list[_CheckResult]:
 
 
 def _ffmpeg_binary() -> str:
+    """Return the path to a usable ffmpeg executable, raising if none is found."""
     # Try project-local ffmpeg first (bundled builds)
     try:
         from src.ffmpeg_path import get_ffmpeg_path  # type: ignore
@@ -251,6 +259,7 @@ def _ffmpeg_binary() -> str:
 
 
 def _ffplay_binary() -> str:
+    """Return the path to a usable ffplay executable, raising if none is found."""
     ff = shutil.which("ffplay")
     if ff:
         return ff
@@ -299,6 +308,7 @@ def _list_dshow_devices() -> list[str]:
 
 
 def _timestamped_path() -> Path:
+    """Return a unique WAV path under the voice_samples directory."""
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     return VOICE_SAMPLES_DIR / f"sample_{ts}.wav"
 
@@ -311,7 +321,8 @@ def _timestamped_path() -> Path:
 class VoiceRecorderDialog:
     """Modal dialog for recording voice clips for Chatterbox cloning."""
 
-    def __init__(self, parent: tk.Tk, ui_lang: str = "fi"):
+    def __init__(self, parent: tk.Tk, ui_lang: str = "fi") -> None:
+        """Create the dialog parented to ``parent``; localised via ``ui_lang`` (fi/en)."""
         self._parent = parent
         self._lang = ui_lang if ui_lang in _STRINGS else "fi"
         self._result_path: Optional[Path] = None
@@ -327,11 +338,13 @@ class VoiceRecorderDialog:
     # -- i18n helper --------------------------------------------------------
 
     def _s(self, key: str) -> str:
+        """Look up a translated string for the current UI language."""
         return _STRINGS.get(self._lang, _STRINGS["fi"]).get(key, key)
 
     # -- dialog construction ------------------------------------------------
 
     def _build_dialog(self) -> None:
+        """Construct every widget in the modal dialog."""
         self._dlg = tk.Toplevel(self._parent)
         self._dlg.title(self._s("title"))
         self._dlg.resizable(False, False)
@@ -432,6 +445,7 @@ class VoiceRecorderDialog:
     # -- device enumeration -------------------------------------------------
 
     def _populate_devices(self) -> None:
+        """Fill the microphone combobox; only Windows enumerates DirectShow devices."""
         if _plat.system() != "Windows":
             self._dev_combo.configure(values=[self._s("dev_default")])
             self._dev_var.set(self._s("dev_default"))
@@ -453,12 +467,14 @@ class VoiceRecorderDialog:
     # -- recording control --------------------------------------------------
 
     def _toggle_record(self) -> None:
+        """Start or stop recording depending on the current state."""
         if self._recording:
             self._stop_record()
         else:
             self._start_record()
 
     def _start_record(self) -> None:
+        """Spawn an ffmpeg capture process and update the UI for recording state."""
         try:
             ffmpeg = _ffmpeg_binary()
         except FileNotFoundError:
@@ -516,6 +532,7 @@ class VoiceRecorderDialog:
         self._tick_progress()
 
     def _tick_progress(self) -> None:
+        """Periodic timer callback that updates the elapsed/progress widgets."""
         if not self._recording:
             return
         elapsed = time.time() - self._rec_start
@@ -530,6 +547,7 @@ class VoiceRecorderDialog:
         self._dlg.after(200, self._tick_progress)
 
     def _stop_record(self) -> None:
+        """Ask ffmpeg to finish gracefully and await completion off the UI thread."""
         if self._rec_process and self._rec_process.poll() is None:
             # Send 'q' to ffmpeg stdin to stop gracefully
             try:
@@ -541,6 +559,7 @@ class VoiceRecorderDialog:
         threading.Thread(target=self._wait_record, daemon=True).start()
 
     def _wait_record(self) -> None:
+        """Background thread that waits for ffmpeg to exit then signals the UI."""
         if self._rec_process:
             try:
                 self._rec_process.wait(timeout=5)
@@ -549,6 +568,7 @@ class VoiceRecorderDialog:
         self._dlg.after(0, self._on_record_done)
 
     def _on_record_done(self) -> None:
+        """Handle end-of-recording: restore buttons and kick off preflight checks."""
         self._recording = False
         self._rec_btn.configure(text=self._s("record"), bg="#cc3333")
         self._dev_combo.configure(state="readonly")
@@ -562,11 +582,13 @@ class VoiceRecorderDialog:
             self._status_var.set(self._s("rec_failed"))
 
     def _run_checks(self) -> None:
+        """Background worker that runs preflight analysis on the recorded WAV."""
         assert self._wav_path is not None
         checks = run_preflight(self._wav_path)
         self._dlg.after(0, self._display_checks, checks)
 
     def _display_checks(self, checks: list[_CheckResult]) -> None:
+        """Render preflight outcomes in the quality-check frame and enable the buttons."""
         check_order = ["sample_rate", "duration", "clipping", "loudness", "snr"]
         check_map = {c.name: c for c in checks}
         all_pass = True
@@ -595,6 +617,7 @@ class VoiceRecorderDialog:
             self._dur_var.set(chk_dur.detail)
 
     def _reset_checks(self) -> None:
+        """Restore the quality indicators to their neutral pre-recording state."""
         check_keys = ["chk_rate", "chk_dur", "chk_clip", "chk_loud", "chk_snr"]
         for i, key in enumerate(check_keys):
             ind, lbl = self._check_widgets[i]
@@ -604,6 +627,7 @@ class VoiceRecorderDialog:
     # -- playback -----------------------------------------------------------
 
     def _play(self) -> None:
+        """Play the recorded clip via ffplay (or afplay on macOS); toggles stop."""
         if not self._wav_path or not self._wav_path.exists():
             return
         # Kill any existing playback
@@ -633,6 +657,7 @@ class VoiceRecorderDialog:
     # -- re-record / use / cancel -------------------------------------------
 
     def _rerecord(self) -> None:
+        """Discard the current clip and return the dialog to a ready-to-record state."""
         # Clean up old file
         if self._wav_path and self._wav_path.exists():
             try:
@@ -649,10 +674,12 @@ class VoiceRecorderDialog:
         self._reset_checks()
 
     def _use_clip(self) -> None:
+        """Accept the current recording as the result and close the dialog."""
         self._result_path = self._wav_path
         self._cleanup_and_close()
 
     def _on_cancel(self) -> None:
+        """Abort any recording, delete the temp file, and close without a result."""
         # If recording, stop it
         if self._recording:
             self._stop_record()
@@ -666,6 +693,7 @@ class VoiceRecorderDialog:
         self._cleanup_and_close()
 
     def _cleanup_and_close(self) -> None:
+        """Terminate any child ffmpeg/ffplay processes and destroy the dialog."""
         if self._play_process and self._play_process.poll() is None:
             self._play_process.terminate()
         if self._rec_process and self._rec_process.poll() is None:

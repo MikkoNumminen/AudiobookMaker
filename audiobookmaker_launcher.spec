@@ -23,6 +23,7 @@
 # Smoke test (post-build) on a Windows runner:
 #   dist\AudiobookMakerLauncher\AudiobookMakerLauncher.exe --self-test
 
+import glob
 import os
 from PyInstaller.utils.hooks import (
     collect_data_files,
@@ -70,6 +71,7 @@ hidden_imports = [
     "src._en_pass_p_telephone",
     "src._en_pass_r_urls",
     "src._en_pass_s_acronyms",
+    "src._yaml_data",
     "src.tts_chunking",
     "src.tts_audio",
     "src.pdf_parser",
@@ -118,6 +120,12 @@ if os.path.exists(ffmpeg_src):
 # piper ships its phonemizer data; same as the advanced-mode spec.
 datas += collect_data_files("piper")
 datas += collect_data_files("onnxruntime")
+
+# YAML lexicons used by the text normalizers (abbreviations, acronyms,
+# governors, unit tables, loanword respellings). Non-developers curate
+# these tables; the Python modules load them lazily from data/.
+for _yaml in glob.glob(os.path.join("data", "*.yaml")):
+    datas.append((_yaml, "data"))
 
 # Bundle the Finnish quickstart doc so the launcher's "Ohje" link can
 # open it locally even if the user is offline.

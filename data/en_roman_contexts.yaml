@@ -1,0 +1,63 @@
+# English context words that legitimise expanding a following Roman
+# numeral. Loaded by src/tts_normalizer_en.py Pass D.
+#
+# cardinal: "Chapter IV" -> "Chapter four"
+# regnal:   "Louis XIV"  -> "Louis the fourteenth"
+#
+# Entries are exact-case — only the capitalised forms below count
+# as legitimate context words. A bare "I" without one of these
+# preceding tokens is never expanded.
+
+cardinal:
+- Chapter
+- Book
+- Part
+- Volume
+- Section
+- Act
+- Scene
+- Article
+- Appendix
+- Figure
+- Table
+- Phase
+- Stage
+- Episode
+- Series
+
+regnal:
+- Pope
+- King
+- Queen
+- Emperor
+- Empress
+- Tsar
+- Sultan
+- Louis
+- Henry
+- Edward
+- George
+- William
+- Richard
+- Charles
+- James
+- Elizabeth
+- Mary
+- Victoria
+- Albert
+- Frederick
+- Philip
+- Napoleon
+- Nicholas
+- Alexander
+- Peter
+- Paul
+- John
+- Pius
+- Benedict
+- Leo
+- Gregory
+- Innocent
+- Clement
+- Urban
+- Boniface
