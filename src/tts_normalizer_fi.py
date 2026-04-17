@@ -690,8 +690,31 @@ _FI_MORPHEME_STEMS: tuple[str, ...] = (
     "sataan",
     "kymmeneen",
 )
+# Restrict the split to cases where a digit (1-9) or a further tens
+# stem (`kymmen*`) actually follows. Any-letter lookahead was too
+# permissive — it would match e.g. the malformed ordinal
+# `viidenkymmenennen` and split off the trailing `nen` as a spurious
+# token (`viidenkymmenen nen`), which then gets mispronounced.
+# Finnish digit forms (nominative, genitive, partitive, and oblique
+# cases 1-9) all start with one of these three-letter prefixes. A
+# bare three-letter token that is NOT a digit stem (`nen`, `sta`,
+# etc.) will fail the lookahead and leave the compound untouched.
+_FI_COMPOUND_DIGIT_PREFIXES: tuple[str, ...] = (
+    "yks",  # yksi (1)
+    "yhd",  # yhden (1 gen), yhdeksän (9), yhdeksää (9 part)
+    "yht",  # yhtä (1 part)
+    "kak",  # kaksi (2)
+    "kah",  # kahden (2 gen), kahta (2 part), kahdeksan (8)
+    "kol",  # kolme (3)
+    "nel",  # neljä (4), neljän (4 gen), neljää (4 part)
+    "vii",  # viisi (5), viiden (5 gen), viittä (5 part)
+    "kuu",  # kuusi (6), kuuden (6 gen), kuutta (6 part)
+    "sei",  # seitsemän (7), seitsemää (7 part)
+    "kym",  # middle-tens kymmen* (e.g. sadankahden|kymmenen|viiden)
+)
 _FI_MORPHEME_BOUNDARY_RE = re.compile(
-    r"(" + "|".join(_FI_MORPHEME_STEMS) + r")(?=[a-zäöå])"
+    r"(" + "|".join(_FI_MORPHEME_STEMS) + r")"
+    r"(?=(?:" + "|".join(_FI_COMPOUND_DIGIT_PREFIXES) + r"))"
 )
 
 

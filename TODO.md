@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 3 | 🔵 working | Audit quick-wins batch (CI pins, regex hoist, Pillow, MP3 bitrate, time tests) | 2026-04-17 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,6 +30,14 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### Audit quick-wins batch [Claude 3, worktree-audit-quick-wins]
+- [ ] Pin CI runner images (`windows-2022`, `ubuntu-24.04`) across all three workflows. 🟢 ⚡ Sonnet.
+- [ ] Pin ffmpeg in `build-launcher.yml` with SHA-256 + release tag, mirroring `build-release.yml`. 🟢 ⚡ Sonnet.
+- [ ] Pin Pillow version in `requirements.txt` (currently `>=10.0.0`). 🟢 ⚡ Sonnet.
+- [ ] Hoist per-call regex compilation in `tts_normalizer_fi.py:929-930`, `tts_normalizer_en.py:168-176`, `fi_loanwords.py:163-167`. 🟢 ⚡ Sonnet.
+- [ ] MP3 export bitrate → 128k in `src/tts_audio.py` (and Chatterbox export sites). 🟢 ⚡ Sonnet.
+- [ ] English normalizer Pass N (time of day) test file — `tests/test_tts_normalizer_en_time.py`. 🟢 ⚡ Sonnet.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Tier 1 validation in progress: `scripts/stress_test_chatterbox_longrun.py` runs 500 `engine.generate()` calls in one process to catch drift fast before committing to a 5h re-synth. If Tier 1 passes, next is Tier 2 (regenerate the tail of the problem Finnish audiobook from ~hour 4 onward using existing `.chunks/` cache). Confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. 🟡 🧠 Opus.
@@ -103,12 +111,6 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 ### Auto-update: pin setup.iss version to APP_VERSION
 - [ ] `installer/setup.iss:35,70,225` hardcodes `1.0.0` while `src/auto_updater.py:27` is `3.7.1`. CI rewrites at build time (`build-release.yml:81`) so release artifacts are correct today, but any off-CI build ships a mis-branded installer → corrupts the upgrade graph. Auto-update is existential. Fix: convert to `#define MyAppVersion` like `launcher.iss`, and add a CI assertion step that fails the build if `auto_updater.APP_VERSION != inno_version`. 🟡 🧠 Opus.
 
-### CI: pin ffmpeg in build-launcher.yml (SHA-256 + same release as build-release.yml)
-- [ ] `.github/workflows/build-launcher.yml:43-48` downloads ffmpeg from the unpinned `latest` tag without hash verification. Supply-chain risk + reproducibility gap — launcher and main app can drift onto different ffmpeg builds. Mirror the `FFMPEG_RELEASE` + SHA-256 pattern already in `build-release.yml:33-46`. 🟢 ⚡ Sonnet.
-
-### CI: pin runner images
-- [ ] All three workflows use `-latest` labels (`windows-latest`, `ubuntu-latest`). Bump deliberately: `windows-2022`, `ubuntu-24.04`. 🟢 ⚡ Sonnet.
-
 ### Engine registry consolidation
 - [ ] Adding a new TTS engine currently needs import edits in `gui.py:32-34`, `gui_unified.py:56-65`, `launcher.py:62-68`, plus `_GPU_ENGINES` in `duration_estimate.py`, plus hardcoded `"chatterbox_fi"` checks scattered ~10× in `gui_unified.py`. Central `src/engine_registry.py` imports every engine module in one place; engine metadata (display_name, is_gpu, uses_subprocess, requires_bridge_runner) moves onto `TTSEngine` class variables so the GUI stops branching on engine id. 🔴 🧠 Opus.
 
@@ -121,20 +123,11 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 ### Normalizer: document pass-ordering invariants
 - [ ] `normalize_finnish_text` has an implicit M → D → F → G dependency: if someone reorders "unit expansion" to run after the governor pass, the governor lookup (`5 prosenttia` → case inflection) silently breaks. Same pattern in English (O before F, P before G, I/H before G). Add a "Pass ordering invariants" section to each main normalizer's docstring listing the dependencies + why. 🟢 ⚡ Sonnet.
 
-### Normalizer: hoist per-call regex compilation
-- [ ] Three hot spots still compile regexes on every call: `tts_normalizer_fi.py:929-930` (whitespace cleanup run per chunk), `tts_normalizer_en.py:168-176` (per-abbreviation), `fi_loanwords.py:163-167` (per Latin phrase). Pre-compile module-level. 🟢 ⚡ Sonnet.
-
-### English normalizer: Pass N (time of day) has no test file
-- [ ] `tts_normalizer_en.py:648-677` implements 12h/24h time rewriting but no `tests/test_tts_normalizer_en_time.py` exists. Add covering 12h vs 24h, minute teens (oh-one … oh-nine), noon, midnight, minutes 0–59. 🟢 ⚡ Sonnet.
-
 ### End-to-end synthesis test with a real engine (Piper)
 - [ ] `test_integration.py:126-174` uses `_StubEngine` and is gated on ffmpeg availability. No coverage verifying that Edge/Piper/VoxCPM actually produce a playable MP3. Add an offline, no-GPU E2E test using Piper (bundled, deterministic): 2-sentence PDF → MP3, assert duration > 0 + MP3 header + silence distribution within tolerance. Mark `@pytest.mark.slow`. 🟡 🧠 Opus.
 
 ### Test infrastructure: block network calls by default
 - [ ] `tests/conftest.py` doesn't globally block network access; each file patches individually. Add autouse fixture that patches `urllib.request.urlopen` + `socket.socket` to raise unless `@pytest.mark.network` is set. Mark existing tests that genuinely need patched network with `network`. Also add `@pytest.mark.gpu` for future CUDA tests. 🟢 ⚡ Sonnet.
-
-### Dependency: pin Pillow version
-- [ ] `requirements.txt:26` uses `Pillow>=10.0.0` while every other package is `==` pinned. pip will silently upgrade on rebuild. Pin to a tested version. 🟢 ⚡ Sonnet.
 
 ### Hardcoded drive letters (C:, D:) in install path candidates
 - [ ] `cleanup.py:74-76`, `launcher_bridge.py:505-506`, `engine_installer.py:63` only consider C: and D:. Users with system drive E: or F: are invisible. Enumerate drives dynamically (`string.ascii_uppercase` + `os.path.exists`). Also remove the dev-path leak `D:/koodaamista/AudiobookMakerApp` from `cleanup.py:76`. 🟢 ⚡ Sonnet.
@@ -144,9 +137,6 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 
 ### Chatterbox: expose --chunk-chars in GUI
 - [ ] `scripts/generate_chatterbox_audiobook.py:244` accepts `--chunk-chars` (default 300) but the GUI hardcodes the CLI invocation in `src/gui_synth_mixin.py` without exposing it. Add a settings-panel control; plumb through the subprocess args. 🟢 ⚡ Sonnet.
-
-### MP3 export bitrate tuning for speech
-- [ ] `src/tts_audio.py:111` (and the Chatterbox export sites) use pydub's default MP3 bitrate (~192 kbps). Speech is transparent at 96–128 kbps — 30-50% smaller files. Set `bitrate="128k"`; optionally expose as a setting. Note: only relevant after the streaming-assembly rewrite lands. 🟢 ⚡ Sonnet.
 
 ### Docs: english_normalizer_plan.md §3 missing Pass R (URLs/emails)
 - [ ] Plan table stops at Phase 1 A-K. Code implements R/L/M/N/O/P/S. Update §3 to list all 17 English passes in execution order with source links. 🟢 ⚡ Sonnet.

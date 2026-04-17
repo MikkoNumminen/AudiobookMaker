@@ -727,6 +727,27 @@ class TestPassHMorphemeOrdering:
         result = normalize_finnish_text("1889")
         assert "kahdeksansataa kahdeksankymmentä yhdeksän" in result
 
+    def test_malformed_ordinal_not_split_off_nen(self) -> None:
+        # Regression: the malformed ordinal `viidenkymmenennen` used
+        # to be split into `viidenkymmenen nen` because the lookahead
+        # accepted any letter after `kymmenen`. The stricter
+        # digit-prefix lookahead must refuse: `nen` is not a Finnish
+        # digit stem (unlike `neljä`), so the compound stays intact.
+        assert "viidenkymmenen nen" not in normalize_finnish_text(
+            "viidenkymmenennen"
+        )
+
+    def test_digit_prefix_lookahead_still_splits_genitive_chain(self) -> None:
+        # 125 genitive is `sadankahdenkymmenenviiden`. The stricter
+        # lookahead must still split both internal morphemes, because
+        # `kah` (kahden) and `vii` (viiden) are valid digit prefixes.
+        result = normalize_finnish_text("sivun 125")
+        # We don't assert the exact case form here — only that the
+        # morphemes got separated and `sadan`/`kymmenen` are not glued
+        # to the following digit stem.
+        assert "sadankahden" not in result
+        assert "kymmenenviiden" not in result
+
 
 class TestShortRangeGovernorInflection:
     """Pass D now matches 1–4 digit ranges so short ranges like
