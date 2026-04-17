@@ -46,6 +46,12 @@ from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent
 from src.pdf_parser import parse_pdf, BookMetadata, Chapter, ParsedBook
 from src.epub_parser import parse_epub
+from src.synthesis_orchestrator import (
+    parse_book,
+    default_output_dir,
+    suggest_output_path,
+    next_available_numbered_path,
+)
 try:
     from src import duration_estimate as _duration_estimate
 except Exception:  # pragma: no cover — module might be stubbed in parallel dev
@@ -370,48 +376,6 @@ _STRINGS = {
 
 
 from src.gui_engine_dialog import EngineManagerDialog, EngineManagerView  # noqa: E402,F401
-
-
-# ---------------------------------------------------------------------------
-# Book input dispatcher
-# ---------------------------------------------------------------------------
-
-
-def parse_book(file_path: str) -> ParsedBook:
-    """Route a book-shaped file to the right parser by extension.
-
-    ``.pdf``  -> :func:`src.pdf_parser.parse_pdf`
-    ``.epub`` -> :func:`src.epub_parser.parse_epub`
-    ``.txt``  -> read UTF-8, wrap as a single-chapter ParsedBook
-
-    Keeping the dispatcher in one place means every call site (conversion,
-    preview, disk-space estimate) stays in sync when new formats are added.
-    """
-    ext = Path(file_path).suffix.lower()
-    if ext == ".pdf":
-        return parse_pdf(file_path)
-    if ext == ".epub":
-        return parse_epub(file_path)
-    if ext == ".txt":
-        text = Path(file_path).read_text(encoding="utf-8", errors="replace")
-        meta = BookMetadata(
-            title=Path(file_path).stem.replace("_", " ").title(),
-            author="",
-            subject="",
-            num_pages=1,
-            file_path=str(file_path),
-        )
-        chapter = Chapter(
-            title=meta.title or "Text",
-            content=text,
-            page_start=1,
-            page_end=1,
-            index=0,
-        )
-        return ParsedBook(metadata=meta, chapters=[chapter])
-    # Unknown extension — default to PDF so legacy call sites still raise
-    # the familiar error message.
-    return parse_pdf(file_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1973,36 +1937,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         bump it to the next free numbered variant so Muunna never
         overwrites the previous recording.
 
-        Examples:
-            texttospeech_3.mp3 (exists) → texttospeech_4.mp3
-            book.mp3 (exists)           → book_2.mp3
-            book_5.mp3 (exists)         → book_6.mp3
+        Pure numbering logic lives in
+        :func:`synthesis_orchestrator.next_available_numbered_path`;
+        this method only updates the widget state.
         """
         if not self._output_path:
             return
-        target = Path(self._output_path)
-        if not target.exists():
+        new_path = next_available_numbered_path(self._output_path)
+        if new_path == self._output_path:
             return  # Fresh name, nothing to do.
-
-        stem = target.stem
-        suffix = target.suffix or ".mp3"
-        parent = target.parent
-
-        # Split trailing _N off the stem, defaulting to 1 if not numbered.
-        import re
-        match = re.match(r"^(.*?)_(\d+)$", stem)
-        if match:
-            base, n = match.group(1), int(match.group(2))
-        else:
-            base, n = stem, 1
-
-        while True:
-            n += 1
-            candidate = parent / f"{base}_{n}{suffix}"
-            if not candidate.exists():
-                break
-
-        new_path = str(candidate)
         self._output_path = new_path
         self._out_entry.configure(state="normal")
         self._out_entry.delete(0, tk.END)
@@ -2010,32 +1953,17 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._out_entry.configure(state="disabled")
 
     def _default_output_dir(self) -> Path:
-        """Return the default folder where generated MP3s go.
-
-        Installed (frozen) mode: next to the running .exe (install root).
-        Dev mode: Documents\\AudiobookMaker (no sensible install root
-        when running from source).
-        """
-        if getattr(sys, "frozen", False):
-            return Path(sys.executable).resolve().parent
-        return Path.home() / "Documents" / "AudiobookMaker"
+        """Thin wrapper around :func:`synthesis_orchestrator.default_output_dir`."""
+        return default_output_dir()
 
     def _auto_output_path(self) -> None:
-        """Generate an automatic output path based on current input mode."""
-        if self._input_mode == "pdf" and self._pdf_path:
-            # Output goes next to the PDF: book.pdf -> book.mp3
-            suggested = str(Path(self._pdf_path).with_suffix(".mp3"))
-        else:
-            # Auto-increment: texttospeech_1.mp3, texttospeech_2.mp3, ...
-            out_dir = self._default_output_dir()
-            out_dir.mkdir(parents=True, exist_ok=True)
-            n = 1
-            while True:
-                candidate = out_dir / f"texttospeech_{n}.mp3"
-                if not candidate.exists():
-                    break
-                n += 1
-            suggested = str(candidate)
+        """Generate an automatic output path based on current input mode.
+
+        Path computation lives in
+        :func:`synthesis_orchestrator.suggest_output_path`; this method
+        only syncs the widget + state.
+        """
+        suggested = suggest_output_path(self._input_mode, self._pdf_path)
         self._out_entry.configure(state="normal")
         self._out_entry.delete(0, tk.END)
         self._out_entry.insert(0, suggested)
