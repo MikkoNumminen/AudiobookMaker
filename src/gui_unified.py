@@ -47,10 +47,12 @@ from src.launcher_bridge import ChatterboxRunner, ProgressEvent
 from src.pdf_parser import parse_pdf, BookMetadata, Chapter, ParsedBook
 from src.epub_parser import parse_epub
 from src.synthesis_orchestrator import (
-    parse_book,
+    InprocessRequest,
     default_output_dir,
-    suggest_output_path,
     next_available_numbered_path,
+    parse_book,
+    run_inprocess_synthesis,
+    suggest_output_path,
 )
 try:
     from src import duration_estimate as _duration_estimate
@@ -2935,6 +2937,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     ) -> None:
         """Start synthesis in a background thread for registry engines.
 
+        Widget state is captured on the main thread and frozen into an
+        :class:`InprocessRequest`; the background thread then hands it
+        to :func:`run_inprocess_synthesis`, which emits
+        ``ProgressEvent``s back through our queue. Tkinter widgets are
+        never read off-thread.
+
         ``text_override`` and ``output_path_override`` let the sample
         flow inject a truncated text snippet and a sibling ``_sample``
         output path without mutating the host's state.
@@ -2956,90 +2964,26 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         voice = self._current_voice()
         voice_id = voice.id if voice else None
         language = self._current_language()
-        speed = SPEED_OPTIONS[self._ui_lang].get(self._speed_cb.get(), "+0%")
         ref_audio = self._ref_audio_var.get() or None
         voice_desc = self._voice_desc_var.get() or None
 
+        request = InprocessRequest(
+            engine_id=engine_id,
+            language=language,
+            input_mode=input_mode,
+            output_path=output_path,
+            voice_id=voice_id,
+            pdf_path=pdf_path,
+            input_text=input_text,
+            reference_audio=ref_audio,
+            voice_description=voice_desc,
+        )
+
         threading.Thread(
-            target=self._run_inprocess,
-            args=(engine_id, input_mode, pdf_path, input_text,
-                  output_path, voice_id, language, speed,
-                  ref_audio, voice_desc),
+            target=run_inprocess_synthesis,
+            args=(request, self._event_queue.put),
             daemon=True, name=f"tts-{engine_id}",
         ).start()
-
-    def _run_inprocess(
-        self, engine_id: str, input_mode: str,
-        pdf_path: Optional[str], input_text: Optional[str],
-        output_path: Optional[str], voice_id: Optional[str],
-        language: str, speed: str,
-        ref_audio: Optional[str], voice_desc: Optional[str],
-    ) -> None:
-        """Background thread for in-process TTS synthesis."""
-        try:
-            engine = get_engine(engine_id)
-            if engine is None:
-                raise RuntimeError(f"Engine '{engine_id}' not found.")
-
-            self._event_queue.put(
-                ProgressEvent(kind="log", raw_line="Reading input...")
-            )
-
-            if input_mode == "pdf":
-                assert pdf_path is not None
-                book = parse_book(pdf_path)
-                text = book.full_text
-            else:
-                text = input_text or ""
-
-            if not text:
-                raise ValueError("No text to synthesize.")
-
-            if voice_id is None:
-                voice_id = engine.default_voice(language)
-                if voice_id is None:
-                    raise RuntimeError("No voice available for the selected language.")
-
-            self._event_queue.put(
-                ProgressEvent(kind="log", raw_line=f"Synthesizing ({len(text)} chars)...")
-            )
-
-            # Create output directory.
-            out = Path(output_path) if output_path else (
-                self._default_output_dir() / "output.mp3"
-            )
-            out.parent.mkdir(parents=True, exist_ok=True)
-
-            def progress_cb(current: int, total: int, msg: str = "") -> None:
-                pct = (current / total) if total > 0 else 0
-                self._event_queue.put(ProgressEvent(
-                    kind="chunk",
-                    total_done=current,
-                    total_chunks=total,
-                    raw_line=msg or f"Chunk {current}/{total}",
-                ))
-
-            engine.synthesize(
-                text=text,
-                output_path=str(out),
-                voice_id=voice_id,
-                language=language,
-                progress_cb=progress_cb,
-                reference_audio=ref_audio,
-                voice_description=voice_desc,
-            )
-
-            self._event_queue.put(ProgressEvent(
-                kind="done",
-                output_path=str(out),
-                raw_line=f"Saved: {out}",
-            ))
-
-        except Exception as exc:
-            self._event_queue.put(ProgressEvent(
-                kind="error",
-                raw_line=str(exc),
-            ))
 
     # ------------------------------------------------------------------
     # Chatterbox subprocess relay
