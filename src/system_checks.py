@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from src.cleanup import BYTES_PER_MB
+
 
 @dataclass
 class GpuInfo:
@@ -122,7 +124,7 @@ def detect_gpu() -> GpuInfo:
                             has_nvidia=True,
                             gpu_name=name,
                             driver_version=gpu.get("DriverVersion", ""),
-                            vram_mb=int(ram_bytes / (1024 * 1024))
+                            vram_mb=int(ram_bytes / BYTES_PER_MB)
                             if ram_bytes
                             else 0,
                         )

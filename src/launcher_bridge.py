@@ -23,6 +23,7 @@ import os
 import queue
 import re
 import signal
+import string
 import subprocess
 import sys
 import threading
@@ -501,9 +502,12 @@ def resolve_chatterbox_python() -> Optional[Path]:
     if sys.platform == "win32":
         # 3. Default install path used by the in-app installer.
         candidates.append(Path(r"C:\AudiobookMaker\.venv-chatterbox") / suffix[0] / suffix[1])
-        # 4. Common dev locations.
-        for drive in ("C:", "D:"):
-            candidates.append(Path(f"{drive}\\koodaamista\\AudiobookMaker\\.venv-chatterbox") / suffix[0] / suffix[1])
+        # 4. Common dev locations — scan every existing drive letter so
+        #    users on E:/F:/… aren't silently skipped.
+        for letter in string.ascii_uppercase:
+            if not os.path.exists(f"{letter}:/"):
+                continue
+            candidates.append(Path(f"{letter}:\\koodaamista\\AudiobookMaker\\.venv-chatterbox") / suffix[0] / suffix[1])
 
     for c in candidates:
         if c.exists():
