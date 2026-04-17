@@ -64,6 +64,10 @@ _FI_ELIDED_HYPHEN_RE = re.compile(
     r"(\w+)-(ja|tai|eli|sekä)\b", re.IGNORECASE
 )
 
+# Final-pass whitespace tidy (run once per chunk).
+_FI_WHITESPACE_CLEANUP_RE = re.compile(r"[ \t]+")
+_FI_SPACE_BEFORE_PUNCT_RE = re.compile(r" +([.,;:!?])")
+
 # Pass K: Finnish abbreviation expansion.
 #
 # Expands common Finnish abbreviations to their full spoken forms.
@@ -949,6 +953,6 @@ def normalize_finnish_text(
     text = _fi_split_number_compounds(text)
 
     # Collapse whitespace introduced by deletions/substitutions.
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r" +([.,;:!?])", r"\1", text)
+    text = _FI_WHITESPACE_CLEANUP_RE.sub(" ", text)
+    text = _FI_SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
     return text
