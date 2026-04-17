@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -41,11 +41,17 @@ jobs:
         shell: bash
 
       - name: Download ffmpeg
+        env:
+          FFMPEG_RELEASE: autobuild-2026-04-12-13-04
+          FFMPEG_ZIP: ffmpeg-n7.1.3-43-g5a1f107b4c-win64-gpl-7.1.zip
+          FFMPEG_SHA256: e46e9075779735c2f0f83d6ffb6bfb7f908dafaf8ac4b7338849e2313a649934
+          FFMPEG_DIR: ffmpeg-n7.1.3-43-g5a1f107b4c-win64-gpl-7.1
         run: |
-          curl -L -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+          curl -L -o ffmpeg.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_ZIP}"
+          echo "${FFMPEG_SHA256}  ffmpeg.zip" | sha256sum -c -
           7z x ffmpeg.zip -offmpeg_tmp
           mkdir -p dist/ffmpeg
-          cp ffmpeg_tmp/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe dist/ffmpeg/ffmpeg.exe
+          cp "ffmpeg_tmp/${FFMPEG_DIR}/bin/ffmpeg.exe" dist/ffmpeg/ffmpeg.exe
         shell: bash
 
       - name: Create placeholder icon if missing
