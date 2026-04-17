@@ -21,12 +21,17 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 from src.epub_parser import parse_epub
-from src.launcher_bridge import ProgressEvent
+from src.launcher_bridge import (
+    ChatterboxRunner,
+    ProgressEvent,
+    resolve_chatterbox_python,
+)
 from src.pdf_parser import BookMetadata, Chapter, ParsedBook, parse_pdf
 from src.tts_base import get_engine
 
@@ -279,3 +284,149 @@ def run_inprocess_synthesis(
 
     except Exception as exc:
         on_event(ProgressEvent(kind="error", raw_line=str(exc)))
+
+
+# ---------------------------------------------------------------------------
+# Chatterbox subprocess (out-of-process engine)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChatterboxRequest:
+    """Frozen state needed to build a Chatterbox subprocess runner.
+
+    Mirrors :class:`InprocessRequest` for the subprocess path. The GUI
+    reads widgets on the main thread, freezes them here, then hands the
+    request to :func:`build_chatterbox_runner` which does the tempfile
+    + argv assembly.
+    """
+
+    input_mode: str  # "pdf" or "text"
+    pdf_path: Optional[str] = None  # file on "pdf" mode (pdf/epub/txt)
+    input_text: Optional[str] = None  # raw text on "text" mode
+    text_override: Optional[str] = None  # sample snippet — wins over the others
+    output_basename_override: Optional[str] = None  # tempfile stem for samples
+    output_path_hint: Optional[str] = None  # chosen MP3 path; parent = out_dir
+    reference_audio: Optional[str] = None
+    chunk_chars: int = 300  # only passed to CLI when != default
+    language: str = "fi"
+
+
+class ChatterboxBuildError(Exception):
+    """Raised when a ChatterboxRequest can't be turned into a runnable subprocess.
+
+    The ``kind`` attribute is a machine-readable key the GUI translates via
+    ``self._s(kind)``. Known kinds:
+
+      - ``no_pdf``: input_mode=="pdf" but pdf_path is missing
+      - ``no_text``: input_mode=="text" but the text is empty/blank
+      - ``chatterbox_venv_missing``: chatterbox venv or runner script not found
+    """
+
+    def __init__(self, kind: str) -> None:
+        super().__init__(kind)
+        self.kind = kind
+
+
+@dataclass
+class ChatterboxPlan:
+    """Result of a successful :func:`build_chatterbox_runner` call.
+
+    The runner is ready to ``start()``. ``out_dir`` and ``input_label``
+    are exposed so the GUI can log them before launching.
+    """
+
+    runner: ChatterboxRunner
+    out_dir: Path
+    input_label: str
+
+
+def build_chatterbox_runner(
+    request: ChatterboxRequest,
+    runner_script: Path,
+    default_out_dir: Path,
+) -> ChatterboxPlan:
+    """Assemble a ready-to-start Chatterbox subprocess from ``request``.
+
+    Raises :class:`ChatterboxBuildError` on any validation failure — the
+    caller catches and maps the ``kind`` to its own i18n layer. This keeps
+    the orchestrator free of tkinter / messagebox dependencies.
+
+    Ordering of the input branches matches the pre-extraction GUI code:
+    a ``text_override`` always wins (sample flow), otherwise ``input_mode``
+    decides which CLI flag the runner gets (``--pdf`` / ``--epub`` /
+    ``--text-file``).
+    """
+    pdf_path: Optional[str] = None
+    text_path: Optional[str] = None
+    epub_path: Optional[str] = None
+
+    if request.text_override is not None:
+        # Sample path: always route the snippet through a temp .txt.
+        prefix = (
+            f"{request.output_basename_override}_"
+            if request.output_basename_override
+            else "abm_"
+        )
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", prefix=prefix, suffix=".txt",
+            delete=False, encoding="utf-8",
+        )
+        tmp.write(request.text_override)
+        tmp.close()
+        text_path = tmp.name
+    elif request.input_mode == "pdf":
+        if not request.pdf_path:
+            raise ChatterboxBuildError("no_pdf")
+        ext = Path(request.pdf_path).suffix.lower()
+        if ext == ".epub":
+            epub_path = request.pdf_path
+        elif ext == ".txt":
+            text_path = request.pdf_path
+        else:
+            pdf_path = request.pdf_path
+    else:
+        content = (request.input_text or "").strip()
+        if not content:
+            raise ChatterboxBuildError("no_text")
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8",
+        )
+        tmp.write(content)
+        tmp.close()
+        text_path = tmp.name
+
+    python_exe = resolve_chatterbox_python()
+    if python_exe is None or not runner_script.exists():
+        raise ChatterboxBuildError("chatterbox_venv_missing")
+
+    if request.output_path_hint:
+        out_dir = Path(request.output_path_hint).parent
+    else:
+        out_dir = default_out_dir
+    out_dir = out_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    extra_args: list[str] = []
+    if request.reference_audio:
+        extra_args.extend(["--ref-audio", request.reference_audio])
+    # Only pass --chunk-chars when it diverges from the runner's default so
+    # default runs keep clean logs.
+    if request.chunk_chars != 300:
+        extra_args.extend(["--chunk-chars", str(request.chunk_chars)])
+
+    runner = ChatterboxRunner(
+        python_exe=str(python_exe),
+        script_path=str(runner_script),
+        pdf_path=pdf_path,
+        text_path=text_path,
+        epub_path=epub_path,
+        out_dir=str(out_dir),
+        extra_args=extra_args,
+        language=request.language,
+    )
+
+    input_label = pdf_path or epub_path or text_path or "text"
+    return ChatterboxPlan(
+        runner=runner, out_dir=out_dir, input_label=input_label,
+    )

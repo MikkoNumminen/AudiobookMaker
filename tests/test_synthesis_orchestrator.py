@@ -15,7 +15,10 @@ import pytest
 
 from src.launcher_bridge import ProgressEvent
 from src.synthesis_orchestrator import (
+    ChatterboxBuildError,
+    ChatterboxRequest,
     InprocessRequest,
+    build_chatterbox_runner,
     default_output_dir,
     next_available_numbered_path,
     parse_book,
@@ -521,3 +524,229 @@ def test_inprocess_creates_output_directory(
 
     assert out_path.parent.exists()
     assert events[-1].kind == "done"
+
+
+# ---------------------------------------------------------------------------
+# build_chatterbox_runner — subprocess engine dispatch
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_chatterbox_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Pretend the chatterbox venv + runner script exist.
+
+    Returns ``(runner_script_path, default_out_dir)`` the caller passes
+    to :func:`build_chatterbox_runner`. The python_exe resolver is
+    stubbed to always return a path under ``tmp_path`` so the "missing
+    venv" branch doesn't accidentally trip.
+    """
+    fake_python = tmp_path / "fake_python.exe"
+    fake_python.write_bytes(b"")
+    monkeypatch.setattr(
+        "src.synthesis_orchestrator.resolve_chatterbox_python",
+        lambda: fake_python,
+    )
+
+    runner_script = tmp_path / "scripts" / "generate_chatterbox_audiobook.py"
+    runner_script.parent.mkdir(parents=True)
+    runner_script.write_text("# fake runner", encoding="utf-8")
+
+    default_out_dir = tmp_path / "default_out"
+    return runner_script, default_out_dir
+
+
+def test_build_chatterbox_no_pdf_raises(fake_chatterbox_env, tmp_path: Path):
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=None)
+    with pytest.raises(ChatterboxBuildError) as exc:
+        build_chatterbox_runner(req, runner_script, default_out)
+    assert exc.value.kind == "no_pdf"
+
+
+def test_build_chatterbox_no_text_raises(fake_chatterbox_env):
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="   ")
+    with pytest.raises(ChatterboxBuildError) as exc:
+        build_chatterbox_runner(req, runner_script, default_out)
+    assert exc.value.kind == "no_text"
+
+
+def test_build_chatterbox_venv_missing_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        "src.synthesis_orchestrator.resolve_chatterbox_python",
+        lambda: None,
+    )
+    runner_script = tmp_path / "nonexistent.py"  # also missing
+    req = ChatterboxRequest(input_mode="text", input_text="hello")
+    with pytest.raises(ChatterboxBuildError) as exc:
+        build_chatterbox_runner(req, runner_script, tmp_path)
+    assert exc.value.kind == "chatterbox_venv_missing"
+
+
+def test_build_chatterbox_pdf_extension_routes_to_pdf_flag(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "story.pdf"
+    book.write_bytes(b"")
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.runner.pdf_path == str(book)
+    assert plan.runner.text_path is None
+    assert plan.runner.epub_path is None
+
+
+def test_build_chatterbox_epub_extension_routes_to_epub_flag(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "story.epub"
+    book.write_bytes(b"")
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.runner.epub_path == str(book)
+    assert plan.runner.pdf_path is None
+    assert plan.runner.text_path is None
+
+
+def test_build_chatterbox_txt_extension_routes_to_text_flag(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "story.txt"
+    book.write_text("Chapter one.", encoding="utf-8")
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.runner.text_path == str(book)
+    assert plan.runner.pdf_path is None
+
+
+def test_build_chatterbox_text_mode_creates_tempfile(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="Hello world.")
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.runner.text_path is not None
+    assert Path(plan.runner.text_path).exists()
+    assert Path(plan.runner.text_path).read_text(encoding="utf-8") == "Hello world."
+
+
+def test_build_chatterbox_text_override_wins_over_pdf_mode(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """Sample flow: text_override bypasses the input_mode branch entirely."""
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "full_book.pdf"
+    book.write_bytes(b"")
+
+    req = ChatterboxRequest(
+        input_mode="pdf",
+        pdf_path=str(book),
+        text_override="Snippet for sample.",
+        output_basename_override="my_sample",
+    )
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    # Snippet went to a tempfile, pdf_path is not forwarded to the runner.
+    assert plan.runner.pdf_path is None
+    assert plan.runner.text_path is not None
+    tmp_contents = Path(plan.runner.text_path).read_text(encoding="utf-8")
+    assert tmp_contents == "Snippet for sample."
+    assert "my_sample" in Path(plan.runner.text_path).name
+
+
+def test_build_chatterbox_ref_audio_added_to_extra_args(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(
+        input_mode="text",
+        input_text="hi",
+        reference_audio="/path/to/ref.wav",
+    )
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert "--ref-audio" in plan.runner.extra_args
+    idx = plan.runner.extra_args.index("--ref-audio")
+    assert plan.runner.extra_args[idx + 1] == "/path/to/ref.wav"
+
+
+def test_build_chatterbox_default_chunk_chars_not_forwarded(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """300 is the runner's built-in default — skip the flag to keep logs clean."""
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="hi", chunk_chars=300)
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert "--chunk-chars" not in plan.runner.extra_args
+
+
+def test_build_chatterbox_custom_chunk_chars_forwarded(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="hi", chunk_chars=500)
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert "--chunk-chars" in plan.runner.extra_args
+    idx = plan.runner.extra_args.index("--chunk-chars")
+    assert plan.runner.extra_args[idx + 1] == "500"
+
+
+def test_build_chatterbox_output_path_hint_sets_parent_dir(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    hint_dir = tmp_path / "chosen" / "out"
+    hint_dir.mkdir(parents=True)
+    hint_path = hint_dir / "book.mp3"
+    req = ChatterboxRequest(
+        input_mode="text",
+        input_text="hi",
+        output_path_hint=str(hint_path),
+    )
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.out_dir == hint_dir.resolve()
+    assert plan.runner.out_dir == str(hint_dir.resolve())
+
+
+def test_build_chatterbox_no_hint_uses_default(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    assert not default_out.exists()
+
+    req = ChatterboxRequest(input_mode="text", input_text="hi")
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.out_dir == default_out.resolve()
+    assert default_out.exists()  # created
+
+
+def test_build_chatterbox_language_forwarded(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="hi", language="en")
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.runner.language == "en"

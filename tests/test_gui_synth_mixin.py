@@ -339,14 +339,14 @@ class TestStartChatterboxSubprocess:
         fake_tmp = MagicMock()
         fake_tmp.name = str(tmp_path / "mybook_sample_abcd.txt")
 
-        with patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True,
+        with patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
                    side_effect=_fake_runner), \
-             patch("src.gui_synth_mixin.resolve_chatterbox_python", autospec=True,
+             patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,
                    return_value=Path("python.exe")), \
              patch("src.gui_synth_mixin.threading.Thread") as mock_thread, \
              patch("pathlib.Path.exists", return_value=True), \
              patch("pathlib.Path.mkdir"), \
-             patch("src.gui_synth_mixin.tempfile.NamedTemporaryFile",
+             patch("src.synthesis_orchestrator.tempfile.NamedTemporaryFile",
                    return_value=fake_tmp) as mock_tmp:
             app._start_chatterbox_subprocess(
                 text_override="hello world snippet",
@@ -382,14 +382,14 @@ class TestStartChatterboxSubprocess:
         fake_tmp.name = str(tmp_path / "sample.txt")
 
         app._chunk_chars_var.set(500)
-        with patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True,
+        with patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
                    side_effect=_fake_runner), \
-             patch("src.gui_synth_mixin.resolve_chatterbox_python", autospec=True,
+             patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,
                    return_value=Path("python.exe")), \
              patch("src.gui_synth_mixin.threading.Thread"), \
              patch("pathlib.Path.exists", return_value=True), \
              patch("pathlib.Path.mkdir"), \
-             patch("src.gui_synth_mixin.tempfile.NamedTemporaryFile",
+             patch("src.synthesis_orchestrator.tempfile.NamedTemporaryFile",
                    return_value=fake_tmp):
             app._start_chatterbox_subprocess(text_override="hello")
 
@@ -417,14 +417,14 @@ class TestStartChatterboxSubprocess:
         fake_tmp.name = str(tmp_path / "sample.txt")
 
         app._chunk_chars_var.set(300)
-        with patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True,
+        with patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
                    side_effect=_fake_runner), \
-             patch("src.gui_synth_mixin.resolve_chatterbox_python", autospec=True,
+             patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,
                    return_value=Path("python.exe")), \
              patch("src.gui_synth_mixin.threading.Thread"), \
              patch("pathlib.Path.exists", return_value=True), \
              patch("pathlib.Path.mkdir"), \
-             patch("src.gui_synth_mixin.tempfile.NamedTemporaryFile",
+             patch("src.synthesis_orchestrator.tempfile.NamedTemporaryFile",
                    return_value=fake_tmp):
             app._start_chatterbox_subprocess(text_override="hello")
 

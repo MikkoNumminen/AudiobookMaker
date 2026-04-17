@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import queue
 import re
-import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
-from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
+from src.launcher_bridge import ChatterboxRunner, ProgressEvent
+from src.synthesis_orchestrator import (
+    ChatterboxBuildError,
+    ChatterboxRequest,
+    build_chatterbox_runner,
+)
 
 if TYPE_CHECKING:
     from src.tts_base import Voice
@@ -124,109 +128,70 @@ class SynthMixin(_Base):
         sample flow inject a 500-char snippet without changing the
         widget. ``output_basename_override`` controls the temp file
         stem so the runner produces ``<out_dir>/<stem>/00_full.mp3``.
+
+        Widget state is captured on the main thread and frozen into a
+        :class:`ChatterboxRequest`; the actual tempfile + argv assembly
+        happens inside :func:`build_chatterbox_runner` in the orchestrator.
         """
         from src.gui_unified import _REPO_ROOT
 
-        pdf_path = None
-        text_path = None
-        epub_path = None
-
-        if text_override is not None:
-            # Sample path: route the snippet through the runner's
-            # text-input mode regardless of the GUI's current tab.
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w",
-                prefix=(output_basename_override + "_") if output_basename_override else "abm_",
-                suffix=".txt",
-                delete=False,
-                encoding="utf-8",
-            )
-            tmp.write(text_override)
-            tmp.close()
-            text_path = tmp.name
-        elif self._input_mode == "pdf":
-            if not self._pdf_path:
-                self._fail(self._s("no_pdf"))
-                return
-            # The "Kirja" tab accepts PDF/EPUB/TXT — pick the right CLI
-            # flag for the Chatterbox subprocess based on extension.
-            from pathlib import Path as _P
-            ext = _P(self._pdf_path).suffix.lower()
-            if ext == ".epub":
-                epub_path = str(self._pdf_path)
-            elif ext == ".txt":
-                text_path = str(self._pdf_path)
-            else:
-                pdf_path = str(self._pdf_path)
-        else:
+        # Gather widget state before handing off.
+        content: Optional[str] = None
+        if text_override is None and self._input_mode == "text":
             content = self._text_widget.get("1.0", tk.END).strip()
-            if not content or self._text_has_placeholder:
-                self._fail(self._s("no_text"))
-                return
-            # Write text to a temp file for the subprocess.
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8",
-            )
-            tmp.write(content)
-            tmp.close()
-            text_path = tmp.name
+            if self._text_has_placeholder:
+                content = ""
 
-        python_exe = resolve_chatterbox_python()
-        runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
-        if python_exe is None or not runner_script.exists():
-            self._fail(self._s("chatterbox_venv_missing"))
-            return
+        out_var = self._out_var.get() if hasattr(self, "_out_var") else ""
+        output_path_hint = (
+            out_var
+            if out_var and out_var not in ("Ei valittu", "Not selected", "")
+            else None
+        )
 
-        # Use output path's parent directory, or a sensible default.
-        out_var = self._out_var.get() if hasattr(self, '_out_var') else ""
-        if out_var and out_var not in ("Ei valittu", "Not selected", ""):
-            out_dir = Path(out_var).parent
-        else:
-            out_dir = Path.home() / "Documents" / "AudiobookMaker"
-        out_dir = out_dir.resolve()
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        extra_args: list[str] = []
-        ref_audio = self._ref_audio_var.get()
-        if ref_audio:
-            extra_args.extend(["--ref-audio", ref_audio])
-
-        # Chatterbox chunk size override. The runner's built-in default
-        # is 300 chars (upstream-consensus sweet spot); we only pass the
-        # flag when the user has dialed it away from the default so
-        # default runs stay clean in the logs.
+        # Chatterbox chunk size override. 300 chars is the runner's built-in
+        # default — we only pass the flag when the user dialed it away.
+        chunk_chars = 300
         chunk_var = getattr(self, "_chunk_chars_var", None)
         if chunk_var is not None:
             try:
                 chunk_chars = int(chunk_var.get())
             except (ValueError, tk.TclError):
                 chunk_chars = 300
-            if chunk_chars != 300:
-                extra_args.extend(["--chunk-chars", str(chunk_chars)])
 
-        # Language routing: EN -> base multilingual model + bundled ref clip
-        # (produces native English with Grandmom timbre). FI -> Finnish T3
-        # finetune (current default). See memory/project_english_grandmom.md.
-        language = self._current_language()
-
-        self._chatterbox_runner = ChatterboxRunner(
-            python_exe=str(python_exe),
-            script_path=str(runner_script),
-            pdf_path=pdf_path,
-            text_path=text_path,
-            epub_path=epub_path,
-            out_dir=str(out_dir),
-            extra_args=extra_args,
-            language=language,
+        request = ChatterboxRequest(
+            input_mode=self._input_mode,
+            pdf_path=self._pdf_path,
+            input_text=content,
+            text_override=text_override,
+            output_basename_override=output_basename_override,
+            output_path_hint=output_path_hint,
+            reference_audio=self._ref_audio_var.get() or None,
+            chunk_chars=chunk_chars,
+            # Language routing: EN -> base multilingual model + bundled ref
+            # clip. FI -> Finnish T3 finetune.
+            # See memory/project_english_grandmom.md.
+            language=self._current_language(),
         )
 
-        input_label = pdf_path or epub_path or text_path or "text"
-        self._append_log(f"Input: {input_label}")
-        self._append_log(f"Output: {out_dir}")
+        runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
+        default_out_dir = Path.home() / "Documents" / "AudiobookMaker"
+
+        try:
+            plan = build_chatterbox_runner(
+                request, runner_script, default_out_dir,
+            )
+        except ChatterboxBuildError as err:
+            self._fail(self._s(err.kind))
+            return
+
+        self._chatterbox_runner = plan.runner
+        self._append_log(f"Input: {plan.input_label}")
+        self._append_log(f"Output: {plan.out_dir}")
         self._append_log("Engine: chatterbox_fi")
 
         try:
-            self._chatterbox_runner.start()
+            plan.runner.start()
         except Exception as exc:
             self._fail(self._s("subprocess_failed").format(error=exc))
             return
