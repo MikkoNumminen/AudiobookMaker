@@ -782,3 +782,516 @@ class TestShortRangeGovernorInflection:
         result = normalize_finnish_text("vuonna 1500-1800")
         assert "tuhat viisisataa" in result
         assert "tuhat kahdeksansataa" in result
+
+
+# ---------------------------------------------------------------------------
+# Per-pass TestPass<LETTER> classes
+#
+# These exercise one pass at a time through the public entry point.
+# Inputs are engineered so only the target pass has observable effect
+# (no digits for text-only passes; no abbreviations in unit tests; etc.).
+# Passes B, D, E, F, J are inlined inside normalize_finnish_text, so we
+# drive them via the entry point rather than calling helpers directly.
+# ---------------------------------------------------------------------------
+
+
+class TestPassB:
+    """Pass B — elided-hyphen Finnish compounds (``keski-ja`` → ``keski- ja``)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_canonical_ja(self) -> None:
+        assert normalize_finnish_text("keski-ja loppuosa") == "keski- ja loppuosa"
+
+    def test_canonical_tai(self) -> None:
+        assert normalize_finnish_text("etu-tai taka") == "etu- tai taka"
+
+    def test_canonical_eli(self) -> None:
+        assert normalize_finnish_text("keski-eli loppu") == "keski- eli loppu"
+
+    def test_canonical_seka(self) -> None:
+        assert normalize_finnish_text("keski-sekä loppu") == "keski- sekä loppu"
+
+    def test_already_spaced_noop(self) -> None:
+        # Already-correct form must stay unchanged.
+        assert normalize_finnish_text("keski- ja loppu") == "keski- ja loppu"
+
+    def test_case_insensitive_ja(self) -> None:
+        assert normalize_finnish_text("keski-JA loppu") == "keski- JA loppu"
+
+    def test_non_elided_hyphen_untouched(self) -> None:
+        # Hyphenated word with a non-conjunction second part is untouched.
+        assert normalize_finnish_text("keski-eurooppa") == "keski-eurooppa"
+
+    def test_cross_language_english_untouched(self) -> None:
+        # Plain English input with no matching pattern passes through.
+        text = "state-of-the-art"
+        assert normalize_finnish_text(text) == text
+
+    def test_multiple_elisions_one_line(self) -> None:
+        out = normalize_finnish_text("etu-ja taka-tai sivuosa")
+        assert "etu- ja" in out
+        assert "taka- tai" in out
+
+
+class TestPassD:
+    """Pass D — numeric ranges (``1914-1918`` → endpoints expanded separately)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_canonical_year_range(self) -> None:
+        out = normalize_finnish_text("1914-1918")
+        # Both endpoints expand to word form, no bare digits remain.
+        assert not any(ch.isdigit() for ch in out)
+        assert "tuhat yhdeksänsataa" in out
+
+    def test_en_dash_range(self) -> None:
+        out = normalize_finnish_text("1914\u20131918")
+        assert not any(ch.isdigit() for ch in out)
+        assert "tuhat yhdeksänsataa" in out
+
+    def test_short_range_expands_both(self) -> None:
+        out = normalize_finnish_text("42-45")
+        assert "neljäkymmentä kaksi" in out
+        assert "neljäkymmentä viisi" in out
+
+    def test_range_with_spaces(self) -> None:
+        out = normalize_finnish_text("42 - 45")
+        assert "neljäkymmentä kaksi" in out
+        assert "neljäkymmentä viisi" in out
+
+    def test_no_range_single_number_untouched_by_pass_d(self) -> None:
+        # No dash → Pass D does not fire; Pass G expands the single int.
+        out = normalize_finnish_text("1500")
+        assert out == "tuhat viisisataa"
+
+    def test_range_governor_ablative(self) -> None:
+        out = normalize_finnish_text("sivuilta 42-45")
+        assert "neljältäkymmeneltä kahdelta" in out
+        assert "neljältäkymmeneltä viideltä" in out
+
+    def test_range_no_digits_passthrough(self) -> None:
+        # No digits at all — Pass D is a no-op.
+        text = "kissasta koiraan"
+        assert normalize_finnish_text(text) == text
+
+    def test_cross_language_text_with_dash_untouched(self) -> None:
+        # English text without digits: Pass D has nothing to rewrite.
+        text = "state-of-the-art"
+        assert normalize_finnish_text(text) == text
+
+    def test_five_digit_range_not_matched(self) -> None:
+        # Pass D only matches 1-4 digit runs on each side. Five-digit
+        # numbers fall through to Pass G as independent integers.
+        out = normalize_finnish_text("12345-67890")
+        # Both still expand (Pass G handles them), no bare digits left.
+        assert not any(ch.isdigit() for ch in out)
+
+
+class TestPassE:
+    """Pass E — page abbreviation expansion (``s.`` → ``sivu``, ``ss.`` → ``sivut``)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_canonical_s_dot_with_space(self) -> None:
+        out = normalize_finnish_text("s. 5")
+        assert "sivu" in out
+        assert "viisi" in out
+        assert "s." not in out
+
+    def test_canonical_ss_dot_with_space(self) -> None:
+        out = normalize_finnish_text("ss. 5")
+        assert "sivut" in out
+        assert "viisi" in out
+        assert "ss." not in out
+
+    def test_s_dot_without_following_space_and_digit_untouched(self) -> None:
+        # The regex requires `s. ` followed by a digit — no space means no match.
+        # `s.5` — no space, so Pass E leaves it; Pass G still expands 5.
+        out = normalize_finnish_text("s.5")
+        assert "sivu" not in out
+
+    def test_s_abbrev_inflects_via_governor(self) -> None:
+        # After Pass E emits ``sivu``, Pass G picks nominative for the digit.
+        out = normalize_finnish_text("s. 42")
+        assert "sivu" in out
+        assert "neljäkymmentä kaksi" in out
+
+    def test_ss_abbrev_with_range(self) -> None:
+        out = normalize_finnish_text("ss. 42-45")
+        assert "sivut" in out
+        assert "neljäkymmentä kaksi" in out
+        assert "neljäkymmentä viisi" in out
+
+    def test_no_op_on_plain_word(self) -> None:
+        # Word starting with ``s`` but not the abbreviation — unchanged.
+        text = "sana on kirja"
+        assert normalize_finnish_text(text) == text
+
+    def test_no_op_on_s_with_no_digit(self) -> None:
+        # `s. ` without a trailing digit must NOT expand.
+        text = "s. ei numeroa"
+        out = normalize_finnish_text(text)
+        assert "sivu" not in out
+
+    def test_cross_language_english_passthrough(self) -> None:
+        # English text with no ``s.`` patterns — unchanged.
+        text = "The book continues here."
+        assert normalize_finnish_text(text) == text
+
+    def test_multiple_occurrences(self) -> None:
+        out = normalize_finnish_text("s. 5 ja s. 7")
+        # Both occurrences expand.
+        assert out.count("sivu") == 2
+
+
+class TestPassF:
+    """Pass F — decimal numbers (``3,14`` / ``3.14`` → word form)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_canonical_comma_decimal(self) -> None:
+        out = normalize_finnish_text("3,14")
+        assert "kolme pilkku" in out
+        assert not any(ch.isdigit() for ch in out)
+
+    def test_canonical_dot_decimal(self) -> None:
+        out = normalize_finnish_text("3.14")
+        # Dot form is also treated as decimal by Pass F.
+        assert "kolme pilkku" in out
+        assert not any(ch.isdigit() for ch in out)
+
+    def test_zero_point_five(self) -> None:
+        out = normalize_finnish_text("0,5")
+        assert "nolla" in out
+        assert "pilkku" in out
+        assert "viisi" in out
+
+    def test_decimal_in_sentence(self) -> None:
+        out = normalize_finnish_text("Hinta on 3,50.")
+        assert "kolme pilkku" in out
+        assert "3,50" not in out
+
+    def test_integer_not_touched_as_decimal(self) -> None:
+        # Bare int has no separator — Pass F cannot fire.
+        out = normalize_finnish_text("5")
+        assert "pilkku" not in out
+        assert out == "viisi"
+
+    def test_ellipsis_not_treated_as_decimal(self) -> None:
+        # "..." is handled by Pass J1, not Pass F (no digits around it).
+        out = normalize_finnish_text("odota ... valmis")
+        assert "pilkku" not in out
+
+    def test_url_dot_not_decimal(self) -> None:
+        # ``example.com`` contains a dot but neither side is a digit.
+        out = normalize_finnish_text("example.com")
+        assert "pilkku" not in out
+
+    def test_cross_language_english_passthrough(self) -> None:
+        text = "Plain English sentence."
+        assert normalize_finnish_text(text) == text
+
+    def test_multiple_decimals(self) -> None:
+        out = normalize_finnish_text("3,14 ja 2,71")
+        # Both decimal literals are expanded.
+        assert out.count("pilkku") == 2
+
+
+class TestPassJ:
+    """Pass J — ellipsis collapse (J1), TOC dot-leader drop (J2), ISBN strip (J3)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_j1_three_dots_collapse(self) -> None:
+        out = normalize_finnish_text("Hmm ... hän sanoi")
+        assert "\u2026" in out
+        assert "..." not in out
+
+    def test_j1_four_dots_collapse(self) -> None:
+        out = normalize_finnish_text("Odota .... valmis")
+        assert "\u2026" in out
+        assert "...." not in out
+
+    def test_j1_intra_word_dots_not_collapsed(self) -> None:
+        # URL-like token: dots have no surrounding whitespace → no collapse.
+        out = normalize_finnish_text("example.com on osoite")
+        assert "\u2026" not in out
+
+    def test_j2_toc_dot_leader_dropped(self) -> None:
+        out = normalize_finnish_text("RAJAT..............42")
+        assert "RAJAT" in out
+        assert "42" not in out
+        assert "......." not in out
+
+    def test_j2_toc_with_spaces(self) -> None:
+        out = normalize_finnish_text("Luku 1 .............. 5")
+        assert "Luku" in out
+        assert ".............." not in out
+
+    def test_j3_isbn_with_hyphens_stripped(self) -> None:
+        out = normalize_finnish_text("Kirja ISBN 978-951-123-456-7 on hyvä")
+        assert "ISBN" not in out
+        assert "978" not in out
+        assert "Kirja" in out
+
+    def test_j3_isbn_without_prefix_stripped(self) -> None:
+        out = normalize_finnish_text("9789511234567 on kirja")
+        assert "9789511234567" not in out
+
+    def test_j3_isbn_with_spaces_stripped(self) -> None:
+        out = normalize_finnish_text("ISBN 978 951 123 456 7")
+        assert "ISBN" not in out
+        assert "978" not in out
+
+    def test_cross_language_english_untouched(self) -> None:
+        text = "Plain English sentence."
+        assert normalize_finnish_text(text) == text
+
+    def test_non_isbn_year_preserved_as_words(self) -> None:
+        # 1918 is a normal year, not an ISBN; Pass G expands it.
+        out = normalize_finnish_text("Vuonna 1918 tapahtui")
+        assert "1918" not in out
+        # Some word form of the year appears.
+        assert "tuhat" in out or "yhdeksäntoista" in out
+
+
+class TestPassK:
+    """Pass K — Finnish abbreviation expansion (``esim.`` → ``esimerkiksi``)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_esim_expands(self) -> None:
+        out = normalize_finnish_text("Esim. tämä")
+        assert "esimerkiksi" in out
+        assert "esim." not in out.lower()
+
+    def test_jne_expands(self) -> None:
+        out = normalize_finnish_text("kissat jne.")
+        assert "ja niin edelleen" in out
+
+    def test_mm_expands(self) -> None:
+        out = normalize_finnish_text("Tämä on mm. hyvä.")
+        assert "muun muassa" in out
+
+    def test_prof_expands(self) -> None:
+        out = normalize_finnish_text("prof. Mäkinen puhui")
+        assert "professori" in out
+        assert "prof." not in out
+
+    def test_tri_expands_before_capital_name(self) -> None:
+        out = normalize_finnish_text("tri Virtanen tuli")
+        assert "tohtori Virtanen" in out
+
+    def test_tri_untouched_before_lowercase(self) -> None:
+        # ``tri`` without capital name must NOT expand.
+        out = normalize_finnish_text("tri on lyhenne")
+        assert "tohtori" not in out
+
+    def test_case_insensitive_match(self) -> None:
+        for variant in ("Ts. tämä", "TS. tämä", "ts. tämä"):
+            assert "toisin sanoen" in normalize_finnish_text(variant)
+
+    def test_non_abbreviation_word_untouched(self) -> None:
+        # ``nero`` starts with `n` but is not an abbreviation.
+        out = normalize_finnish_text("nero on lahjakas")
+        assert "nero" in out
+
+    def test_cross_language_english_passthrough(self) -> None:
+        # English text with no Finnish abbreviations — unchanged.
+        text = "The book continues here."
+        assert normalize_finnish_text(text) == text
+
+
+class TestPassL:
+    """Pass L — Roman numeral expansion (context-aware ordinal vs. cardinal)."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_regnal_ordinal(self) -> None:
+        out = normalize_finnish_text("Kustaa II Aadolf")
+        assert "toinen" in out
+        assert "II" not in out
+
+    def test_papal_ordinal(self) -> None:
+        out = normalize_finnish_text("paavi Pius IX")
+        assert "yhdeksäs" in out
+        assert "IX" not in out
+
+    def test_chapter_ordinal_after_luku(self) -> None:
+        out = normalize_finnish_text("luku IV käsittelee")
+        assert "neljäs" in out
+        assert "IV" not in out
+
+    def test_century_ordinal_before_vuosisata(self) -> None:
+        out = normalize_finnish_text("XIX vuosisata")
+        assert "yhdeksästoista" in out
+        assert "XIX" not in out
+
+    def test_cardinal_fallback_no_context(self) -> None:
+        out = normalize_finnish_text("II oli aikakausi")
+        assert "kaksi" in out
+        assert "II" not in out
+
+    def test_blacklist_not_expanded(self) -> None:
+        # ``DC`` is a modern acronym on the blacklist.
+        out = normalize_finnish_text("DC power")
+        assert "DC" in out
+
+    def test_single_letter_i_untouched(self) -> None:
+        # Standalone ``I`` (1 character) must not be expanded.
+        out = normalize_finnish_text("I said no")
+        assert "I" in out
+
+    def test_non_canonical_roman_untouched(self) -> None:
+        # ``IIII`` is not canonical (canonical is ``IV``).
+        out = normalize_finnish_text("IIII")
+        assert "IIII" in out
+
+    def test_cross_language_english_untouched(self) -> None:
+        # English text without Roman numerals — unchanged.
+        text = "Plain English sentence."
+        assert normalize_finnish_text(text) == text
+
+
+class TestPassM:
+    """Pass M — measurement unit and currency symbol expansion."""
+
+    def test_empty_string(self) -> None:
+        assert normalize_finnish_text("") == ""
+
+    def test_single_char(self) -> None:
+        assert normalize_finnish_text("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert normalize_finnish_text("   ") == " "
+
+    def test_percent_with_space(self) -> None:
+        assert "viisi prosenttia" in normalize_finnish_text("5 %")
+
+    def test_percent_without_space(self) -> None:
+        assert "viisi prosenttia" in normalize_finnish_text("5%")
+
+    def test_euros(self) -> None:
+        assert "kaksikymmentä euroa" in normalize_finnish_text("20 \u20ac")
+
+    def test_dollars_prefix(self) -> None:
+        assert "viisi dollaria" in normalize_finnish_text("$5")
+
+    def test_kilometers(self) -> None:
+        assert "kolme kilometriä" in normalize_finnish_text("3 km")
+
+    def test_section_sign_prefix(self) -> None:
+        out = normalize_finnish_text("§ 5")
+        assert "pykälä" in out
+        assert "viisi" in out
+        assert "§" not in out
+
+    def test_unit_requires_digit_prefix(self) -> None:
+        # ``kilometrin matka`` has no digit — Pass M must not rewrite it.
+        out = normalize_finnish_text("kilometrin matka")
+        assert "kilometrin" in out
+
+    def test_cross_language_english_untouched(self) -> None:
+        # No digit-prefixed unit symbols in plain English sentence.
+        text = "Plain English sentence."
+        assert normalize_finnish_text(text) == text
+
+
+class TestPassN:
+    """Pass N — Finnish acronym expansion (known whitelist, exact case)."""
+
+    def test_empty_string(self) -> None:
+        assert _expand_acronyms("") == ""
+
+    def test_single_char(self) -> None:
+        assert _expand_acronyms("a") == "a"
+
+    def test_whitespace_only(self) -> None:
+        assert _expand_acronyms("   ") == "   "
+
+    def test_eu_expands(self) -> None:
+        assert _expand_acronyms("EU on liitto") == "Euroopan unioni on liitto"
+
+    def test_yk_expands(self) -> None:
+        assert _expand_acronyms("YK päätti") == "Yhdistyneet kansakunnat päätti"
+
+    def test_usa_expands(self) -> None:
+        assert _expand_acronyms("USA oli") == "Yhdysvallat oli"
+
+    def test_eu_with_colon_suffix(self) -> None:
+        # Colon is a non-word char → \b fires; EU IS expanded.
+        assert _expand_acronyms("EU:n") == "Euroopan unioni:n"
+
+    def test_lowercase_eu_untouched(self) -> None:
+        # ``eu`` is a Finnish negative prefix; case-sensitive match refuses.
+        text = "eu on suomen kielessä tavu"
+        assert _expand_acronyms(text) == text
+
+    def test_naton_not_partially_expanded(self) -> None:
+        # No \b inside ``NATOn`` — must not be partially rewritten.
+        text = "NATOn jäsenyys"
+        assert _expand_acronyms(text) == text
+
+    def test_unknown_acronym_untouched(self) -> None:
+        text = "XYZ on akronyymi"
+        assert _expand_acronyms(text) == text
+
+    def test_cross_language_english_untouched(self) -> None:
+        # No Finnish-lexicon acronyms in this plain sentence.
+        text = "Plain English sentence."
+        assert _expand_acronyms(text) == text
+
+    def test_integration_via_normalize(self) -> None:
+        # Pass N runs inside normalize_finnish_text.
+        out = normalize_finnish_text("EU on liitto")
+        assert "Euroopan unioni" in out
