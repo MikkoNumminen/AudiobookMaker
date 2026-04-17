@@ -141,7 +141,7 @@ FINNISH_REF_WAV = "samples/reference_finnish.wav"
 
 # Finnish "Golden Settings" from the model card.
 FI_REPETITION_PENALTY = 1.5
-FI_TEMPERATURE = 0.8
+FI_TEMPERATURE = 0.5
 FI_EXAGGERATION = 0.5
 FI_CFG_WEIGHT = 0.3
 
