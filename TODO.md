@@ -42,9 +42,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Chatterbox-Finnish: collect pronunciation failure corpus
 - [ ] User reported 4 mispronunciations in the `turo_stressitesti_tulokset_fi` sample: `löysimme` → `löys imme` (mid-word pause), `lopetti` → `loopetti` (vowel-length hallucination), `ennen vain` → `ennenvän` (word-boundary collapse), `äänikirja` → `aanikirja` (ää → aa substitution). Lowering `FI_TEMPERATURE` to 0.5 cleared the length/boundary symptoms in a fresh A/B sweep, but the `ää → aa` umlaut drop and the mid-word pause pattern are likely in-weights. Keep collecting: each new failing word adds a data point for Pass I lexicon respelling (try `ää` → `ä ä` or a hyphenated form) and for the known `s → sch` bucket. Target: 20 concrete words across ≥3 failure categories before attempting a targeted fix. 🟡 🧠 Opus.
 
-### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
-- [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
-
 ### "Report a bug" button in the GUI
 - [ ] Add a "Report a bug" / "Ilmoita virheestä" link or button (Settings panel or Help menu) that opens the GitHub Issues page (`https://github.com/MikkoNumminen/AudiobookMaker/issues/new`) in the browser. Optionally pre-fill the issue body with the app version, OS version, installed engines, and the last ~20 log lines. 🟢 ⚡ Sonnet.
 
@@ -110,13 +107,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Local disk cleanup (deferred — Mac still in use)
 - [ ] Delete `.venv-chatterbox/`, `.venv-qwen/`, HuggingFace model caches (~9.4 GB reclaimable). Do NOT delete while Mac is still used for dev. 🟢 ⚡ Sonnet
 
-## Audit 2026-04-17 follow-ups
-
-Findings from the full codebase audit (`docs/AUDIT_REPORT.md`). Ordered by priority.
-The P0 streaming-assembly fix is claimed separately above; everything below is queued.
-
-
-
 ## Post-Audit Tasks
 
 ### TTS Output Quality
@@ -143,9 +133,6 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 ### Dependency Security
 - [ ] Run pip audit against requirements.txt
 - [ ] Update any packages with known vulnerabilities
-
-### Sentence Splitter Edge Cases
-- [ ] URLs, decimals, Finnish abbreviations, periods inside quotes, whitespace-only strings, mixed Finnish/English, initials ("J.R.R. Tolkien")
 
 ### Qwen3-TTS — DROPPED
 Investigated and ruled out. Finnish not supported, CUDA-only, too slow. No further action.
