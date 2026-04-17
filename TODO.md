@@ -13,7 +13,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
-| Claude 2 | 🟢 idle | — | — |
+| Claude 2 | 🔵 working | Tier 1 picks: pronunciation corpus + Report-a-bug button (parallel worktrees) | 2026-04-18 |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
@@ -39,10 +39,10 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Chatterbox: 1-in-500 stochastic early-stop glitch
 - [ ] **Root cause identified and fixed 2026-04-17** — three bugs in `AlignmentStreamAnalyzer`: (a) `complete` flag fired at `text_position >= S - 3` instead of `S - 1`, letting `long_tail`/`alignment_repetition` heuristics force EOS mid-sentence; (b) EOS suppression stopped at the same `S - 3` line, so noisy attention argmax could briefly cross into that zone and let T3 naturally sample EOS; (c) `token_repetition` checked only 2 identical adjacent tokens despite comment claiming "3x" — 2x is extremely common in normal speech and fired constantly. Patched in chatterbox fork + added audio-ratio retry guard in audiobook generator (`MIN_AUDIO_S_PER_CHAR = 0.040`, up to 2 retries). Validated on Turo's tail re-synth (Tier 2 second pass). Keep item open until second pass confirms <1% of chunks below threshold. 🟡 🧠 Opus.
 
-### Chatterbox-Finnish: collect pronunciation failure corpus
+### Chatterbox-Finnish: collect pronunciation failure corpus [Claude 2, worktree-corpus]
 - [ ] User reported 4 mispronunciations in the `turo_stressitesti_tulokset_fi` sample: `löysimme` → `löys imme` (mid-word pause), `lopetti` → `loopetti` (vowel-length hallucination), `ennen vain` → `ennenvän` (word-boundary collapse), `äänikirja` → `aanikirja` (ää → aa substitution). Lowering `FI_TEMPERATURE` to 0.5 cleared the length/boundary symptoms in a fresh A/B sweep, but the `ää → aa` umlaut drop and the mid-word pause pattern are likely in-weights. Keep collecting: each new failing word adds a data point for Pass I lexicon respelling (try `ää` → `ä ä` or a hyphenated form) and for the known `s → sch` bucket. Target: 20 concrete words across ≥3 failure categories before attempting a targeted fix. 🟡 🧠 Opus.
 
-### "Report a bug" button in the GUI
+### "Report a bug" button in the GUI [Claude 2, worktree-report-bug]
 - [ ] Add a "Report a bug" / "Ilmoita virheestä" link or button (Settings panel or Help menu) that opens the GitHub Issues page (`https://github.com/MikkoNumminen/AudiobookMaker/issues/new`) in the browser. Optionally pre-fill the issue body with the app version, OS version, installed engines, and the last ~20 log lines. 🟢 ⚡ Sonnet.
 
 ### Inline audio player in the GUI
