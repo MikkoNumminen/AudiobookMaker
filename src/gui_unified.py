@@ -16,6 +16,7 @@ Uses CustomTkinter for a modern look with dark/light mode support.
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import re
@@ -25,7 +26,6 @@ import sys
 import tempfile
 import threading
 import tkinter as tk
-import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -63,6 +63,9 @@ if not getattr(sys, "frozen", False):
         from src import tts_voxcpm  # noqa: F401
     except Exception:
         pass
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -551,8 +554,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 "AudiobookMaker.AudiobookMaker"
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("SetCurrentProcessExplicitAppUserModelID failed", exc_info=exc)
 
         try:
             icon_path = _APP_ROOT / "assets" / "icon.ico"
@@ -1782,8 +1785,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     dot = "\U0001F534"  # red circle
                 elif status.needs_download:
                     dot = "\U0001F7E1"  # yellow circle
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("engine.check_status() failed for %s", engine.id, exc_info=exc)
             label = f"{dot}  {engine.display_name}"
             self._engine_display_to_id[label] = engine.id
 
@@ -2534,8 +2537,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     subprocess.Popen(["open", path])
                 else:
                     subprocess.Popen(["xdg-open", path])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to launch OS player for sample %s", path, exc_info=exc)
         self.after(0, _play)
 
     # ------------------------------------------------------------------

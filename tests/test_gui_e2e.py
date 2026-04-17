@@ -867,7 +867,7 @@ class TestStatusStrip:
             "audio_human": "1 h 0 min",
             "wall_human": "2 min 0 s",
         }
-        with patch("src.gui_unified._duration_estimate.estimate_job",
+        with patch("src.gui_unified._duration_estimate.estimate_job", autospec=True,
                    return_value=fake):
             # Simulate what _refresh_ready_status_strip does, but bypass
             # file I/O by calling the setter directly.

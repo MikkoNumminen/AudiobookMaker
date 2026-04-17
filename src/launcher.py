@@ -132,6 +132,7 @@ class LauncherApp(tk.Tk):
     POLL_INTERVAL_MS = 100
 
     def __init__(self) -> None:
+        """Build the window, wire widgets, and populate the engine dropdown."""
         super().__init__()
         self.title(WINDOW_TITLE)
         self.minsize(640, 480)
@@ -276,6 +277,7 @@ class LauncherApp(tk.Tk):
         self._refresh_engine_info()
 
     def _refresh_engine_info(self) -> None:
+        """Update the info label to match the currently-selected engine."""
         label = self._engine_var.get()
         engine_id = self._engine_id_for_label(label)
         info = ENGINE_INFO.get(engine_id, "")
@@ -288,7 +290,8 @@ class LauncherApp(tk.Tk):
         engine = self._engines_by_label.get(label)
         return engine.id if engine is not None else ""
 
-    def _on_engine_changed(self, _event) -> None:
+    def _on_engine_changed(self, _event: object) -> None:
+        """Combobox ``<<ComboboxSelected>>`` handler — refreshes the info label."""
         self._refresh_engine_info()
 
     # ------------------------------------------------------------------
@@ -296,12 +299,14 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _on_primary_click(self) -> None:
+        """Primary button click: start a new job, or cancel the running one."""
         if self._synth_running:
             self._request_cancel()
             return
         self._pick_and_start()
 
     def _pick_and_start(self) -> None:
+        """Prompt the user for a PDF and, if chosen, kick off synthesis."""
         path = filedialog.askopenfilename(
             title=DLG_PICK_PDF_TITLE,
             filetypes=[(DLG_PDF_FILTER_NAME, "*.pdf"), ("Kaikki tiedostot", "*.*")],
@@ -324,6 +329,12 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _start_synthesis(self, engine_id: str) -> None:
+        """Dispatch synthesis for ``engine_id`` and start polling events.
+
+        Chatterbox-Finnish goes through the subprocess bridge; other engines
+        run in-process on a background thread. Either way, events land in
+        ``self._event_queue`` and the ``_pump_events`` tick consumes them.
+        """
         assert self._pdf_path is not None
         assert self._output_path is not None
 
@@ -343,6 +354,12 @@ class LauncherApp(tk.Tk):
     # --- Chatterbox subprocess path ------------------------------------
 
     def _start_chatterbox_subprocess(self) -> None:
+        """Launch the Chatterbox-Finnish runner script in its own venv.
+
+        Fails the job via ``self._fail()`` if the venv or runner script is
+        missing. On success, starts a daemon relay thread that forwards
+        bridge events onto the main event queue.
+        """
         assert self._pdf_path is not None
         python_exe = resolve_chatterbox_python()
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
@@ -376,6 +393,7 @@ class LauncherApp(tk.Tk):
         ).start()
 
     def _relay_chatterbox_events(self) -> None:
+        """Daemon thread body: drain the bridge queue onto ``_event_queue``."""
         runner = self._chatterbox_runner
         assert runner is not None
         while not runner.finished:
@@ -386,6 +404,7 @@ class LauncherApp(tk.Tk):
     # --- In-process Edge-TTS / Piper path ------------------------------
 
     def _start_inprocess_engine(self, engine_id: str) -> None:
+        """Start Edge-TTS / Piper synthesis on a daemon background thread."""
         engine = get_engine(engine_id)
         if engine is None:
             self._fail(f"Moottoria '{engine_id}' ei löytynyt.")
@@ -451,6 +470,7 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _pump_events(self) -> None:
+        """Drain queued events on the Tk main thread and reschedule self."""
         had_exit = False
         while True:
             try:
@@ -464,6 +484,7 @@ class LauncherApp(tk.Tk):
             self.after(self.POLL_INTERVAL_MS, self._pump_events)
 
     def _handle_event(self, ev: ProgressEvent) -> None:
+        """Apply one ``ProgressEvent`` to the UI (progress bar, status, log)."""
         if ev.raw_line:
             self._append_log(ev.raw_line)
 
@@ -509,6 +530,11 @@ class LauncherApp(tk.Tk):
             self._on_synth_exit(ev.returncode)
 
     def _on_synth_exit(self, returncode: int) -> None:
+        """Finalise UI state when the synthesis worker exits.
+
+        ``returncode`` is 0 for success; non-zero is treated as failure
+        unless ``self._cancel_requested`` is set (then we report cancelled).
+        """
         self._synth_running = False
         self._primary_btn.config(text=BTN_PRIMARY_IDLE, state=tk.NORMAL)
         if returncode == 0 and not self._cancel_requested:
@@ -543,6 +569,7 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _request_cancel(self) -> None:
+        """Ask the current job to stop. In-process engines finish the current chunk first."""
         self._cancel_requested = True
         self._primary_btn.config(text=BTN_CANCELLING, state=tk.DISABLED)
         if self._chatterbox_runner is not None:
@@ -556,6 +583,7 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _open_output_folder(self) -> None:
+        """Open the output MP3's containing folder in the OS file manager."""
         if self._output_path is None:
             return
         folder = self._output_path.parent
@@ -573,6 +601,7 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _toggle_details(self) -> None:
+        """Show or hide the collapsible log panel."""
         if self._details_visible:
             self._details_frame.grid_remove()
             self._toggle_btn.config(text=BTN_SHOW_LOG)
@@ -584,11 +613,13 @@ class LauncherApp(tk.Tk):
         self._details_visible = not self._details_visible
 
     def _clear_log(self) -> None:
+        """Wipe the log text widget, toggling its read-only state around it."""
         self._log_text.configure(state=tk.NORMAL)
         self._log_text.delete("1.0", tk.END)
         self._log_text.configure(state=tk.DISABLED)
 
     def _append_log(self, line: str) -> None:
+        """Append ``line`` plus newline to the log widget and auto-scroll."""
         self._log_text.configure(state=tk.NORMAL)
         self._log_text.insert(tk.END, line + "\n")
         self._log_text.see(tk.END)
@@ -598,7 +629,8 @@ class LauncherApp(tk.Tk):
     # Help link
     # ------------------------------------------------------------------
 
-    def _open_help(self, _event=None) -> None:
+    def _open_help(self, _event: object = None) -> None:
+        """Open the bundled README in the browser, or the GitHub README as fallback."""
         help_path = _REPO_ROOT / "README.md"
         if help_path.exists():
             webbrowser.open(help_path.as_uri())
@@ -613,6 +645,7 @@ class LauncherApp(tk.Tk):
     # ------------------------------------------------------------------
 
     def _set_running_state(self) -> None:
+        """Flip widgets to the busy state (primary button becomes Cancel, etc.)."""
         self._synth_running = True
         self._cancel_requested = False
         self._primary_btn.config(text=BTN_PRIMARY_CANCEL, state=tk.NORMAL)
@@ -622,6 +655,7 @@ class LauncherApp(tk.Tk):
         self._eta_var.set("")
 
     def _fail(self, message: str) -> None:
+        """Abort the current job, surface ``message`` in the status bar and a dialog."""
         self._synth_running = False
         self._primary_btn.config(text=BTN_PRIMARY_IDLE, state=tk.NORMAL)
         self._status_var.set(message)
@@ -662,6 +696,12 @@ def self_test() -> int:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    """Launcher CLI entry point.
+
+    Accepts an optional ``argv`` (defaults to ``sys.argv[1:]``). If
+    ``--self-test`` is present, runs the headless self-check; otherwise
+    shows the Tk window and returns 0 once the user closes it.
+    """
     argv = list(argv if argv is not None else sys.argv[1:])
     if "--self-test" in argv:
         return self_test()

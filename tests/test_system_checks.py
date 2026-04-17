@@ -316,9 +316,9 @@ class TestRunFullCheck:
         disk = DiskInfo(path="/", free_gb=100.0, total_gb=500.0)
         py = PythonInfo(found=True, path=Path("/usr/bin/python3.11"), version="3.11")
 
-        with patch("src.system_checks.detect_gpu", return_value=gpu), \
-             patch("src.system_checks.check_disk_space", return_value=disk), \
-             patch("src.system_checks.find_python311", return_value=py):
+        with patch("src.system_checks.detect_gpu", autospec=True, return_value=gpu), \
+             patch("src.system_checks.check_disk_space", autospec=True, return_value=disk), \
+             patch("src.system_checks.find_python311", autospec=True, return_value=py):
             report = run_full_check("/")
 
         assert report.gpu.has_nvidia is True
