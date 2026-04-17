@@ -10,8 +10,10 @@ Later stages (not yet implemented):
     * Forced alignment against a supplied text (epub / txt).
     * Per-segment emotion tagging.
     * LoRA fine-tune harness on top of base multilingual Chatterbox.
-    * Voice pack artifact format (weights + metadata + sample).
-    * GUI "Import voice pack" integration.
+
+The on-disk artefact format (``pack`` submodule) and the GUI Import
+integration are wired; the remaining slices are the training loop and
+expression-markup runtime consumption.
 
 Heavy dependencies (``faster-whisper``, ``pyannote.audio``, ``torchaudio``)
 are intentionally NOT in the shipped installer. Voice pack preparation is a
@@ -22,6 +24,17 @@ See ``scripts/voice_pack_analyze.py`` for the entry point.
 
 from __future__ import annotations
 
+from .pack import (
+    VOICE_PACK_FORMAT_VERSION,
+    VoicePack,
+    VoicePackError,
+    VoicePackMeta,
+    default_voice_packs_root,
+    install_pack,
+    list_packs,
+    load_pack,
+    validate_pack_dir,
+)
 from .types import (
     EMOTION_CLASSES,
     AsrSegment,
@@ -43,5 +56,14 @@ __all__ = [
     "SpeakerSummary",
     "TaggedChunk",
     "VoiceChunk",
+    "VOICE_PACK_FORMAT_VERSION",
+    "VoicePack",
+    "VoicePackError",
+    "VoicePackMeta",
     "classify_quality_tier",
+    "default_voice_packs_root",
+    "install_pack",
+    "list_packs",
+    "load_pack",
+    "validate_pack_dir",
 ]
