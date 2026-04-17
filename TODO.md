@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 full-book re-synth of Turo's audiobook with all fixes (~10h GPU) | 2026-04-17 |
 | Claude 2 | 🔵 working | Voice pack pipeline — Slices 2→5 (emotion, alignment, training, artifact+GUI, expression control) | 2026-04-17 |
-| Claude 3 | 🔵 working | Audit batch 3 (docs plan Pass R, launcher docstrings, autospec audit, gui cleanups) | 2026-04-17 |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,12 +30,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
-
-### Audit batch 3 [Claude 3, audit-batch-3]
-- [ ] Docs: `english_normalizer_plan.md` §3 missing Pass R (URLs/emails), update to list all 17 English passes in execution order. 🟢 ⚡ Sonnet.
-- [ ] `launcher.py` docstring + type-hint coverage bump (was ~34% docstrings / ~70% hints — priority item). 🟢 ⚡ Sonnet.
-- [ ] Test quality: add `autospec=True` on mock patches in `test_tts_engine.py` etc. so mocks break when real signatures drift. 🟢 ⚡ Sonnet.
-- [ ] Minor cleanups in `src/gui_unified.py:23,28` (unused `shutil`, redundant `webbrowser`) + broad `except Exception: pass` at lines 1608, 1964, 1994, 2093 should log at DEBUG. 🟢 ⚡ Sonnet.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
