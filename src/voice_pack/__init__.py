@@ -23,17 +23,25 @@ See ``scripts/voice_pack_analyze.py`` for the entry point.
 from __future__ import annotations
 
 from .types import (
+    EMOTION_CLASSES,
     AsrSegment,
+    DatasetClip,
+    DatasetManifest,
     DiarTurn,
     SpeakerSummary,
+    TaggedChunk,
     VoiceChunk,
     classify_quality_tier,
 )
 
 __all__ = [
+    "EMOTION_CLASSES",
     "AsrSegment",
+    "DatasetClip",
+    "DatasetManifest",
     "DiarTurn",
     "SpeakerSummary",
+    "TaggedChunk",
     "VoiceChunk",
     "classify_quality_tier",
 ]

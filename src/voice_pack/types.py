@@ -1,8 +1,9 @@
 """Shared data types for the voice pack pipeline.
 
-These are the contract between the ASR, diarization, bucketing, and CLI
-stages. Every record is a plain dataclass so it serialises cleanly to JSON
-and YAML without custom encoders.
+These are the contract between the ASR, diarization, bucketing, alignment,
+emotion tagging, dataset export, training, and loader stages. Every record
+is a plain dataclass so it serialises cleanly to JSON and YAML without
+custom encoders.
 
 Quality tiers (see :func:`classify_quality_tier`):
 
@@ -14,12 +15,22 @@ Quality tiers (see :func:`classify_quality_tier`):
   the best ~15 s reference clips and save them as a classic few-shot
   preset (the existing ref-clip path).
 * ``"skip"`` — < 1 min. Not enough data for anything useful. Ignored.
+
+Emotion labels (SpeechBrain IEMOCAP classifier output):
+
+* ``"neutral"``, ``"angry"``, ``"happy"``, ``"sad"`` — the four
+  canonical classes.
+* ``"unknown"`` — classifier returned nothing, or emotion tagging was
+  skipped for this chunk.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
+
+EMOTION_CLASSES: tuple[str, ...] = ("neutral", "angry", "happy", "sad", "unknown")
 
 
 @dataclass(frozen=True)
@@ -88,6 +99,101 @@ class VoiceChunk:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class TaggedChunk:
+    """A :class:`VoiceChunk` with emotion metadata attached.
+
+    Produced by :mod:`src.voice_pack.emotion`. The emotion label is used
+    downstream by :mod:`src.voice_pack.dataset` to rebalance the training
+    set so minority classes (angry, sad) imprint despite being rare in
+    typical narration.
+
+    ``emotion_confidence`` is the softmax probability of the predicted
+    class, in ``[0.0, 1.0]``. Classifiers that don't expose per-class
+    probabilities should return ``1.0`` for their top class.
+    """
+
+    start: float
+    end: float
+    text: str
+    speaker: str
+    confidence: float
+    emotion: str
+    emotion_confidence: float
+
+    @property
+    def duration(self) -> float:
+        return max(0.0, self.end - self.start)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_chunk(
+        cls,
+        chunk: VoiceChunk,
+        *,
+        emotion: str = "unknown",
+        emotion_confidence: float = 0.0,
+    ) -> "TaggedChunk":
+        """Promote a :class:`VoiceChunk` to a :class:`TaggedChunk`."""
+        return cls(
+            start=chunk.start,
+            end=chunk.end,
+            text=chunk.text,
+            speaker=chunk.speaker,
+            confidence=chunk.confidence,
+            emotion=emotion,
+            emotion_confidence=emotion_confidence,
+        )
+
+
+@dataclass(frozen=True)
+class DatasetClip:
+    """One exported training clip on disk.
+
+    ``path`` is relative to the manifest's ``root_dir`` so the dataset
+    folder is portable — copy the whole folder to a training host and
+    nothing breaks.
+    """
+
+    path: str
+    text: str
+    emotion: str
+    speaker: str
+    duration: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class DatasetManifest:
+    """Manifest describing a per-speaker training dataset.
+
+    Consumed by the Slice-3 LoRA training harness. The manifest lives on
+    disk as ``manifest.json`` inside ``root_dir``; ``clips`` references
+    audio files in the same directory via their relative ``path``.
+    """
+
+    speaker: str
+    root_dir: Path
+    clips: list[DatasetClip] = field(default_factory=list)
+    total_seconds: float = 0.0
+    emotion_counts: dict[str, int] = field(default_factory=dict)
+    sample_rate_hz: int = 24000
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "speaker": self.speaker,
+            "root_dir": str(self.root_dir),
+            "sample_rate_hz": self.sample_rate_hz,
+            "total_seconds": self.total_seconds,
+            "emotion_counts": dict(self.emotion_counts),
+            "clips": [c.to_dict() for c in self.clips],
+        }
 
 
 @dataclass
