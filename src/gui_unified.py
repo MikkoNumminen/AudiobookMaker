@@ -1149,14 +1149,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         via :meth:`_set_status_strip`.
         """
         self._status_strip_frame = ctk.CTkFrame(
-            parent, fg_color=("#1976d2", "#0d47a1"), corner_radius=6,
+            parent, fg_color=gui_style.INFO, corner_radius=gui_style.RADIUS_MD,
         )
-        self._status_strip_frame.grid(row=row, column=0, sticky="ew", pady=(0, 6))
+        self._status_strip_frame.grid(
+            row=row, column=0, sticky="ew", pady=(0, gui_style.PAD_SM)
+        )
         self._status_strip_frame.columnconfigure(0, weight=1)
         self._status_strip_label = ctk.CTkLabel(
             self._status_strip_frame, text="", text_color="white", anchor="w",
+            font=gui_style.font_body(),
         )
-        self._status_strip_label.grid(row=0, column=0, sticky="ew", padx=10, pady=4)
+        self._status_strip_label.grid(
+            row=0, column=0, sticky="ew",
+            padx=gui_style.PAD_MD, pady=gui_style.PAD_XS + 2,
+        )
         self._status_strip_frame.grid_remove()
 
         # Cached fields from the latest _set_status_strip call — used to
@@ -1291,34 +1297,57 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _build_update_banner(self, parent: ctk.CTkFrame, row: int) -> None:
         self._update_banner = ctk.CTkFrame(
-            parent, fg_color=gui_style.SUCCESS, corner_radius=8
+            parent,
+            fg_color=gui_style.SUCCESS,
+            corner_radius=gui_style.RADIUS_MD,
         )
-        self._update_banner.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self._update_banner.grid(
+            row=row, column=0, sticky="ew", pady=(0, gui_style.PAD_SM)
+        )
         self._update_banner.columnconfigure(0, weight=1)
 
         self._update_label = ctk.CTkLabel(
-            self._update_banner, text="", text_color="white"
+            self._update_banner, text="", text_color="white",
+            font=gui_style.font_body(),
         )
-        self._update_label.grid(row=0, column=0, sticky="w", padx=(8, 8))
+        self._update_label.grid(
+            row=0, column=0, sticky="w",
+            padx=(gui_style.PAD_MD, gui_style.PAD_SM),
+            pady=gui_style.PAD_SM,
+        )
 
         self._update_btn = ctk.CTkButton(
             self._update_banner, text=self._s("update_now"),
             command=self._on_update_click,
+            font=gui_style.font_button(),
+            corner_radius=gui_style.RADIUS_SM,
         )
-        self._update_btn.grid(row=0, column=1, padx=(0, 4), pady=4)
+        self._update_btn.grid(
+            row=0, column=1,
+            padx=(0, gui_style.PAD_XS), pady=gui_style.PAD_XS,
+        )
 
         # Secondary "open in browser" fallback — always visible when the
         # banner is shown. Works even if the in-app updater is broken
         # (as happened on v3.3.1); gives the user a visible escape hatch
         # without needing to know about the Releases page.
+        # Darker green hovers keep the button readable on the SUCCESS bg
+        # when the user mouses over. Tied to gui_style.SUCCESS via a
+        # small deepening; kept as literals because CTk doesn't expose a
+        # darken() helper.
         self._update_browser_btn = ctk.CTkButton(
             self._update_banner,
             text=self._s("update_download_manually"),
             command=self._on_update_browser_click,
+            font=gui_style.font_button(),
+            corner_radius=gui_style.RADIUS_SM,
             fg_color="transparent", border_width=1, border_color="white",
-            text_color="white", hover_color=("#1b5e20", "#0b3d12"),
+            text_color="white", hover_color=("#156326", "#0f7a2a"),
         )
-        self._update_browser_btn.grid(row=0, column=2, padx=(0, 8), pady=4)
+        self._update_browser_btn.grid(
+            row=0, column=2,
+            padx=(0, gui_style.PAD_SM), pady=gui_style.PAD_XS,
+        )
 
         # Hidden by default.
         self._update_banner.grid_remove()
@@ -1410,11 +1439,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     # ---- 2. Settings frame --------------------------------------------
 
     def _build_settings_frame(self, parent: ctk.CTkFrame, row: int) -> None:
-        # Collapsible header bar + hidden body.
+        # Collapsible header bar + hidden body. The header is a ghost
+        # button (transparent bg, hover highlight only) that toggles the
+        # surface-card body below. Chevron glyph stays unicode for now —
+        # commit 6 will swap in the Lucide icon via ``gui_style.icon``.
         self._settings_open = False
 
+        # Secondary-button look for the ghost header: it should read as
+        # a clickable row header, not a primary action.
         header_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        header_frame.grid(row=row, column=0, sticky="ew", pady=(4, 2))
+        header_frame.grid(
+            row=row, column=0, sticky="ew",
+            pady=(gui_style.PAD_XS, gui_style.PAD_XS // 2 or 1),
+        )
         header_frame.columnconfigure(0, weight=1)
 
         self._settings_header_btn = ctk.CTkButton(
@@ -1423,20 +1460,35 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             command=self._toggle_settings,
             anchor="w",
             height=32,
+            font=gui_style.font_button(),
             fg_color="transparent",
-            text_color=("gray20", "gray80"),
-            hover_color=("gray90", "gray25"),
+            text_color=gui_style.TEXT_SECONDARY,
+            hover_color=gui_style.BG_SURFACE_2,
+            corner_radius=gui_style.RADIUS_SM,
         )
         self._settings_header_btn.grid(row=0, column=0, sticky="ew")
 
-        settings_outer = ctk.CTkFrame(parent)
-        settings_outer.grid(row=row + 1, column=0, sticky="ew", pady=(0, 8))
+        # Surface card: 1px border + BG_SURFACE_1 fill gives the body a
+        # subtle lift against BG_APP without relying on native shadows.
+        settings_outer = ctk.CTkFrame(
+            parent,
+            fg_color=gui_style.BG_SURFACE_1,
+            border_width=1,
+            border_color=gui_style.BORDER_SUBTLE,
+            corner_radius=gui_style.RADIUS_MD,
+        )
+        settings_outer.grid(
+            row=row + 1, column=0, sticky="ew", pady=(0, gui_style.PAD_SM)
+        )
         settings_outer.columnconfigure(0, weight=1)
         self._settings_outer = settings_outer
         settings_outer.grid_remove()  # Collapsed by default
 
         self._settings_frame = ctk.CTkFrame(settings_outer, fg_color="transparent")
-        self._settings_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+        self._settings_frame.grid(
+            row=0, column=0, sticky="ew",
+            padx=gui_style.PAD_MD, pady=gui_style.PAD_MD,
+        )
         self._settings_frame.columnconfigure(1, weight=1)
         self._settings_frame.columnconfigure(3, weight=1)
         settings = self._settings_frame
@@ -1449,89 +1501,137 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         # Not gridded — other code can still call .configure(text=...).
 
+        # Shared style dict for secondary "utility" buttons inside the
+        # settings panel (Selaa/Tyhjennä/Vaihda). Mirrors the treatment
+        # used in ``_build_action_row`` so the visual vocabulary is
+        # consistent across the window.
+        _sec = dict(
+            font=gui_style.font_button(),
+            fg_color=gui_style.BTN_SECONDARY_BG,
+            hover_color=gui_style.BTN_SECONDARY_HOVER,
+            text_color=gui_style.TEXT_PRIMARY,
+            border_width=1,
+            border_color=gui_style.BORDER_SUBTLE,
+            corner_radius=gui_style.RADIUS_SM,
+        )
+
         # Row 0: Speed. Kieli lives in the engine bar now, not here, so
         # the Nopeus widget gets promoted to column 0 and stays on its
         # own row instead of sharing with a (removed) language picker.
-        self._speed_label = ctk.CTkLabel(settings, text="Nopeus:")
+        self._speed_label = ctk.CTkLabel(
+            settings, text="Nopeus:", font=gui_style.font_label(),
+            text_color=gui_style.TEXT_SECONDARY,
+        )
         self._speed_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6)
+            row=srow, column=0, sticky="w", padx=(0, gui_style.PAD_SM)
         )
         self._speed_cb = ctk.CTkComboBox(
             settings,
             values=list(SPEED_OPTIONS["fi"].keys()), state="readonly", width=200,
+            font=gui_style.font_body(),
         )
         self._speed_cb.set("Normaali")
         self._speed_cb.grid(row=srow, column=1, sticky="w")
         srow += 1
 
         # Row 3: Reference audio (voice cloning) — hidden when unsupported
-        self._ref_label = ctk.CTkLabel(settings, text="Ref. ääni:")
+        self._ref_label = ctk.CTkLabel(
+            settings, text="Ref. ääni:", font=gui_style.font_label(),
+            text_color=gui_style.TEXT_SECONDARY,
+        )
         self._ref_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
+            row=srow, column=0, sticky="w",
+            padx=(0, gui_style.PAD_SM), pady=(gui_style.PAD_SM, 0),
         )
         self._ref_frame = ctk.CTkFrame(settings, fg_color="transparent")
         self._ref_frame.grid(
-            row=srow, column=1, columnspan=3, sticky="ew", pady=(6, 0)
+            row=srow, column=1, columnspan=3, sticky="ew",
+            pady=(gui_style.PAD_SM, 0),
         )
         self._ref_frame.columnconfigure(0, weight=1)
         self._ref_audio_var = tk.StringVar(value="")
         self._ref_entry = ctk.CTkEntry(
-            self._ref_frame, textvariable=self._ref_audio_var, state="disabled"
+            self._ref_frame, textvariable=self._ref_audio_var, state="disabled",
+            font=gui_style.font_body(),
         )
-        self._ref_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self._ref_entry.grid(
+            row=0, column=0, sticky="ew", padx=(0, gui_style.PAD_SM)
+        )
         self._ref_browse_btn = ctk.CTkButton(
             self._ref_frame, text="Selaa", command=self._browse_reference_audio,
-            width=60,
+            width=72, **_sec,
         )
         self._ref_browse_btn.grid(row=0, column=1)
         self._ref_clear_btn = ctk.CTkButton(
             self._ref_frame, text="Tyhjennä", command=self._clear_reference_audio,
-            width=80,
+            width=88, **_sec,
         )
-        self._ref_clear_btn.grid(row=0, column=2, padx=(4, 0))
+        self._ref_clear_btn.grid(row=0, column=2, padx=(gui_style.PAD_XS, 0))
         srow += 1
 
         # Row 4: Voice description — hidden when unsupported
-        self._desc_label = ctk.CTkLabel(settings, text="Äänityyli:")
+        self._desc_label = ctk.CTkLabel(
+            settings, text="Äänityyli:", font=gui_style.font_label(),
+            text_color=gui_style.TEXT_SECONDARY,
+        )
         self._desc_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
+            row=srow, column=0, sticky="w",
+            padx=(0, gui_style.PAD_SM), pady=(gui_style.PAD_SM, 0),
         )
         self._voice_desc_var = tk.StringVar(value="")
         self._voice_desc_entry = ctk.CTkEntry(
-            settings, textvariable=self._voice_desc_var
+            settings, textvariable=self._voice_desc_var,
+            font=gui_style.font_body(),
         )
         self._voice_desc_entry.grid(
-            row=srow, column=1, columnspan=3, sticky="ew", pady=(6, 0)
+            row=srow, column=1, columnspan=3, sticky="ew",
+            pady=(gui_style.PAD_SM, 0),
         )
         srow += 1
 
         # Row 5: Tallenna + Tuloste on the SAME row (merged output controls).
-        self._save_label = ctk.CTkLabel(settings, text="Tallenna:")
+        self._save_label = ctk.CTkLabel(
+            settings, text="Tallenna:", font=gui_style.font_label(),
+            text_color=gui_style.TEXT_SECONDARY,
+        )
         self._save_label.grid(
-            row=srow, column=0, sticky="w", padx=(0, 6), pady=(6, 0)
+            row=srow, column=0, sticky="w",
+            padx=(0, gui_style.PAD_SM), pady=(gui_style.PAD_SM, 0),
         )
         out_frame = ctk.CTkFrame(settings, fg_color="transparent")
         out_frame.grid(
-            row=srow, column=1, columnspan=3, sticky="ew", pady=(6, 0)
+            row=srow, column=1, columnspan=3, sticky="ew",
+            pady=(gui_style.PAD_SM, 0),
         )
         out_frame.columnconfigure(0, weight=1)
 
-        self._out_entry = ctk.CTkEntry(out_frame, state="disabled")
-        self._out_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self._out_entry = ctk.CTkEntry(
+            out_frame, state="disabled", font=gui_style.font_body(),
+        )
+        self._out_entry.grid(
+            row=0, column=0, sticky="ew", padx=(0, gui_style.PAD_SM)
+        )
 
         self._out_browse_btn = ctk.CTkButton(
             out_frame, text="Vaihda\u2026", command=self._browse_output,
-            width=80,
+            width=88, **_sec,
         )
-        self._out_browse_btn.grid(row=0, column=1, padx=(0, 8))
+        self._out_browse_btn.grid(
+            row=0, column=1, padx=(0, gui_style.PAD_SM)
+        )
 
-        self._output_mode_label = ctk.CTkLabel(out_frame, text="Tuloste:")
-        self._output_mode_label.grid(row=0, column=2, sticky="w", padx=(0, 4))
+        self._output_mode_label = ctk.CTkLabel(
+            out_frame, text="Tuloste:", font=gui_style.font_label(),
+            text_color=gui_style.TEXT_SECONDARY,
+        )
+        self._output_mode_label.grid(
+            row=0, column=2, sticky="w", padx=(0, gui_style.PAD_XS)
+        )
 
         self._output_mode_cb = ctk.CTkComboBox(
             out_frame,
             values=list(OUTPUT_MODES["fi"].keys()), state="readonly",
-            width=140,
+            width=140, font=gui_style.font_body(),
         )
         self._output_mode_cb.set("Yksi MP3")
         self._output_mode_cb.grid(row=0, column=3, sticky="w")
@@ -1559,28 +1659,58 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     def _build_log_panel(
         self, parent: ctk.CTkFrame, row: int, stretch_row: int
     ) -> None:
+        # Secondary-style toggle button above the log surface card —
+        # matches the Sample/Listen/Open folder visual vocabulary so the
+        # toolbar reads as a consistent row of utility controls.
         toggle_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        toggle_frame.grid(row=row, column=0, sticky="ew", pady=(4, 0))
+        toggle_frame.grid(
+            row=row, column=0, sticky="ew", pady=(gui_style.PAD_XS, 0)
+        )
 
         self._log_toggle_btn = ctk.CTkButton(
             toggle_frame, text="Piilota loki", command=self._toggle_log,
-            width=120,
+            width=140,
+            font=gui_style.font_button(),
+            fg_color=gui_style.BTN_SECONDARY_BG,
+            hover_color=gui_style.BTN_SECONDARY_HOVER,
+            text_color=gui_style.TEXT_PRIMARY,
+            border_width=1,
+            border_color=gui_style.BORDER_SUBTLE,
+            corner_radius=gui_style.RADIUS_SM,
         )
         self._log_toggle_btn.grid(row=0, column=0, sticky="w")
 
-        self._log_frame = ctk.CTkFrame(parent)
+        # Surface card around the log textbox — same 1px-border + elevated
+        # fill treatment as the settings panel and engine bar so every
+        # major section reads at the same elevation level.
+        self._log_frame = ctk.CTkFrame(
+            parent,
+            fg_color=gui_style.BG_SURFACE_1,
+            border_width=1,
+            border_color=gui_style.BORDER_SUBTLE,
+            corner_radius=gui_style.RADIUS_MD,
+        )
         # Placed in stretch_row so it can grow.
         self._log_frame.grid(
-            row=stretch_row, column=0, sticky="nsew", pady=(4, 0)
+            row=stretch_row, column=0, sticky="nsew",
+            pady=(gui_style.PAD_XS, 0),
         )
         self._log_frame.columnconfigure(0, weight=1)
         self._log_frame.rowconfigure(0, weight=1)
 
+        # font_log() resolves the mono chain Cascadia Mono → Cascadia
+        # Code → Consolas → TkFixedFont — fail-safe on dev boxes that
+        # don't have Cascadia installed.
         self._log_text = ctk.CTkTextbox(
             self._log_frame, height=200, wrap="word",
-            font=ctk.CTkFont(family="Consolas", size=12),
+            font=gui_style.font_log(),
+            fg_color=gui_style.BG_SURFACE_1,
+            border_width=0,
         )
-        self._log_text.grid(row=0, column=0, sticky="nsew")
+        self._log_text.grid(
+            row=0, column=0, sticky="nsew",
+            padx=gui_style.PAD_SM, pady=gui_style.PAD_SM,
+        )
         self._log_text.configure(state="disabled")
 
         # Visible by default (log panel shown on launch).
@@ -3274,24 +3404,40 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
           warning → bold amber/yellow (for issues, not failures)
           error   → bold red
           info    → default (no styling)
+
+        Colors come from the Cold Forge palette so the log panel stays
+        legible in both light and dark appearance modes. Tk tags don't
+        accept (light, dark) tuples, so we pick the index that matches
+        the current ``ctk.get_appearance_mode()`` at render time.
         """
         self._log_text.configure(state="normal")
         start_index = self._log_text.index(tk.END + "-1c")
         self._log_text.insert(tk.END, line + "\n")
         end_index = self._log_text.index(tk.END + "-1c")
 
+        # Pick the palette index (0=light, 1=dark) that matches the
+        # current CTk appearance mode. Unknown / "system" → dark, since
+        # the app defaults to dark.
+        try:
+            mode = ctk.get_appearance_mode().lower()
+        except Exception:
+            mode = "dark"
+        idx = 0 if mode == "light" else 1
+
+        mono_family = gui_style.font_log().cget("family")
+        bold_font = (mono_family, 12, "bold")
         palette = {
-            "success": ("#2e7d32", ("Consolas", 12, "bold")),   # dark green
-            "warning": ("#b8860b", ("Consolas", 12, "bold")),   # dark goldenrod
-            "error":   ("#c62828", ("Consolas", 12, "bold")),   # dark red
+            "success": gui_style.SUCCESS,
+            "warning": gui_style.WARNING,
+            "error":   gui_style.DANGER,
         }
         if severity in palette:
-            color, font_tuple = palette[severity]
+            color = palette[severity][idx]
             try:
                 inner = self._log_text._textbox  # type: ignore[attr-defined]
                 inner.tag_configure(
                     f"log_{severity}",
-                    foreground=color, font=font_tuple,
+                    foreground=color, font=bold_font,
                 )
                 inner.tag_add(f"log_{severity}", start_index, end_index)
             except Exception:
