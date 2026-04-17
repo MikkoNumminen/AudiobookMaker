@@ -66,6 +66,14 @@ except Exception:  # pragma: no cover — module might be stubbed in parallel de
     _duration_estimate = None  # type: ignore
 from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engines
 from src.tts_engine import TTSConfig, chapters_to_speech
+from src.voice_pack import (
+    VoicePack,
+    VoicePackError,
+    default_voice_packs_root,
+    install_pack,
+    list_packs,
+    validate_pack_dir,
+)
 
 # Single import point for every TTS engine. See src/engine_registry.py
 # for the list (developer-only engines like VoxCPM2 are guarded there).
@@ -279,6 +287,12 @@ _STRINGS = {
         "lang_name_fi": "suomenkielist\u00e4",
         "lang_name_en": "englanninkielist\u00e4",
         "chunk_chars_label": "Chatterbox-palan pituus (merkki\u00e4):",
+        "import_pack_btn": "Tuo \u00e4\u00e4nipaketti\u2026",
+        "import_pack_title": "Valitse \u00e4\u00e4nipakettikansio",
+        "import_pack_success": "\u00c4\u00e4nipaketti tuotu: {name}",
+        "import_pack_error": "\u00c4\u00e4nipaketin tuonti ep\u00e4onnistui: {error}",
+        "import_pack_invalid": "Kansio ei ole kelvollinen \u00e4\u00e4nipaketti: {issues}",
+        "voice_pack_tag": "\u00e4\u00e4nipaketti",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -379,6 +393,12 @@ _STRINGS = {
         "lang_name_fi": "Finnish",
         "lang_name_en": "English",
         "chunk_chars_label": "Chatterbox chunk size (chars):",
+        "import_pack_btn": "Import voice pack\u2026",
+        "import_pack_title": "Select voice pack folder",
+        "import_pack_success": "Voice pack imported: {name}",
+        "import_pack_error": "Voice pack import failed: {error}",
+        "import_pack_invalid": "Folder is not a valid voice pack: {issues}",
+        "voice_pack_tag": "voice pack",
     },
 }
 
@@ -611,6 +631,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._ref_label.configure(text=s("ref_audio_label"))
         self._ref_browse_btn.configure(text=s("browse").rstrip("\u2026"))
         self._ref_clear_btn.configure(text=s("clear"))
+
+        # Voice pack import button (visible in Settings regardless of engine).
+        self._import_pack_btn.configure(text=s("import_pack_btn"))
 
         # Voice description label.
         self._desc_label.configure(text=s("voice_desc_label"))
@@ -1206,7 +1229,97 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         for voice in engine.list_voices(self._current_language()):
             if voice.display_name == display:
                 return voice
+        # Fall through to imported voice packs (Chatterbox only — packs
+        # target Chatterbox's reference-audio clone path).
+        for voice in self._voice_pack_voices(engine, self._current_language()):
+            if voice.display_name == display:
+                return voice
         return None
+
+    def _voice_pack_voices(self, engine: TTSEngine, language: str) -> list[Voice]:
+        """Return Voice entries for installed voice packs that match
+        ``engine`` + ``language``.
+
+        Packs are surfaced only for Chatterbox: other engines don't use
+        the clone-by-reference path the pack artefact is built around.
+        The id uses the ``voicepack:<slug>`` prefix so
+        :meth:`_resolve_voice_pack` can map the pick back to a concrete
+        ``VoicePack`` and hand the reference audio to the synthesiser.
+        """
+        if getattr(engine, "id", "") != "chatterbox_fi":
+            return []
+        tag = self._s("voice_pack_tag")
+        out: list[Voice] = []
+        for pack in self._list_installed_voice_packs():
+            if pack.meta.language and pack.meta.language != language:
+                continue
+            out.append(
+                Voice(
+                    id=f"voicepack:{pack.root.name}",
+                    display_name=f"{pack.display_name} ({tag})",
+                    language=language,
+                )
+            )
+        return out
+
+    def _list_installed_voice_packs(self) -> list[VoicePack]:
+        """Return installed voice packs, or an empty list on any error.
+
+        The GUI tolerates a broken packs root (missing dir, stray files,
+        invalid meta.yaml) — the pack loader skips unreadable entries,
+        but we also shield against any unexpected raise so the voice
+        dropdown never empties on account of a voice-pack glitch.
+        """
+        try:
+            return list_packs()
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("list_packs() failed", exc_info=exc)
+            return []
+
+    def _resolve_voice_pack(self, voice_id: Optional[str]) -> Optional[VoicePack]:
+        """Map a ``voicepack:<slug>`` voice id to the installed pack."""
+        if not voice_id or not voice_id.startswith("voicepack:"):
+            return None
+        slug = voice_id.split(":", 1)[1]
+        for pack in self._list_installed_voice_packs():
+            if pack.root.name == slug:
+                return pack
+        return None
+
+    def _voice_pack_reference_path(self, pack: VoicePack) -> Optional[str]:
+        """Pick the audio file Chatterbox should clone from.
+
+        Prefer ``reference.wav`` (curated few-shot reference); fall back
+        to ``sample.wav`` so even LoRA packs (where the adapter would
+        normally drive voicing, but we don't have the LoRA runtime path
+        yet) at least produce *something* in the right voice ballpark.
+        """
+        if pack.reference_path is not None and pack.reference_path.exists():
+            return str(pack.reference_path)
+        if pack.sample_path.exists():
+            return str(pack.sample_path)
+        return None
+
+    def _effective_reference_audio(
+        self, voice: Optional[Voice], manual_ref: Optional[str]
+    ) -> Optional[str]:
+        """Return the reference audio to feed synthesis for ``voice``.
+
+        A voice pack selection auto-populates the reference path from
+        the pack artefact, so the Chatterbox clone path runs out of the
+        pack's ``reference.wav`` (or ``sample.wav`` fallback) without
+        the user having to browse to it manually. If the user has an
+        explicit entry in the Ref. ääni field, that wins — lets power
+        users override pack choice on a per-run basis.
+        """
+        if manual_ref:
+            return manual_ref
+        if voice is None:
+            return None
+        pack = self._resolve_voice_pack(voice.id)
+        if pack is None:
+            return None
+        return self._voice_pack_reference_path(pack)
 
     # ------------------------------------------------------------------
     # Input mode helpers
@@ -1318,12 +1431,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     def _populate_voice_combobox(self, engine: TTSEngine) -> None:
         lang = self._current_language()
         voices = engine.list_voices(lang)
-        names = [v.display_name for v in voices]
+        pack_voices = self._voice_pack_voices(engine, lang)
+        combined = list(voices) + pack_voices
+        names = [v.display_name for v in combined]
         self._voice_cb.configure(values=names)
         if names:
             default_id = engine.default_voice(lang)
             default_name = next(
-                (v.display_name for v in voices if v.id == default_id),
+                (v.display_name for v in combined if v.id == default_id),
                 names[0],
             )
             self._voice_cb.set(default_name)
@@ -1482,6 +1597,46 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             wall_human=est.get("wall_human", "?"),
             engine_display=engine_display,
         )
+
+    def _import_voice_pack(self) -> None:
+        """Folder picker → ``install_pack`` → refresh Voice dropdown.
+
+        Copies the chosen pack into the user-data voice-packs root
+        (``~/.audiobookmaker/voice_packs/``) so the app owns the
+        canonical copy; the source folder can be moved or deleted
+        afterwards without breaking the imported voice.
+        """
+        source = filedialog.askdirectory(title=self._s("import_pack_title"))
+        if not source:
+            return
+        source_path = Path(source)
+        issues = validate_pack_dir(source_path)
+        if issues:
+            messagebox.showerror(
+                self._s("error"),
+                self._s("import_pack_invalid").format(issues="; ".join(issues)),
+            )
+            return
+        try:
+            pack = install_pack(source_path)
+        except (VoicePackError, FileExistsError, OSError) as exc:
+            messagebox.showerror(
+                self._s("error"),
+                self._s("import_pack_error").format(error=str(exc)),
+            )
+            return
+        self._append_log(
+            self._s("import_pack_success").format(name=pack.display_name)
+        )
+        self._refresh_voice_list()
+        # If the active engine is Chatterbox, jump straight to the newly
+        # imported pack so the user doesn't have to re-open the dropdown.
+        engine = self._current_engine()
+        if engine is not None and getattr(engine, "id", "") == "chatterbox_fi":
+            target_name = f"{pack.display_name} ({self._s('voice_pack_tag')})"
+            values = list(self._voice_cb.cget("values"))
+            if target_name in values:
+                self._voice_cb.set(target_name)
 
     def _browse_reference_audio(self) -> None:
         path = filedialog.askopenfilename(
@@ -1784,7 +1939,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             )
             tmp.close()
 
-            ref_audio = self._ref_audio_var.get() or None
+            ref_audio = self._effective_reference_audio(
+                voice, self._ref_audio_var.get() or None
+            )
             voice_desc = self._voice_desc_var.get() or None
 
             engine.synthesize(
@@ -1983,7 +2140,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         tmp_path: Optional[str] = None
         try:
             lang = self._current_language()
-            ref_audio = self._ref_audio_var.get() or None
+            ref_audio = self._effective_reference_audio(
+                voice, self._ref_audio_var.get() or None
+            )
             voice_desc = self._voice_desc_var.get() or None
 
             preview_len = len(text)
@@ -2380,7 +2539,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         voice = self._current_voice()
         voice_id = voice.id if voice else None
         language = self._current_language()
-        ref_audio = self._ref_audio_var.get() or None
+        ref_audio = self._effective_reference_audio(
+            voice, self._ref_audio_var.get() or None
+        )
         voice_desc = self._voice_desc_var.get() or None
 
         request = InprocessRequest(

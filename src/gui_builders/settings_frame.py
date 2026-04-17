@@ -28,8 +28,9 @@ def build_settings_frame(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> 
         _settings_open, _settings_header_btn, _settings_outer, _settings_frame,
         _engine_status_lbl, _speed_label, _speed_cb, _ref_label, _ref_frame,
         _ref_audio_var, _ref_entry, _ref_browse_btn, _ref_clear_btn,
-        _desc_label, _voice_desc_var, _voice_desc_entry, _save_label,
-        _out_entry, _out_browse_btn, _output_mode_label, _output_mode_cb
+        _import_pack_btn, _desc_label, _voice_desc_var, _voice_desc_entry,
+        _save_label, _out_entry, _out_browse_btn, _output_mode_label,
+        _output_mode_cb
     """
     # Late import — ``_CLR_READY``, ``SPEED_OPTIONS``, ``OUTPUT_MODES`` are
     # module-level in gui_unified; importing at top would circularise.
@@ -128,6 +129,22 @@ def build_settings_frame(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> 
     )
     host._speed_cb.set("Normaali")
     host._speed_cb.grid(row=srow, column=1, sticky="w")
+
+    # Voice-pack import button — right-aligned on the Speed row. Stays
+    # visible regardless of engine capability: importing a pack doesn't
+    # require the current engine to support cloning, and the pack shows
+    # up in the Voice dropdown next to Grandmom once the active engine
+    # is Chatterbox. See UnifiedApp._import_voice_pack.
+    host._import_pack_btn = ctk.CTkButton(
+        settings, text="Tuo \u00e4\u00e4nipaketti\u2026",
+        command=host._import_voice_pack,
+        width=180, **_sec,
+        image=gui_style.icon("folder", size=16),
+        compound="left",
+    )
+    host._import_pack_btn.grid(
+        row=srow, column=3, sticky="e", padx=(gui_style.PAD_SM, 0),
+    )
     srow += 1
 
     # Row 3: Reference audio (voice cloning) — hidden when unsupported
