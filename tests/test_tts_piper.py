@@ -160,7 +160,7 @@ class TestDownloadVoice:
         (tmp_path / spec.onnx_filename).write_bytes(b"fake")
         (tmp_path / spec.json_filename).write_bytes(b"{}")
 
-        with patch("src.tts_piper._download_file") as mock_dl:
+        with patch("src.tts_piper._download_file", autospec=True) as mock_dl:
             download_voice(spec.id)
         mock_dl.assert_not_called()
 

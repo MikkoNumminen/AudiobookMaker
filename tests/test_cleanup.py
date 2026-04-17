@@ -66,7 +66,7 @@ class TestFindOldInstalls:
         running = self._make_install(tmp_path, "Running")
         stale = self._make_install(tmp_path, "Stale")
 
-        with patch("src.cleanup._candidate_install_dirs",
+        with patch("src.cleanup._candidate_install_dirs", autospec=True,
                    return_value=[running, stale]):
             results = find_old_installs(current_exe=running / "AudiobookMaker.exe")
 
@@ -78,7 +78,7 @@ class TestFindOldInstalls:
         stale = self._make_install(tmp_path, "Stale")
         (stale / "unins000.exe").write_bytes(b"fake")
 
-        with patch("src.cleanup._candidate_install_dirs",
+        with patch("src.cleanup._candidate_install_dirs", autospec=True,
                    return_value=[stale]):
             results = find_old_installs(current_exe=tmp_path / "OtherApp" / "x.exe")
 
@@ -87,14 +87,14 @@ class TestFindOldInstalls:
 
     def test_no_uninstaller(self, tmp_path: Path) -> None:
         stale = self._make_install(tmp_path, "Stale")
-        with patch("src.cleanup._candidate_install_dirs",
+        with patch("src.cleanup._candidate_install_dirs", autospec=True,
                    return_value=[stale]):
             results = find_old_installs(current_exe=tmp_path / "OtherApp" / "x.exe")
         assert results[0].has_uninstaller is False
 
     def test_reports_size(self, tmp_path: Path) -> None:
         stale = self._make_install(tmp_path, "Stale")
-        with patch("src.cleanup._candidate_install_dirs",
+        with patch("src.cleanup._candidate_install_dirs", autospec=True,
                    return_value=[stale]):
             results = find_old_installs(current_exe=tmp_path / "OtherApp" / "x.exe")
         assert results[0].size_mb > 0
@@ -102,14 +102,14 @@ class TestFindOldInstalls:
     def test_skips_non_install_directories(self, tmp_path: Path) -> None:
         empty = tmp_path / "Empty"
         empty.mkdir()
-        with patch("src.cleanup._candidate_install_dirs",
+        with patch("src.cleanup._candidate_install_dirs", autospec=True,
                    return_value=[empty]):
             results = find_old_installs(current_exe=tmp_path / "x.exe")
         assert results == []
 
     def test_deduplicates_same_path(self, tmp_path: Path) -> None:
         stale = self._make_install(tmp_path, "Stale")
-        with patch("src.cleanup._candidate_install_dirs",
+        with patch("src.cleanup._candidate_install_dirs", autospec=True,
                    return_value=[stale, stale]):
             results = find_old_installs(current_exe=tmp_path / "x.exe")
         assert len(results) == 1
@@ -164,7 +164,7 @@ class TestFindOrphanShortcuts:
         missing_target = str(tmp_path / "DoesNotExist" / "AudiobookMaker.exe")
         lnk.write_bytes(_build_minimal_lnk(missing_target))
 
-        with patch("src.cleanup._candidate_shortcut_dirs",
+        with patch("src.cleanup._candidate_shortcut_dirs", autospec=True,
                    return_value=[shortcut_dir]):
             results = find_orphan_shortcuts()
 
@@ -184,7 +184,7 @@ class TestFindOrphanShortcuts:
         lnk = shortcut_dir / "AudiobookMaker.lnk"
         lnk.write_bytes(_build_minimal_lnk(str(target)))
 
-        with patch("src.cleanup._candidate_shortcut_dirs",
+        with patch("src.cleanup._candidate_shortcut_dirs", autospec=True,
                    return_value=[shortcut_dir]):
             results = find_orphan_shortcuts()
 
@@ -196,7 +196,7 @@ class TestFindOrphanShortcuts:
         bad = shortcut_dir / "AudiobookMaker.lnk"
         bad.write_bytes(b"not a real lnk file")
 
-        with patch("src.cleanup._candidate_shortcut_dirs",
+        with patch("src.cleanup._candidate_shortcut_dirs", autospec=True,
                    return_value=[shortcut_dir]):
             results = find_orphan_shortcuts()
 
@@ -210,7 +210,7 @@ class TestFindOrphanShortcuts:
         (shortcut_dir / "OtherApp.lnk").write_bytes(
             _build_minimal_lnk("C:/missing.exe")
         )
-        with patch("src.cleanup._candidate_shortcut_dirs",
+        with patch("src.cleanup._candidate_shortcut_dirs", autospec=True,
                    return_value=[shortcut_dir]):
             results = find_orphan_shortcuts()
         assert results == []

@@ -106,7 +106,7 @@ class TestTextToSpeech:
         def cb(current: int, total: int, msg: str) -> None:
             progress_calls.append((current, total, msg))
 
-        with patch("src.tts_engine._synthesize_chunk") as mock_synth:
+        with patch("src.tts_engine._synthesize_chunk", autospec=True) as mock_synth:
             async def fake_synth(text, voice, rate, volume, output_path):
                 seg = AudioSegment.silent(duration=50)
                 seg.export(output_path, format="mp3")
@@ -126,8 +126,8 @@ class TestTextToSpeech:
     def test_text_to_speech_calls_normalizer_for_finnish(self) -> None:
         from pydub import AudioSegment
 
-        with patch("src.tts_engine.normalize_text") as mock_norm, \
-             patch("src.tts_engine._synthesize_chunk") as mock_synth:
+        with patch("src.tts_engine.normalize_text", autospec=True) as mock_norm, \
+             patch("src.tts_engine._synthesize_chunk", autospec=True) as mock_synth:
             mock_norm.side_effect = lambda t, lang, **kw: t + " NORMALIZED"
 
             async def fake_synth(text, voice, rate, volume, output_path):
@@ -164,8 +164,8 @@ class TestTextToSpeech:
         """
         from pydub import AudioSegment
 
-        with patch("src.tts_engine.normalize_finnish_text") as mock_fi_norm, \
-             patch("src.tts_engine._synthesize_chunk") as mock_synth:
+        with patch("src.tts_engine.normalize_finnish_text", autospec=True) as mock_fi_norm, \
+             patch("src.tts_engine._synthesize_chunk", autospec=True) as mock_synth:
 
             async def fake_synth(text, voice, rate, volume, output_path):
                 seg = AudioSegment.silent(duration=50)
@@ -190,8 +190,8 @@ class TestTextToSpeech:
     def test_text_to_speech_skips_normalizer_when_disabled(self) -> None:
         from pydub import AudioSegment
 
-        with patch("src.tts_engine.normalize_text") as mock_norm, \
-             patch("src.tts_engine._synthesize_chunk") as mock_synth:
+        with patch("src.tts_engine.normalize_text", autospec=True) as mock_norm, \
+             patch("src.tts_engine._synthesize_chunk", autospec=True) as mock_synth:
 
             async def fake_synth(text, voice, rate, volume, output_path):
                 seg = AudioSegment.silent(duration=50)
@@ -216,7 +216,7 @@ class TestTextToSpeech:
     def test_creates_output_file(self) -> None:
         from pydub import AudioSegment
 
-        with patch("src.tts_engine._synthesize_chunk") as mock_synth:
+        with patch("src.tts_engine._synthesize_chunk", autospec=True) as mock_synth:
             async def fake_synth(text, voice, rate, volume, output_path):
                 seg = AudioSegment.silent(duration=50)
                 seg.export(output_path, format="mp3")

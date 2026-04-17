@@ -105,7 +105,7 @@ class TestSetupFfmpegPath:
         ffmpeg = tmp_path / "ffmpeg.exe"
         ffmpeg.write_bytes(b"fake")
 
-        with patch("src.ffmpeg_path.get_ffmpeg_exe", return_value=str(ffmpeg)):
+        with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=str(ffmpeg)):
             setup_ffmpeg_path()
 
             from pydub import AudioSegment
@@ -119,7 +119,7 @@ class TestSetupFfmpegPath:
         ffprobe = tmp_path / "ffprobe.exe"
         ffprobe.write_bytes(b"fake")
 
-        with patch("src.ffmpeg_path.get_ffmpeg_exe", return_value=str(ffmpeg)):
+        with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=str(ffmpeg)):
             setup_ffmpeg_path()
 
             from pydub import AudioSegment
@@ -133,7 +133,7 @@ class TestSetupFfmpegPath:
 
         old_path = os.environ.get("PATH", "")
         try:
-            with patch("src.ffmpeg_path.get_ffmpeg_exe", return_value=str(ffmpeg)):
+            with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=str(ffmpeg)):
                 setup_ffmpeg_path()
                 assert str(tmp_path) in os.environ["PATH"]
         finally:
@@ -142,7 +142,7 @@ class TestSetupFfmpegPath:
     def test_noop_when_ffmpeg_not_found(self) -> None:
         from src.ffmpeg_path import setup_ffmpeg_path
 
-        with patch("src.ffmpeg_path.get_ffmpeg_exe", return_value=None):
+        with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=None):
             # Should not raise
             setup_ffmpeg_path()
 
@@ -172,7 +172,7 @@ class TestApplyUpdateBatchScript:
              patch("src.auto_updater.os._exit") as mock_exit, \
              patch("src.auto_updater.Path.resolve", return_value=Path(r"C:\App\AudiobookMaker.exe")), \
              patch.object(sys, "executable", r"C:\App\AudiobookMaker.exe"), \
-             patch("src.single_instance.release"):
+             patch("src.single_instance.release", autospec=True):
 
             apply_update(installer)
 
@@ -239,7 +239,7 @@ class TestApplyUpdateBatchScript:
              patch("src.auto_updater.subprocess.Popen") as mock_popen, \
              patch("src.auto_updater.os._exit"), \
              patch.object(sys, "executable", r"C:\App\AudiobookMaker.exe"), \
-             patch("src.single_instance.release"):
+             patch("src.single_instance.release", autospec=True):
 
             apply_update(installer)
 
@@ -262,7 +262,7 @@ class TestApplyUpdateBatchScript:
              patch("src.auto_updater.subprocess.Popen"), \
              patch("src.auto_updater.os._exit") as mock_os_exit, \
              patch.object(sys, "executable", r"C:\App\AudiobookMaker.exe"), \
-             patch("src.single_instance.release"):
+             patch("src.single_instance.release", autospec=True):
 
             apply_update(installer)
             mock_os_exit.assert_called_once_with(0)
@@ -670,7 +670,7 @@ class TestCombineAudioFiles:
 
         self._make_silent_mp3(f1, 100)
 
-        with patch("src.ffmpeg_path.setup_ffmpeg_path") as mock_setup:
+        with patch("src.ffmpeg_path.setup_ffmpeg_path", autospec=True) as mock_setup:
             combine_audio_files([f1], out)
             mock_setup.assert_called_once()
 

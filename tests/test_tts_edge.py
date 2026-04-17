@@ -129,7 +129,7 @@ class TestSynthesize:
 
     def test_empty_voice_id_falls_back_to_default(self) -> None:
         engine = EdgeTTSEngine()
-        with patch("src.tts_edge._edge_text_to_speech") as mock_tts:
+        with patch("src.tts_edge._edge_text_to_speech", autospec=True) as mock_tts:
             engine.synthesize("hello", "/tmp/out.mp3", "", "fi")
         assert mock_tts.called
         # The TTSConfig passed to text_to_speech should have the default voice
@@ -139,7 +139,7 @@ class TestSynthesize:
 
     def test_delegates_to_text_to_speech(self) -> None:
         engine = EdgeTTSEngine()
-        with patch("src.tts_edge._edge_text_to_speech") as mock_tts:
+        with patch("src.tts_edge._edge_text_to_speech", autospec=True) as mock_tts:
             engine.synthesize(
                 "hello world", "/tmp/x.mp3", "fi-FI-HarriNeural", "fi"
             )
@@ -154,7 +154,7 @@ class TestSynthesize:
     def test_reference_audio_is_ignored(self) -> None:
         # Edge-TTS does not clone; passing reference_audio must not crash.
         engine = EdgeTTSEngine()
-        with patch("src.tts_edge._edge_text_to_speech"):
+        with patch("src.tts_edge._edge_text_to_speech", autospec=True):
             engine.synthesize(
                 "hello",
                 "/tmp/x.mp3",
@@ -166,7 +166,7 @@ class TestSynthesize:
     def test_voice_description_is_ignored(self) -> None:
         # Edge-TTS does not support voice description; passing it must not crash.
         engine = EdgeTTSEngine()
-        with patch("src.tts_edge._edge_text_to_speech"):
+        with patch("src.tts_edge._edge_text_to_speech", autospec=True):
             engine.synthesize(
                 "hello",
                 "/tmp/x.mp3",

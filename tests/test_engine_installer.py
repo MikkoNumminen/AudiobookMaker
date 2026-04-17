@@ -37,14 +37,14 @@ class TestPiperInstaller:
 
     def test_check_prerequisites_ok_when_disk_space_sufficient(self) -> None:
         disk = DiskInfo(path="/home", free_gb=10.0, total_gb=100.0)
-        with patch("src.engine_installer.check_disk_space", return_value=disk):
+        with patch("src.engine_installer.check_disk_space", autospec=True, return_value=disk):
             issues = PiperInstaller().check_prerequisites()
 
         assert issues == []
 
     def test_check_prerequisites_low_disk(self) -> None:
         disk = DiskInfo(path="/home", free_gb=0.1, total_gb=100.0)
-        with patch("src.engine_installer.check_disk_space", return_value=disk):
+        with patch("src.engine_installer.check_disk_space", autospec=True, return_value=disk):
             issues = PiperInstaller().check_prerequisites()
 
         assert len(issues) == 1
@@ -78,7 +78,7 @@ class TestPiperInstaller:
         progress_events: list[InstallProgress] = []
         cancel = threading.Event()
 
-        with patch("src.engine_installer._download_file") as mock_dl:
+        with patch("src.engine_installer._download_file", autospec=True) as mock_dl:
             inst.install(progress_events.append, cancel)
 
         # Should attempt to download both voice files
@@ -94,7 +94,7 @@ class TestPiperInstaller:
         progress_events: list[InstallProgress] = []
         cancel = threading.Event()
 
-        with patch("src.engine_installer._download_file") as mock_dl:
+        with patch("src.engine_installer._download_file", autospec=True) as mock_dl:
             inst.install(progress_events.append, cancel)
 
         mock_dl.assert_not_called()
@@ -124,8 +124,8 @@ class TestChatterboxInstaller:
     def test_check_prerequisites_no_gpu(self) -> None:
         gpu = GpuInfo(has_nvidia=False)
         disk = DiskInfo(path="C:\\", free_gb=50.0, total_gb=500.0)
-        with patch("src.engine_installer.detect_gpu", return_value=gpu), \
-             patch("src.engine_installer.check_disk_space", return_value=disk):
+        with patch("src.engine_installer.detect_gpu", autospec=True, return_value=gpu), \
+             patch("src.engine_installer.check_disk_space", autospec=True, return_value=disk):
             issues = ChatterboxInstaller().check_prerequisites()
 
         assert any("NVIDIA" in i for i in issues)
@@ -133,8 +133,8 @@ class TestChatterboxInstaller:
     def test_check_prerequisites_low_vram(self) -> None:
         gpu = GpuInfo(has_nvidia=True, gpu_name="GTX 1650", vram_mb=4096)
         disk = DiskInfo(path="C:\\", free_gb=50.0, total_gb=500.0)
-        with patch("src.engine_installer.detect_gpu", return_value=gpu), \
-             patch("src.engine_installer.check_disk_space", return_value=disk):
+        with patch("src.engine_installer.detect_gpu", autospec=True, return_value=gpu), \
+             patch("src.engine_installer.check_disk_space", autospec=True, return_value=disk):
             issues = ChatterboxInstaller().check_prerequisites()
 
         assert any("4096 MB" in i for i in issues)
@@ -142,8 +142,8 @@ class TestChatterboxInstaller:
     def test_check_prerequisites_low_disk(self) -> None:
         gpu = GpuInfo(has_nvidia=True, gpu_name="RTX 3080", vram_mb=10240)
         disk = DiskInfo(path="C:\\", free_gb=5.0, total_gb=500.0)
-        with patch("src.engine_installer.detect_gpu", return_value=gpu), \
-             patch("src.engine_installer.check_disk_space", return_value=disk):
+        with patch("src.engine_installer.detect_gpu", autospec=True, return_value=gpu), \
+             patch("src.engine_installer.check_disk_space", autospec=True, return_value=disk):
             issues = ChatterboxInstaller().check_prerequisites()
 
         assert any("16 GB" in i for i in issues)
@@ -151,8 +151,8 @@ class TestChatterboxInstaller:
     def test_check_prerequisites_all_ok(self) -> None:
         gpu = GpuInfo(has_nvidia=True, gpu_name="RTX 4090", vram_mb=24576)
         disk = DiskInfo(path="C:\\", free_gb=100.0, total_gb=500.0)
-        with patch("src.engine_installer.detect_gpu", return_value=gpu), \
-             patch("src.engine_installer.check_disk_space", return_value=disk):
+        with patch("src.engine_installer.detect_gpu", autospec=True, return_value=gpu), \
+             patch("src.engine_installer.check_disk_space", autospec=True, return_value=disk):
             issues = ChatterboxInstaller().check_prerequisites()
 
         assert issues == []
@@ -162,7 +162,7 @@ class TestChatterboxInstaller:
         # Patch the bridge fallback so a real dev venv on the host doesn't
         # leak into the unit test result.
         with patch(
-            "src.launcher_bridge.resolve_chatterbox_python", return_value=None,
+            "src.launcher_bridge.resolve_chatterbox_python", autospec=True, return_value=None,
         ):
             assert inst.is_installed() is False
 
@@ -183,6 +183,7 @@ class TestChatterboxInstaller:
         inst = ChatterboxInstaller(venv_path=tmp_path / "missing_venv")
         with patch(
             "src.launcher_bridge.resolve_chatterbox_python",
+            autospec=True,
             return_value="D:/koodaamista/AudiobookMaker/.venv-chatterbox/Scripts/python.exe",
         ):
             assert inst.is_installed() is True

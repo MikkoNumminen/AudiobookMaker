@@ -339,9 +339,9 @@ class TestStartChatterboxSubprocess:
         fake_tmp = MagicMock()
         fake_tmp.name = str(tmp_path / "mybook_sample_abcd.txt")
 
-        with patch("src.gui_synth_mixin.ChatterboxRunner",
+        with patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True,
                    side_effect=_fake_runner), \
-             patch("src.gui_synth_mixin.resolve_chatterbox_python",
+             patch("src.gui_synth_mixin.resolve_chatterbox_python", autospec=True,
                    return_value=Path("python.exe")), \
              patch("src.gui_synth_mixin.threading.Thread") as mock_thread, \
              patch("pathlib.Path.exists", return_value=True), \
@@ -375,7 +375,7 @@ class TestStartChatterboxSubprocess:
         assert app._input_mode == "pdf"
         app._pdf_path = None
         with patch.object(app, "_fail") as mock_fail, \
-             patch("src.gui_synth_mixin.ChatterboxRunner") as mock_runner:
+             patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True) as mock_runner:
             app._start_chatterbox_subprocess()
         mock_fail.assert_called_once_with(app._s("no_pdf"))
         # Must not reach runner construction.

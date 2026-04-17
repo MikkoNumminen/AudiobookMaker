@@ -232,7 +232,7 @@ class TestLoadAudioWithRetry:
                 raise PermissionError(32, "The process cannot access the file")
             return real_from_file(path, *args, **kwargs)
 
-        with patch("src.tts_audio.AudioSegment.from_file", side_effect=flaky):
+        with patch("src.tts_audio.AudioSegment.from_file", autospec=True, side_effect=flaky):
             # delay=0 keeps the test fast
             result = _load_audio_with_retry(str(real_mp3), max_retries=3, delay=0)
 
