@@ -40,6 +40,7 @@ from src.auto_updater import (
     is_post_update_launch,
 )
 from src import gui_style
+from src.gui_builders import build_header_bar
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
@@ -710,7 +711,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         #   8  Log toggle
         #   9  Log panel (visible by default)
         self._build_update_banner(main, row=0)
-        self._build_header_bar(main, row=1)
+        build_header_bar(self, main, row=1)
         self._build_input_tabs(main, row=2)
         self._build_engine_bar(main, row=3)
         self._build_action_row(main, row=4)
@@ -912,104 +913,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             padx=(0, gui_style.PAD_SM),
             pady=(0, gui_style.PAD_MD),
         )
-
-    # ---- Header bar (hero band — logo, title, language, engine manager) --
-
-    def _build_header_bar(self, parent: ctk.CTkFrame, row: int) -> None:
-        """Hero header: goat logo + app name + tagline on the left, UI
-        language picker + engine manager button on the right. Rendered
-        as a card so the app reads as a modern launcher rather than a
-        plain tool window.
-        """
-        bar = ctk.CTkFrame(
-            parent,
-            fg_color=gui_style.BG_SURFACE_1,
-            corner_radius=gui_style.RADIUS_LG,
-            border_width=1,
-            border_color=gui_style.BORDER_SUBTLE,
-        )
-        bar.grid(
-            row=row, column=0, sticky="ew",
-            pady=(0, gui_style.PAD_MD),
-        )
-        # Col 1 expands so the right-side controls hug the right edge.
-        bar.columnconfigure(1, weight=1)
-
-        # Col 0: goat mascot logo. CTkImage handles HiDPI scaling for us;
-        # we ship one PNG and let CTk resize it. Loading is best-effort —
-        # a missing Pillow or missing asset falls back to an empty label.
-        self._hero_logo = ctk.CTkLabel(bar, text="")
-        try:
-            from PIL import Image
-
-            logo_path = _APP_ROOT / "assets" / "icon.png"
-            if logo_path.exists():
-                self._hero_logo_image = ctk.CTkImage(
-                    light_image=Image.open(logo_path),
-                    dark_image=Image.open(logo_path),
-                    size=(48, 48),
-                )
-                self._hero_logo.configure(image=self._hero_logo_image)
-        except Exception:
-            # Pillow missing or asset decode failed — the label just
-            # stays empty, the rest of the header still renders fine.
-            pass
-        self._hero_logo.grid(
-            row=0, column=0, rowspan=2,
-            padx=(gui_style.PAD_LG, gui_style.PAD_MD),
-            pady=gui_style.PAD_MD,
-        )
-
-        # Col 1: title + tagline, stacked. Kept as attributes so the
-        # language-toggle handler and tests can reach them.
-        title_stack = ctk.CTkFrame(bar, fg_color="transparent")
-        title_stack.grid(row=0, column=1, rowspan=2, sticky="w",
-                         pady=gui_style.PAD_MD)
-
-        self._hero_title = ctk.CTkLabel(
-            title_stack,
-            text="AudiobookMaker",
-            font=gui_style.font_hero(),
-            text_color=gui_style.TEXT_PRIMARY,
-            anchor="w",
-        )
-        self._hero_title.grid(row=0, column=0, sticky="w")
-
-        self._hero_tagline = ctk.CTkLabel(
-            title_stack,
-            text=self._hero_tagline_text(),
-            font=gui_style.font_tagline(),
-            text_color=gui_style.TEXT_SECONDARY,
-            anchor="w",
-        )
-        self._hero_tagline.grid(row=1, column=0, sticky="w")
-
-        # Col 2: right-side controls (UI language + engine manager).
-        right = ctk.CTkFrame(bar, fg_color="transparent")
-        right.grid(
-            row=0, column=2, rowspan=2, sticky="e",
-            padx=(gui_style.PAD_MD, gui_style.PAD_LG),
-            pady=gui_style.PAD_MD,
-        )
-
-        # Language toggle — compact combobox (kept as _ui_lang_cb so the
-        # existing language-change handler keeps working).
-        self._ui_lang_cb = ctk.CTkComboBox(
-            right,
-            values=["Suomi", "English"], state="readonly", width=100,
-            command=self._on_ui_language_changed,
-        )
-        self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
-        self._ui_lang_cb.grid(row=0, column=0, padx=(0, gui_style.PAD_SM))
-
-        # Engine manager — opens the in-place settings view (no Toplevel).
-        self._install_engines_btn = ctk.CTkButton(
-            right, text="Moottorit\u2026",
-            command=self._show_settings_view, width=150,
-            image=gui_style.icon("settings", size=16),
-            compound="left",
-        )
-        self._install_engines_btn.grid(row=0, column=1)
 
     def _hero_tagline_text(self) -> str:
         """Build the hero tagline string: localized subtitle + app version.
