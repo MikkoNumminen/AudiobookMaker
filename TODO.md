@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🔵 working | Audit batch 5 (FI normalizer per-pass tests, Chatterbox --chunk-chars GUI) | 2026-04-17 |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,10 +30,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
-
-### Audit batch 5 [Claude 3, audit-batch-5]
-- [ ] Finnish normalizer per-pass unit tests for passes B, D, E, F, J, K, L, M, N (mirroring the English TestPass<LETTER> pattern). 🟡 🧠 Opus.
-- [ ] Chatterbox: expose `--chunk-chars` in the GUI (settings-panel control wired through to the subprocess CLI). 🟢 ⚡ Sonnet.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
