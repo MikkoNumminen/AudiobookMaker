@@ -40,7 +40,7 @@ from src.auto_updater import (
     is_post_update_launch,
 )
 from src import gui_style
-from src.gui_builders import build_header_bar
+from src.gui_builders import build_engine_bar, build_header_bar
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
@@ -713,7 +713,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._build_update_banner(main, row=0)
         build_header_bar(self, main, row=1)
         self._build_input_tabs(main, row=2)
-        self._build_engine_bar(main, row=3)
+        build_engine_bar(self, main, row=3)
         self._build_action_row(main, row=4)
         self._build_status_strip(main, row=5)
         self._build_settings_frame(main, row=6)  # header at row=6, body at row=7
@@ -740,179 +740,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Engine status may have changed (install/uninstall); refresh the dot.
         self._populate_engine_list()
         self._main_view.tkraise()
-
-    # ---- Engine + voice picker bar (ALWAYS visible) -------------------
-
-    def _build_engine_bar(self, parent: ctk.CTkFrame, row: int) -> None:
-        """Always-visible voice-picker card: Kieli + Moottori + Ääni dropdowns.
-
-        Kieli lives up here with Moottori and Ääni so users pick what
-        the voice speaks before they pick the voice itself — the Kieli
-        → Moottori → Ääni funnel promised by the Phase 2 redesign.
-        The section is rendered as a surface card with a mini section
-        title so it reads as a distinct block instead of a loose row.
-
-        Layout:
-            Voice
-            Kieli:  [  Suomi        v ]   Moottori: [ Chatterbox   v ]
-            Ääni:   [  Grandmom     v ]   3 suomi-kielistä ääntä  [Testaa]
-        """
-        bar = ctk.CTkFrame(
-            parent,
-            fg_color=gui_style.BG_SURFACE_1,
-            corner_radius=gui_style.RADIUS_MD,
-            border_width=1,
-            border_color=gui_style.BORDER_SUBTLE,
-        )
-        bar.grid(row=row, column=0, sticky="ew", pady=(0, gui_style.PAD_MD))
-        bar.columnconfigure(1, weight=1)
-        bar.columnconfigure(3, weight=1)
-        self._engine_bar = bar
-
-        # Row 0: subtle section title so the card isn't anonymous.
-        # The translation key lives in _STRINGS; the label refreshes via
-        # _apply_ui_language just like the other localized labels.
-        self._engine_section_lbl = ctk.CTkLabel(
-            bar,
-            text=self._s("section_voice"),
-            font=gui_style.font_label(),
-            text_color=gui_style.TEXT_SECONDARY,
-            anchor="w",
-        )
-        self._engine_section_lbl.grid(
-            row=0, column=0, columnspan=5, sticky="w",
-            padx=gui_style.PAD_MD, pady=(gui_style.PAD_MD, 0),
-        )
-
-        # Row 1: Kieli + Moottori.
-        self._tts_lang_label = ctk.CTkLabel(
-            bar, text="Kieli:",
-            font=gui_style.font_label(),
-            text_color=gui_style.TEXT_SECONDARY,
-        )
-        self._tts_lang_label.grid(
-            row=1, column=0, sticky="w",
-            padx=(gui_style.PAD_MD, gui_style.PAD_SM),
-            pady=(gui_style.PAD_SM, gui_style.PAD_XS),
-        )
-        # Note: command= is intentionally NOT wired here. CTkComboBox.set()
-        # triggers the command callback, and both _apply_loaded_config()
-        # and the initial .set("Suomi") below would fire the cascade
-        # (re-filter engines, refresh voices, save config) before the rest
-        # of the widget tree exists. We attach the callbacks at the end of
-        # __init__ via _wire_engine_bar_callbacks() so they only ever run
-        # in response to real user clicks.
-        self._lang_cb = ctk.CTkComboBox(
-            bar,
-            values=list(LANGUAGES.keys()), state="readonly",
-        )
-        self._lang_cb.set("Suomi")
-        self._lang_cb.grid(
-            row=1, column=1, sticky="ew",
-            padx=(0, gui_style.PAD_MD),
-            pady=(gui_style.PAD_SM, gui_style.PAD_XS),
-        )
-
-        self._engine_label = ctk.CTkLabel(
-            bar, text="Moottori:",
-            font=gui_style.font_label(),
-            text_color=gui_style.TEXT_SECONDARY,
-        )
-        self._engine_label.grid(
-            row=1, column=2, sticky="w",
-            padx=(0, gui_style.PAD_SM),
-            pady=(gui_style.PAD_SM, gui_style.PAD_XS),
-        )
-        self._engine_cb = ctk.CTkComboBox(bar, state="readonly")
-        self._engine_cb.grid(
-            row=1, column=3, sticky="ew",
-            padx=(0, gui_style.PAD_XS),
-            pady=(gui_style.PAD_SM, gui_style.PAD_XS),
-        )
-        # Engine combobox stays empty until _apply_loaded_config() resolves
-        # the user's saved Language and calls _populate_engine_list() with
-        # the right language context. Populating here would build the
-        # dropdown for "Suomi" first and rebuild it ms later for the
-        # actual saved Language — invisible to the user but flagged by the
-        # sequencing audit as the wrong shape.
-
-        # Row 2: Ääni + voice-count side label + Testaa.
-        self._voice_label = ctk.CTkLabel(
-            bar, text="Ääni:",
-            font=gui_style.font_label(),
-            text_color=gui_style.TEXT_SECONDARY,
-        )
-        self._voice_label.grid(
-            row=2, column=0, sticky="w",
-            padx=(gui_style.PAD_MD, gui_style.PAD_SM),
-            pady=(gui_style.PAD_XS, gui_style.PAD_MD),
-        )
-        self._voice_cb = ctk.CTkComboBox(bar, state="readonly")
-        self._voice_cb.grid(
-            row=2, column=1, sticky="ew",
-            padx=(0, gui_style.PAD_MD),
-            pady=(gui_style.PAD_XS, gui_style.PAD_MD),
-        )
-
-        # Subtle side-label — honest about how many voices are available in
-        # the selected language without colouring dropdown items (which
-        # CTkComboBox doesn't support).
-        self._voice_count_lbl = ctk.CTkLabel(
-            bar, text="",
-            font=gui_style.font_small(),
-            text_color=gui_style.TEXT_MUTED,
-        )
-        self._voice_count_lbl.grid(
-            row=2, column=2, columnspan=2, sticky="w",
-            padx=(0, gui_style.PAD_SM),
-            pady=(gui_style.PAD_XS, gui_style.PAD_MD),
-        )
-
-        self._test_btn = ctk.CTkButton(
-            bar, text="Testaa ääni", command=self._on_test_voice,
-            width=140,
-            font=gui_style.font_button(),
-            fg_color=gui_style.BTN_SECONDARY_BG,
-            hover_color=gui_style.BTN_SECONDARY_HOVER,
-            text_color=gui_style.TEXT_PRIMARY,
-            border_width=1,
-            border_color=gui_style.BORDER_SUBTLE,
-            image=gui_style.icon("volume", size=16),
-            compound="left",
-        )
-        self._test_btn.grid(
-            row=2, column=4,
-            padx=(0, gui_style.PAD_MD),
-            pady=(gui_style.PAD_XS, gui_style.PAD_MD),
-        )
-
-        # Row 3: Chatterbox-specific tuning — chunk size (characters per
-        # synthesis chunk). Default 300 matches the upstream consensus.
-        # When left at 300 the mixin omits the flag, so the CLI default
-        # wins and we don't leak GUI state into otherwise-default runs.
-        # Chatterbox chunk size (chars).
-        self._chunk_chars_label = ctk.CTkLabel(
-            bar, text=self._s("chunk_chars_label"),
-            font=gui_style.font_label(),
-            text_color=gui_style.TEXT_SECONDARY,
-        )
-        self._chunk_chars_label.grid(
-            row=3, column=0, columnspan=2, sticky="w",
-            padx=(gui_style.PAD_MD, gui_style.PAD_SM),
-            pady=(0, gui_style.PAD_MD),
-        )
-        self._chunk_chars_var = tk.IntVar(value=300)
-        self._chunk_chars_spin = ttk.Spinbox(
-            bar,
-            from_=100, to=1000, increment=50,
-            textvariable=self._chunk_chars_var,
-            width=6,
-        )
-        self._chunk_chars_spin.grid(
-            row=3, column=2, sticky="w",
-            padx=(0, gui_style.PAD_SM),
-            pady=(0, gui_style.PAD_MD),
-        )
 
     def _hero_tagline_text(self) -> str:
         """Build the hero tagline string: localized subtitle + app version.
