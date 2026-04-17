@@ -164,6 +164,56 @@ class TestAppInstantiation:
             assert engine_id, f"Empty engine id for display name {display_name!r}"
 
 
+class TestHeroHeader:
+    """The redesigned header exposes the logo, title, and tagline as
+    named attributes so tests and future tweaks can reach them.
+    """
+
+    def test_hero_widgets_exist(self, app):
+        """Logo, title, and tagline widgets are all constructed."""
+        assert hasattr(app, "_hero_logo")
+        assert hasattr(app, "_hero_title")
+        assert hasattr(app, "_hero_tagline")
+
+    def test_hero_title_text(self, app):
+        """Title reads AudiobookMaker regardless of the UI language."""
+        assert app._hero_title.cget("text") == "AudiobookMaker"
+
+    def test_hero_tagline_includes_version(self, app):
+        """Tagline ends with the current app version — visual build marker."""
+        from src.auto_updater import APP_VERSION
+
+        tagline = app._hero_tagline.cget("text")
+        assert f"v{APP_VERSION}" in tagline, (
+            f"tagline {tagline!r} should include v{APP_VERSION}"
+        )
+
+    def test_hero_tagline_flips_on_language_toggle(self, app):
+        """Switching UI language between Finnish and English flips the tagline."""
+        # Start in Finnish.
+        app._ui_lang = "fi"
+        app._apply_ui_language()
+        fi_text = app._hero_tagline.cget("text")
+        assert "Kirjasi" in fi_text, fi_text
+
+        # Flip to English.
+        app._ui_lang = "en"
+        app._apply_ui_language()
+        en_text = app._hero_tagline.cget("text")
+        assert "Your books" in en_text, en_text
+
+        # Restore Finnish so later tests see the default state.
+        app._ui_lang = "fi"
+        app._apply_ui_language()
+
+    def test_header_preserves_legacy_attributes(self, app):
+        """_ui_lang_cb and _install_engines_btn remain reachable for
+        the language-change handler, auto-updater hook, and existing tests.
+        """
+        assert hasattr(app, "_ui_lang_cb")
+        assert hasattr(app, "_install_engines_btn")
+
+
 # ---------------------------------------------------------------------------
 # Chatterbox language-aware voice helper
 # ---------------------------------------------------------------------------
