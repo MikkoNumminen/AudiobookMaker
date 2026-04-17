@@ -13,7 +13,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
-| Claude 2 | 🔵 working | Voice pack pipeline — Slice 1 foundation (ingest/diarize/bucket + CLI) | 2026-04-17 |
+| Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
