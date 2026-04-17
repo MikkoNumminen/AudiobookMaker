@@ -191,6 +191,19 @@ class SynthMixin(_Base):
         if ref_audio:
             extra_args.extend(["--ref-audio", ref_audio])
 
+        # Chatterbox chunk size override. The runner's built-in default
+        # is 300 chars (upstream-consensus sweet spot); we only pass the
+        # flag when the user has dialed it away from the default so
+        # default runs stay clean in the logs.
+        chunk_var = getattr(self, "_chunk_chars_var", None)
+        if chunk_var is not None:
+            try:
+                chunk_chars = int(chunk_var.get())
+            except (ValueError, tk.TclError):
+                chunk_chars = 300
+            if chunk_chars != 300:
+                extra_args.extend(["--chunk-chars", str(chunk_chars)])
+
         # Language routing: EN -> base multilingual model + bundled ref clip
         # (produces native English with Grandmom timbre). FI -> Finnish T3
         # finetune (current default). See memory/project_english_grandmom.md.

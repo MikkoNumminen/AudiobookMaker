@@ -28,7 +28,7 @@ import threading
 import tkinter as tk
 from datetime import datetime, timedelta
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
 import customtkinter as ctk
@@ -292,6 +292,7 @@ _STRINGS = {
         "voice_count_label": "{n} {lang_name}-\u00e4\u00e4nt\u00e4",
         "lang_name_fi": "suomenkielist\u00e4",
         "lang_name_en": "englanninkielist\u00e4",
+        "chunk_chars_label": "Chatterbox-palan pituus (merkki\u00e4):",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -391,6 +392,7 @@ _STRINGS = {
         "voice_count_label": "{n} {lang_name} voices",
         "lang_name_fi": "Finnish",
         "lang_name_en": "English",
+        "chunk_chars_label": "Chatterbox chunk size (chars):",
     },
 }
 
@@ -633,6 +635,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Voice-section mini-title on the engine bar card.
         if hasattr(self, "_engine_section_lbl"):
             self._engine_section_lbl.configure(text=s("section_voice"))
+
+        # Chatterbox chunk size label — relabel on language toggle.
+        if hasattr(self, "_chunk_chars_label"):
+            self._chunk_chars_label.configure(text=s("chunk_chars_label"))
 
         # TTS language + speed labels.
         self._tts_lang_label.configure(text=s("language_label"))
@@ -939,6 +945,34 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             row=2, column=4,
             padx=(0, gui_style.PAD_MD),
             pady=(gui_style.PAD_XS, gui_style.PAD_MD),
+        )
+
+        # Row 3: Chatterbox-specific tuning — chunk size (characters per
+        # synthesis chunk). Default 300 matches the upstream consensus.
+        # When left at 300 the mixin omits the flag, so the CLI default
+        # wins and we don't leak GUI state into otherwise-default runs.
+        # Chatterbox chunk size (chars).
+        self._chunk_chars_label = ctk.CTkLabel(
+            bar, text=self._s("chunk_chars_label"),
+            font=gui_style.font_label(),
+            text_color=gui_style.TEXT_SECONDARY,
+        )
+        self._chunk_chars_label.grid(
+            row=3, column=0, columnspan=2, sticky="w",
+            padx=(gui_style.PAD_MD, gui_style.PAD_SM),
+            pady=(0, gui_style.PAD_MD),
+        )
+        self._chunk_chars_var = tk.IntVar(value=300)
+        self._chunk_chars_spin = ttk.Spinbox(
+            bar,
+            from_=100, to=1000, increment=50,
+            textvariable=self._chunk_chars_var,
+            width=6,
+        )
+        self._chunk_chars_spin.grid(
+            row=3, column=2, sticky="w",
+            padx=(0, gui_style.PAD_SM),
+            pady=(0, gui_style.PAD_MD),
         )
 
     # ---- Header bar (hero band — logo, title, language, engine manager) --

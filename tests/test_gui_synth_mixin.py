@@ -366,6 +366,73 @@ class TestStartChatterboxSubprocess:
         assert captured["epub_path"] is None
         mock_thread.assert_called_once()
 
+    def test_chunk_chars_custom_value_appends_cli_flag(self, app, tmp_path):
+        # With a non-default chunk size the mixin must pass
+        # --chunk-chars <value> to the Chatterbox subprocess so the
+        # runner honors the user's override.
+        captured: dict = {}
+
+        def _fake_runner(**kwargs):
+            captured.update(kwargs)
+            inst = MagicMock()
+            inst.start = MagicMock()
+            return inst
+
+        fake_tmp = MagicMock()
+        fake_tmp.name = str(tmp_path / "sample.txt")
+
+        app._chunk_chars_var.set(500)
+        with patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True,
+                   side_effect=_fake_runner), \
+             patch("src.gui_synth_mixin.resolve_chatterbox_python", autospec=True,
+                   return_value=Path("python.exe")), \
+             patch("src.gui_synth_mixin.threading.Thread"), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch("src.gui_synth_mixin.tempfile.NamedTemporaryFile",
+                   return_value=fake_tmp):
+            app._start_chatterbox_subprocess(text_override="hello")
+
+        # Restore default so other tests aren't perturbed.
+        app._chunk_chars_var.set(300)
+
+        extra = captured.get("extra_args") or []
+        assert "--chunk-chars" in extra, f"expected --chunk-chars in {extra!r}"
+        idx = extra.index("--chunk-chars")
+        assert extra[idx + 1] == "500"
+
+    def test_chunk_chars_default_omits_cli_flag(self, app, tmp_path):
+        # At the default value (300) the mixin must NOT pass the flag,
+        # so the runner's CLI default wins. Keeps default-case logs
+        # clean and avoids leaking GUI state when it matches the CLI.
+        captured: dict = {}
+
+        def _fake_runner(**kwargs):
+            captured.update(kwargs)
+            inst = MagicMock()
+            inst.start = MagicMock()
+            return inst
+
+        fake_tmp = MagicMock()
+        fake_tmp.name = str(tmp_path / "sample.txt")
+
+        app._chunk_chars_var.set(300)
+        with patch("src.gui_synth_mixin.ChatterboxRunner", autospec=True,
+                   side_effect=_fake_runner), \
+             patch("src.gui_synth_mixin.resolve_chatterbox_python", autospec=True,
+                   return_value=Path("python.exe")), \
+             patch("src.gui_synth_mixin.threading.Thread"), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch("src.gui_synth_mixin.tempfile.NamedTemporaryFile",
+                   return_value=fake_tmp):
+            app._start_chatterbox_subprocess(text_override="hello")
+
+        extra = captured.get("extra_args") or []
+        assert "--chunk-chars" not in extra, (
+            f"expected --chunk-chars absent at default 300, got {extra!r}"
+        )
+
     def test_pdf_mode_without_path_bails_with_no_pdf_error(self, app):
         # _input_mode is a read-only property that maps the active
         # notebook tab to 'pdf' or 'text'; switching to the Kirja tab
