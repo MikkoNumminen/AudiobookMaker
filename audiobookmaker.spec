@@ -131,6 +131,11 @@ datas += [
 # Goat icon for the window title bar and taskbar
 datas += [(os.path.join('assets', 'icon.ico'), 'assets')]
 datas += [(os.path.join('assets', 'icon.png'), 'assets')]
+# Cold Forge custom theme used by src/gui_style.py. Missing file falls back
+# to CTk's built-in "blue" theme at runtime; the bundled file is strictly
+# a visual upgrade.
+datas += [(os.path.join('assets', 'themes', 'cold_forge.json'),
+           os.path.join('assets', 'themes'))]
 # Grandmom voice reference WAV — used by the Chatterbox subprocess when
 # synthesizing English via the multilingual base model + voice cloning.
 # See memory/project_english_grandmom.md for the recipe.

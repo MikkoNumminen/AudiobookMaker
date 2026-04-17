@@ -72,3 +72,20 @@ def test_launcher_spec_declares_sibling_hidden_import(sibling: str) -> None:
         f"audiobookmaker_launcher.spec is missing hidden_imports entry "
         f"for src.{sibling}; PyInstaller will not freeze it into the launcher."
     )
+
+
+# ---------------------------------------------------------------------------
+# Cold Forge visual assets — theme JSON is loaded by src/gui_style.py at
+# startup. A missing file falls back to CTk's built-in "blue" theme, but we
+# still want CI to flag if the asset ever drops out of the bundle.
+# ---------------------------------------------------------------------------
+
+
+def test_audiobookmaker_spec_bundles_cold_forge_theme() -> None:
+    """assets/themes/cold_forge.json must be listed in the app spec's datas."""
+    spec_text = _APP_SPEC.read_text(encoding="utf-8")
+    assert "cold_forge.json" in spec_text, (
+        "audiobookmaker.spec is missing a datas entry for "
+        "assets/themes/cold_forge.json; the frozen app will fall back to "
+        "CTk's default blue theme instead of the Cold Forge palette."
+    )
