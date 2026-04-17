@@ -40,7 +40,7 @@ from src.auto_updater import (
     is_post_update_launch,
 )
 from src import gui_style
-from src.gui_builders import build_engine_bar, build_header_bar
+from src.gui_builders import build_action_row, build_engine_bar, build_header_bar
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
@@ -714,7 +714,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         build_header_bar(self, main, row=1)
         self._build_input_tabs(main, row=2)
         build_engine_bar(self, main, row=3)
-        self._build_action_row(main, row=4)
+        build_action_row(self, main, row=4)
         self._build_status_strip(main, row=5)
         self._build_settings_frame(main, row=6)  # header at row=6, body at row=7
         self._build_log_panel(main, row=8, stretch_row=9)
@@ -750,113 +750,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         return f"{self._s('header_tagline')} \u00b7 v{APP_VERSION}"
 
     # ---- Primary action row (big Muunna + secondaries + progress) ----
-
-    def _build_action_row(self, parent: ctk.CTkFrame, row: int) -> None:
-        """Primary-action row: big Convert, three secondaries, Cancel,
-        plus a thicker progress bar and a quiet status/ETA pair.
-
-        Convert keeps CTk's default accent fill (now electric blue from
-        the Cold Forge theme); the other buttons get a muted secondary
-        style so Convert stays visually dominant.
-        """
-        ar = ctk.CTkFrame(parent, fg_color="transparent")
-        ar.grid(row=row, column=0, sticky="ew", pady=(0, gui_style.PAD_MD))
-        ar.columnconfigure(0, weight=1)
-
-        # Top: big primary + small secondaries.
-        btn_row = ctk.CTkFrame(ar, fg_color="transparent")
-        btn_row.grid(row=0, column=0, sticky="ew")
-        btn_row.columnconfigure(0, weight=1)
-
-        # The star of the show — wide, bold, clearly the primary action.
-        self._convert_btn = ctk.CTkButton(
-            btn_row, text="Muunna", command=self._on_convert_click,
-            height=44,
-            font=gui_style.font_primary_button(),
-            image=gui_style.icon("play", size=20),
-            compound="left",
-        )
-        self._convert_btn.grid(
-            row=0, column=0, sticky="ew", padx=(0, gui_style.PAD_SM),
-        )
-
-        # Secondary button style — muted surface fill with a 1px border
-        # so the primary (Convert) stays visually dominant.
-        _sec = dict(
-            font=gui_style.font_button(),
-            fg_color=gui_style.BTN_SECONDARY_BG,
-            hover_color=gui_style.BTN_SECONDARY_HOVER,
-            text_color=gui_style.TEXT_PRIMARY,
-            border_width=1,
-            border_color=gui_style.BORDER_SUBTLE,
-        )
-
-        self._sample_btn = ctk.CTkButton(
-            btn_row, text="Tee n\u00e4yte", command=self._on_sample_click,
-            height=44, width=140, **_sec,
-            image=gui_style.icon("music", size=18),
-            compound="left",
-        )
-        self._sample_btn.grid(row=0, column=1, padx=(0, gui_style.PAD_SM))
-
-        self._listen_btn = ctk.CTkButton(
-            btn_row, text="Esikuuntele", command=self._on_listen_click,
-            height=44, width=140, **_sec,
-            image=gui_style.icon("volume", size=18),
-            compound="left",
-        )
-        self._listen_btn.grid(row=0, column=2, padx=(0, gui_style.PAD_SM))
-
-        self._cancel_btn = ctk.CTkButton(
-            btn_row, text="Peruuta", command=self._request_cancel,
-            height=44, width=110,
-            font=gui_style.font_button(),
-            fg_color=gui_style.DANGER,
-            hover_color=("#8b0000", "#B03A36"),
-            image=gui_style.icon("x", size=18),
-            compound="left",
-        )
-        self._cancel_btn.grid(row=0, column=3, padx=(0, gui_style.PAD_SM))
-        self._cancel_btn.grid_remove()  # Only visible while running.
-
-        self._open_folder_btn = ctk.CTkButton(
-            btn_row, text="Avaa kansio", command=self._open_output_folder,
-            height=44, width=140, state="disabled", **_sec,
-            image=gui_style.icon("folder", size=18),
-            compound="left",
-        )
-        self._open_folder_btn.grid(row=0, column=4)
-
-        # Bottom: progress bar + inline status (small, right-aligned).
-        progress_row = ctk.CTkFrame(ar, fg_color="transparent")
-        progress_row.grid(
-            row=1, column=0, sticky="ew", pady=(gui_style.PAD_SM, 0),
-        )
-        progress_row.columnconfigure(0, weight=1)
-
-        # Thicker bar reads as a real progress indicator instead of a hair
-        # line — 10 px matches modern launcher norms.
-        self._progress_bar = ctk.CTkProgressBar(progress_row, height=10)
-        self._progress_bar.grid(
-            row=0, column=0, sticky="ew", padx=(0, gui_style.PAD_SM),
-        )
-        self._progress_bar.set(0)
-
-        self._status_label_val = ctk.CTkLabel(
-            progress_row, text="",
-            font=gui_style.font_small(),
-            text_color=gui_style.TEXT_SECONDARY,
-            width=180, anchor="e",
-        )
-        self._status_label_val.grid(row=0, column=1, sticky="e")
-
-        # ETA label (kept for existing code paths; placed unobtrusively).
-        self._eta_label = ctk.CTkLabel(
-            ar, text="",
-            font=gui_style.font_small(),
-            text_color=gui_style.TEXT_MUTED,
-        )
-        self._eta_label.grid(row=2, column=0, sticky="e", pady=(2, 0))
 
     # ---- Sticky status strip (between progress and log) ---------------
 

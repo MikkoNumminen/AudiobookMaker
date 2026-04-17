@@ -7,10 +7,12 @@ widget layout — no business logic — and are exercised indirectly by the
 ``UnifiedApp`` GUI tests.
 """
 
+from src.gui_builders.action_row import build_action_row
 from src.gui_builders.engine_bar import build_engine_bar
 from src.gui_builders.header_bar import build_header_bar
 
 __all__ = [
+    "build_action_row",
     "build_engine_bar",
     "build_header_bar",
 ]
