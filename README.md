@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-618%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1565%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 Turn a PDF (or plain text) into an audiobook. Pick a file, press a button, get an MP3.
@@ -75,6 +75,38 @@ If you hit a bug, open an issue -- they get fixed fast. The
 right now.
 
 ## What's new
+
+**v3.9.0** -- Import voice packs, Cold Forge redesign, and a much
+bigger test suite keeping it all honest:
+
+- **Import voice pack button** -- a new button in Settings opens a
+  folder picker, copies the pack to `~/.audiobookmaker/voice_packs/`,
+  and the voice shows up next to Grandmom in the Voice dropdown. Picks
+  from a pack auto-wire the reference audio so Chatterbox clones from
+  it without you having to point at a file manually. Voice packs are a
+  bundle of a reference clip and metadata; the pipeline to build them
+  from source recordings lives under `scripts/voice_pack_*`
+- **Cold Forge design system** -- a new theme module (`gui_style.py`)
+  centralises fonts, spacing, colours, and icons so the whole window
+  follows one consistent visual language. Replaces the old mix of
+  hardcoded colour literals
+- **Chatterbox registered like every other engine** -- Chatterbox now
+  plugs into the shared engine registry via a subprocess-aware bridge
+  class (`tts_chatterbox_bridge.py`). The GUI picks Chatterbox the same
+  way it picks Edge-TTS or Piper; the subprocess split is an
+  implementation detail behind a `uses_subprocess = True` flag
+- **GUI builders split out of `gui_unified.py`** -- header bar, engine
+  bar, settings panel, and action row each live in their own module
+  under `src/gui_builders/`, so the main window file reads like
+  glue-code instead of a 3000-line god class
+- **Stress-tested Chatterbox long-run** -- the 500-call Tier 1 validator
+  exercises the same engine handle across hundreds of synthesis calls
+  and now holds memory flat through the whole run. Fixes an upstream
+  EOS-suppression bug that caused occasional swallowed sentences on
+  multi-hour books
+- **1565 tests passing** -- pre-commit hooks and CI enforce the full
+  suite before any commit. Test count grew from 618 → 1565 over the
+  recent audit pass
 
 **v3.7.0** -- Sample button, language picker up front, and English
 audiobooks that finally sound English:
@@ -504,30 +536,42 @@ bridge, auto-update flow, cleanup — see
 ```
 AudiobookMaker/
 ├── src/
-│   ├── main.py              # App entry point + single-instance guard
-│   ├── gui_unified.py       # CustomTkinter GUI (unified window)
-│   ├── auto_updater.py      # GitHub-based auto-update checker
-│   ├── system_checks.py     # GPU, disk, Python detection
-│   ├── engine_installer.py  # In-app engine installation
-│   ├── single_instance.py   # Prevent multiple app instances
-│   ├── voice_recorder.py    # In-app voice recording for cloning
-│   ├── pdf_parser.py        # PDF text extraction and cleanup
-│   ├── tts_base.py          # TTS engine interface + registry
-│   ├── tts_edge.py          # Edge-TTS adapter
-│   ├── tts_piper.py         # Piper adapter
-│   ├── tts_voxcpm.py        # VoxCPM2 adapter (dev only)
-│   ├── tts_engine.py        # Text chunking, normalizer, audio combining
-│   ├── fi_loanwords.py      # Finnish loanword respelling
-│   ├── app_config.py        # Settings persistence
-│   └── ffmpeg_path.py       # ffmpeg path helper
+│   ├── main.py                    # App entry point + single-instance guard
+│   ├── gui_unified.py             # CustomTkinter GUI (unified window)
+│   ├── gui_builders/              # Per-section widget builders
+│   ├── gui_style.py               # Cold Forge design tokens
+│   ├── gui_synth_mixin.py         # Synthesis orchestration mixin
+│   ├── gui_update_mixin.py        # Auto-update banner mixin
+│   ├── synthesis_orchestrator.py  # Input→output routing helpers
+│   ├── engine_registry.py         # Single import point for engines
+│   ├── auto_updater.py            # GitHub-based auto-update checker
+│   ├── system_checks.py           # GPU, disk, Python detection
+│   ├── engine_installer.py        # In-app engine installation
+│   ├── single_instance.py         # Prevent multiple app instances
+│   ├── voice_recorder.py          # In-app voice recording for cloning
+│   ├── pdf_parser.py              # PDF text extraction and cleanup
+│   ├── epub_parser.py             # EPUB chapter extraction
+│   ├── tts_base.py                # TTS engine interface + registry
+│   ├── tts_edge.py                # Edge-TTS adapter
+│   ├── tts_piper.py               # Piper adapter
+│   ├── tts_voxcpm.py              # VoxCPM2 adapter (dev only)
+│   ├── tts_chatterbox_bridge.py   # Chatterbox registration (subprocess)
+│   ├── tts_engine.py              # Text chunking, normalizer, audio combining
+│   ├── tts_normalizer_fi.py       # Finnish normalizer (16 passes)
+│   ├── tts_normalizer_en.py       # English normalizer (12 passes)
+│   ├── launcher_bridge.py         # Chatterbox subprocess runner
+│   ├── fi_loanwords.py            # Finnish loanword respelling
+│   ├── app_config.py              # Settings persistence
+│   ├── ffmpeg_path.py             # ffmpeg path helper
+│   └── voice_pack/                # Voice pack artefact format + import
 ├── data/
-│   └── fi_loanwords.yaml    # Loanword lexicon
-├── tests/                   # Unit tests (460+)
-├── scripts/                 # CLI tools and setup scripts
-├── docs/                    # Documentation and research notes
-├── installer/               # Inno Setup build scripts
-├── assets/                  # Icons
-├── .github/workflows/       # CI: auto-build installer on release
+│   └── fi_loanwords.yaml          # Loanword lexicon
+├── tests/                         # Unit tests (1565)
+├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
+├── docs/                          # Documentation and research notes
+├── installer/                     # Inno Setup build scripts
+├── assets/                        # Icons, design-system JSON, demo clips
+├── .github/workflows/             # CI: auto-build installer on release
 └── requirements.txt
 ```
 
