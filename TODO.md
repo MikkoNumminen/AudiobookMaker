@@ -13,7 +13,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
-| Claude 2 | 🟢 idle | — | — |
+| Claude 2 | 🔵 working | Voice pack pipeline — Slice 1 foundation (ingest/diarize/bucket + CLI) | 2026-04-17 |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
@@ -73,20 +73,16 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
 - [ ] Document the "input volume gotcha" in README. 🟢 ⚡ Sonnet
 
-### Voice pack pipeline — audiobook → multi-speaker LoRA clones
-- [ ] Build a local pipeline that ingests a full audiobook (m4b/mp3) and produces per-speaker voice packs the GUI can swap into the Voice dropdown. Target quality: "indistinguishable on unseen text, with full emotional range (shouts, whispers, aggressive, calm)." Pipeline stages:
-  - [ ] **Ingest + diarize:** whisper-large-v3 transcribe + pyannote.audio 3.x diarization → RTTM with word-level timestamps. Needs one-time HF token. Expect ~0.3× realtime on a single 3090. 🟡 🧠 Opus.
-  - [ ] **Forced alignment:** if user also supplies the ebook text (epub/txt), run MFA or aeneas to re-anchor Whisper's noisy timestamps to the ebook sentences. Materially better per-chunk boundaries than ASR alone. 🟡 🧠 Opus.
-  - [ ] **Per-speaker bucketing + quality filter:** group segments by speaker id, drop clipped / overlapping / <1 s / noisy chunks, report per-speaker total clean minutes. 🟢 ⚡ Sonnet.
-  - [ ] **Emotion tagging:** SpeechBrain emotion classifier per segment. Use tags during training to upsample minority classes (angry, sad) so shouts/screams imprint despite being rare in narration. 🟡 🧠 Opus.
-  - [ ] **Training decision per speaker:** ≥30 min clean → full LoRA finetune (~4–8 A100 hr, ~$5 spot); 10–30 min → reduced-rank LoRA flagged "experimental"; 1–10 min → auto-extract 3 best ~15 s few-shot ref clips, save as classic preset; <1 min → skip. 🔴 🧠 Opus.
-  - [ ] **LoRA finetune harness for base multilingual Chatterbox:** borrow from the existing Finnish finetune. Low LR + early stopping to preserve accent/dialect (British / Irish / Southern US / etc. come through for free — only risk is flattening them by over-training). Output adapter ~50–200 MB. 🔴 🧠 Opus.
-  - [ ] **Voice pack artifact format:** folder per speaker containing LoRA weights + `meta.yaml` (display name, source book, total training minutes, detected accent, emotion-tag coverage, sample WAV). Load via a new "Import voice pack" button in Settings. 🟡 🧠 Opus.
-  - [ ] **XTTS v2 bake-off (research lane, not shipped):** run the same audiobook through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA on the same unseen text. Decision: if XTTS wins clearly on emotional range/accent, ship it as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
-  - [ ] **Inference-time expression control:** expose per-sentence `exaggeration` / `cfg_weight` overrides so the user can push "shout here" / "whisper here" on the finetuned voice. Optional lightweight emotion-prefix token during training to condition inference explicitly. 🟡 🧠 Opus.
-  - [ ] **License/ethics guardrail:** voice packs stay local by default (no cloud upload, no sharing button). README note that cloning a commercial narrator for private listening is personal-use gray area, but distributing or monetizing is not. 🟢 ⚡ Sonnet.
+### Voice pack pipeline — remaining slices (Slice 1 foundation landed)
+- [ ] **Forced alignment (Slice 2):** if user also supplies the ebook text (epub/txt), run MFA or aeneas to re-anchor Whisper's noisy timestamps to the ebook sentences. Materially better per-chunk boundaries than ASR alone. 🟡 🧠 Opus.
+- [ ] **Emotion tagging (Slice 2):** SpeechBrain emotion classifier per segment. Use tags during training to upsample minority classes (angry, sad) so shouts/screams imprint despite being rare in narration. 🟡 🧠 Opus.
+- [ ] **Training decision + LoRA harness (Slice 3):** ≥30 min clean → full LoRA finetune (~4–8 A100 hr); 10–30 min → reduced-rank LoRA with early stopping; 1–10 min → auto-extract 3 best ~15 s few-shot ref clips; <1 min → skip. Borrow from the existing Finnish finetune. Low LR + early stopping to preserve accent/dialect. Output adapter ~50–200 MB per speaker. 🔴 🧠 Opus.
+- [ ] **Voice pack artifact format + GUI integration (Slice 4):** folder per speaker containing LoRA weights + `meta.yaml` (display name, source, total training minutes, detected accent, emotion-tag coverage, sample WAV). Load via a new "Import voice pack" button in Settings; appears in the Voice dropdown next to Grandmom. 🟡 🧠 Opus.
+- [ ] **XTTS v2 bake-off (Slice 5, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
+- [ ] **Inference-time expression control (Slice 5):** expose per-sentence `exaggeration` / `cfg_weight` overrides so the user can push "shout here" / "whisper here" on a fine-tuned voice. Optional lightweight emotion-prefix token during training. 🟡 🧠 Opus.
+- [ ] **License/ethics guardrail (Slice 4):** voice packs stay local by default (no cloud upload, no sharing button). Capability-framed README note ("voice cloning of third-party voices is your own responsibility, keep local, don't redistribute"). 🟢 ⚡ Sonnet.
 
-  Rationale: staying on Chatterbox keeps the stack coherent (MIT license, shared inference path, existing finetune tooling). LoRA adapters at <200 MB/speaker keep a 10-voice library under 2 GB instead of 30 GB full-finetune. Emotional range comes from training-data balance + inference-time knobs, not from a bigger model. Source-audio sweet spot is ~5 h; feeding a full 6–15 h audiobook is the right default. See `docs/voice_pack_design.md` (to be written as part of this task) for the full architecture report.
+  Design rationale: Chatterbox LoRA stays primary (MIT license, shared inference path, existing finetune tooling already in repo). LoRA adapters at <200 MB/speaker keep a 10-voice library under 2 GB vs 30 GB full-finetune. Emotional range comes from training-data balance + inference-time knobs, not from a bigger model. ~5 h source is the quality ceiling; feeding a full source file is the right default. See `docs/voice_pack_design.md` (to be written in Slice 4) for the architecture write-up.
 
 ### Chatterbox-Finnish — upstream contribution
 - [ ] Submit bug report + patch (`docs/upstream/chatterbox/BUG_REPORT.md` + `hook_leak_fix.patch`) as a GitHub issue + PR to `resemble-ai/chatterbox`. 🟡 🧠 Opus
