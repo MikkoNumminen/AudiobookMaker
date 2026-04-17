@@ -89,3 +89,44 @@ def test_audiobookmaker_spec_bundles_cold_forge_theme() -> None:
         "assets/themes/cold_forge.json; the frozen app will fall back to "
         "CTk's default blue theme instead of the Cold Forge palette."
     )
+
+
+# ---------------------------------------------------------------------------
+# Lucide icon bundle — every interactive button pulls its glyph from
+# ``assets/icons/<name>-{light,dark}.png`` via gui_style.icon(). Missing
+# files degrade silently (button loses its icon, keeps its text) so CI
+# needs an explicit check that the glob keeps them shipped. Paired with
+# scripts/generate_icons.py which generates the PNGs.
+# ---------------------------------------------------------------------------
+
+
+def test_audiobookmaker_spec_bundles_icon_set() -> None:
+    """The spec must include a glob covering assets/icons/*.png."""
+    spec_text = _APP_SPEC.read_text(encoding="utf-8")
+    assert "assets/icons" in spec_text or "'assets', 'icons'" in spec_text, (
+        "audiobookmaker.spec is missing a datas entry for assets/icons/*.png; "
+        "run scripts/generate_icons.py and add a glob to the spec."
+    )
+
+
+def test_icon_set_fully_rendered() -> None:
+    """All 12 icon names must exist on disk as light+dark PNG pairs.
+
+    Anyone adding a new icon name to gui_style / button call sites needs
+    to also re-run scripts/generate_icons.py so the bitmap lands in git.
+    """
+    icon_dir = _REPO_ROOT / "assets" / "icons"
+    expected = {
+        "play", "music", "x", "folder", "settings", "volume",
+        "book", "text", "list", "download", "chevron-down", "mic",
+    }
+    missing: list[str] = []
+    for name in sorted(expected):
+        for variant in ("light", "dark"):
+            p = icon_dir / f"{name}-{variant}.png"
+            if not p.exists():
+                missing.append(p.name)
+    assert not missing, (
+        f"Missing icon PNGs: {missing}. Re-run scripts/generate_icons.py "
+        f"to regenerate the Cold Forge icon set."
+    )

@@ -2,6 +2,7 @@
 # PyInstaller spec file for AudiobookMaker
 # Build with: pyinstaller audiobookmaker.spec
 
+import glob
 import os
 from PyInstaller.utils.hooks import (
     collect_all,
@@ -136,6 +137,12 @@ datas += [(os.path.join('assets', 'icon.png'), 'assets')]
 # a visual upgrade.
 datas += [(os.path.join('assets', 'themes', 'cold_forge.json'),
            os.path.join('assets', 'themes'))]
+# Lucide-style icon set rendered by scripts/generate_icons.py. Each button
+# in the GUI looks up its PNG via gui_style.icon("name"); a missing asset
+# degrades to a text-only button (see gui_style.icon fallback) rather than
+# crashing — the bundle test below enforces they stay shipped.
+for _icon_png in glob.glob(os.path.join('assets', 'icons', '*.png')):
+    datas += [(_icon_png, os.path.join('assets', 'icons'))]
 # Grandmom voice reference WAV — used by the Chatterbox subprocess when
 # synthesizing English via the multilingual base model + voice cloning.
 # See memory/project_english_grandmom.md for the recipe.

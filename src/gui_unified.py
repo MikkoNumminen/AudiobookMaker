@@ -922,13 +922,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         self._test_btn = ctk.CTkButton(
             bar, text="Testaa ääni", command=self._on_test_voice,
-            width=120,
+            width=140,
             font=gui_style.font_button(),
             fg_color=gui_style.BTN_SECONDARY_BG,
             hover_color=gui_style.BTN_SECONDARY_HOVER,
             text_color=gui_style.TEXT_PRIMARY,
             border_width=1,
             border_color=gui_style.BORDER_SUBTLE,
+            image=gui_style.icon("volume", size=16),
+            compound="left",
         )
         self._test_btn.grid(
             row=2, column=4,
@@ -1028,7 +1030,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Engine manager — opens the in-place settings view (no Toplevel).
         self._install_engines_btn = ctk.CTkButton(
             right, text="Moottorit\u2026",
-            command=self._show_settings_view, width=140,
+            command=self._show_settings_view, width=150,
+            image=gui_style.icon("settings", size=16),
+            compound="left",
         )
         self._install_engines_btn.grid(row=0, column=1)
 
@@ -1064,6 +1068,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             btn_row, text="Muunna", command=self._on_convert_click,
             height=44,
             font=gui_style.font_primary_button(),
+            image=gui_style.icon("play", size=20),
+            compound="left",
         )
         self._convert_btn.grid(
             row=0, column=0, sticky="ew", padx=(0, gui_style.PAD_SM),
@@ -1082,29 +1088,37 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         self._sample_btn = ctk.CTkButton(
             btn_row, text="Tee n\u00e4yte", command=self._on_sample_click,
-            height=44, width=120, **_sec,
+            height=44, width=140, **_sec,
+            image=gui_style.icon("music", size=18),
+            compound="left",
         )
         self._sample_btn.grid(row=0, column=1, padx=(0, gui_style.PAD_SM))
 
         self._listen_btn = ctk.CTkButton(
             btn_row, text="Esikuuntele", command=self._on_listen_click,
-            height=44, width=120, **_sec,
+            height=44, width=140, **_sec,
+            image=gui_style.icon("volume", size=18),
+            compound="left",
         )
         self._listen_btn.grid(row=0, column=2, padx=(0, gui_style.PAD_SM))
 
         self._cancel_btn = ctk.CTkButton(
             btn_row, text="Peruuta", command=self._request_cancel,
-            height=44, width=100,
+            height=44, width=110,
             font=gui_style.font_button(),
             fg_color=gui_style.DANGER,
             hover_color=("#8b0000", "#B03A36"),
+            image=gui_style.icon("x", size=18),
+            compound="left",
         )
         self._cancel_btn.grid(row=0, column=3, padx=(0, gui_style.PAD_SM))
         self._cancel_btn.grid_remove()  # Only visible while running.
 
         self._open_folder_btn = ctk.CTkButton(
             btn_row, text="Avaa kansio", command=self._open_output_folder,
-            height=44, width=120, state="disabled", **_sec,
+            height=44, width=140, state="disabled", **_sec,
+            image=gui_style.icon("folder", size=18),
+            compound="left",
         )
         self._open_folder_btn.grid(row=0, column=4)
 
@@ -1321,6 +1335,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             command=self._on_update_click,
             font=gui_style.font_button(),
             corner_radius=gui_style.RADIUS_SM,
+            image=gui_style.icon("download", size=16),
+            compound="left",
         )
         self._update_btn.grid(
             row=0, column=1,
@@ -1394,7 +1410,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._pdf_entry.configure(state="disabled")
 
         self._pdf_browse_btn = ctk.CTkButton(
-            pdf_frame, text="Selaa\u2026", command=self._browse_pdf, width=80
+            pdf_frame, text="Selaa\u2026", command=self._browse_pdf, width=100,
+            image=gui_style.icon("folder", size=16),
+            compound="left",
         )
         self._pdf_browse_btn.grid(row=0, column=1)
 
@@ -1559,12 +1577,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         self._ref_browse_btn = ctk.CTkButton(
             self._ref_frame, text="Selaa", command=self._browse_reference_audio,
-            width=72, **_sec,
+            width=90, **_sec,
+            image=gui_style.icon("mic", size=16),
+            compound="left",
         )
         self._ref_browse_btn.grid(row=0, column=1)
         self._ref_clear_btn = ctk.CTkButton(
             self._ref_frame, text="Tyhjennä", command=self._clear_reference_audio,
-            width=88, **_sec,
+            width=100, **_sec,
+            image=gui_style.icon("x", size=16),
+            compound="left",
         )
         self._ref_clear_btn.grid(row=0, column=2, padx=(gui_style.PAD_XS, 0))
         srow += 1
@@ -1614,7 +1636,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         self._out_browse_btn = ctk.CTkButton(
             out_frame, text="Vaihda\u2026", command=self._browse_output,
-            width=88, **_sec,
+            width=110, **_sec,
+            image=gui_style.icon("folder", size=16),
+            compound="left",
         )
         self._out_browse_btn.grid(
             row=0, column=1, padx=(0, gui_style.PAD_SM)
@@ -1669,7 +1693,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         self._log_toggle_btn = ctk.CTkButton(
             toggle_frame, text="Piilota loki", command=self._toggle_log,
-            width=140,
+            width=160,
             font=gui_style.font_button(),
             fg_color=gui_style.BTN_SECONDARY_BG,
             hover_color=gui_style.BTN_SECONDARY_HOVER,
@@ -1677,6 +1701,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             border_width=1,
             border_color=gui_style.BORDER_SUBTLE,
             corner_radius=gui_style.RADIUS_SM,
+            image=gui_style.icon("list", size=16),
+            compound="left",
         )
         self._log_toggle_btn.grid(row=0, column=0, sticky="w")
 
