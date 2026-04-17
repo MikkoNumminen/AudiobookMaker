@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🔵 working | Streaming MP3 assembly (replace pydub in-RAM concat) | 2026-04-17 |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -33,11 +33,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Tier 1 validation in progress: `scripts/stress_test_chatterbox_longrun.py` runs 500 `engine.generate()` calls in one process to catch drift fast before committing to a 5h re-synth. If Tier 1 passes, next is Tier 2 (regenerate the tail of the problem Finnish audiobook from ~hour 4 onward using existing `.chunks/` cache). Confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. 🟡 🧠 Opus.
-
-### Streaming MP3 assembly — replace pydub in-RAM concat [Claude 3, worktree-streaming-assembly]
-- [ ] `src/tts_audio.combine_audio_files` uses pydub `combined += segment` in a loop, which allocates a fresh PCM buffer holding all prior audio on every `+=`. Transient peak ≈ 2× final file's uncompressed PCM (~2.5 GB for an 8h book). Not a correctness bug — no samples are dropped — but 8 GB machines can OOM during assembly. Replace with: per-chunk silence trim → temp WAV → ffmpeg concat demuxer → final MP3. O(1) memory regardless of book length. Same silence-trim thresholds (asymmetric, from 571c761) + same 200 ms inter-chunk gap. Only touches `src/tts_audio.py`; Chatterbox script versions left alone while Claude 1 is stress-testing them. 🟡 🧠 Opus.
-
-
 
 ### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
 - [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
