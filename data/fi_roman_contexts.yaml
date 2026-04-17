@@ -1,0 +1,81 @@
+# Finnish context words for the TTS normalizer Roman numeral pass (L).
+#
+# Loaded by src/tts_normalizer_fi.py. The sets steer cardinal vs. ordinal
+# classification when the detector finds a 2+ letter Roman numeral:
+#
+#   blacklist         — modern acronyms that also parse as Roman numerals
+#                        (DC, LCD, CV, ...). Never expanded.
+#   regnal_names      — royal first names. If immediately before a Roman
+#                        numeral, the numeral reads as an ordinal
+#                        (`Kustaa II` -> `Kustaa toinen`).
+#   titles            — regnal/ecclesial titles. Same effect.
+#   ordinal_before    — section keywords. When immediately before a Roman
+#                        numeral, the numeral reads as an ordinal.
+#   ordinal_after     — century/chapter keywords. When immediately after a
+#                        Roman numeral, the numeral reads as an ordinal.
+#
+# All lookups are exact-case and compared against the raw token text.
+
+blacklist:
+- DC
+- LCD
+- MVP
+- CV
+- CI
+- MD
+- ID
+
+regnal_names:
+- Kustaa
+- Kaarle
+- Juhana
+- Eerik
+- Henrik
+- Pius
+- Leo
+- Aleksanteri
+- Nikolai
+- Katariina
+- Elisabet
+- Yrjö
+- Fredrik
+- Adolf
+- Oskar
+- Erik
+
+titles:
+- paavi
+- Paavi
+- kuningas
+- Kuningas
+- keisari
+- Keisari
+- tsaari
+- Tsaari
+- sulttaani
+- Sulttaani
+
+ordinal_before:
+- luku
+- Luku
+- luvussa
+- luvun
+- pykälä
+- Pykälä
+- pykälässä
+- kohta
+- kohdassa
+
+ordinal_after:
+- vuosisata
+- vuosisadalla
+- vuosisadalta
+- vuosisatana
+- luku
+- luvulla
+- luvulta
+- luvussa
+- luvun
+- kappale
+- kappaleessa
+- kappaletta

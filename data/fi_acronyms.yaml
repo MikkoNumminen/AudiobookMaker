@@ -1,0 +1,37 @@
+# Finnish acronym expansion whitelist for the TTS normalizer Pass N.
+#
+# Loaded by src/tts_normalizer_fi.py. Matching is EXACT-CASE and
+# word-boundary anchored, so lowercase `eu` (negative prefix in
+# Finnish) is not touched. Unknown ALL-CAPS tokens are left alone —
+# there is no heuristic fallback.
+#
+# Values are the Finnish spoken form. For letter-by-letter readings
+# the spaces between letters are significant: "W T O" reads as three
+# separate letters, while "Nato" reads as a word.
+
+# Political / international organizations
+EU: "Euroopan unioni"
+EY: "Euroopan yhteisö"
+EEC: "Euroopan talousyhteisö"
+YK: "Yhdistyneet kansakunnat"
+USA: "Yhdysvallat"
+NATO: "Nato"
+UNESCO: "Unesco"
+WTO: "W T O"
+ILO: "I L O"
+UN: "U N"
+# German-language legal acronyms (common in Finnish legal history)
+ALR: "A L R"
+ABGB: "A B G B"
+BGB: "B G B"
+HGB: "H G B"
+StGB: "St G B"
+StPO: "St P O"
+ZPO: "Z P O"
+# Finnish legal acronyms
+RL: "R L"
+SL: "S L"
+# Common modern
+PDF: "P D F"
+URL: "U R L"
+API: "A P I"

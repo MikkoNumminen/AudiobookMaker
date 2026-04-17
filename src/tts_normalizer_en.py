@@ -114,46 +114,16 @@ def _pass_b_whitespace_quotes(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 # Order matters: longer/more-specific patterns first so "U.S.A." doesn't get
-# half-matched by "U.S.". The lookup is applied with word-boundary regex.
-_EN_ABBREVIATIONS: list[tuple[str, str]] = [
-    # Latin
-    ("i.e.",  "that is"),
-    ("e.g.",  "for example"),
-    ("etc.",  "et cetera"),
-    ("cf.",   "compare"),
-    ("vs.",   "versus"),
-    ("vs",    "versus"),
-    ("viz.",  "namely"),
-    ("a.m.",  "a m"),
-    ("p.m.",  "p m"),
-    ("A.M.",  "A M"),
-    ("P.M.",  "P M"),
-    # Honorifics / titles
-    ("Mr.",   "Mister"),
-    ("Mrs.",  "Misses"),
-    ("Ms.",   "Miss"),
-    ("Dr.",   "Doctor"),
-    ("Prof.", "Professor"),
-    ("Rev.",  "Reverend"),
-    ("Hon.",  "Honorable"),
-    ("Sr.",   "Senior"),
-    ("Jr.",   "Junior"),
-    ("Mt.",   "Mount"),
-    ("Ft.",   "Fort"),
-    # Geographic / state-style
-    ("U.S.A.", "U S A"),
-    ("U.S.",   "United States"),
-    ("U.K.",   "United Kingdom"),
-    ("U.N.",   "United Nations"),
-    # Numbering / reference
-    ("No.",   "Number"),
-    ("Vol.",  "Volume"),
-    ("Ch.",   "Chapter"),
-    ("Fig.",  "Figure"),
-    ("Eq.",   "Equation"),
-    ("pp.",   "pages"),
-    ("p.",    "page"),
-]
+# half-matched by "U.S.". The table itself lives in data/en_abbreviations.yaml
+# so non-developers can curate the lexicon without editing Python. The lookup
+# is applied with word-boundary regex.
+@functools.lru_cache(maxsize=1)
+def _load_abbreviations() -> list[tuple[str, str]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("en_abbreviations")
+    if not raw:
+        return []
+    return [(str(pair[0]), str(pair[1])) for pair in raw]
 
 # St. is context-dependent: "St. Peter" → Saint, "Main St." → Street.
 # Heuristic: "St." followed by a capitalized name → Saint; otherwise Street.
@@ -178,7 +148,7 @@ def _pass_c_abbreviations(text: str) -> str:
     text = _EN_ST_SAINT_RE.sub(r"Saint \1", text)
     text = _EN_ST_STREET_RE.sub("Street", text)
 
-    for abbr, expansion in _EN_ABBREVIATIONS:
+    for abbr, expansion in _load_abbreviations():
         text = _get_abbrev_re(abbr).sub(expansion, text)
     return text
 
@@ -234,20 +204,14 @@ def _int_to_roman(n: int) -> str:
 # Two flavors:
 #   - Cardinal context: "Chapter IV" → "Chapter four"
 #   - Regnal context:   "Louis XIV"  → "Louis the fourteenth"
-_EN_ROMAN_CARDINAL_CONTEXTS = {
-    "Chapter", "Book", "Part", "Volume", "Section", "Act", "Scene",
-    "Article", "Appendix", "Figure", "Table", "Phase", "Stage",
-    "Episode", "Series",
-}
-_EN_ROMAN_REGNAL_CONTEXTS = {
-    # Monarchs / popes — non-exhaustive but covers the common cases.
-    "Pope", "King", "Queen", "Emperor", "Empress", "Tsar", "Sultan",
-    "Louis", "Henry", "Edward", "George", "William", "Richard", "Charles",
-    "James", "Elizabeth", "Mary", "Victoria", "Albert", "Frederick",
-    "Philip", "Napoleon", "Nicholas", "Alexander", "Peter", "Paul",
-    "John", "Pius", "Benedict", "Leo", "Gregory", "Innocent", "Clement",
-    "Urban", "Boniface",
-}
+# The actual vocab lives in data/en_roman_contexts.yaml.
+@functools.lru_cache(maxsize=1)
+def _load_roman_contexts() -> tuple[frozenset[str], frozenset[str]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("en_roman_contexts") or {}
+    cardinal = frozenset(str(w) for w in (raw.get("cardinal") or []))
+    regnal = frozenset(str(w) for w in (raw.get("regnal") or []))
+    return cardinal, regnal
 
 # Roman-numeral token, uppercase only. Single-char tokens (V, X, L, etc.)
 # are allowed because they're legitimate in contexts like "Volume V".
@@ -297,9 +261,10 @@ def _pass_d_roman_in_context(text: str) -> str:
         if n is None:
             return roman
 
-        if prev_word in _EN_ROMAN_REGNAL_CONTEXTS:
+        cardinal_ctx, regnal_ctx = _load_roman_contexts()
+        if prev_word in regnal_ctx:
             return f"the {_ordinal_word(n)}"
-        if prev_word in _EN_ROMAN_CARDINAL_CONTEXTS:
+        if prev_word in cardinal_ctx:
             return _cardinal_word(n)
         return roman  # not a recognized context — leave it
 
@@ -533,58 +498,33 @@ def _pass_l_currency(text: str) -> str:
 
 # Unit symbol → (singular, plural). Coverage targets common audiobook
 # encounters: distance, mass, volume, temperature, time, data, speed.
-_EN_UNITS: dict[str, tuple[str, str]] = {
-    # distance
-    "km":  ("kilometer", "kilometers"),
-    "cm":  ("centimeter", "centimeters"),
-    "mm":  ("millimeter", "millimeters"),
-    "m":   ("meter", "meters"),
-    "mi":  ("mile", "miles"),
-    "ft":  ("foot", "feet"),
-    "in":  ("inch", "inches"),
-    "yd":  ("yard", "yards"),
-    # mass / weight
-    "kg":  ("kilogram", "kilograms"),
-    "g":   ("gram", "grams"),
-    "mg":  ("milligram", "milligrams"),
-    "lb":  ("pound", "pounds"),
-    "lbs": ("pound", "pounds"),
-    "oz":  ("ounce", "ounces"),
-    # volume
-    "l":   ("liter", "liters"),
-    "ml":  ("milliliter", "milliliters"),
-    "gal": ("gallon", "gallons"),
-    # temperature — handled separately because they want the degree word
-    # speed
-    "mph": ("mile per hour", "miles per hour"),
-    "kph": ("kilometer per hour", "kilometers per hour"),
-    # data
-    "kb":  ("kilobyte", "kilobytes"),
-    "mb":  ("megabyte", "megabytes"),
-    "gb":  ("gigabyte", "gigabytes"),
-    "tb":  ("terabyte", "terabytes"),
-    "kib": ("kibibyte", "kibibytes"),
-    "mib": ("mebibyte", "mebibytes"),
-    "gib": ("gibibyte", "gibibytes"),
-    # frequency / time
-    "hz":  ("hertz", "hertz"),
-    "khz": ("kilohertz", "kilohertz"),
-    "mhz": ("megahertz", "megahertz"),
-    "ghz": ("gigahertz", "gigahertz"),
-    "ms":  ("millisecond", "milliseconds"),
-    "s":   ("second", "seconds"),
-    "min": ("minute", "minutes"),
-    "hr":  ("hour", "hours"),
-}
+# The table lives in data/en_units.yaml; temperature units are handled
+# separately in Python because they want the "degree" word.
+@functools.lru_cache(maxsize=1)
+def _load_units() -> dict[str, tuple[str, str]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("en_units") or {}
+    return {
+        str(sym): (str(pair[0]), str(pair[1]))
+        for sym, pair in raw.items()
+    }
 
-# Build a single pattern. Order longer-first so "kib" wins over "k".
-_UNIT_PATTERN = "|".join(
-    re.escape(u) for u in sorted(_EN_UNITS, key=len, reverse=True)
-)
-_EN_UNIT_RE = re.compile(
-    r"\b(" + _AMOUNT_FRAGMENT + r")\s*(" + _UNIT_PATTERN + r")\b",
-    flags=re.IGNORECASE,
-)
+
+@functools.lru_cache(maxsize=1)
+def _get_unit_re() -> re.Pattern[str]:
+    # Build a single pattern. Order longer-first so "kib" wins over "k".
+    units = _load_units()
+    pattern = "|".join(
+        re.escape(u) for u in sorted(units, key=len, reverse=True)
+    )
+    if not pattern:
+        # No units loaded — use an impossible pattern so the regex never
+        # fires (the unit pass becomes a no-op).
+        pattern = r"(?!x)x"
+    return re.compile(
+        r"\b(" + _AMOUNT_FRAGMENT + r")\s*(" + pattern + r")\b",
+        flags=re.IGNORECASE,
+    )
 # Temperature needs separate treatment: "32 °F", "100°C".
 _EN_TEMP_RE = re.compile(
     r"\b(" + _AMOUNT_FRAGMENT + r")\s*°\s*([CFK])\b"
@@ -606,7 +546,7 @@ def _pass_m_units(text: str) -> str:
 
     def repl_unit(m: re.Match[str]) -> str:
         amount, unit = m.group(1), m.group(2).lower()
-        units = _EN_UNITS.get(unit)
+        units = _load_units().get(unit)
         if units is None:
             return m.group(0)
         spoken, value = _spoken_amount(amount)
@@ -614,7 +554,7 @@ def _pass_m_units(text: str) -> str:
         return f"{spoken} {word}"
 
     text = _EN_TEMP_RE.sub(repl_temp, text)
-    text = _EN_UNIT_RE.sub(repl_unit, text)
+    text = _get_unit_re().sub(repl_unit, text)
     return text
 
 

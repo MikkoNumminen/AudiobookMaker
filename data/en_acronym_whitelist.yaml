@@ -1,0 +1,17 @@
+# English acronym whitelist for the TTS normalizer Pass S.
+#
+# Tokens listed here are PRONOUNCEABLE acronyms — the TTS engine
+# reads them as a single word. All other ALL-CAPS tokens of 2–5
+# letters are spelled out letter by letter. Entries are exact-case.
+
+- NASA
+- NATO
+- UNESCO
+- OPEC
+- RAM
+- ROM
+- LASER
+- RADAR
+- SCUBA
+- IKEA
+- BAFTA

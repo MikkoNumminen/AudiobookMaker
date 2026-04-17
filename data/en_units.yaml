@@ -1,0 +1,51 @@
+# English measurement unit table for the TTS normalizer.
+#
+# Loaded by src/tts_normalizer_en.py Pass M. Each entry maps a unit
+# symbol to [singular, plural] spoken forms. Matching is
+# case-insensitive and the longest symbol wins, so "kib" beats "k"
+# and "kph" beats "k" — the Python side builds the alternation
+# sorted longest-first.
+#
+# Temperature units (°C, °F, K) are handled separately because they
+# need the "degree" word; they live in Python.
+
+# distance
+km:  [kilometer, kilometers]
+cm:  [centimeter, centimeters]
+mm:  [millimeter, millimeters]
+m:   [meter, meters]
+mi:  [mile, miles]
+ft:  [foot, feet]
+in:  [inch, inches]
+yd:  [yard, yards]
+# mass / weight
+kg:  [kilogram, kilograms]
+g:   [gram, grams]
+mg:  [milligram, milligrams]
+lb:  [pound, pounds]
+lbs: [pound, pounds]
+oz:  [ounce, ounces]
+# volume
+l:   [liter, liters]
+ml:  [milliliter, milliliters]
+gal: [gallon, gallons]
+# speed
+mph: [mile per hour, miles per hour]
+kph: [kilometer per hour, kilometers per hour]
+# data
+kb:  [kilobyte, kilobytes]
+mb:  [megabyte, megabytes]
+gb:  [gigabyte, gigabytes]
+tb:  [terabyte, terabytes]
+kib: [kibibyte, kibibytes]
+mib: [mebibyte, mebibytes]
+gib: [gibibyte, gibibytes]
+# frequency / time
+hz:  [hertz, hertz]
+khz: [kilohertz, kilohertz]
+mhz: [megahertz, megahertz]
+ghz: [gigahertz, gigahertz]
+ms:  [millisecond, milliseconds]
+s:   [second, seconds]
+min: [minute, minutes]
+hr:  [hour, hours]

@@ -15,6 +15,7 @@ rest of the date rather than half-converted on its own.
 
 from __future__ import annotations
 
+import functools
 import re
 
 # Note: the helpers live in `src.tts_normalizer_en`, which itself imports
@@ -25,59 +26,47 @@ __all__ = ["_pass_o_dates"]
 
 
 # Month abbreviation / full name -> canonical full name + month number.
-_MONTHS: dict[str, tuple[str, int]] = {
-    "january":   ("January", 1),
-    "jan":       ("January", 1),
-    "february":  ("February", 2),
-    "feb":       ("February", 2),
-    "march":     ("March", 3),
-    "mar":       ("March", 3),
-    "april":     ("April", 4),
-    "apr":       ("April", 4),
-    "may":       ("May", 5),
-    "june":      ("June", 6),
-    "jun":       ("June", 6),
-    "july":      ("July", 7),
-    "jul":       ("July", 7),
-    "august":    ("August", 8),
-    "aug":       ("August", 8),
-    "september": ("September", 9),
-    "sept":      ("September", 9),
-    "sep":       ("September", 9),
-    "october":   ("October", 10),
-    "oct":       ("October", 10),
-    "november":  ("November", 11),
-    "nov":       ("November", 11),
-    "december":  ("December", 12),
-    "dec":       ("December", 12),
-}
+# The vocabulary lives in data/en_months.yaml.
+@functools.lru_cache(maxsize=1)
+def _load_months() -> dict[str, tuple[str, int]]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("en_months") or {}
+    return {
+        str(k).lower(): (str(v[0]), int(v[1]))
+        for k, v in raw.items()
+    }
 
-_MONTH_NUM_TO_NAME = {
-    1: "January", 2: "February", 3: "March", 4: "April",
-    5: "May", 6: "June", 7: "July", 8: "August",
-    9: "September", 10: "October", 11: "November", 12: "December",
-}
 
-# Alternation of all month spellings, longest-first so "September" wins
-# over "Sep" and "Sept" over "Sep".
-_MONTH_ALT = "|".join(
-    sorted(_MONTHS, key=len, reverse=True)
-)
+@functools.lru_cache(maxsize=1)
+def _month_num_to_name() -> dict[int, str]:
+    # Inverse map built from the YAML; later entries overwrite earlier
+    # ones so the canonical full name wins over abbreviated duplicates.
+    out: dict[int, str] = {}
+    for _, (name, num) in _load_months().items():
+        out[num] = name
+    return out
 
-# "January 5, 1901" / "Jan 5 1901" / "Jan 5" / "January 5th, 1901"
-_DATE_MONTH_FIRST_RE = re.compile(
-    r"\b(" + _MONTH_ALT + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?"
-    r"(?:\s*,?\s*(\d{4}))?\b",
-    flags=re.IGNORECASE,
-)
 
-# "5 January 1901" / "5th of January 1901" / "5 Jan"
-_DATE_DAY_FIRST_RE = re.compile(
-    r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?"
-    r"(" + _MONTH_ALT + r")\.?"
-    r"(?:\s+(\d{4}))?\b",
-    flags=re.IGNORECASE,
-)
+@functools.lru_cache(maxsize=1)
+def _date_month_first_re() -> re.Pattern[str]:
+    alt = "|".join(sorted(_load_months(), key=len, reverse=True))
+    return re.compile(
+        r"\b(" + alt + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?"
+        r"(?:\s*,?\s*(\d{4}))?\b",
+        flags=re.IGNORECASE,
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _date_day_first_re() -> re.Pattern[str]:
+    alt = "|".join(sorted(_load_months(), key=len, reverse=True))
+    return re.compile(
+        r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?"
+        r"(" + alt + r")\.?"
+        r"(?:\s+(\d{4}))?\b",
+        flags=re.IGNORECASE,
+    )
+
 
 # ISO "2020-01-05"
 _DATE_ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
@@ -133,7 +122,7 @@ def _pass_o_dates(text: str) -> str:
         day = int(m.group(3))
         if not _valid_day(day, month):
             return m.group(0)
-        return _spoken_date(_MONTH_NUM_TO_NAME[month], day, year,
+        return _spoken_date(_month_num_to_name()[month], day, year,
                             day_first=False)
 
     text = _DATE_ISO_RE.sub(repl_iso, text)
@@ -145,7 +134,7 @@ def _pass_o_dates(text: str) -> str:
         year = int(m.group(3))
         if not _valid_day(day, month):
             return m.group(0)
-        return _spoken_date(_MONTH_NUM_TO_NAME[month], day, year,
+        return _spoken_date(_month_num_to_name()[month], day, year,
                             day_first=False)
 
     text = _DATE_US_SLASH_RE.sub(repl_us, text)
@@ -155,7 +144,7 @@ def _pass_o_dates(text: str) -> str:
         day = int(m.group(1))
         month_token = m.group(2).lower()
         year_tok = m.group(3)
-        entry = _MONTHS.get(month_token)
+        entry = _load_months().get(month_token)
         if entry is None:
             return m.group(0)
         month_name, month_num = entry
@@ -164,14 +153,14 @@ def _pass_o_dates(text: str) -> str:
         year = int(year_tok) if year_tok else None
         return _spoken_date(month_name, day, year, day_first=True)
 
-    text = _DATE_DAY_FIRST_RE.sub(repl_day_first, text)
+    text = _date_day_first_re().sub(repl_day_first, text)
 
     # "January 5, 1901" / "Jan 5".
     def repl_month_first(m: re.Match[str]) -> str:
         month_token = m.group(1).lower()
         day = int(m.group(2))
         year_tok = m.group(3)
-        entry = _MONTHS.get(month_token)
+        entry = _load_months().get(month_token)
         if entry is None:
             return m.group(0)
         month_name, month_num = entry
@@ -180,6 +169,6 @@ def _pass_o_dates(text: str) -> str:
         year = int(year_tok) if year_tok else None
         return _spoken_date(month_name, day, year, day_first=False)
 
-    text = _DATE_MONTH_FIRST_RE.sub(repl_month_first, text)
+    text = _date_month_first_re().sub(repl_month_first, text)
 
     return text

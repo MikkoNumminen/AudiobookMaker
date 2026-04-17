@@ -1,0 +1,14 @@
+# Finnish century/era "-luku" declension suffixes for Pass C.
+#
+# Loaded by src/tts_normalizer_fi.py. Matched after a digit and a
+# hyphen (`1500-luvulla`). Order is preserved — the Python side
+# feeds the list into a regex alternation.
+
+- luvulla
+- luvulta
+- luvulle
+- luvuilla
+- luvusta
+- luvut
+- luvun
+- luku

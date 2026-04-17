@@ -1,0 +1,35 @@
+# Finnish measurement unit / currency symbol expansion table for the
+# TTS normalizer Pass M. Loaded by src/tts_normalizer_fi.py.
+#
+# Each entry is a [symbol, finnish_partitive] pair. Order matters:
+# multi-character symbols must come before their single-character
+# substrings so `km` wins over `m`, `°C` over `C`, etc. The Python
+# side preserves this order when building the regex alternation.
+
+- ["°C", "celsiusastetta"]
+- ["°F", "fahrenheitastetta"]
+# Length (multi-char first)
+- ["km", "kilometriä"]
+- ["cm", "senttimetriä"]
+- ["mm", "millimetriä"]
+- ["m", "metriä"]
+# Mass (multi-char first)
+- ["kg", "kilogrammaa"]
+- ["mg", "milligrammaa"]
+- ["g", "grammaa"]
+- ["t", "tonnia"]
+# Volume (multi-char first)
+- ["ml", "millilitraa"]
+- ["dl", "desilitraa"]
+- ["cl", "senttilitraa"]
+- ["l", "litraa"]
+# Time
+- ["min", "minuuttia"]
+# Currency (suffix — after number)
+- ["€", "euroa"]
+- ["£", "puntaa"]
+# Percent / per-mille
+- ["%", "prosenttia"]
+- ["‰", "promillea"]
+# Legacy Finnish currency
+- ["mk", "markkaa"]

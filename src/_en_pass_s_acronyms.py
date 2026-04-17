@@ -22,27 +22,19 @@ individual letters are single characters and no longer match the
 
 from __future__ import annotations
 
+import functools
 import re
 
 __all__ = ["_pass_s_acronyms"]
 
 
-# Pronounceable acronyms that should stay as a single word.
-_WHITELIST: frozenset[str] = frozenset(
-    {
-        "NASA",
-        "NATO",
-        "UNESCO",
-        "OPEC",
-        "RAM",
-        "ROM",
-        "LASER",
-        "RADAR",
-        "SCUBA",
-        "IKEA",
-        "BAFTA",
-    }
-)
+# Pronounceable acronyms that should stay as a single word. The list
+# lives in data/en_acronym_whitelist.yaml so non-developers can extend it.
+@functools.lru_cache(maxsize=1)
+def _load_whitelist() -> frozenset[str]:
+    from src._yaml_data import load_yaml
+    raw = load_yaml("en_acronym_whitelist") or []
+    return frozenset(str(w) for w in raw)
 
 # 2-5 uppercase letters, bounded by word boundaries.
 _TOKEN_RE = re.compile(r"\b[A-Z]{2,5}\b")
@@ -102,11 +94,12 @@ def _pass_s_acronyms(text: str) -> str:
         return text
 
     heading_spans = _heading_run_spans(text)
+    whitelist = _load_whitelist()
 
     def _sub(m: re.Match[str]) -> str:
         tok = m.group(0)
         # Whitelist: pronounceable acronyms stay as single word.
-        if tok in _WHITELIST:
+        if tok in whitelist:
             return tok
         # Heading run: leave alone if token is inside a 3+ ALL-CAPS run.
         if _in_heading_run(heading_spans, m.start(), m.end()):

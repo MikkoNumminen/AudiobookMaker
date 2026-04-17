@@ -1,0 +1,31 @@
+# English month name lookup for the TTS normalizer date pass.
+#
+# Loaded by src/_en_pass_o_dates.py. Each entry maps an input
+# spelling (lowercase, with or without abbreviation period) to
+# [canonical_full_name, month_number]. The Python side builds the
+# reverse lookup (number -> name) from this same table.
+
+january:   [January, 1]
+jan:       [January, 1]
+february:  [February, 2]
+feb:       [February, 2]
+march:     [March, 3]
+mar:       [March, 3]
+april:     [April, 4]
+apr:       [April, 4]
+may:       [May, 5]
+june:      [June, 6]
+jun:       [June, 6]
+july:      [July, 7]
+jul:       [July, 7]
+august:    [August, 8]
+aug:       [August, 8]
+september: [September, 9]
+sept:      [September, 9]
+sep:       [September, 9]
+october:   [October, 10]
+oct:       [October, 10]
+november:  [November, 11]
+nov:       [November, 11]
+december:  [December, 12]
+dec:       [December, 12]
