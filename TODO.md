@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🔵 working | Audit batch 2 (setup.iss pin, auto-updater hardening, drive-letters, conftest network, docstrings, README matrix) | 2026-04-17 |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,14 +30,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
-
-### Audit batch 2 [Claude 3, worktree-audit-batch-2]
-- [ ] `installer/setup.iss` hardcodes `1.0.0` while `auto_updater.APP_VERSION=3.7.1`. Convert to `#define MyAppVersion` + CI assertion that fails if `auto_updater.APP_VERSION != inno_version`. 🟡 🧠 Opus.
-- [ ] `src/auto_updater.py:509-530` BAT relaunch uses f-string substitution of `installer_path`; special chars (`"`, `%`, `^`, `&`) break the batch. Pass via env vars or assert clean. Also hoist `src/auto_updater.py:128 import re` to module top. 🟢 ⚡ Sonnet.
-- [ ] `cleanup.py:74-76`, `launcher_bridge.py:505-506`, `engine_installer.py:63` only consider C:/D:. Enumerate drives dynamically. Extract `BYTES_PER_MB` constant shared by `cleanup.py:104` + `system_checks.py:125`. 🟢 ⚡ Sonnet.
-- [ ] `tests/conftest.py` — autouse fixture blocking `urllib.request.urlopen` + `socket.socket` unless `@pytest.mark.network`. Add `@pytest.mark.gpu` marker for future CUDA tests. Mark existing network-dependent tests. 🟢 ⚡ Sonnet.
-- [ ] Add "Pass ordering invariants" section to `normalize_finnish_text` + `normalize_english_text` docstrings explaining M→D→F→G and O→F, P→G, I/H→G deps. 🟢 ⚡ Sonnet.
-- [ ] `README.md:15-16` overstates per-engine language coverage. Replace prose with a per-engine × language matrix (Edge-TTS many / Piper subset / Chatterbox Finnish+Route-B English). 🟢 ⚡ Sonnet.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`. **Tier 2 still pending**: regenerate the tail of `TURO_00_full.mp3.mpeg` from ~hour 4 onward using existing `.chunks/` cache + new `FI_TEMPERATURE=0.5`, then perceptual check that the swallowing is gone. 🟡 🧠 Opus.
@@ -80,6 +72,21 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Test `scripts/record_voice_sample.py` live with a real 12 s recording. Raise input volume to ~85% first (Zoom/Teams leaves it at ~5–10%). 🟢 ⚡ Sonnet
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
 - [ ] Document the "input volume gotcha" in README. 🟢 ⚡ Sonnet
+
+### Voice pack pipeline — audiobook → multi-speaker LoRA clones
+- [ ] Build a local pipeline that ingests a full audiobook (m4b/mp3) and produces per-speaker voice packs the GUI can swap into the Voice dropdown. Target quality: "indistinguishable on unseen text, with full emotional range (shouts, whispers, aggressive, calm)." Pipeline stages:
+  - [ ] **Ingest + diarize:** whisper-large-v3 transcribe + pyannote.audio 3.x diarization → RTTM with word-level timestamps. Needs one-time HF token. Expect ~0.3× realtime on a single 3090. 🟡 🧠 Opus.
+  - [ ] **Forced alignment:** if user also supplies the ebook text (epub/txt), run MFA or aeneas to re-anchor Whisper's noisy timestamps to the ebook sentences. Materially better per-chunk boundaries than ASR alone. 🟡 🧠 Opus.
+  - [ ] **Per-speaker bucketing + quality filter:** group segments by speaker id, drop clipped / overlapping / <1 s / noisy chunks, report per-speaker total clean minutes. 🟢 ⚡ Sonnet.
+  - [ ] **Emotion tagging:** SpeechBrain emotion classifier per segment. Use tags during training to upsample minority classes (angry, sad) so shouts/screams imprint despite being rare in narration. 🟡 🧠 Opus.
+  - [ ] **Training decision per speaker:** ≥30 min clean → full LoRA finetune (~4–8 A100 hr, ~$5 spot); 10–30 min → reduced-rank LoRA flagged "experimental"; 1–10 min → auto-extract 3 best ~15 s few-shot ref clips, save as classic preset; <1 min → skip. 🔴 🧠 Opus.
+  - [ ] **LoRA finetune harness for base multilingual Chatterbox:** borrow from the existing Finnish finetune. Low LR + early stopping to preserve accent/dialect (British / Irish / Southern US / etc. come through for free — only risk is flattening them by over-training). Output adapter ~50–200 MB. 🔴 🧠 Opus.
+  - [ ] **Voice pack artifact format:** folder per speaker containing LoRA weights + `meta.yaml` (display name, source book, total training minutes, detected accent, emotion-tag coverage, sample WAV). Load via a new "Import voice pack" button in Settings. 🟡 🧠 Opus.
+  - [ ] **XTTS v2 bake-off (research lane, not shipped):** run the same audiobook through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA on the same unseen text. Decision: if XTTS wins clearly on emotional range/accent, ship it as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
+  - [ ] **Inference-time expression control:** expose per-sentence `exaggeration` / `cfg_weight` overrides so the user can push "shout here" / "whisper here" on the finetuned voice. Optional lightweight emotion-prefix token during training to condition inference explicitly. 🟡 🧠 Opus.
+  - [ ] **License/ethics guardrail:** voice packs stay local by default (no cloud upload, no sharing button). README note that cloning a commercial narrator for private listening is personal-use gray area, but distributing or monetizing is not. 🟢 ⚡ Sonnet.
+
+  Rationale: staying on Chatterbox keeps the stack coherent (MIT license, shared inference path, existing finetune tooling). LoRA adapters at <200 MB/speaker keep a 10-voice library under 2 GB instead of 30 GB full-finetune. Emotional range comes from training-data balance + inference-time knobs, not from a bigger model. Source-audio sweet spot is ~5 h; feeding a full 6–15 h audiobook is the right default. See `docs/voice_pack_design.md` (to be written as part of this task) for the full architecture report.
 
 ### Chatterbox-Finnish — upstream contribution
 - [ ] Submit bug report + patch (`docs/upstream/chatterbox/BUG_REPORT.md` + `hook_leak_fix.patch`) as a GitHub issue + PR to `resemble-ai/chatterbox`. 🟡 🧠 Opus
