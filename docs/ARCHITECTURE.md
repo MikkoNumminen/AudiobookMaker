@@ -12,7 +12,8 @@ flowchart LR
     GUI --> Engines{TTS engine<br/>registry}
     Engines -->|in-process| Edge[Edge-TTS<br/>tts_edge.py]
     Engines -->|in-process| Piper[Piper<br/>tts_piper.py]
-    Engines -->|subprocess| CB[Chatterbox<br/>scripts/generate_<br/>chatterbox_audiobook.py]
+    Engines -->|uses_subprocess=True| CBB[Chatterbox bridge<br/>tts_chatterbox_bridge.py]
+    CBB -.->|ChatterboxRunner| CB[Chatterbox subprocess<br/>scripts/generate_<br/>chatterbox_audiobook.py]
     Edge --> FF[ffmpeg<br/>dist/ffmpeg/]
     Piper --> FF
     CB --> FF
@@ -21,10 +22,12 @@ flowchart LR
 ```
 
 The GUI is a single Tk window. It hands off the text + voice choice to
-one of the TTS engines. Edge-TTS and Piper run in-process; Chatterbox
-runs as a subprocess in its own Python 3.11 venv because of heavy ML
-deps. All engines write chunks that ffmpeg stitches into a final MP3
-stored next to `AudiobookMaker.exe`.
+one of the TTS engines registered in `_REGISTRY`. Edge-TTS and Piper
+run in-process; Chatterbox is registered through a metadata-only
+bridge class whose `uses_subprocess = True` flag tells the dispatcher
+to route work to a separate Python 3.11 venv (heavy ML deps). All
+engines write chunks that ffmpeg stitches into a final MP3 stored next
+to `AudiobookMaker.exe`.
 
 ## GUI layer
 
@@ -45,10 +48,9 @@ classDiagram
       +_download_update_worker()
     }
     class UnifiedApp {
-      +_build_header_bar()
-      +_build_engine_bar()
       +_refresh_voice_list()
       +_on_convert_click()
+      +_import_voice_pack()
       +_default_output_dir()
     }
     UnifiedApp --|> SynthMixin
@@ -62,10 +64,25 @@ and ~500 lines each — keeping them on the main class would bloat
 the attributes they expect the host to provide, so type-checking still
 works.
 
+Widget-composition lives in `src/gui_builders/` — one file per major
+section of the window (`header_bar.py`, `engine_bar.py`,
+`settings_frame.py`, `action_row.py`). Each builder takes the
+`UnifiedApp` host plus parent frame + row and writes widget attributes
+back onto the host, so the rest of the app keeps its existing
+attribute interface. Builders contain only layout — no business logic.
+
 Further extracted pieces:
+- `src/gui_builders/` — per-section widget builders (header, engine bar,
+  settings frame, action row)
 - `src/gui_engine_dialog.py` — "Asenna moottoreita…" modal view
+- `src/gui_style.py` — Cold Forge design-system tokens (fonts, spacing,
+  colours, icons) loaded from `assets/design_system.json`
 - `src/gui_synth_mixin.py` — synthesis orchestration
 - `src/gui_update_mixin.py` — auto-update banner + download
+- `src/synthesis_orchestrator.py` — input → output routing helpers
+  (path suggestion, book parsing, in-process synthesis request runner)
+- `src/engine_registry.py` — single import point that registers every
+  in-tree engine (developer-only VoxCPM2 is guarded here)
 
 ## TTS engine registry
 
@@ -76,10 +93,13 @@ flowchart TD
     R[_REGISTRY<br/>src/tts_base.py] -->|register_engine| E[EdgeTTSEngine]
     R -->|register_engine| P[PiperTTSEngine]
     R -->|register_engine| V[VoxCPMTTSEngine]
+    R -->|register_engine<br/>uses_subprocess=True| C[ChatterboxFiEngine]
     Base[TTSEngine<br/>abstract base] --- E
     Base --- P
     Base --- V
+    Base --- C
     Base -->|check_status<br/>list_voices<br/>default_voice<br/>synthesize| GUI
+    C -.->|synthesize raises,<br/>GUI routes via<br/>ChatterboxRunner| SUB[Chatterbox<br/>subprocess venv]
 ```
 
 Each engine implements four methods:
@@ -91,12 +111,15 @@ Each engine implements four methods:
 | `default_voice(lang)` | Opinionated default per language |
 | `synthesize(text, voice_id, out_path, …)` | Do the work |
 
-Chatterbox is not registered — it runs as a separate process driven by
-`src/launcher_bridge.py` + `scripts/generate_chatterbox_audiobook.py`
-and is selected in the GUI via a hardcoded `"chatterbox_fi"` branch.
-This is a deliberate split: Chatterbox needs PyTorch + CUDA + a 7 GB
-model, all installed into its own venv so the main app bundle stays
-~200 MB.
+Chatterbox plugs into the same registry as everything else through
+`src/tts_chatterbox_bridge.py`, which sets the `uses_subprocess = True`
+class flag. The GUI dispatcher checks that flag and routes synthesis
+through `ChatterboxRunner` (`src/launcher_bridge.py`) instead of
+calling `synthesize()` in-process — Chatterbox's `synthesize()`
+deliberately raises so any caller that forgets the check fails loudly.
+The subprocess is a separate Python 3.11 venv because Chatterbox needs
+PyTorch + CUDA + a 7 GB model, all kept out of the main app bundle so
+it stays ~200 MB.
 
 ## Text pipeline
 
@@ -237,6 +260,35 @@ Version numbering: `APP_VERSION` in `src/auto_updater.py` is the source
 of truth. CI rewrites it from the git tag at build time, so dev-mode
 runs use the committed value (useful for local testing).
 
+## Voice packs
+
+Voice packs are imported bundles of voice artefacts (reference audio,
+LoRA adapter weights, and metadata) that surface as extra entries in
+the Voice dropdown alongside the built-in Grandmom. The on-disk format
+and the GUI Import flow live in `src/voice_pack/`.
+
+```mermaid
+flowchart LR
+    Pick[Import voice pack<br/>button] --> Dlg[askdirectory]
+    Dlg --> Validate[voice_pack.validate_pack_dir]
+    Validate --> Install[voice_pack.install_pack<br/>copy to ~/.audiobookmaker/<br/>voice_packs/]
+    Install --> Refresh[_refresh_voice_list]
+    Refresh --> Drop[Voice dropdown<br/>Grandmom + packs]
+    Drop --> Synth[engine.synthesize<br/>reference_audio=<br/>pack.reference.wav]
+```
+
+- Pack directory layout: `meta.yaml` (name, language, tier), `sample.wav`,
+  and either `reference.wav` (few-shot tier) or `adapter.pt` (LoRA tier).
+- Packs show up in the Voice dropdown only when the active engine is
+  Chatterbox — the clone-by-reference code path is how they steer
+  synthesis today. Picking a pack auto-populates reference audio from
+  the pack's `reference.wav` (few-shot) or falls back to `sample.wav`.
+  An explicit user entry in Ref. ääni always wins.
+- Pipeline scripts (`voice_pack_analyze`, `voice_pack_bucket`,
+  `voice_pack_train`, `voice_pack_package`) build packs from source
+  recordings; they live under `scripts/` and run in an isolated venv
+  because of heavy ML deps.
+
 ## Cleanup of old installs
 
 `src/cleanup.py` runs silently on startup. Scans known install paths
@@ -257,9 +309,17 @@ Users never lose audiobooks to cleanup.
 src/
   main.py                    # entry point, single-instance guard
   gui_unified.py             # UnifiedApp, i18n strings, banner, widgets
+  gui_builders/              # per-section widget builders
+    header_bar.py            #   logo + title + update banner
+    engine_bar.py            #   Language / Engine / Voice dropdowns
+    settings_frame.py        #   collapsible Settings panel
+    action_row.py            #   Convert + Sample + Preview + progress
+  gui_style.py               # Cold Forge design tokens (fonts, colours)
   gui_synth_mixin.py         # synthesis orchestration
   gui_update_mixin.py        # auto-update banner + download
   gui_engine_dialog.py       # engine install/manage modal view
+  synthesis_orchestrator.py  # input → output routing (parse + dispatch)
+  engine_registry.py         # single import point for in-tree engines
   auto_updater.py            # GitHub polling, download, apply_update()
   cleanup.py                 # old-install detection + MP3 rescue
   single_instance.py         # mutex against multiple app copies
@@ -271,6 +331,7 @@ src/
   tts_edge.py                # Edge-TTS adapter
   tts_piper.py               # Piper adapter
   tts_voxcpm.py              # VoxCPM2 adapter (dev only)
+  tts_chatterbox_bridge.py   # Chatterbox registration (uses_subprocess)
   tts_chunking.py            # sentence-aware text splitting
   tts_normalizer.py          # language dispatcher (fi / en routing)
   tts_normalizer_fi.py       # Finnish text → speakable form (16 passes)
@@ -279,6 +340,7 @@ src/
   _en_pass_p_telephone.py    # English Pass P (telephone numbers) helper
   _en_pass_r_urls.py         # English Pass R (URLs / emails) helper
   _en_pass_s_acronyms.py     # English Pass S (acronyms) helper
+  _yaml_data.py              # pure-Python fallback for PyYAML-less builds
   tts_audio.py               # pydub/ffmpeg wrappers
   tts_engine.py              # TTSConfig + chapters_to_speech pipeline
   pdf_parser.py              # PyMuPDF chapter extraction
@@ -288,9 +350,24 @@ src/
   duration_estimate.py       # pre-synthesis ETA estimate
   app_config.py              # settings persistence + system-locale defaults
   voice_recorder.py          # in-app mic capture for cloning
+  voice_pack/                # voice pack pipeline + artefact format
+    pack.py                  #   install_pack / list_packs / VoicePack
+    types.py                 #   dataclasses (AsrSegment, DiarTurn, …)
+    analyze.py               #   (via scripts/) ASR + quality scoring
+    diarize.py               #   speaker diarization helper
+    align.py                 #   forced alignment against supplied text
+    asr.py                   #   faster-whisper wrapper
+    bucket.py                #   per-speaker segment bucketing
+    dataset.py               #   training-dataset manifest builder
+    emotion.py               #   per-segment emotion tagging
+    expression.py            #   ExpressionPlan markup parser
 
 scripts/
   generate_chatterbox_audiobook.py  # runs in the Chatterbox venv
+  voice_pack_analyze.py             # build analysis JSON from source audio
+  voice_pack_bucket.py              # per-speaker clip bucketing
+  voice_pack_train.py               # (seam) LoRA fine-tune loop
+  voice_pack_package.py             # assemble meta.yaml + artefacts
 
 installer/
   setup.iss                  # Inno Setup script
