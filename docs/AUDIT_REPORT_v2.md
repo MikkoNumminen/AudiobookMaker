@@ -2,6 +2,8 @@
 
 Generated 2026-04-16. Branch `audit-v3-and-followups` off master at `0873bc5`. Suite at audit time: **1001 passed, 29 skipped**.
 
+**Status as of 2026-04-18: top-10 action list is complete.** See "What landed since the audit" at the bottom for the commit map. The findings in §1–§4 are kept for the historical record; items marked ✅ DONE were fixed in follow-up branches.
+
 Four parallel read-only Explore agents covered four lenses: sequencing, modularity, security, test quality. This report is the synthesis. Severity: 🔴 real bug / exploitable / data loss · 🟡 should fix soon · 🟢 nit / informational.
 
 ---
@@ -13,11 +15,11 @@ Four parallel read-only Explore agents covered four lenses: sequencing, modulari
 - During widget construction `_populate_engine_list()` ran with default Language "Suomi"; `_apply_loaded_config()` then resolved the saved Language and called `_populate_engine_list()` again. Net effect was harmless re-work, but cargo-cult risk for future widgets.
 - **Fixed in this branch.** Engine combobox now stays empty until config is applied.
 
-### 1.2 Defensive try/except in language-change callback
+### 1.2 Defensive try/except in language-change callback ✅ DONE
 - 🟡 `src/gui_unified.py:1496-1499`
 - `_on_language_changed` calls `self._save_current_config()` inside a bare `try/except: pass` because the callback fires during `_lang_cb.set()` while widgets are still being built. Symptom of timing fragility: callbacks registered before all widgets exist.
 - **Fix path:** delay callback wiring until after `_apply_loaded_config()`, OR use `_lang_cb.configure(command=...)` AFTER the initial `.set()` call.
-- Out-of-scope this round; documented for the followup pass.
+- **Resolved:** `_wire_engine_bar_callbacks` at `gui_unified.py:1263-1272` attaches `command=` only after `_apply_loaded_config()` finishes, so the cascade only fires on real user picks. No more bare try/except.
 
 ### 1.3 Update banner polling can fire before window is realized
 - 🟢 `src/gui_unified.py:494-499`
@@ -100,15 +102,15 @@ Four parallel read-only Explore agents covered four lenses: sequencing, modulari
 
 **1001 passing tests, but the audit found three structural gaps.**
 
-### 4.1 Critical coverage holes
+### 4.1 Critical coverage holes ✅ DONE
 - 🔴 `src/tts_normalizer.py` (the language dispatcher) — **0 tests**. Routing is the new joint between Finnish and English; if it picks the wrong normalizer, every Chatterbox audiobook silently produces garbage.
-  - **Effort:** S. ~5 tests covering: dispatch by language code, fallback for unknown language, unicode language code, empty text, behaviour identical to direct fi/en normalizer call.
+  - **Resolved:** `tests/test_tts_normalizer.py` (134 LoC) + `tests/test_tts_normalizer_dispatcher.py` (147 LoC) — dispatch-by-lang, case insensitivity, unknown-lang raises, empty-text short-circuit, and a cross-contamination regression suite.
 - 🔴 `src/tts_audio.py` — only **2 tests**. Most file-handling failure modes (corrupt MP3, full disk, permission denied) untested.
-  - **Effort:** M. ~6 new tests covering corruption, missing input, permission errors.
-- 🔴 `src/gui_synth_mixin.py` (355 LoC) — **0 unit tests**. Cancellation, progress callback, language-switch-mid-run, subprocess exit codes all untested. Currently covered only via `test_gui_e2e.py` which exercises happy paths.
-  - **Effort:** L. ~10 new tests. Some require mocking the engine + the event queue.
-- 🟡 `src/gui_unified.py` validation logic — only e2e coverage. Direct unit tests of `_on_convert_click` / `_on_sample_click` validation paths would be cheaper to maintain.
-  - **Effort:** M.
+  - **Resolved:** `tests/test_tts_audio.py` now 276 LoC — corrupt input, missing input, output-path-is-a-directory, missing parent dir, staging cleanup on success & failure, inter-chunk gap, retry-on-PermissionError, fully-silent segment.
+- 🔴 `src/gui_synth_mixin.py` (355 LoC) — **0 unit tests**. Cancellation, progress callback, language-switch-mid-run, subprocess exit codes all untested.
+  - **Resolved:** `tests/test_gui_synth_mixin.py` (449 LoC) — running/idle state transitions, event routing by severity, progress bar mapping, pump-events rescheduling, cancel semantics, subprocess start with chunk_chars override.
+- 🟡 `src/gui_unified.py` validation logic — only e2e coverage.
+  - **Resolved:** `tests/test_gui_unified.py` (412 LoC) — direct unit tests of `_on_convert_click` / `_on_sample_click` validation paths.
 
 ### 4.2 Tautological tests to rewrite (concrete examples)
 - `tests/test_sample_helpers.py:14-16` — `assert extract_sample_text("Hei maailma.") == "Hei maailma."` — pure identity test. Should assert sentence-integrity behaviour instead.
@@ -129,42 +131,39 @@ Four parallel read-only Explore agents covered four lenses: sequencing, modulari
 9. Two `AudiobookMaker.exe` instances starting simultaneously — single-instance guard wins exactly one.
 10. Saved config round-trips: write every UserConfig field, reload, verify all fields match.
 
-### 4.4 Parametrize the normalizer test files
+### 4.4 Parametrize the normalizer test files ✅ DONE
 - `tests/test_tts_normalizer_fi.py` (135 tests) and `tests/test_tts_normalizer_en.py` (142 tests) are mostly copy-paste case methods. Converting to `@pytest.mark.parametrize(...)` per-pass would shrink the file ~40% and make adding cases trivially cheap.
-- **Effort:** M.
+- **Resolved:** `36e794b` parametrized FI; `8410457` parametrized EN.
 
 ### 4.5 Test infrastructure issues
-- 🟡 `tests/test_gui_e2e.py` `_shared_app` fixture is `scope="module"` — every test inherits the previous test's app state. Cross-contamination has not bitten yet but will once tests start mutating settings/engine selection.
+- ✅ `tests/test_gui_e2e.py` `_shared_app` fixture is `scope="module"` — every test inherits the previous test's app state. **Resolved:** autouse `_reset_app_state` fixture at `tests/test_gui_e2e.py:76` clears run-state flags, I/O state, text widget, and combobox selections before each test, so tests no longer leak mutations. The module-scoped Tk root stays (Tkinter only allows one root per interpreter).
 - 🟡 `tests/test_integration.py` uses `tempfile.gettempdir()` + manual `unlink` — should use `tmp_path` like the rest.
 
 ---
 
 ## Top-10 prioritized action list
 
-Ranked by `(impact / effort)`:
+Ranked by `(impact / effort)`. **All ten items landed between 2026-04-16 and 2026-04-18.**
 
-| # | Action | Severity | Effort | Bucket |
+| # | Action | Severity | Effort | Status |
 |---|--------|----------|--------|--------|
-| 1 | **Add tests for `tts_normalizer.py` dispatcher** | 🔴 | S | Test-quality |
-| 2 | **Add failure-path tests for `tts_audio.py`** (corrupt MP3, disk full, permissions) | 🔴 | M | Test-quality |
-| 3 | **Move PENDING_MARKER to `~/.audiobookmaker/`** | 🟡 | S | Security |
-| 4 | **Pin `PyYAML`, `ebooklib`, `beautifulsoup4` exactly in `requirements.txt`** | 🟡 | S | Security |
-| 5 | **Decouple `_on_language_changed` from init-time fragility** (drop the bare `try/except: pass`) | 🟡 | S | Sequencing |
-| 6 | **Behavioural-test the synth orchestration** (cancellation, language switch, progress) — 5–10 unit tests for `gui_synth_mixin.py` | 🔴 | L | Test-quality |
-| 7 | **Parametrize `test_tts_normalizer_fi.py` + `test_tts_normalizer_en.py`** | 🟡 | M | Test-quality |
-| 8 | **Add 5–10 unit tests for `gui_unified.py` validation paths** (no PDF, no text, both wrong) — direct, not e2e | 🟡 | M | Test-quality |
-| 9 | **Per-test app instance OR explicit reset in `test_gui_e2e.py`** to remove cross-contamination risk | 🟡 | M | Test-infra |
-| 10 | **Prune unused private re-exports from `tts_engine.py`**; update tests to import from the real module | 🟡 | M | Modularity |
+| 1 | **Add tests for `tts_normalizer.py` dispatcher** | 🔴 | S | ✅ `777cd6e`, `b249a72` — `tests/test_tts_normalizer.py` + `tests/test_tts_normalizer_dispatcher.py` |
+| 2 | **Add failure-path tests for `tts_audio.py`** (corrupt MP3, disk full, permissions) | 🔴 | M | ✅ `70fa88d`, `c3a0675` — corrupt input, missing file, output-as-dir, staging-cleanup-on-failure, retry semantics |
+| 3 | **Move PENDING_MARKER to `~/.audiobookmaker/`** | 🟡 | S | ✅ `src/auto_updater.py:36-37` with one-shot migration from legacy temp path |
+| 4 | **Pin `PyYAML`, `ebooklib`, `beautifulsoup4` exactly in `requirements.txt`** | 🟡 | S | ✅ `requirements.txt` — `ebooklib==0.20`, `beautifulsoup4==4.14.3`, `PyYAML==6.0.3` |
+| 5 | **Decouple `_on_language_changed` from init-time fragility** | 🟡 | S | ✅ callbacks wired after `_apply_loaded_config()` in `_wire_engine_bar_callbacks` (`gui_unified.py:1263-1272`); bare `try/except: pass` removed |
+| 6 | **Behavioural-test the synth orchestration** | 🔴 | L | ✅ `tests/test_gui_synth_mixin.py` (449 LoC) — running/idle transitions, event routing, progress bar, pump scheduling, cancel, subprocess start |
+| 7 | **Parametrize `test_tts_normalizer_fi.py` + `test_tts_normalizer_en.py`** | 🟡 | M | ✅ `36e794b`, `8410457` |
+| 8 | **Unit tests for `gui_unified.py` validation paths** | 🟡 | M | ✅ `tests/test_gui_unified.py` (412 LoC) — `_on_convert_click` / `_on_sample_click` across engine availability, PDF missing, text missing |
+| 9 | **Per-test app instance OR explicit reset in `test_gui_e2e.py`** | 🟡 | M | ✅ autouse `_reset_app_state` fixture at `tests/test_gui_e2e.py:76` clears run flags, I/O state, text widget, combobox selections per test |
+| 10 | **Prune unused private re-exports from `tts_engine.py`** | 🟡 | M | ✅ `_expand_abbreviations`, `_fi_detect_case`, `_split_sentences` no longer re-exported from `tts_engine.py` |
 
 ---
 
-## What landed in this branch
+## What landed since the audit
 
 - ✅ Commit `e8ed8bf` — drop redundant `_populate_engine_list()` call during engine bar build (item 1.1).
-
-## Followups not in scope this branch
-
-- Items 1–10 above. Suggest tackling 1–4 as a quick batch (all 🟡/🔴 small to medium), then 5–8 as a separate "test-coverage push" branch.
+- ✅ All ten items in the prioritized action list above. The audit is closed; remaining work (mixin dedup, report-a-bug button, inline audio player, etc.) is tracked in `TODO.md`.
 
 ## Followups deferred from earlier audit (still open)
 
