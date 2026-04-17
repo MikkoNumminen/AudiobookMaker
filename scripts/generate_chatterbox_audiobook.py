@@ -937,7 +937,7 @@ def main() -> int:
                 if chi < len(chunks) - 1:
                     combined += gap
             combined = _postprocess(combined)
-            combined.export(str(chapter_mp3), format="mp3")
+            combined.export(str(chapter_mp3), format="mp3", bitrate="128k")
             print(f"[chapter {ci_pos}/{len(plan)}] wrote {chapter_mp3.name} "
                   f"({len(combined) / 1000.0:.1f}s)", flush=True)
 
@@ -988,7 +988,7 @@ def main() -> int:
                 full += gap
         full = _postprocess(full)
         full_path = out_root / "00_full.mp3"
-        full.export(str(full_path), format="mp3")
+        full.export(str(full_path), format="mp3", bitrate="128k")
         print(f"[full] wrote {full_path} ({len(full) / 1000.0:.1f}s)",
               flush=True)
 
