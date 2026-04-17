@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Tier 2 full-book re-synth of Turo's audiobook with all fixes (~10h GPU) | 2026-04-17 |
+| Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
 | Claude 2 | 🔵 working | Voice pack pipeline — Slices 2→5 (emotion, alignment, training, artifact+GUI, expression control) | 2026-04-17 |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -33,7 +33,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
-- [ ] **Tier 2 in progress** — full-book re-synth of Turo's audiobook (`dist/audiobook/test_book/`, 1694 chunks, ~10h audio) with all three fixes in one pass: `FI_TEMPERATURE=0.5` + normalizer Pass H digit-prefix lookahead + `_clear_chatterbox_state` memory hygiene. Max-quality choice per user directive "better quality and correctness than before, no joke". Phases: (0) backup original `.chunks/` + `00_full.mp3`, (1) 30-chunk smoke test on ch05, (2) ~10h full re-synth, (3) deliver `TURO_full_fixed.mp3`. Plan at `C:\Users\vandr\.claude\plans\happy-conjuring-kazoo.md`. 🔴 🧠 Opus.
+- [ ] **Tier 2 in progress** — tail re-synth of Turo's audiobook: chapters 5-8 (idx 15,16,17,18) = the broken stretch from ~4h onward. ~979 chunks, ~4h GPU. Applies all three fixes: `FI_TEMPERATURE=0.5` + normalizer Pass H digit-prefix lookahead + `_clear_chatterbox_state` memory hygiene. Delivered as standalone `TURO_tail_fixed.mp3` for Turo to compare against the broken tail. Original artifacts preserved at `dist/audiobook/test_book/.chunks_backup_pre_fix/`, `00_full_buggy_original.mp3`, `chapters_backup_pre_fix/`. 🔴 🧠 Opus.
 
 ### Chatterbox: 1-in-500 stochastic early-stop glitch
 - [ ] Tier 1 stress test revealed a single 0.66s audio_s outlier at call #50 (median 8.02s, surrounding chunks 7.7-8.3s) with the exact same Finnish input each time. Independent of allocator fragmentation — it's a pure sampler/attention glitch. Confirmed related: sampler sweep with `cfg_weight=0.6` (up from 0.3) reproduces the same ~0.4s early-stop deterministically. Strong hypothesis: chunk-#50 hits a stochastic attention state that behaves like high-CFG and triggers the same bail-out path. Next step: read `AlignmentStreamAnalyzer` exit conditions in `chatterbox-tts` source, identify the threshold that fires, and consider either clamping it or retrying the chunk once if audio_s < 0.3 × median. 🟡 🧠 Opus.
