@@ -794,6 +794,60 @@ def normalize_english_text(
 ) -> str:
     """Normalize English text for TTS audiobook synthesis.
 
+    Pass ordering invariants:
+        The passes below run in a fixed sequence. Each bullet explains WHY
+        the earlier pass must finish before the later one — reorder any of
+        them and the later pass silently produces wrong output. These are
+        load-bearing; do not shuffle them without updating this list.
+
+        - A and B must run before C: Pass A strips ISBN/DOI/license noise
+          and Pass B maps smart quotes and ellipses to ASCII. Pass C's
+          abbreviation regexes only recognise the ASCII forms, so leaving
+          typographic quotes or noise tokens around lets abbreviations
+          slip through unexpanded.
+        - R (URLs/emails) must run before C: Pass R verbalises ``@``,
+          ``.``, and ``/`` inside URL and email spans. If C ran first the
+          period inside ``foo.com`` would look exactly like the period in
+          ``etc.`` or ``Mr.`` and the abbreviation pass would butcher it.
+          Claim URL spans first, expand abbreviations second.
+        - C must run before D: Pass D (Roman numerals in context) looks
+          at the preceding word to decide cardinal vs. regnal vs. leave
+          alone. If C has not yet expanded ``Dr.`` / ``Mr.`` the Roman
+          detector sees a garbled context word and misclassifies the
+          numeral.
+        - D must run before S (acronyms): tokens like ``IV``, ``XII``,
+          ``MCM`` are valid Roman numerals AND look like acronyms. Pass D
+          gets first crack so ``Chapter IV`` becomes ``Chapter four``
+          before the acronym pass would read them letter-by-letter.
+        - E (ordinal digits) must run before F and G: Pass E owns forms
+          like ``1st``, ``21st``, ``2nd``. If F or G ran first the bare
+          ``1``/``21``/``2`` would be expanded as a year or cardinal and
+          the trailing ``st``/``nd`` would be left dangling.
+        - L, M, N, O must run before F and G: Pass L (currency), M
+          (units), N (time-of-day), and O (dates) each grab typed digit
+          patterns that live inside a specific context — ``$5``,
+          ``5 km``, ``12:30``, ``March 3, 2020``. Running the broad year
+          or cardinal sweeps first would consume the digits as generic
+          numbers and the typed passes would have nothing to match.
+        - P must run before G: Pass P (telephone) owns phone-shaped digit
+          groups like ``555-1234``. If G ran first those digits would be
+          read as cardinals and the phone pattern would never fire.
+        - F must run before G: Pass F (years) recognises four-digit year
+          tokens via surrounding prepositions (``in 1917``). Pass G's
+          cardinal regex would otherwise read ``1917`` as "one thousand
+          nine hundred seventeen" instead of "nineteen seventeen". Years
+          first, cardinals second.
+        - I and H must run before G: Pass I (fractions) owns ``1/2`` and
+          Pass H (decimals) owns ``3.14``. Pass G's cardinal regex would
+          otherwise consume the individual digits and the fraction /
+          decimal regexes would never see an intact pattern. This is
+          called out explicitly in the code comment above the G call.
+        - J and K run last: Pass J (sentence-terminal period cleanup) and
+          Pass K (whitespace collapse) tidy up the output. They must run
+          after every pass that can inject stray whitespace or periods
+          (abbreviation expansion, metadata deletion, etc.), otherwise
+          the cleanup leaves artefacts behind.
+
     Args:
         text: Raw English text.
         _lang: Optional language guard used by the dispatcher. When the

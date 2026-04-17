@@ -797,6 +797,68 @@ def normalize_finnish_text(
     context). If num2words is not installed the function degrades
     gracefully and returns the input unchanged.
 
+    Pass ordering invariants:
+        The passes below run in a fixed sequence. Each bullet explains WHY
+        the earlier pass must finish before the later one — reorder any of
+        them and the later pass silently produces wrong output. These are
+        load-bearing; do not shuffle them without updating this list.
+
+        - K must run before C, D, F, G: Pass K expands abbreviations like
+          ``esim.`` / ``ks.`` whose trailing periods would otherwise look
+          like sentence-terminal dots to the later passes. Finish the
+          abbreviations first, then the later passes only see real periods.
+        - K must run before L: Pass L's Roman-numeral detector uses
+          surrounding word context (``luku XIV``) to decide ordinal vs.
+          cardinal. If abbreviation periods are still present they can
+          shift the tokenizer's view of "the word before/after" and the
+          classifier picks the wrong form.
+        - L must run before M: Pass M rewrites ``5 %`` as ``5 prosenttia``
+          and injects partitive head nouns. If Roman numerals were still
+          around, a token like ``XIV %`` would leave the Roman pass with a
+          head noun it never expected. Roman first, then units.
+        - M must run before D: Pass M emits the governor words
+          (``prosenttia``, ``kertaa``, ``euroa``) that Pass G will later
+          use to pick case. If D ran first it would split any number range
+          neighboring a unit symbol before M could attach the governor,
+          and G would miss the case signal.
+        - M must run before F: Pass M expects bare ``5,0 %`` forms so it
+          can rewrite the unit symbol. If F ran first and converted the
+          decimal to ``viisi pilkku nolla``, the digit prefix M needs to
+          anchor on is gone.
+        - M must run before G: this is the load-bearing one — M writes the
+          governor word (``prosenttia``) right next to the digit. Pass G's
+          ±3-word scan then spots that governor and emits the number in
+          the correct case. Flip the order and G sees a naked digit with
+          no governor nearby, falls back to nominative, and readers hear
+          ungrammatical Finnish.
+        - C must run before D and G: Pass C owns century expressions like
+          ``1500-luvulla``. It eats the digit together with its suffix. If
+          D ran first it would see ``1500-luvulla`` as a range (``1500``
+          to ``luvulla``) and split it wrong. If G ran first the bare
+          ``1500`` would be read as a cardinal before C got a chance.
+        - E must run before G: Pass E rewrites ``s. 42`` as ``sivu 42`` so
+          Pass G's governor table can match ``sivu`` and inflect the
+          digit. Without E the abbreviation never becomes the governor
+          word G needs.
+        - D must run before F: Pass D normalizes ranges like ``42-45`` by
+          replacing the dash with a space. If F ran first the dot/comma
+          inside ``3,14`` is fine, but if a range contained a decimal
+          endpoint the regex tangles with F's decimal matcher. D first
+          keeps the two concerns separate.
+        - F must run before G: Pass F consumes any digit-dot-digit
+          pattern. Pass G's cardinal regex would otherwise eat the whole
+          number and the fractional digits would vanish. Decimals first,
+          cardinals second.
+        - I and H must run after G: Pass I (loanword respelling) and
+          Pass H (compound-number morpheme split) both operate on the
+          num2words output produced by Pass G. They need the expanded
+          Finnish word form, not the raw digits, so they can only run
+          once G has already written words to the text.
+        - I must run before H: Pass I may insert its own hyphens (e.g.
+          ``instituu-tio``). Running H first on a compound that later
+          gets respelled would double-split the token. Loanwords first,
+          morpheme boundaries second.
+
     Also applies Pass L (Roman numeral expansion) which converts Roman
     numerals to Finnish spoken forms with context-aware ordinal vs. cardinal
     selection (e.g. ``Kustaa II`` → ``Kustaa toinen``,
