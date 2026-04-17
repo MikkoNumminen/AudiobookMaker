@@ -43,7 +43,7 @@ from src import gui_style
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
-from src.launcher_bridge import ChatterboxRunner, ProgressEvent, resolve_chatterbox_python
+from src.launcher_bridge import ChatterboxRunner, ProgressEvent
 from src.pdf_parser import parse_pdf, BookMetadata, Chapter, ParsedBook
 from src.epub_parser import parse_epub
 try:
@@ -53,16 +53,9 @@ except Exception:  # pragma: no cover — module might be stubbed in parallel de
 from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engines
 from src.tts_engine import TTSConfig, chapters_to_speech
 
-# Import engine modules for their register_engine() side effects.
-from src import tts_edge  # noqa: F401
-from src import tts_piper  # noqa: F401
-
-# VoxCPM2 is developer-only — don't show it in the installed exe.
-if not getattr(sys, "frozen", False):
-    try:
-        from src import tts_voxcpm  # noqa: F401
-    except Exception:
-        pass
+# Single import point for every TTS engine. See src/engine_registry.py
+# for the list (developer-only engines like VoxCPM2 are guarded there).
+from src import engine_registry  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -157,29 +150,8 @@ _SAMPLE_TEXT = {
 
 
 # Display-name tags per language for the single Chatterbox "Grandmom" voice.
-# Same underlying voice, two code paths inside the subprocess:
-#   fi -> T3 Finnish finetune
-#   en -> multilingual base + voice-clone reference audio
-# See scripts/generate_chatterbox_audiobook.py for the routing.
-_CHATTERBOX_LANG_TAGS = {
-    "fi": "suomi",
-    "en": "English",
-}
-
-
-def _chatterbox_voices_for_language(lang: str) -> list[str]:
-    """Return the Chatterbox voice entries to show for ``lang``.
-
-    The engine only has one voice — "Grandmom" — but it works in both
-    Finnish and English, so we surface it once per language with a
-    parenthetical tag matching the format used by Edge/Piper voices.
-    An unknown language returns an empty list so the voice combobox
-    clears instead of offering a voice that can't speak it.
-    """
-    tag = _CHATTERBOX_LANG_TAGS.get(lang)
-    if not tag:
-        return []
-    return [f"Grandmom ({tag})"]
+# Chatterbox language routing + voice list moved to src.tts_chatterbox_bridge
+# so every engine exposes its metadata through the same TTSEngine contract.
 
 # Engine status colours — kept as named module-level aliases for call-site
 # readability. Source of truth is ``gui_style.STATUS_DOT`` so the palette
@@ -1824,16 +1796,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             label = f"{dot}  {engine.display_name}"
             self._engine_display_to_id[label] = engine.id
 
-        # Chatterbox via subprocess bridge. It supports both Finnish (T3
-        # finetune) and English (voice-clone reference) so it's shown
-        # for every language we expose.
-        chatterbox_py = resolve_chatterbox_python()
-        runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
-        if chatterbox_py is not None and runner_script.exists():
-            if current_lang in _CHATTERBOX_LANG_TAGS:
-                label = "\U0001F7E2  Chatterbox Finnish (paras laatu, NVIDIA)"
-                self._engine_display_to_id[label] = "chatterbox_fi"
-
         labels = list(self._engine_display_to_id.keys())
         self._engine_cb.configure(values=labels)
         # Preserve selection if it is still valid; otherwise pick the first.
@@ -1847,7 +1809,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _current_engine(self) -> Optional[TTSEngine]:
         eid = self._current_engine_id()
-        if not eid or eid == "chatterbox_fi":
+        if not eid:
             return None
         return get_engine(eid)
 
@@ -1939,29 +1901,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _refresh_voice_list(self) -> None:
         """Refresh voices, status label, and capability widgets."""
-        eid = self._current_engine_id()
-
-        # Chatterbox is subprocess-only — no voice list from registry.
-        if eid == "chatterbox_fi":
-            # "Grandmom" is the single Chatterbox voice but it works in
-            # both languages: T3 finetune for Finnish, multilingual base
-            # + voice-clone reference for English (see
-            # scripts/generate_chatterbox_audiobook.py). We surface it as
-            # a language-tagged entry so the voice list is honest about
-            # what speaks what, matching the Edge/Piper display format.
-            names = _chatterbox_voices_for_language(self._current_language())
-            self._voice_cb.configure(values=names)
-            self._voice_cb.set(names[0] if names else "")
-            self._update_voice_count_label(len(names))
-            self._engine_status_lbl.configure(text_color=_CLR_READY)
-            self._engine_status_lbl.configure(
-                text="Offline, paras laatu. Kesto ~1\u20132 h NVIDIA-koneella."
-            )
-            self._update_capability_widgets(
-                supports_cloning=True, supports_description=False
-            )
-            return
-
         engine = self._current_engine()
         if engine is None:
             self._voice_cb.configure(values=[])
@@ -2456,13 +2395,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             return
         engine = self._current_engine()
         voice = self._current_voice()
-        eid = self._current_engine_id()
 
-        if eid == "chatterbox_fi":
-            # Chatterbox is too slow to synthesize on demand from the
-            # voice-test button, but we ship pre-baked Grandmom samples
-            # for both supported languages so the button still produces
-            # something the user can hear immediately.
+        if engine is not None and engine.uses_subprocess:
+            # Subprocess engines (Chatterbox) are too slow to synthesize
+            # on demand from the voice-test button, but we ship pre-baked
+            # Grandmom samples for both supported languages so the button
+            # still produces something the user can hear immediately.
             lang = self._current_language()
             bundled = self._bundled_voice_sample(lang)
             if bundled is not None:
@@ -2654,18 +2592,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             messagebox.showerror(self._s("error"), self._s("select_tts_engine"))
             return
 
-        if engine_id == "chatterbox_fi":
-            # Chatterbox is too slow for an on-demand preview, and there's
-            # no existing MP3 to play. Tell the user to run Muunna first.
+        engine = self._current_engine()
+        if engine is None:
+            messagebox.showerror(self._s("error"), self._s("engine_not_found"))
+            return
+
+        if engine.uses_subprocess:
+            # Subprocess engines (Chatterbox) are too slow for an on-demand
+            # preview, and there's no existing MP3 to play. Tell the user
+            # to run Muunna first.
             messagebox.showinfo(
                 self._s("listen"),
                 self._s("listen_convert_first"),
             )
-            return
-
-        engine = self._current_engine()
-        if engine is None:
-            messagebox.showerror(self._s("error"), self._s("engine_not_found"))
             return
         status = engine.check_status()
         if not status.available:
@@ -2786,15 +2725,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # when the user's actual default is 'en').
         self._populate_engine_list()
 
-        # Engine.
-        engine = get_engine(cfg.engine_id)
-        if engine and engine.check_status().available:
-            self._engine_cb.set(engine.display_name)
-        elif cfg.engine_id == "chatterbox_fi":
-            for lbl, eid in self._engine_display_to_id.items():
-                if eid == "chatterbox_fi":
-                    self._engine_cb.set(lbl)
-                    break
+        # Engine: match the persisted id against the dropdown labels so
+        # the dot-prefixed label (e.g. "🟢  Edge-TTS") round-trips cleanly.
+        for lbl, eid in self._engine_display_to_id.items():
+            if eid == cfg.engine_id:
+                self._engine_cb.set(lbl)
+                break
 
         self._refresh_voice_list()
 
@@ -2914,13 +2850,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not engine_id:
             messagebox.showerror(self._s("error"), self._s("select_tts_engine"))
             return
+        engine = self._current_engine()
+        if engine is None:
+            messagebox.showerror(self._s("error"), self._s("engine_not_found"))
+            return
 
-        # For registry engines, verify availability + voice.
-        if engine_id != "chatterbox_fi":
-            engine = self._current_engine()
-            if engine is None:
-                messagebox.showerror(self._s("error"), self._s("engine_not_found"))
-                return
+        # Availability + voice checks for in-process engines. Subprocess
+        # engines (Chatterbox) run their own bridge-level readiness probe
+        # when the runner starts, so skip those here.
+        if not engine.uses_subprocess:
             status = engine.check_status()
             if not status.available:
                 messagebox.showerror(
@@ -2942,7 +2880,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._set_running_state()
         self._append_log(f"Sample: {len(sample_text)} chars → {sample_output_path}")
 
-        if engine_id == "chatterbox_fi":
+        if engine.uses_subprocess:
             self._start_chatterbox_subprocess(
                 text_override=sample_text,
                 output_basename_override=Path(sample_output_path).stem,
@@ -2990,13 +2928,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not engine_id:
             messagebox.showerror(self._s("error"), self._s("select_tts_engine"))
             return
+        engine = self._current_engine()
+        if engine is None:
+            messagebox.showerror(self._s("error"), self._s("engine_not_found"))
+            return
 
-        # For registry engines, verify availability.
-        if engine_id != "chatterbox_fi":
-            engine = self._current_engine()
-            if engine is None:
-                messagebox.showerror(self._s("error"), self._s("engine_not_found"))
-                return
+        # Availability + voice checks for in-process engines. Subprocess
+        # engines run their own readiness probe when the bridge starts.
+        if not engine.uses_subprocess:
             status = engine.check_status()
             if not status.available:
                 messagebox.showerror(
@@ -3049,7 +2988,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Enter running state.
         self._set_running_state()
 
-        if engine_id == "chatterbox_fi":
+        if engine.uses_subprocess:
             self._start_chatterbox_subprocess()
         else:
             self._start_inprocess_engine(engine_id)
