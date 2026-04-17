@@ -861,8 +861,11 @@ class TestStatusStrip:
         )
         app.update_idletasks()
         fg = app._status_strip_frame.cget("fg_color")
-        # fg_color is a (light, dark) tuple for this frame.
-        assert "green" in str(fg).lower() or "darkgreen" in str(fg).lower()
+        # fg_color is the (light, dark) tuple from gui_style.SUCCESS.
+        from src import gui_style
+        assert tuple(fg) == tuple(gui_style.SUCCESS), (
+            f"done-state strip should use gui_style.SUCCESS, got {fg!r}"
+        )
         text = app._status_strip_label.cget("text")
         assert "done_book.pdf" in text
         assert "8 MB" in text or "7 MB" in text  # rounded via :.0f
