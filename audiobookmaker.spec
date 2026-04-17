@@ -66,11 +66,11 @@ hidden_imports += _all_piper[2]
 hidden_imports += _all_pathvalidate[2]
 
 # numpy is now REQUIRED at runtime (onnxruntime/piper need it), so it
-# must NOT appear in excludes.
+# must NOT appear in excludes. Same story for PIL (Pillow) — the hero
+# header and icon assets load PNGs via CTkImage which wraps PIL.Image.
 excludes = [
     'matplotlib',
     'scipy',
-    'PIL',
     'cv2',
     'pandas',
     'IPython',
