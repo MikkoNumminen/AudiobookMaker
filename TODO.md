@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 3 | 🔵 working | Streaming MP3 assembly (replace pydub in-RAM concat) | 2026-04-17 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -33,6 +33,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Tier 1 validation in progress: `scripts/stress_test_chatterbox_longrun.py` runs 500 `engine.generate()` calls in one process to catch drift fast before committing to a 5h re-synth. If Tier 1 passes, next is Tier 2 (regenerate the tail of the problem Finnish audiobook from ~hour 4 onward using existing `.chunks/` cache). Confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. 🟡 🧠 Opus.
+
+### Streaming MP3 assembly — replace pydub in-RAM concat [Claude 3, worktree-streaming-assembly]
+- [ ] `src/tts_audio.combine_audio_files` uses pydub `combined += segment` in a loop, which allocates a fresh PCM buffer holding all prior audio on every `+=`. Transient peak ≈ 2× final file's uncompressed PCM (~2.5 GB for an 8h book). Not a correctness bug — no samples are dropped — but 8 GB machines can OOM during assembly. Replace with: per-chunk silence trim → temp WAV → ffmpeg concat demuxer → final MP3. O(1) memory regardless of book length. Same silence-trim thresholds (asymmetric, from 571c761) + same 200 ms inter-chunk gap. Only touches `src/tts_audio.py`; Chatterbox script versions left alone while Claude 1 is stress-testing them. 🟡 🧠 Opus.
 
 
 
@@ -96,6 +99,83 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Local disk cleanup (deferred — Mac still in use)
 - [ ] Delete `.venv-chatterbox/`, `.venv-qwen/`, HuggingFace model caches (~9.4 GB reclaimable). Do NOT delete while Mac is still used for dev. 🟢 ⚡ Sonnet
+
+## Audit 2026-04-17 follow-ups
+
+Findings from the full codebase audit (`docs/AUDIT_REPORT.md`). Ordered by priority.
+The P0 streaming-assembly fix is claimed separately above; everything below is queued.
+
+### Auto-update: pin setup.iss version to APP_VERSION
+- [ ] `installer/setup.iss:35,70,225` hardcodes `1.0.0` while `src/auto_updater.py:27` is `3.7.1`. CI rewrites at build time (`build-release.yml:81`) so release artifacts are correct today, but any off-CI build ships a mis-branded installer → corrupts the upgrade graph. Auto-update is existential. Fix: convert to `#define MyAppVersion` like `launcher.iss`, and add a CI assertion step that fails the build if `auto_updater.APP_VERSION != inno_version`. 🟡 🧠 Opus.
+
+### CI: pin ffmpeg in build-launcher.yml (SHA-256 + same release as build-release.yml)
+- [ ] `.github/workflows/build-launcher.yml:43-48` downloads ffmpeg from the unpinned `latest` tag without hash verification. Supply-chain risk + reproducibility gap — launcher and main app can drift onto different ffmpeg builds. Mirror the `FFMPEG_RELEASE` + SHA-256 pattern already in `build-release.yml:33-46`. 🟢 ⚡ Sonnet.
+
+### CI: pin runner images
+- [ ] All three workflows use `-latest` labels (`windows-latest`, `ubuntu-latest`). Bump deliberately: `windows-2022`, `ubuntu-24.04`. 🟢 ⚡ Sonnet.
+
+### Engine registry consolidation
+- [ ] Adding a new TTS engine currently needs import edits in `gui.py:32-34`, `gui_unified.py:56-65`, `launcher.py:62-68`, plus `_GPU_ENGINES` in `duration_estimate.py`, plus hardcoded `"chatterbox_fi"` checks scattered ~10× in `gui_unified.py`. Central `src/engine_registry.py` imports every engine module in one place; engine metadata (display_name, is_gpu, uses_subprocess, requires_bridge_runner) moves onto `TTSEngine` class variables so the GUI stops branching on engine id. 🔴 🧠 Opus.
+
+### Synthesis orchestrator — extract business logic from UnifiedApp
+- [ ] `src/gui_unified.py` is 3,482 lines with ~95 private methods on one class. `_on_convert_click` (104 lines), `_on_listen_click` (164 lines), `_build_engine_bar` (143 lines) all belong elsewhere. Introduce `src/synthesis_orchestrator.py` that owns book loading, engine dispatch, output paths, progress relay; GUI becomes a thin adapter subscribing to orchestrator events. UI builders (`_build_engine_bar`, `_build_header_bar`, `_build_action_row`, `_build_settings_frame`) extract to helper modules. 🔴 🧠 Opus.
+
+### Finnish normalizer: per-pass unit tests for B, D, E, F, J, K, L, M, N
+- [ ] Only passes A (citations), C (centuries), G (governors), H (morpheme split), and I (loanwords, via `test_fi_loanwords.py`) have standalone test classes. The other ten passes are covered only via end-to-end integration — a regression inside any of them won't pinpoint which pass broke. Mirror the English `TestPass<LETTER>` pattern with ≥10 cases per pass (empty, single char, whitespace, cross-language). 🟡 🧠 Opus.
+
+### Normalizer: document pass-ordering invariants
+- [ ] `normalize_finnish_text` has an implicit M → D → F → G dependency: if someone reorders "unit expansion" to run after the governor pass, the governor lookup (`5 prosenttia` → case inflection) silently breaks. Same pattern in English (O before F, P before G, I/H before G). Add a "Pass ordering invariants" section to each main normalizer's docstring listing the dependencies + why. 🟢 ⚡ Sonnet.
+
+### Normalizer: hoist per-call regex compilation
+- [ ] Three hot spots still compile regexes on every call: `tts_normalizer_fi.py:929-930` (whitespace cleanup run per chunk), `tts_normalizer_en.py:168-176` (per-abbreviation), `fi_loanwords.py:163-167` (per Latin phrase). Pre-compile module-level. 🟢 ⚡ Sonnet.
+
+### English normalizer: Pass N (time of day) has no test file
+- [ ] `tts_normalizer_en.py:648-677` implements 12h/24h time rewriting but no `tests/test_tts_normalizer_en_time.py` exists. Add covering 12h vs 24h, minute teens (oh-one … oh-nine), noon, midnight, minutes 0–59. 🟢 ⚡ Sonnet.
+
+### End-to-end synthesis test with a real engine (Piper)
+- [ ] `test_integration.py:126-174` uses `_StubEngine` and is gated on ffmpeg availability. No coverage verifying that Edge/Piper/VoxCPM actually produce a playable MP3. Add an offline, no-GPU E2E test using Piper (bundled, deterministic): 2-sentence PDF → MP3, assert duration > 0 + MP3 header + silence distribution within tolerance. Mark `@pytest.mark.slow`. 🟡 🧠 Opus.
+
+### Test infrastructure: block network calls by default
+- [ ] `tests/conftest.py` doesn't globally block network access; each file patches individually. Add autouse fixture that patches `urllib.request.urlopen` + `socket.socket` to raise unless `@pytest.mark.network` is set. Mark existing tests that genuinely need patched network with `network`. Also add `@pytest.mark.gpu` for future CUDA tests. 🟢 ⚡ Sonnet.
+
+### Dependency: pin Pillow version
+- [ ] `requirements.txt:26` uses `Pillow>=10.0.0` while every other package is `==` pinned. pip will silently upgrade on rebuild. Pin to a tested version. 🟢 ⚡ Sonnet.
+
+### Hardcoded drive letters (C:, D:) in install path candidates
+- [ ] `cleanup.py:74-76`, `launcher_bridge.py:505-506`, `engine_installer.py:63` only consider C: and D:. Users with system drive E: or F: are invisible. Enumerate drives dynamically (`string.ascii_uppercase` + `os.path.exists`). Also remove the dev-path leak `D:/koodaamista/AudiobookMakerApp` from `cleanup.py:76`. 🟢 ⚡ Sonnet.
+
+### Auto-updater: harden BAT script path handling
+- [ ] `src/auto_updater.py:509-530` builds the relaunch .bat via f-string substitution of `installer_path`. If paths ever contain `"`, `%`, `^`, `&` the batch is malformed. Pass paths to the subprocess via environment variables instead, or assert the path is free of batch-metacharacters before writing. Low risk today (paths come from `Path.home()`), but the substitution pattern is a footgun. 🟢 ⚡ Sonnet.
+
+### Chatterbox: expose --chunk-chars in GUI
+- [ ] `scripts/generate_chatterbox_audiobook.py:244` accepts `--chunk-chars` (default 300) but the GUI hardcodes the CLI invocation in `src/gui_synth_mixin.py` without exposing it. Add a settings-panel control; plumb through the subprocess args. 🟢 ⚡ Sonnet.
+
+### MP3 export bitrate tuning for speech
+- [ ] `src/tts_audio.py:111` (and the Chatterbox export sites) use pydub's default MP3 bitrate (~192 kbps). Speech is transparent at 96–128 kbps — 30-50% smaller files. Set `bitrate="128k"`; optionally expose as a setting. Note: only relevant after the streaming-assembly rewrite lands. 🟢 ⚡ Sonnet.
+
+### Docs: english_normalizer_plan.md §3 missing Pass R (URLs/emails)
+- [ ] Plan table stops at Phase 1 A-K. Code implements R/L/M/N/O/P/S. Update §3 to list all 17 English passes in execution order with source links. 🟢 ⚡ Sonnet.
+
+### Docs: README language-support matrix per engine
+- [ ] `README.md:15-16` claims "English, German, Swedish, French, and Spanish are also supported". Reality: Edge-TTS many; Piper a subset; Chatterbox Finnish-only (+ Route-B English). Clarify as a per-engine matrix. 🟢 ⚡ Sonnet.
+
+### Normalizer: extract lookup tables to YAML
+- [ ] Abbreviations, acronyms, units, governor tables, month names, acronym whitelist are all hardcoded Python. `fi_loanwords.py` already shows the good pattern: YAML-driven with safe_load. Extract analogously; enables user customization and non-developer updates. 🟡 ⚡ Sonnet.
+
+### Docstring + type-hint coverage bump
+- [ ] `gui.py` (~32% docstrings / ~65% type hints), `voice_recorder.py` (~33% / ~60%), `launcher.py` (~34% / ~70%). Critical synthesis methods (`_start_synthesis`, `_start_chatterbox_subprocess`) lack docstrings. Priority: `launcher.py` first. 🟢 ⚡ Sonnet.
+
+### Test quality: autospec on mocks to catch signature drift
+- [ ] `tests/test_tts_engine.py:109-123` uses loose `patch(...)` without `autospec=True`. If real signatures change, mocks silently still pass while production breaks. Audit and add `autospec=True` where appropriate. 🟢 ⚡ Sonnet.
+
+### Minor cleanups
+- [ ] `src/auto_updater.py:128` — hoist `import re` to module top. 🟢 ⚡ Sonnet.
+- [ ] `src/gui_unified.py:23,28` — drop unused `shutil` + redundant top-level `webbrowser` (re-imported in `_open_browser`). 🟢 ⚡ Sonnet.
+- [ ] `src/cleanup.py:104`, `src/system_checks.py:125` — extract `BYTES_PER_MB = 1024 * 1024` constant. 🟢 ⚡ Sonnet.
+- [ ] Broad `except Exception: pass` UI paths (`gui_unified.py:1608,1964,1994,2093`) should log at DEBUG so diagnostics survive. 🟢 ⚡ Sonnet.
+
+### TODO.md sweep for completed items
+- [ ] Items like "Add an application icon (assets/icon.ico)" under "Requires a Windows machine" appear to be already done (`assets/` has the icon). Audit and remove stale entries. 🟢 ⚡ Sonnet.
 
 ## Post-Audit Tasks
 
