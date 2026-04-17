@@ -13,7 +13,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
-| Claude 2 | 🔵 working | Voice pack GUI wire-up (Slice 4) — Import button + dropdown refresh | 2026-04-18 |
+| Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
@@ -74,7 +74,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
 - [ ] **GPU training loop (Slice 3 inner):** fill in the `NotImplementedError` seam in `scripts/voice_pack_train.py::_run_training` with the actual Chatterbox LoRA fine-tune loop. Borrow from the existing Finnish finetune. Low LR + early stopping to preserve accent/dialect. Needs a GPU host to validate. 🔴 🧠 Opus.
-- [ ] **GUI "Import voice pack" button (Slice 4 GUI integration) [Claude 2, main]:** wire `src.voice_pack.pack.install_pack` + `list_packs` into `src/gui_unified.py` — new button in Settings opens a folder picker, copies the pack into the user-data voice-packs root, and refreshes the Voice dropdown so the new pack appears next to Grandmom. 🟡 🧠 Opus.
 - [ ] **Expression markup wire-up (Slice 5 inference-path integration):** consume the `ExpressionPlan` produced by `src.voice_pack.expression.parse_markup` inside `scripts/generate_chatterbox_audiobook.py` so per-sentence `exaggeration` / `cfg_weight` overrides take effect during synthesis. Optional lightweight emotion-prefix token during training. 🟡 🧠 Opus.
 - [ ] **XTTS v2 bake-off (Slice 5a, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
 - [ ] **Architecture write-up (`docs/voice_pack_design.md`):** capture the design rationale — Chatterbox LoRA primary (MIT, shared inference path), <200 MB/speaker adapters, emotional range via training-data balance + inference knobs, ~5 h source is the quality ceiling. Internal dev doc; may reference the audiobook source use case. 🟢 ⚡ Sonnet.
