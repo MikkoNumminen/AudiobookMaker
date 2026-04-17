@@ -695,6 +695,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # UI lang combobox — keep it in sync.
         self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
 
+        # Engine manager view is built once and lives in a stacked grid,
+        # so its strings don't auto-refresh. Push the new language through.
+        if hasattr(self, "_settings_view"):
+            self._settings_view.set_language(self._ui_lang)
+
         # Re-render the sticky status strip in the new language (if visible).
         state = getattr(self, "_status_strip_state", "idle")
         if state != "idle" and hasattr(self, "_status_strip_frame"):

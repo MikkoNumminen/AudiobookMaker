@@ -25,6 +25,8 @@ from typing import Optional
 
 import customtkinter as ctk
 
+from src import gui_style
+
 
 _ENGINE_MGR_STRINGS = {
     "fi": {
@@ -47,6 +49,7 @@ _ENGINE_MGR_STRINGS = {
         "step": "Vaihe",
         "of": "/",
         "close": "Sulje",
+        "back": "Takaisin",
         "prereq_fail": "Esivaatimukset eivät täyty:",
         "confirm_uninstall": "Haluatko varmasti poistaa moottorin?",
         "uninstall_done": "Poistettu.",
@@ -73,6 +76,7 @@ _ENGINE_MGR_STRINGS = {
         "step": "Step",
         "of": "/",
         "close": "Close",
+        "back": "Back",
         "prereq_fail": "Prerequisites not met:",
         "confirm_uninstall": "Really uninstall this engine?",
         "uninstall_done": "Uninstalled.",
@@ -452,20 +456,28 @@ class EngineManagerView(ctk.CTkFrame):
         header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
         header.columnconfigure(1, weight=1)
 
-        back_btn = ctk.CTkButton(
+        # Secondary-style back button: slate surface (not accent blue) with a
+        # bold chevron glyph so the direction reads at a glance.
+        self._back_btn = ctk.CTkButton(
             header,
-            text="\u2190  " + (self._s("close") if self._ui_lang == "en" else "Takaisin"),
-            width=120, height=32,
+            text=f"\u2B9C  {self._s('back')}",
+            width=110,
+            height=36,
+            corner_radius=gui_style.RADIUS_SM,
+            fg_color=gui_style.BTN_SECONDARY_BG,
+            hover_color=gui_style.BTN_SECONDARY_HOVER,
+            text_color=gui_style.TEXT_PRIMARY,
+            font=gui_style.font_button(),
             command=self._on_back_click,
             anchor="w",
         )
-        back_btn.grid(row=0, column=0, sticky="w")
+        self._back_btn.grid(row=0, column=0, sticky="w")
 
-        title_lbl = ctk.CTkLabel(
+        self._title_lbl = ctk.CTkLabel(
             header, text=self._s("title"),
             font=ctk.CTkFont(size=16, weight="bold"),
         )
-        title_lbl.grid(row=0, column=1, sticky="w", padx=(12, 0))
+        self._title_lbl.grid(row=0, column=1, sticky="w", padx=(12, 0))
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)  # Engines section stretches.
@@ -475,10 +487,11 @@ class EngineManagerView(ctk.CTkFrame):
         sys_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=6)
         sys_frame.columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
+        self._system_header_lbl = ctk.CTkLabel(
             sys_frame, text=self._s("system"),
             font=ctk.CTkFont(weight="bold", size=14),
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        )
+        self._system_header_lbl.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
 
         self._gpu_label = ctk.CTkLabel(sys_frame, text="...", anchor="w")
         self._gpu_label.grid(row=1, column=0, sticky="ew", padx=8, pady=2)
@@ -493,10 +506,11 @@ class EngineManagerView(ctk.CTkFrame):
         eng_frame.columnconfigure(0, weight=1)
         eng_frame.rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(
+        self._engines_header_lbl = ctk.CTkLabel(
             eng_frame, text=self._s("engines"),
             font=ctk.CTkFont(weight="bold", size=14),
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        )
+        self._engines_header_lbl.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
 
         self._engines_container = ctk.CTkFrame(eng_frame, fg_color="transparent")
         self._engines_container.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
@@ -525,6 +539,25 @@ class EngineManagerView(ctk.CTkFrame):
     def _on_back_click(self) -> None:
         if self._on_back:
             self._on_back()
+
+    def set_language(self, ui_lang: str) -> None:
+        """Re-localize all visible widgets to ``ui_lang``.
+
+        Called by the main window when the user toggles Suomi/English — the
+        view is built once at startup and kept in the stacked grid, so
+        without this the header and section titles remain stuck in whatever
+        language was active when the app opened.
+        """
+        self._ui_lang = ui_lang
+        self._strings = _ENGINE_MGR_STRINGS.get(ui_lang, _ENGINE_MGR_STRINGS["fi"])
+        self._back_btn.configure(text=f"\u2B9C  {self._s('back')}")
+        self._title_lbl.configure(text=self._s("title"))
+        self._system_header_lbl.configure(text=self._s("system"))
+        self._engines_header_lbl.configure(text=self._s("engines"))
+        # Re-render dynamic rows so status text ("Installed", "Uninstall")
+        # picks up the new language.
+        self._refresh_system_info()
+        self._refresh_engine_rows()
 
     # --- Shared logic (same as EngineManagerDialog) ---
     # Import-by-reference keeps both classes in sync.
