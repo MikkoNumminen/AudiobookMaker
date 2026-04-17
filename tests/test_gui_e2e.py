@@ -1149,3 +1149,70 @@ class TestVoicePackImport:
         manual = str(tmp_path / "manual.wav")
         resolved = app._effective_reference_audio(voice, manual_ref=manual)
         assert resolved == manual
+
+
+# ---------------------------------------------------------------------------
+# Report a bug button
+# ---------------------------------------------------------------------------
+
+
+class TestReportBugButton:
+    """GUI wire-up of the Report a bug button."""
+
+    def test_report_bug_button_present_and_localized(self, app) -> None:
+        """Button exists on host and Finnish label is 'Ilmoita virheest\u00e4'."""
+        assert hasattr(app, "_report_bug_btn")
+        # Force Finnish so the test doesn't depend on system locale.
+        app._ui_lang = "fi"
+        app._apply_ui_language()
+        label = app._report_bug_btn.cget("text")
+        assert "Ilmoita" in label
+
+    def test_report_bug_opens_browser_with_prefilled_body(
+        self, app, monkeypatch
+    ) -> None:
+        """webbrowser.open is called once; URL starts with the GitHub issues
+        endpoint and the decoded body contains version, 'Steps to reproduce',
+        and 'Diagnostics'."""
+        import urllib.parse
+        import webbrowser
+        from src.auto_updater import APP_VERSION
+
+        opened: list[str] = []
+        monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
+
+        app._report_bug()
+
+        assert len(opened) == 1
+        url = opened[0]
+        assert url.startswith(
+            "https://github.com/MikkoNumminen/AudiobookMaker/issues/new?"
+        )
+        # Decode the body parameter and check its contents.
+        parsed = urllib.parse.urlparse(url)
+        params = urllib.parse.parse_qs(parsed.query)
+        assert "body" in params
+        body = params["body"][0]
+        assert APP_VERSION in body
+        assert "Steps to reproduce" in body
+        assert "Diagnostics" in body
+
+    def test_report_bug_includes_recent_log_lines(
+        self, app, monkeypatch
+    ) -> None:
+        """Log lines written via _append_log appear in the pre-filled body."""
+        import urllib.parse
+        import webbrowser
+
+        app._append_log("canary log line 42")
+
+        opened: list[str] = []
+        monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
+
+        app._report_bug()
+
+        assert opened, "webbrowser.open was not called"
+        parsed = urllib.parse.urlparse(opened[0])
+        params = urllib.parse.parse_qs(parsed.query)
+        body = params["body"][0]
+        assert "canary log line 42" in body

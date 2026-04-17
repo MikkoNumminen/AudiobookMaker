@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import queue
 import re
 import shutil
@@ -26,6 +27,8 @@ import sys
 import tempfile
 import threading
 import tkinter as tk
+import urllib.parse
+import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -288,6 +291,7 @@ _STRINGS = {
         "lang_name_en": "englanninkielist\u00e4",
         "chunk_chars_label": "Chatterbox-palan pituus (merkki\u00e4):",
         "import_pack_btn": "Tuo \u00e4\u00e4nipaketti\u2026",
+        "report_bug_btn": "Ilmoita virheest\u00e4",
         "import_pack_title": "Valitse \u00e4\u00e4nipakettikansio",
         "import_pack_success": "\u00c4\u00e4nipaketti tuotu: {name}",
         "import_pack_error": "\u00c4\u00e4nipaketin tuonti ep\u00e4onnistui: {error}",
@@ -394,6 +398,7 @@ _STRINGS = {
         "lang_name_en": "English",
         "chunk_chars_label": "Chatterbox chunk size (chars):",
         "import_pack_btn": "Import voice pack\u2026",
+        "report_bug_btn": "Report a bug",
         "import_pack_title": "Select voice pack folder",
         "import_pack_success": "Voice pack imported: {name}",
         "import_pack_error": "Voice pack import failed: {error}",
@@ -635,6 +640,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Voice pack import button (visible in Settings regardless of engine).
         self._import_pack_btn.configure(text=s("import_pack_btn"))
 
+        # Report a bug button.
+        if hasattr(self, "_report_bug_btn"):
+            self._report_bug_btn.configure(text=s("report_bug_btn"))
+
         # Voice description label.
         self._desc_label.configure(text=s("voice_desc_label"))
 
@@ -694,6 +703,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         # UI lang combobox — keep it in sync.
         self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
+
+        # Engine manager view is built once and lives in a stacked grid,
+        # so its strings don't auto-refresh. Push the new language through.
+        if hasattr(self, "_settings_view"):
+            self._settings_view.set_language(self._ui_lang)
 
         # Re-render the sticky status strip in the new language (if visible).
         state = getattr(self, "_status_strip_state", "idle")
@@ -1639,6 +1653,48 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             values = list(self._voice_cb.cget("values"))
             if target_name in values:
                 self._voice_cb.set(target_name)
+
+    def _report_bug(self) -> None:
+        """Open GitHub new-issue page with diagnostics pre-filled in the body."""
+        # Collect installed engine IDs.
+        try:
+            installed_engines = ", ".join(
+                e.id for e in list_engines()
+                if e.check_status().available
+            ) or "none"
+        except Exception:
+            installed_engines = "unknown"
+
+        # Grab the last 20 log lines from the in-app log widget.
+        log_block = ""
+        try:
+            raw = self._log_text.get("end-21l", "end")
+            lines = [ln for ln in raw.splitlines() if ln.strip()][-20:]
+            if lines:
+                log_block = "\n".join(lines)
+        except Exception:
+            pass
+
+        body = (
+            "## Describe the bug\n\n\n"
+            "## Steps to reproduce\n\n\n"
+            "## Expected vs actual behaviour\n\n\n"
+            "---\n"
+            "**Diagnostics** (auto-filled \u2014 keep this block to help debugging)\n"
+            f"- App version: {APP_VERSION}\n"
+            f"- OS: {platform.platform()}\n"
+            f"- Python: {sys.version.split()[0]}\n"
+            f"- Installed engines: {installed_engines}\n"
+            "- Last 20 log lines:\n"
+            "```\n"
+            f"{log_block}\n"
+            "```\n"
+        )
+        url = (
+            "https://github.com/MikkoNumminen/AudiobookMaker/issues/new?"
+            + urllib.parse.urlencode({"body": body})
+        )
+        webbrowser.open(url)
 
     def _browse_reference_audio(self) -> None:
         path = filedialog.askopenfilename(
