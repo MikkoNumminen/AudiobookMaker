@@ -145,6 +145,16 @@ FI_TEMPERATURE = 0.5
 FI_EXAGGERATION = 0.5
 FI_CFG_WEIGHT = 0.3
 
+# Early-stop guard: if synthesized audio is much shorter than expected for
+# the input character count, the T3 sampler likely emitted EOS early
+# (truncated sentence). Normal Finnish ratio sits around 0.06 s/char;
+# anything below this threshold is a synthesis failure, not a short
+# sentence. Retry up to MIN_AUDIO_MAX_RETRIES times with fresh stochasticity
+# and keep the longest result.
+MIN_AUDIO_S_PER_CHAR = 0.040
+MIN_AUDIO_RETRY_CHAR_FLOOR = 50  # skip retry for very short chunks
+MIN_AUDIO_MAX_RETRIES = 2        # 1 initial + up to 2 retries
+
 # Post-processing targets.
 LOWPASS_HZ = 7000
 TARGET_DBFS = -20.0
@@ -877,6 +887,48 @@ def main() -> int:
                 )
                 dt = time.time() - t0
                 audio_s = wav.shape[-1] / engine.sr
+
+                # Early-stop guard: T3's alignment analyzer + EOS sampler
+                # can truncate synthesis mid-sentence. Detect via
+                # audio_s/char ratio; retry with fresh state to re-roll
+                # the stochastic trajectory. Keep the longest result so
+                # we never regress.
+                chunk_chars = len(chunk_text)
+                retries_used = 0
+                if chunk_chars >= MIN_AUDIO_RETRY_CHAR_FLOOR:
+                    best_wav, best_audio_s, best_dt = wav, audio_s, dt
+                    for attempt in range(1, MIN_AUDIO_MAX_RETRIES + 1):
+                        ratio = best_audio_s / chunk_chars
+                        if ratio >= MIN_AUDIO_S_PER_CHAR:
+                            break
+                        print(
+                            f"[retry {attempt}/{MIN_AUDIO_MAX_RETRIES}] "
+                            f"ch{pos:02d} chunk{chi:04d}: "
+                            f"audio_s={best_audio_s:.2f} "
+                            f"s_per_char={ratio:.4f} < "
+                            f"{MIN_AUDIO_S_PER_CHAR} (early-stop suspected)",
+                            flush=True,
+                        )
+                        _clear_chatterbox_state(engine)
+                        t0r = time.time()
+                        wav_r = engine.generate(
+                            chunk_text,
+                            language_id=args.language,
+                            audio_prompt_path=ref_wav_path,
+                            repetition_penalty=FI_REPETITION_PENALTY,
+                            temperature=FI_TEMPERATURE,
+                            exaggeration=FI_EXAGGERATION,
+                            cfg_weight=FI_CFG_WEIGHT,
+                        )
+                        dt_r = time.time() - t0r
+                        audio_s_r = wav_r.shape[-1] / engine.sr
+                        retries_used = attempt
+                        # always charge the wall-clock
+                        dt += dt_r
+                        if audio_s_r > best_audio_s:
+                            best_wav, best_audio_s, best_dt = wav_r, audio_s_r, dt_r
+                    wav, audio_s = best_wav, best_audio_s
+
                 synth_wall_s += dt
                 synth_audio_s += audio_s
                 total_done += 1
@@ -895,6 +947,7 @@ def main() -> int:
                     "synth_s": round(dt, 3),
                     "rtf": round(dt / audio_s, 3) if audio_s > 0 else None,
                     "s_per_char": round(audio_s / max(1, len(chunk_text)), 4),
+                    "retries_used": retries_used,
                     "hook_count": _chatterbox_hook_count(engine),
                     **_gpu_mem_stats_mb(),
                 })
