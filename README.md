@@ -12,8 +12,32 @@
 
 Turn a PDF (or plain text) into an audiobook. Pick a file, press a button, get an MP3.
 
-Works best with Finnish text, but English, German, Swedish, French, and
-Spanish are also supported.
+Works best with Finnish text. Other languages work too, but the
+support depends on which Engine you pick. Here's the honest
+breakdown:
+
+| Language | Edge-TTS | Piper | Chatterbox       | VoxCPM2 |
+|----------|----------|-------|------------------|---------|
+| Finnish  | Yes (Noora)      | Yes | Yes (Grandmom)   | Yes |
+| English  | Yes (Jenny etc.) | Yes | Yes (Route B, Grandmom voice) | Yes |
+| German   | Yes (Katja etc.) | Yes | —                | —   |
+| Swedish  | Yes (Sofie)      | Yes | —                | —   |
+| French   | Yes (Denise etc.)| Yes | —                | —   |
+| Spanish  | Yes (Elvira etc.)| Yes | —                | —   |
+
+Quick guide to picking an Engine:
+
+- **Edge-TTS** is the widest coverage and sounds great, but needs an
+  internet connection — it calls Microsoft's cloud voices.
+- **Piper** is fully offline and fast. It ships bundled voice models
+  for the six Languages above.
+- **Chatterbox** gives the highest quality for Finnish through the
+  Grandmom Voice. English works too via the "Route B" recipe (the
+  multilingual base model with Grandmom as the reference clip), so
+  you get Grandmom's timbre reading English natively. Other Languages
+  are not supported here.
+- **VoxCPM2** is an experimental local neural Engine, currently
+  wired up for Finnish and English only in the GUI.
 
 ## Hear it first
 

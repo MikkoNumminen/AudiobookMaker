@@ -20,12 +20,17 @@ from __future__ import annotations
 
 import os
 import shutil
+import string
 import struct
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+# Bytes per megabyte — shared with system_checks.py.
+BYTES_PER_MB = 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +75,12 @@ def _candidate_install_dirs() -> list[Path]:
     if pf86 := os.environ.get("PROGRAMFILES(X86)"):
         candidates.append(Path(pf86) / "AudiobookMaker")
 
-    # Common dev/custom locations
-    candidates.append(Path("C:/AudiobookMaker"))
-    candidates.append(Path("D:/AudiobookMaker"))
-    candidates.append(Path("D:/koodaamista/AudiobookMakerApp"))
+    # Common dev/custom locations — scan every existing drive letter so
+    # users on E:/F:/… aren't silently skipped.
+    for letter in string.ascii_uppercase:
+        drive_root = f"{letter}:/"
+        if os.path.exists(drive_root):
+            candidates.append(Path(drive_root) / "AudiobookMaker")
 
     return candidates
 
@@ -101,7 +108,7 @@ def _dir_size_mb(directory: Path) -> float:
                     pass
     except OSError:
         pass
-    return total / (1024 * 1024)
+    return total / BYTES_PER_MB
 
 
 def find_old_installs(current_exe: Optional[Path] = None) -> list[OldInstall]:

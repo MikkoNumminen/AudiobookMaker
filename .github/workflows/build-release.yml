@@ -75,10 +75,32 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 
+      # Guard: the Inno Setup `#define MyAppVersion` MUST match Python's
+      # APP_VERSION before we rewrite it from the tag. If these have drifted,
+      # a developer-local off-CI build would ship a mis-branded installer and
+      # corrupt the auto-update upgrade graph. Fail the job loudly instead.
+      - name: Verify Inno Setup version matches APP_VERSION
+        run: |
+          $pyVersion = (python -c "from src.auto_updater import APP_VERSION; print(APP_VERSION)").Trim()
+          $issLine = Select-String -Path installer/setup.iss -Pattern '^#define\s+MyAppVersion\s+"([^"]+)"' | Select-Object -First 1
+          if (-not $issLine) {
+            Write-Error "installer/setup.iss is missing a #define MyAppVersion line. Cannot verify version sync."
+            exit 1
+          }
+          $issVersion = $issLine.Matches[0].Groups[1].Value
+          Write-Host "Python APP_VERSION: $pyVersion"
+          Write-Host "Inno Setup MyAppVersion: $issVersion"
+          if ($pyVersion -ne $issVersion) {
+            Write-Error "Version drift: src/auto_updater.py APP_VERSION ($pyVersion) does not match installer/setup.iss #define MyAppVersion ($issVersion). Update one or both so they agree, otherwise off-CI builds will ship a mis-branded installer and break the auto-update upgrade graph."
+            exit 1
+          }
+          Write-Host "Inno Setup version matches APP_VERSION — OK."
+        shell: pwsh
+
       - name: Update Inno Setup version from tag
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          (Get-Content installer/setup.iss) -replace 'AppVersion=\d+\.\d+\.\d+', "AppVersion=$version" -replace 'AudiobookMaker-Setup-\d+\.\d+\.\d+', "AudiobookMaker-Setup-$version" | Set-Content installer/setup.iss
+          (Get-Content installer/setup.iss) -replace '#define\s+MyAppVersion\s+"[^"]+"', "#define MyAppVersion `"$version`"" | Set-Content installer/setup.iss
         shell: pwsh
 
       - name: Build installer

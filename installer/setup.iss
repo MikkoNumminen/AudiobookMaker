@@ -13,8 +13,18 @@
 ;   from the repository root, or adjust SourceDir below accordingly.
 ;
 ; Output:
-;   installer\Output\AudiobookMaker-Setup-1.0.0.exe
+;   installer\Output\AudiobookMaker-Setup-{#MyAppVersion}.exe
 ; =============================================================================
+
+
+; -----------------------------------------------------------------------------
+; Version definition — MUST stay in sync with src/auto_updater.py APP_VERSION.
+; CI enforces this via a guard step in .github/workflows/build-release.yml
+; (see the "Verify Inno Setup version matches APP_VERSION" step) and then
+; rewrites this line at release time from the git tag. Any local / off-CI
+; build picks up the value baked in here, so do not let it drift.
+; -----------------------------------------------------------------------------
+#define MyAppVersion "3.7.1"
 
 
 ; -----------------------------------------------------------------------------
@@ -32,7 +42,7 @@ AppId={{A3F2C1D4-8B7E-4F6A-9C2D-1E5B3A7F0D8C}
 AppName=AudiobookMaker
 
 ; Version string shown in "Add or Remove Programs" and the title bar.
-AppVersion=1.0.0
+AppVersion={#MyAppVersion}
 
 ; Publisher name shown in "Add or Remove Programs".
 AppPublisher=AudiobookMaker
@@ -67,7 +77,7 @@ LicenseFile=..\LICENSE.txt
 OutputDir=Output
 
 ; Final installer filename (without the .exe extension).
-OutputBaseFilename=AudiobookMaker-Setup-1.0.0
+OutputBaseFilename=AudiobookMaker-Setup-{#MyAppVersion}
 
 ; Installer icon — shown in the Windows taskbar and on the installer window.
 ; Path is relative to this .iss file.
@@ -222,7 +232,7 @@ Root: HKCU; \
 Root: HKCU; \
   Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1"; \
   ValueType: string; ValueName: "DisplayVersion"; \
-  ValueData: "1.0.0"
+  ValueData: "{#MyAppVersion}"
 
 Root: HKCU; \
   Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1"; \
