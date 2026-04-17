@@ -761,6 +761,19 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         build_settings_frame(self, main, row=6)  # header at row=6, body at row=7
         self._build_log_panel(main, row=8, stretch_row=9)
 
+        # Mirror updates to the shared progress bar onto the in-banner
+        # update progress bar, so the auto-update download's progress
+        # renders right below the "Update now" button instead of at the
+        # bottom of the window. Harmless during synthesis because the
+        # banner (and its bar) is hidden unless an update is available.
+        _shared_set = self._progress_bar.set
+
+        def _mirrored_set(value: float) -> None:
+            _shared_set(value)
+            self._update_progress_bar.set(value)
+
+        self._progress_bar.set = _mirrored_set  # type: ignore[method-assign]
+
         # Settings view — in-place alternative to the old Toplevel popup.
         # Stacked in the same grid cell; switched via tkraise().
         self._settings_view = EngineManagerView(
@@ -1005,8 +1018,30 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             padx=(0, gui_style.PAD_SM), pady=gui_style.PAD_XS,
         )
 
+        # Dedicated in-banner progress bar. Renders the download progress
+        # directly under the "Update now" button, instead of far below at
+        # the shared conversion bar. Hidden until the user clicks update.
+        self._update_progress_bar = ctk.CTkProgressBar(
+            self._update_banner,
+            height=8,
+            progress_color="white",
+            fg_color=("#156326", "#0f7a2a"),
+        )
+        self._update_progress_bar.set(0)
+        self._update_progress_bar.grid(
+            row=1, column=0, columnspan=3, sticky="ew",
+            padx=gui_style.PAD_SM, pady=(0, gui_style.PAD_SM),
+        )
+        self._update_progress_bar.grid_remove()
+
         # Hidden by default.
         self._update_banner.grid_remove()
+
+    def _on_update_click(self) -> None:
+        """Reveal the in-banner progress bar, then run the mixin flow."""
+        self._update_progress_bar.set(0)
+        self._update_progress_bar.grid()
+        super()._on_update_click()
 
     def _on_update_browser_click(self) -> None:
         """Open the latest release page in the user's browser.
