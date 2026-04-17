@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 3 | 🔵 working | Audit batch 5 (FI normalizer per-pass tests, Chatterbox --chunk-chars GUI) | 2026-04-17 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,6 +30,10 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### Audit batch 5 [Claude 3, audit-batch-5]
+- [ ] Finnish normalizer per-pass unit tests for passes B, D, E, F, J, K, L, M, N (mirroring the English TestPass<LETTER> pattern). 🟡 🧠 Opus.
+- [ ] Chatterbox: expose `--chunk-chars` in the GUI (settings-panel control wired through to the subprocess CLI). 🟢 ⚡ Sonnet.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
@@ -120,12 +124,6 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 
 ### Synthesis orchestrator — extract business logic from UnifiedApp
 - [ ] `src/gui_unified.py` is 3,482 lines with ~95 private methods on one class. `_on_convert_click` (104 lines), `_on_listen_click` (164 lines), `_build_engine_bar` (143 lines) all belong elsewhere. Introduce `src/synthesis_orchestrator.py` that owns book loading, engine dispatch, output paths, progress relay; GUI becomes a thin adapter subscribing to orchestrator events. UI builders (`_build_engine_bar`, `_build_header_bar`, `_build_action_row`, `_build_settings_frame`) extract to helper modules. 🔴 🧠 Opus.
-
-### Finnish normalizer: per-pass unit tests for B, D, E, F, J, K, L, M, N
-- [ ] Only passes A (citations), C (centuries), G (governors), H (morpheme split), and I (loanwords, via `test_fi_loanwords.py`) have standalone test classes. The other ten passes are covered only via end-to-end integration — a regression inside any of them won't pinpoint which pass broke. Mirror the English `TestPass<LETTER>` pattern with ≥10 cases per pass (empty, single char, whitespace, cross-language). 🟡 🧠 Opus.
-
-### Chatterbox: expose --chunk-chars in GUI
-- [ ] `scripts/generate_chatterbox_audiobook.py:244` accepts `--chunk-chars` (default 300) but the GUI hardcodes the CLI invocation in `src/gui_synth_mixin.py` without exposing it. Add a settings-panel control; plumb through the subprocess args. 🟢 ⚡ Sonnet.
 
 ### TODO.md sweep for completed items
 - [ ] Items like "Add an application icon (assets/icon.ico)" under "Requires a Windows machine" appear to be already done (`assets/` has the icon). Audit and remove stale entries. 🟢 ⚡ Sonnet.
