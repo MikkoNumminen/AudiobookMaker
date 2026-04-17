@@ -13,7 +13,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
-| Claude 2 | 🔵 working | GUI modernization — Cold Forge dark theme | 2026-04-17 |
+| Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
@@ -30,9 +30,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
-
-### GUI modernization — Cold Forge dark theme [Claude 2, main]
-- [ ] Full visual overhaul of the CustomTkinter GUI. Current app reads as "Windows 95" (default CTk blue theme, ad-hoc colors, rectangular widgets, no visual hierarchy). Target: cool Steam/Discord-style dark aesthetic — slate near-black bg, electric blue accent, cool white text, card-based sections, hero header with goat logo, Lucide icon set on buttons. Light mode must still render cleanly (dark default, light fallback). Plan at `C:\Users\vandr\.claude\plans\enchanted-waddling-coral.md`. 6 commits: (1) add `assets/themes/cold_forge.json` + `src/gui_style.py` + tests, (2) apply theme globally & remove hardcoded colors, (3) hero header redesign, (4) engine bar + action row card treatment, (5) settings + log panel refresh, (6) bundle Lucide icons + wire into buttons. Uses parallel subagents within each commit. 🔴 🧠 Opus.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Tier 1 validation in progress: `scripts/stress_test_chatterbox_longrun.py` runs 500 `engine.generate()` calls in one process to catch drift fast before committing to a 5h re-synth. If Tier 1 passes, next is Tier 2 (regenerate the tail of the problem Finnish audiobook from ~hour 4 onward using existing `.chunks/` cache). Confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. 🟡 🧠 Opus.
