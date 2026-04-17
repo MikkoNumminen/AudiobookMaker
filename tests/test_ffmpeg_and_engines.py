@@ -284,6 +284,7 @@ except Exception:
     pass
 
 
+@pytest.mark.network
 @pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe not available")
 class TestEdgeTTSPipeline:
     """Real Edge-TTS synthesis + pydub combining. Requires internet + ffmpeg."""
