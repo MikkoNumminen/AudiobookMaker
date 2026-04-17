@@ -264,7 +264,7 @@ async def _synthesize_all_chunks(
 def _asyncio_run_with_retry(
     coro_factory: Callable,
     timeout_s: float = 120,
-    retries: int = 2,
+    retries: int = 3,
 ):
     """Run an async coroutine via ``asyncio.run`` with timeout + retry.
 
