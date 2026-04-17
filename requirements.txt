@@ -23,7 +23,7 @@ customtkinter==5.2.2
 # header logo and button icons). CTk installs it transitively but we
 # list it explicitly so the dependency is visible in the lockfile and
 # the PyInstaller spec's exclusion of PIL doesn't accidentally win.
-Pillow>=10.0.0
+Pillow==12.2.0
 
 # Audio processing
 pydub==0.25.1
