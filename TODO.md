@@ -99,7 +99,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Fun preset that routes English text through the FI T3 finetune with English→Finnish-phonetic text normalizations (`computer` → `kompuutteri`, `th` → `t`/`d`, `w` → `v`, etc.). Low priority — for after English Grandmom is fully validated. 🟡 🧠 Opus.
 
 ### Requires a Windows machine
-- [ ] Add an application icon (assets/icon.ico). 🟢 ⚡ Sonnet
 - [ ] Test the .exe against multiple PDF files. 🟡 ⚡ Sonnet
 - [ ] Test the installer on a clean Windows environment. 🟡 ⚡ Sonnet
 
@@ -120,9 +119,6 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 
 ### Synthesis orchestrator — extract business logic from UnifiedApp
 - [ ] `src/gui_unified.py` is 3,482 lines with ~95 private methods on one class. `_on_convert_click` (104 lines), `_on_listen_click` (164 lines), `_build_engine_bar` (143 lines) all belong elsewhere. Introduce `src/synthesis_orchestrator.py` that owns book loading, engine dispatch, output paths, progress relay; GUI becomes a thin adapter subscribing to orchestrator events. UI builders (`_build_engine_bar`, `_build_header_bar`, `_build_action_row`, `_build_settings_frame`) extract to helper modules. 🔴 🧠 Opus.
-
-### TODO.md sweep for completed items
-- [ ] Items like "Add an application icon (assets/icon.ico)" under "Requires a Windows machine" appear to be already done (`assets/` has the icon). Audit and remove stale entries. 🟢 ⚡ Sonnet.
 
 ## Post-Audit Tasks
 
