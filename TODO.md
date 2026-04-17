@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🔵 working | Voice pack pipeline — Slices 2→5 (emotion, alignment, training, artifact+GUI, expression control) | 2026-04-17 |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 3 | 🔵 working | Audit batch 3 (docs plan Pass R, launcher docstrings, autospec audit, gui cleanups) | 2026-04-17 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,6 +30,12 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### Audit batch 3 [Claude 3, audit-batch-3]
+- [ ] Docs: `english_normalizer_plan.md` §3 missing Pass R (URLs/emails), update to list all 17 English passes in execution order. 🟢 ⚡ Sonnet.
+- [ ] `launcher.py` docstring + type-hint coverage bump (was ~34% docstrings / ~70% hints — priority item). 🟢 ⚡ Sonnet.
+- [ ] Test quality: add `autospec=True` on mock patches in `test_tts_engine.py` etc. so mocks break when real signatures drift. 🟢 ⚡ Sonnet.
+- [ ] Minor cleanups in `src/gui_unified.py:23,28` (unused `shutil`, redundant `webbrowser`) + broad `except Exception: pass` at lines 1608, 1964, 1994, 2093 should log at DEBUG. 🟢 ⚡ Sonnet.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`. **Tier 2 still pending**: regenerate the tail of `TURO_00_full.mp3.mpeg` from ~hour 4 onward using existing `.chunks/` cache + new `FI_TEMPERATURE=0.5`, then perceptual check that the swallowing is gone. 🟡 🧠 Opus.
@@ -132,21 +138,11 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 ### Chatterbox: expose --chunk-chars in GUI
 - [ ] `scripts/generate_chatterbox_audiobook.py:244` accepts `--chunk-chars` (default 300) but the GUI hardcodes the CLI invocation in `src/gui_synth_mixin.py` without exposing it. Add a settings-panel control; plumb through the subprocess args. 🟢 ⚡ Sonnet.
 
-### Docs: english_normalizer_plan.md §3 missing Pass R (URLs/emails)
-- [ ] Plan table stops at Phase 1 A-K. Code implements R/L/M/N/O/P/S. Update §3 to list all 17 English passes in execution order with source links. 🟢 ⚡ Sonnet.
-
 ### Normalizer: extract lookup tables to YAML
 - [ ] Abbreviations, acronyms, units, governor tables, month names, acronym whitelist are all hardcoded Python. `fi_loanwords.py` already shows the good pattern: YAML-driven with safe_load. Extract analogously; enables user customization and non-developer updates. 🟡 ⚡ Sonnet.
 
-### Docstring + type-hint coverage bump
-- [ ] `gui.py` (~32% docstrings / ~65% type hints), `voice_recorder.py` (~33% / ~60%), `launcher.py` (~34% / ~70%). Critical synthesis methods (`_start_synthesis`, `_start_chatterbox_subprocess`) lack docstrings. Priority: `launcher.py` first. 🟢 ⚡ Sonnet.
-
-### Test quality: autospec on mocks to catch signature drift
-- [ ] `tests/test_tts_engine.py:109-123` uses loose `patch(...)` without `autospec=True`. If real signatures change, mocks silently still pass while production breaks. Audit and add `autospec=True` where appropriate. 🟢 ⚡ Sonnet.
-
-### Minor cleanups
-- [ ] `src/gui_unified.py:23,28` — drop unused `shutil` + redundant top-level `webbrowser` (re-imported in `_open_browser`). 🟢 ⚡ Sonnet.
-- [ ] Broad `except Exception: pass` UI paths (`gui_unified.py:1608,1964,1994,2093`) should log at DEBUG so diagnostics survive. 🟢 ⚡ Sonnet.
+### Docstring + type-hint coverage bump (remaining)
+- [ ] `gui.py` (~32% docstrings / ~65% type hints), `voice_recorder.py` (~33% / ~60%). Critical synthesis methods (`_start_synthesis`, `_start_chatterbox_subprocess`) lack docstrings. 🟢 ⚡ Sonnet.
 
 ### TODO.md sweep for completed items
 - [ ] Items like "Add an application icon (assets/icon.ico)" under "Requires a Windows machine" appear to be already done (`assets/` has the icon). Audit and remove stale entries. 🟢 ⚡ Sonnet.
