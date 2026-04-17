@@ -35,16 +35,16 @@ _CHARS_PER_SECOND_AUDIO = {
 # Real-time factor = audio_seconds / wall_seconds.
 # Higher RTF means faster than realtime synthesis.
 _ENGINE_RTF = {
-    "edge": 5.0,            # cloud, single-thread GUI call
+    "edge": 5.0,             # cloud, single-thread GUI call
     "piper": 6.0,            # CPU, Finnish onnx model
     "chatterbox_fi": 0.85,   # RTX 3080 Ti baseline, slightly pessimistic
-    "chatterbox": 0.85,      # alias
-    "voxcpm": 1.0,           # GPU-dependent, rough
+    "voxcpm2": 1.0,          # GPU-dependent, rough
 }
 
-# Engines that need a GPU to be usable. If run on CPU we multiply the
-# wall-time estimate by this penalty to flag the user.
-_GPU_ENGINES = {"chatterbox_fi", "chatterbox", "voxcpm"}
+# When a GPU-only engine runs on CPU we multiply the wall-time estimate
+# by this penalty so the ETA honestly reflects how painful the run will
+# be. The set of GPU-only engines comes from each engine's
+# ``requires_gpu`` class attribute, not from a local duplicate list.
 _CPU_PENALTY = 20.0
 
 
@@ -66,6 +66,11 @@ def estimate_wall_time(audio_seconds: float, engine_id: str, device: str = "cuda
     estimate. If ``device='cpu'`` and the engine normally wants a GPU,
     the wall time is multiplied by 20 to flag that the run will be
     painfully slow.
+
+    The GPU-only flag comes from ``engine.requires_gpu`` on the
+    registered ``TTSEngine`` class, not from a local duplicate list, so
+    a new GPU engine automatically inherits the CPU penalty as soon as
+    it is registered.
     """
     if audio_seconds <= 0:
         return 0.0
@@ -73,8 +78,14 @@ def estimate_wall_time(audio_seconds: float, engine_id: str, device: str = "cuda
     if rtf is None:
         return audio_seconds * 2.0
     wall = audio_seconds / rtf
-    if device == "cpu" and engine_id in _GPU_ENGINES:
-        wall *= _CPU_PENALTY
+    if device == "cpu":
+        # Late import to avoid a circular dep: duration_estimate is
+        # imported early from gui_unified, but the engine registry
+        # population also happens there.
+        from src.tts_base import get_engine
+        engine = get_engine(engine_id)
+        if engine is not None and engine.requires_gpu:
+            wall *= _CPU_PENALTY
     return wall
 
 

@@ -67,7 +67,7 @@ def test_wall_time_chatterbox_cpu_is_much_larger():
 
 
 def test_wall_time_voxcpm():
-    assert estimate_wall_time(60.0, "voxcpm") == pytest.approx(60.0)
+    assert estimate_wall_time(60.0, "voxcpm2") == pytest.approx(60.0)
 
 
 def test_wall_time_unknown_engine_conservative():
