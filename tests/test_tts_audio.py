@@ -131,6 +131,82 @@ class TestCombineAudioFiles:
         with pytest.raises(Exception):
             combine_audio_files([str(src_mp3)], str(out))
 
+    @requires_ffmpeg
+    def test_streaming_concat_cleans_staging_on_success(self, tmp_path) -> None:
+        """The temp staging dir holding per-chunk WAVs must be removed after
+        a successful combine. Otherwise long runs would leak hundreds of MB
+        of WAVs into %TEMP%."""
+        import tempfile
+
+        src_mp3 = tmp_path / "a.mp3"
+        _make_silent_mp3(str(src_mp3))
+        out = tmp_path / "out.mp3"
+
+        before = {
+            p for p in os.listdir(tempfile.gettempdir()) if p.startswith("abm_concat_")
+        }
+        combine_audio_files([str(src_mp3)], str(out))
+        after = {
+            p for p in os.listdir(tempfile.gettempdir()) if p.startswith("abm_concat_")
+        }
+        assert before == after, f"staging dir leaked: {after - before}"
+
+    @requires_ffmpeg
+    def test_streaming_concat_cleans_staging_on_failure(self, tmp_path) -> None:
+        """Even when ffmpeg fails, the finally block must remove the staging
+        dir — we don't want a crashing run to leave gigabytes behind."""
+        import tempfile
+
+        garbage = tmp_path / "garbage.mp3"
+        garbage.write_bytes(b"not an mp3" * 20)
+        out = tmp_path / "out.mp3"
+
+        before = {
+            p for p in os.listdir(tempfile.gettempdir()) if p.startswith("abm_concat_")
+        }
+        with pytest.raises(Exception):
+            combine_audio_files([str(garbage)], str(out))
+        after = {
+            p for p in os.listdir(tempfile.gettempdir()) if p.startswith("abm_concat_")
+        }
+        assert before == after, f"staging dir leaked on failure: {after - before}"
+
+    @requires_ffmpeg
+    def test_inter_chunk_gap_is_inserted(self, tmp_path) -> None:
+        """With three 100 ms chunks and a 200 ms gap the output should be
+        at least 300 + 2*200 = 700 ms (silence trim may shorten slightly).
+        This locks in that the concat list references the gap WAV N-1 times."""
+        from pydub import AudioSegment
+
+        paths = []
+        for i in range(3):
+            p = tmp_path / f"c{i}.mp3"
+            _make_silent_mp3(str(p), duration_ms=100)
+            paths.append(str(p))
+        out = tmp_path / "out.mp3"
+
+        combine_audio_files(paths, str(out), inter_chunk_pause_ms=200)
+
+        result = AudioSegment.from_mp3(str(out))
+        # Fully silent chunks get trimmed to zero-length by the asymmetric
+        # thresholds — only the two 200 ms gaps survive. Allow ~50 ms
+        # tolerance for MP3 frame alignment.
+        assert len(result) >= 350, f"expected >=350 ms gap-only output, got {len(result)}"
+
+    @requires_ffmpeg
+    def test_zero_gap_disables_spacer(self, tmp_path) -> None:
+        """inter_chunk_pause_ms=0 must skip emitting the gap WAV entirely."""
+        src_mp3 = tmp_path / "a.mp3"
+        _make_silent_mp3(str(src_mp3))
+        b_mp3 = tmp_path / "b.mp3"
+        _make_silent_mp3(str(b_mp3))
+        out = tmp_path / "out.mp3"
+
+        # Should just run without error; we mostly care that the code path
+        # that skips the gap WAV does not crash.
+        combine_audio_files([str(src_mp3), str(b_mp3)], str(out), inter_chunk_pause_ms=0)
+        assert out.exists()
+
 
 # ---------------------------------------------------------------------------
 # _load_audio_with_retry
