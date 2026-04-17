@@ -12,6 +12,7 @@ returns the input text unchanged and a single warning is logged.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from dataclasses import dataclass, field
@@ -161,11 +162,15 @@ def _respell_latin_phrases(text: str, phrases: list[tuple[str, str]]) -> str:
         return text
 
     for latin, replacement in phrases:
-        # Build a case-insensitive literal match with word boundaries.
-        # Word boundaries work for ASCII-letter-bounded phrases.
-        pattern = re.compile(r"(?<!\w)" + re.escape(latin) + r"(?!\w)", re.IGNORECASE)
-        text = pattern.sub(replacement, text)
+        text = _get_latin_phrase_re(latin).sub(replacement, text)
     return text
+
+
+@functools.lru_cache(maxsize=None)
+def _get_latin_phrase_re(latin: str) -> re.Pattern[str]:
+    # Build a case-insensitive literal match with word boundaries.
+    # Word boundaries work for ASCII-letter-bounded phrases.
+    return re.compile(r"(?<!\w)" + re.escape(latin) + r"(?!\w)", re.IGNORECASE)
 
 
 def _respell_foreign_names(text: str, names: dict[str, str]) -> str:

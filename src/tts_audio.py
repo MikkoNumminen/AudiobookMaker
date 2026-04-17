@@ -194,7 +194,7 @@ def combine_audio_files(
             "-safe", "0",
             "-i", str(list_path),
             "-c:a", "libmp3lame",
-            "-q:a", "2",
+            "-b:a", "128k",
             str(output_path),
         ]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0

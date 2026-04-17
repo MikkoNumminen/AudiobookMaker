@@ -30,6 +30,7 @@ Design notes
 
 from __future__ import annotations
 
+import functools
 import re
 
 # NOTE: _pass_o_dates is imported lazily inside normalize_english_text()
@@ -160,20 +161,25 @@ _EN_ST_SAINT_RE = re.compile(r"\bSt\.\s+([A-Z][a-zA-Z]+)")
 _EN_ST_STREET_RE = re.compile(r"\bSt\.(?!\s+[A-Z])")
 
 
+@functools.lru_cache(maxsize=None)
+def _get_abbrev_re(abbr: str) -> re.Pattern[str]:
+    # Build a regex that handles the literal abbreviation. We escape it
+    # and require either word-boundary or the trailing period itself
+    # to terminate the match.
+    if abbr.endswith("."):
+        pattern = re.escape(abbr)
+    else:
+        pattern = r"\b" + re.escape(abbr) + r"\b"
+    return re.compile(pattern)
+
+
 def _pass_c_abbreviations(text: str) -> str:
     # Saint/Street disambiguation first so it doesn't fight later passes.
     text = _EN_ST_SAINT_RE.sub(r"Saint \1", text)
     text = _EN_ST_STREET_RE.sub("Street", text)
 
     for abbr, expansion in _EN_ABBREVIATIONS:
-        # Build a regex that handles the literal abbreviation. We escape it
-        # and require either word-boundary or the trailing period itself
-        # to terminate the match.
-        if abbr.endswith("."):
-            pattern = re.escape(abbr)
-        else:
-            pattern = r"\b" + re.escape(abbr) + r"\b"
-        text = re.sub(pattern, expansion, text)
+        text = _get_abbrev_re(abbr).sub(expansion, text)
     return text
 
 

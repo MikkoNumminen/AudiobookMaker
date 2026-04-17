@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   handle-completion:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Report failure or recovery
         uses: actions/github-script@v7
