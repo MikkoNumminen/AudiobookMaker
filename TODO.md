@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
 | Claude 2 | 🔵 working | Voice pack pipeline — Slices 2→5 (emotion, alignment, training, artifact+GUI, expression control) | 2026-04-17 |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 3 | 🔵 working | Audit batch 4 (normalizer YAML extraction, gui/voice_recorder docstrings, Piper E2E test) | 2026-04-17 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -30,6 +30,11 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### Audit batch 4 [Claude 3, audit-batch-4]
+- [ ] Extract normalizer lookup tables (abbreviations, acronyms, units, governors, months, acronym whitelist) from hardcoded Python in `src/tts_normalizer_en.py` / `src/tts_normalizer_fi.py` to YAML files, following the `fi_loanwords.py` pattern. 🟡 ⚡ Sonnet.
+- [ ] `gui.py` + `voice_recorder.py` docstring + type-hint coverage bump (launcher.py done in batch 3). 🟢 ⚡ Sonnet.
+- [ ] E2E synthesis test with a real Piper engine: 2-sentence input → MP3, assert duration > 0 + MP3 header; `@pytest.mark.slow`. 🟡 🧠 Opus.
 
 ### Verify Chatterbox long-run hardening [Claude 1, main]
 - [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
@@ -127,17 +132,8 @@ The P0 streaming-assembly fix is claimed separately above; everything below is q
 ### Finnish normalizer: per-pass unit tests for B, D, E, F, J, K, L, M, N
 - [ ] Only passes A (citations), C (centuries), G (governors), H (morpheme split), and I (loanwords, via `test_fi_loanwords.py`) have standalone test classes. The other ten passes are covered only via end-to-end integration — a regression inside any of them won't pinpoint which pass broke. Mirror the English `TestPass<LETTER>` pattern with ≥10 cases per pass (empty, single char, whitespace, cross-language). 🟡 🧠 Opus.
 
-### End-to-end synthesis test with a real engine (Piper)
-- [ ] `test_integration.py:126-174` uses `_StubEngine` and is gated on ffmpeg availability. No coverage verifying that Edge/Piper/VoxCPM actually produce a playable MP3. Add an offline, no-GPU E2E test using Piper (bundled, deterministic): 2-sentence PDF → MP3, assert duration > 0 + MP3 header + silence distribution within tolerance. Mark `@pytest.mark.slow`. 🟡 🧠 Opus.
-
 ### Chatterbox: expose --chunk-chars in GUI
 - [ ] `scripts/generate_chatterbox_audiobook.py:244` accepts `--chunk-chars` (default 300) but the GUI hardcodes the CLI invocation in `src/gui_synth_mixin.py` without exposing it. Add a settings-panel control; plumb through the subprocess args. 🟢 ⚡ Sonnet.
-
-### Normalizer: extract lookup tables to YAML
-- [ ] Abbreviations, acronyms, units, governor tables, month names, acronym whitelist are all hardcoded Python. `fi_loanwords.py` already shows the good pattern: YAML-driven with safe_load. Extract analogously; enables user customization and non-developer updates. 🟡 ⚡ Sonnet.
-
-### Docstring + type-hint coverage bump (remaining)
-- [ ] `gui.py` (~32% docstrings / ~65% type hints), `voice_recorder.py` (~33% / ~60%). Critical synthesis methods (`_start_synthesis`, `_start_chatterbox_subprocess`) lack docstrings. 🟢 ⚡ Sonnet.
 
 ### TODO.md sweep for completed items
 - [ ] Items like "Add an application icon (assets/icon.ico)" under "Requires a Windows machine" appear to be already done (`assets/` has the icon). Audit and remove stale entries. 🟢 ⚡ Sonnet.
