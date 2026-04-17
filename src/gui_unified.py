@@ -1409,9 +1409,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not status.available:
             self._engine_status_lbl.configure(text_color=_CLR_UNAVAILABLE)
             self._engine_status_lbl.configure(text=status.reason)
-            self._voice_cb.configure(values=[])
-            self._voice_cb.set("")
-            self._update_voice_count_label(0)
+            # Still populate the dropdown so imported voice packs stay
+            # visible even when the engine binary/venv is missing — the
+            # user can't synthesise yet, but they can see what's imported
+            # and keep the pick sticky across install flows.
+            self._populate_voice_combobox(engine)
         elif status.needs_download:
             self._engine_status_lbl.configure(text_color=_CLR_NEEDS_SETUP)
             self._engine_status_lbl.configure(
