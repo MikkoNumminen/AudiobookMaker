@@ -19,6 +19,10 @@ import urllib.request
 
 import pytest
 
+# Eagerly populate the engine registry so every test sees the full
+# engine set. Without this import, ``get_engine("chatterbox_fi")`` etc.
+# return None in tests that do not themselves import the engine modules.
+from src import engine_registry  # noqa: F401
 from src.tts_base import _REGISTRY
 
 

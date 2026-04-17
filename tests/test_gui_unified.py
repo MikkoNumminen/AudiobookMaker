@@ -236,6 +236,7 @@ class TestSampleTruncation:
 
         class _FakeEngine:
             display_name = "Fake"
+            uses_subprocess = False
 
             def check_status(self):
                 return EngineStatus(available=True)
@@ -301,6 +302,7 @@ class TestConvertTextModeBypassesPdfCheck:
 
         class _FakeEngine:
             display_name = "Fake"
+            uses_subprocess = False
 
             def check_status(self):
                 return EngineStatus(available=True)
@@ -356,6 +358,7 @@ class TestSampleRunFlag:
 
         class _FakeEngine:
             display_name = "Fake"
+            uses_subprocess = False
 
             def check_status(self):
                 return EngineStatus(available=True)

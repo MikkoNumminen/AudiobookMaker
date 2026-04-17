@@ -35,6 +35,7 @@ def _shared_app():
     """
     from src.tts_edge import EdgeTTSEngine
     from src.tts_piper import PiperTTSEngine
+    from src.tts_chatterbox_bridge import ChatterboxFiEngine
     from src.gui_unified import UnifiedApp
 
     # Ensure engines are registered (decorators only fire on first import)
@@ -42,6 +43,8 @@ def _shared_app():
         _REGISTRY["edge"] = EdgeTTSEngine
     if "piper" not in _REGISTRY:
         _REGISTRY["piper"] = PiperTTSEngine
+    if "chatterbox_fi" not in _REGISTRY:
+        _REGISTRY["chatterbox_fi"] = ChatterboxFiEngine
 
     instance = UnifiedApp()
     instance.update_idletasks()
@@ -57,11 +60,14 @@ def app(_shared_app, clean_registry):
     """
     from src.tts_edge import EdgeTTSEngine
     from src.tts_piper import PiperTTSEngine
+    from src.tts_chatterbox_bridge import ChatterboxFiEngine
 
     if "edge" not in _REGISTRY:
         _REGISTRY["edge"] = EdgeTTSEngine
     if "piper" not in _REGISTRY:
         _REGISTRY["piper"] = PiperTTSEngine
+    if "chatterbox_fi" not in _REGISTRY:
+        _REGISTRY["chatterbox_fi"] = ChatterboxFiEngine
 
     _shared_app.update_idletasks()
     return _shared_app
@@ -220,27 +226,28 @@ class TestHeroHeader:
 
 
 class TestChatterboxVoiceHelper:
-    """The helper surfaces Grandmom once per supported language with a
-    parenthetical tag so the voice dropdown is honest about what speaks
-    what, matching the format used by Edge and Piper voices."""
+    """ChatterboxFiEngine.list_voices surfaces Grandmom once per supported
+    language with a parenthetical tag so the voice dropdown is honest
+    about what speaks what, matching the format used by Edge and Piper."""
 
     def test_finnish_returns_grandmom_with_suomi_tag(self) -> None:
-        from src.gui_unified import _chatterbox_voices_for_language
+        from src.tts_chatterbox_bridge import ChatterboxFiEngine
 
-        names = _chatterbox_voices_for_language("fi")
-        assert names == ["Grandmom (suomi)"]
+        voices = ChatterboxFiEngine().list_voices("fi")
+        assert [v.display_name for v in voices] == ["Grandmom (suomi)"]
 
     def test_english_returns_grandmom_with_english_tag(self) -> None:
-        from src.gui_unified import _chatterbox_voices_for_language
+        from src.tts_chatterbox_bridge import ChatterboxFiEngine
 
-        names = _chatterbox_voices_for_language("en")
-        assert names == ["Grandmom (English)"]
+        voices = ChatterboxFiEngine().list_voices("en")
+        assert [v.display_name for v in voices] == ["Grandmom (English)"]
 
     def test_unknown_language_returns_empty(self) -> None:
-        from src.gui_unified import _chatterbox_voices_for_language
+        from src.tts_chatterbox_bridge import ChatterboxFiEngine
 
-        assert _chatterbox_voices_for_language("de") == []
-        assert _chatterbox_voices_for_language("") == []
+        engine = ChatterboxFiEngine()
+        assert engine.list_voices("de") == []
+        assert engine.list_voices("") == []
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +317,13 @@ class TestKieliVoiceInteraction:
         # voice-list refresh path is what we're testing. The entry has
         # to be re-applied after each Kieli change because
         # _on_language_changed rebuilds the engine map from the
-        # registry.
+        # registry. We also stub the bridge engine's check_status so the
+        # voice list renders even when the .venv-chatterbox doesn't exist
+        # on the test machine.
+        from unittest.mock import patch
+        from src.tts_base import EngineStatus
+        from src.tts_chatterbox_bridge import ChatterboxFiEngine
+
         fake_label = "test-chatterbox"
 
         def _force_chatterbox() -> None:
@@ -320,17 +333,21 @@ class TestKieliVoiceInteraction:
             )
             app._engine_cb.set(fake_label)
 
-        self._set_language(app, "Suomi")
-        _force_chatterbox()
-        app._refresh_voice_list()
-        fi_voices = list(app._voice_cb.cget("values"))
-        assert fi_voices == ["Grandmom (suomi)"]
+        with patch.object(
+            ChatterboxFiEngine, "check_status",
+            return_value=EngineStatus(available=True),
+        ):
+            self._set_language(app, "Suomi")
+            _force_chatterbox()
+            app._refresh_voice_list()
+            fi_voices = list(app._voice_cb.cget("values"))
+            assert fi_voices == ["Grandmom (suomi)"]
 
-        self._set_language(app, "English")
-        _force_chatterbox()
-        app._refresh_voice_list()
-        en_voices = list(app._voice_cb.cget("values"))
-        assert en_voices == ["Grandmom (English)"]
+            self._set_language(app, "English")
+            _force_chatterbox()
+            app._refresh_voice_list()
+            en_voices = list(app._voice_cb.cget("values"))
+            assert en_voices == ["Grandmom (English)"]
 
     def test_voice_count_label_updates(self, app, _reset_kieli_after) -> None:
         edge_label = next(
@@ -614,6 +631,8 @@ class TestSampleButton:
 
         class _FakeEngine:
             display_name = "Fake"
+            uses_subprocess = False
+
             def check_status(self):  # noqa: D401
                 return EngineStatus(available=True)
 

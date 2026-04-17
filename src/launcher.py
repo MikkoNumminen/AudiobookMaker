@@ -57,15 +57,8 @@ from src.launcher_bridge import (  # noqa: E402
 from src.pdf_parser import parse_pdf  # noqa: E402
 from src.tts_base import TTSEngine, get_engine, list_engines  # noqa: E402
 
-# Import engine modules for their register_engine() side effects.
-# (Same pattern as src/gui.py; imports here are deliberate.)
-from src import tts_edge  # noqa: F401,E402
-from src import tts_piper  # noqa: F401,E402
-
-try:
-    from src import tts_voxcpm  # noqa: F401,E402
-except Exception:
-    pass  # VoxCPM2 is optional developer-install.
+# Single import point for every TTS engine — see src/engine_registry.py.
+from src import engine_registry  # noqa: F401,E402
 
 
 # ---------------------------------------------------------------------------
@@ -246,25 +239,23 @@ class LauncherApp(tk.Tk):
 
     def _populate_engines(self) -> None:
         """Fill the engine dropdown with engines whose check_status reports
-        available. Chatterbox-Finnish is a special case: it's never in the
-        main-app registry, but we can still offer it if the venv exists."""
+        available. Subprocess engines (Chatterbox) are promoted to the top
+        of the list so they become the default when their venv is
+        installed — the rationale is that they're the highest-quality
+        option, so offer them first when available."""
         labels: list[str] = []
         self._engines_by_label.clear()
 
         for engine in list_engines():
             status = engine.check_status()
-            if status.available:
-                label = engine.display_name
+            if not status.available:
+                continue
+            label = engine.display_name
+            if engine.uses_subprocess:
+                labels.insert(0, label)
+            else:
                 labels.append(label)
-                self._engines_by_label[label] = engine
-
-        # Chatterbox-Finnish: offered iff .venv-chatterbox exists + the runner
-        # script is present. We don't instantiate a real TTSEngine subclass
-        # for it in Phase 1 — it's handled purely via the subprocess bridge.
-        chatterbox_py = resolve_chatterbox_python()
-        runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
-        if chatterbox_py is not None and runner_script.exists():
-            labels.insert(0, "Chatterbox Finnish (paras laatu, NVIDIA)")
+            self._engines_by_label[label] = engine
 
         if not labels:
             self._engine_var.set("")
@@ -285,8 +276,6 @@ class LauncherApp(tk.Tk):
 
     def _engine_id_for_label(self, label: str) -> str:
         """Map a dropdown label back to an engine id."""
-        if label.startswith("Chatterbox"):
-            return "chatterbox_fi"
         engine = self._engines_by_label.get(label)
         return engine.id if engine is not None else ""
 
@@ -344,7 +333,8 @@ class LauncherApp(tk.Tk):
         self._append_log(f"Output: {self._output_path}")
         self._append_log(f"Engine: {engine_id}")
 
-        if engine_id == "chatterbox_fi":
+        engine = get_engine(engine_id)
+        if engine is not None and engine.uses_subprocess:
             self._start_chatterbox_subprocess()
         else:
             self._start_inprocess_engine(engine_id)

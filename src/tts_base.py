@@ -102,6 +102,14 @@ class TTSEngine(ABC):
     voice. Engines that do not support this should silently ignore the
     parameter."""
 
+    uses_subprocess: ClassVar[bool] = False
+    """True when synthesis runs in a separate Python interpreter via
+    a bridge module (e.g. Chatterbox, which needs an isolated torch+CUDA
+    venv). GUI dispatch checks this flag to route work to the subprocess
+    path instead of calling ``synthesize()`` in-process. Engines with
+    ``uses_subprocess = True`` must raise from ``synthesize()`` — their
+    real work happens through the bridge runner."""
+
     # --- instance methods; subclasses must implement ---
 
     @abstractmethod
