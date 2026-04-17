@@ -14,7 +14,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Tier 1 stress test (500-call Chatterbox long-run) | 2026-04-17 |
 | Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🔵 working | Audit quick-wins batch (CI pins, regex hoist, Pillow, MP3 bitrate, time tests) | 2026-04-17 |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -31,16 +31,14 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### Audit quick-wins batch [Claude 3, worktree-audit-quick-wins]
-- [ ] Pin CI runner images (`windows-2022`, `ubuntu-24.04`) across all three workflows. 🟢 ⚡ Sonnet.
-- [ ] Pin ffmpeg in `build-launcher.yml` with SHA-256 + release tag, mirroring `build-release.yml`. 🟢 ⚡ Sonnet.
-- [ ] Pin Pillow version in `requirements.txt` (currently `>=10.0.0`). 🟢 ⚡ Sonnet.
-- [ ] Hoist per-call regex compilation in `tts_normalizer_fi.py:929-930`, `tts_normalizer_en.py:168-176`, `fi_loanwords.py:163-167`. 🟢 ⚡ Sonnet.
-- [ ] MP3 export bitrate → 128k in `src/tts_audio.py` (and Chatterbox export sites). 🟢 ⚡ Sonnet.
-- [ ] English normalizer Pass N (time of day) test file — `tests/test_tts_normalizer_en_time.py`. 🟢 ⚡ Sonnet.
-
 ### Verify Chatterbox long-run hardening [Claude 1, main]
-- [ ] Commits 74018b0 + bb81f60 added GPU memory hygiene to `_clear_chatterbox_state` and per-chunk observability (`.chunk_stats.jsonl`). Tier 1 validation in progress: `scripts/stress_test_chatterbox_longrun.py` runs 500 `engine.generate()` calls in one process to catch drift fast before committing to a 5h re-synth. If Tier 1 passes, next is Tier 2 (regenerate the tail of the problem Finnish audiobook from ~hour 4 onward using existing `.chunks/` cache). Confirm (a) the swallowing is gone perceptually, and (b) `.chunk_stats.jsonl` shows `hook_count` stuck at ≤3 and `reserved_mb` not monotonically climbing. 🟡 🧠 Opus.
+- [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`. **Tier 2 still pending**: regenerate the tail of `TURO_00_full.mp3.mpeg` from ~hour 4 onward using existing `.chunks/` cache + new `FI_TEMPERATURE=0.5`, then perceptual check that the swallowing is gone. 🟡 🧠 Opus.
+
+### Chatterbox: 1-in-500 stochastic early-stop glitch
+- [ ] Tier 1 stress test revealed a single 0.66s audio_s outlier at call #50 (median 8.02s, surrounding chunks 7.7-8.3s) with the exact same Finnish input each time. Independent of allocator fragmentation — it's a pure sampler/attention glitch. Confirmed related: sampler sweep with `cfg_weight=0.6` (up from 0.3) reproduces the same ~0.4s early-stop deterministically. Strong hypothesis: chunk-#50 hits a stochastic attention state that behaves like high-CFG and triggers the same bail-out path. Next step: read `AlignmentStreamAnalyzer` exit conditions in `chatterbox-tts` source, identify the threshold that fires, and consider either clamping it or retrying the chunk once if audio_s < 0.3 × median. 🟡 🧠 Opus.
+
+### Chatterbox-Finnish: collect pronunciation failure corpus
+- [ ] User reported 4 mispronunciations in the `turo_stressitesti_tulokset_fi` sample: `löysimme` → `löys imme` (mid-word pause), `lopetti` → `loopetti` (vowel-length hallucination), `ennen vain` → `ennenvän` (word-boundary collapse), `äänikirja` → `aanikirja` (ää → aa substitution). Lowering `FI_TEMPERATURE` to 0.5 cleared the length/boundary symptoms in a fresh A/B sweep, but the `ää → aa` umlaut drop and the mid-word pause pattern are likely in-weights. Keep collecting: each new failing word adds a data point for Pass I lexicon respelling (try `ää` → `ä ä` or a hyphenated form) and for the known `s → sch` bucket. Target: 20 concrete words across ≥3 failure categories before attempting a targeted fix. 🟡 🧠 Opus.
 
 ### Suppress HuggingFace unauthenticated-request warning in Chatterbox log
 - [ ] When Chatterbox loads models, `huggingface_hub` prints "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN..." in the log panel. Harmless (models still download fine) but looks alarming to users. Suppress it the same way we suppress other cosmetic upstream warnings — either via `logging.getLogger("huggingface_hub").setLevel(logging.ERROR)` before model load, or by adding it to the existing warning-filter block in `scripts/generate_chatterbox_audiobook.py`. 🟢 ⚡ Sonnet.
