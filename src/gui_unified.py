@@ -39,6 +39,7 @@ from src.auto_updater import (
     APP_VERSION, GITHUB_REPO, UpdateInfo,
     is_post_update_launch,
 )
+from src import gui_style
 from src.gui_synth_mixin import SynthMixin
 from src.gui_update_mixin import UpdateMixin
 from src.ffmpeg_path import get_ffmpeg_dir, setup_ffmpeg_path
@@ -80,8 +81,10 @@ _REPO_ROOT = _APP_ROOT
 # CustomTkinter appearance
 # ---------------------------------------------------------------------------
 
-ctk.set_appearance_mode("system")  # follows OS dark/light
-ctk.set_default_color_theme("blue")
+# Apply the custom "Cold Forge" palette (cool slate + electric blue).
+# Dark is the default; light mode still renders cleanly via the (light, dark)
+# pairs baked into every token.
+gui_style.apply_theme("dark")
 
 # Lines that represent a successful chunk/chapter progress step. These are
 # routed to the green "success" log tag so every gain is visible at a glance.
@@ -175,10 +178,13 @@ def _chatterbox_voices_for_language(lang: str) -> list[str]:
         return []
     return [f"Grandmom ({tag})"]
 
-# Engine status colours.
-_CLR_READY = "green"
-_CLR_NEEDS_SETUP = "orange"
-_CLR_UNAVAILABLE = "red"
+# Engine status colours — kept as named module-level aliases for call-site
+# readability. Source of truth is ``gui_style.STATUS_DOT`` so the palette
+# lives in one place. Each value is a (light, dark) tuple that CTkLabel
+# accepts directly for its ``text_color`` parameter.
+_CLR_READY = gui_style.STATUS_DOT["ready"]
+_CLR_NEEDS_SETUP = gui_style.STATUS_DOT["needs_setup"]
+_CLR_UNAVAILABLE = gui_style.STATUS_DOT["unavailable"]
 
 # ---------------------------------------------------------------------------
 # Translatable UI strings
@@ -909,8 +915,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._cancel_btn = ctk.CTkButton(
             btn_row, text="Peruuta", command=self._request_cancel,
             height=44, width=100,
-            fg_color=("#c62828", "#8b0000"),
-            hover_color=("#8b0000", "#5c0000"),
+            fg_color=gui_style.DANGER,
+            hover_color=("#8b0000", "#B03A36"),
         )
         self._cancel_btn.grid(row=0, column=3, padx=(0, 6))
         self._cancel_btn.grid_remove()  # Only visible while running.
@@ -965,11 +971,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._status_strip_state: str = "idle"
         self._status_strip_fields: dict[str, Any] = {}
 
-    _STATUS_STRIP_COLORS = {
-        "ready": ("#1976d2", "#0d47a1"),
-        "synthesizing": ("#1976d2", "#0d47a1"),
-        "done": ("green", "darkgreen"),
-    }
+    # Status-strip background colors. Source of truth is
+    # ``gui_style.STATUS_STRIP`` so the palette stays in one place; the
+    # class attribute is retained so external hooks / tests that inspect
+    # ``UnifiedApp._STATUS_STRIP_COLORS`` keep working.
+    _STATUS_STRIP_COLORS = gui_style.STATUS_STRIP
     _STATUS_STRIP_KEYS = {
         "ready": "status_ready_strip",
         "synthesizing": "status_synthesizing_strip",
@@ -995,7 +1001,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not hasattr(self, "_status_strip_frame"):
             return
 
-        color = self._STATUS_STRIP_COLORS.get(state, ("#1976d2", "#0d47a1"))
+        color = self._STATUS_STRIP_COLORS.get(state, gui_style.INFO)
         key = self._STATUS_STRIP_KEYS.get(state)
         if key is None:
             return
@@ -1091,7 +1097,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _build_update_banner(self, parent: ctk.CTkFrame, row: int) -> None:
         self._update_banner = ctk.CTkFrame(
-            parent, fg_color=("green", "darkgreen"), corner_radius=8
+            parent, fg_color=gui_style.SUCCESS, corner_radius=8
         )
         self._update_banner.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._update_banner.columnconfigure(0, weight=1)
