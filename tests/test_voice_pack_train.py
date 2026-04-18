@@ -234,6 +234,11 @@ def test_prepare_training_run_creates_out_dir(tmp_path: Path) -> None:
 
 
 def test_run_training_raises_not_implemented(tmp_path: Path) -> None:
+    """On test/CI hosts without torch+peft+chatterbox (or without CUDA),
+    :func:`_run_training` must raise NotImplementedError with a clear
+    message rather than crash-importing GPU-only packages. This is the
+    contract the CI relies on.
+    """
     manifest_path = _write_manifest(tmp_path, total_seconds=40 * 60)
     manifest = voice_pack_train.load_manifest(manifest_path)
     config = _make_config(manifest_path, tmp_path / "out")
@@ -241,7 +246,20 @@ def test_run_training_raises_not_implemented(tmp_path: Path) -> None:
     with pytest.raises(NotImplementedError) as excinfo:
         voice_pack_train._run_training(config, manifest)
     msg = str(excinfo.value)
-    assert "GPU" in msg or "implementation" in msg.lower()
+    # The guard message mentions either the missing dependency or the
+    # missing CUDA device, and always points back at the staged run dir.
+    assert "GPU" in msg or "CUDA" in msg or "torch" in msg.lower()
+    assert str(config.out_dir) in msg
+
+
+def test_run_training_impl_is_module_level(tmp_path: Path) -> None:
+    """Smoke test that the implementation helper exists and is a callable
+    distinct from the guarded entry point. Actual execution is only
+    exercised on GPU hosts.
+    """
+    assert hasattr(voice_pack_train, "_run_training_impl")
+    assert callable(voice_pack_train._run_training_impl)
+    assert voice_pack_train._run_training is not voice_pack_train._run_training_impl
 
 
 # ---------------------------------------------------------------------------

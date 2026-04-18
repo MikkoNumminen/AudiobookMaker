@@ -5,7 +5,7 @@ fine-tunes a LoRA adapter on top of the base multilingual Chatterbox model
 for a single speaker, using a :class:`DatasetManifest` produced by the
 earlier dataset-export stage.
 
-What this file does *today*:
+What this file does:
 
 * Defines :class:`TrainConfig`, the single source of truth for training
   hyperparameters.
@@ -15,14 +15,11 @@ What this file does *today*:
 * Validates the dataset manifest and stages everything a GPU host needs:
   ``config.json``, ``manifest_snapshot.json``, ``run_command.txt``.
 * Supports ``--dry-run`` so the scaffold can be exercised without torch.
-
-What this file *does not yet* do:
-
-* The inner training loop (:func:`_run_training`) is a seam. It raises
-  :class:`NotImplementedError` with a checklist pointing at the GPU-host
-  commit that will flesh it out. The actual loop needs ``torch``, ``peft``,
-  the Chatterbox multilingual weights, and a GPU — none of which are
-  available in the test environment.
+* Runs the LoRA training loop (:func:`_run_training` → :func:`_run_training_impl`)
+  on a CUDA GPU host with ``torch``, ``peft``, and the ``chatterbox`` package
+  available. On hosts that lack these, :func:`_run_training` raises
+  :class:`NotImplementedError` with a clear message — the import guard is
+  intentional so the test suite and CI stay hermetic.
 
 Quality-tier policy (see :func:`apply_tier_policy`):
 
@@ -271,35 +268,421 @@ def _reconstruct_run_command(config: TrainConfig) -> str:
 
 
 def _run_training(config: TrainConfig, manifest: DatasetManifest) -> None:
-    """Inner training loop — **not implemented in this commit**.
+    """Train a LoRA adapter on top of the multilingual Chatterbox model.
 
-    Actual training requires ``torch``, ``peft``, the Chatterbox
-    multilingual checkpoint, and a GPU. None of those belong in the test
-    environment, so this function is a clearly marked seam.
+    This is an import guard. If the GPU-only stack (``torch``, ``peft``,
+    ``chatterbox``) can't be loaded, or if CUDA isn't available, we raise
+    :class:`NotImplementedError` with a clear message so CI and test
+    environments without a GPU still pass. On a GPU host with the stack
+    installed, control passes to :func:`_run_training_impl` which runs the
+    actual training loop.
 
-    Implementation checklist for the GPU-host commit:
+    The training loop:
 
-    1. Load the base Chatterbox multilingual model via
-       ``chatterbox_tts.load(...)``.
-    2. Wrap it with ``peft.LoraConfig`` + ``peft.get_peft_model`` targeting
-       the attention projection modules (``q``, ``k``, ``v``, ``o``).
-    3. Build a ``torch.utils.data.Dataset`` from ``manifest`` — load each
-       wav at ``manifest.sample_rate_hz`` and tokenise ``clip.text``.
-    4. Standard training loop: AdamW, cosine LR schedule with warmup, grad
-       accumulation per ``config.grad_accum_steps``, mixed precision per
-       ``config.mixed_precision``, early stopping per
-       ``config.early_stopping_patience``.
-    5. Save the adapter via
-       ``peft.PeftModel.save_pretrained(out_dir / 'adapter')``.
-    6. Log metrics to ``out_dir / 'training.log'``.
+    1. Loads the base Chatterbox multilingual model on CUDA.
+    2. Freezes all weights, then wraps ``engine.t3.tfmr`` (the Llama
+       transformer backbone) with PEFT LoRA on all four attention
+       projections (``q/k/v/o_proj``).
+    3. Builds a per-clip dataset: resamples each WAV to 24 kHz / 16 kHz as
+       needed, tokenises text via ``engine.tokenizer.text_to_tokens``,
+       encodes speech tokens via ``engine.s3gen.tokenizer``, and computes a
+       speaker embedding via ``engine.ve.embeds_from_wavs``.
+    4. Runs AdamW + cosine LR schedule with warmup, gradient accumulation,
+       fp16/bf16 mixed precision, and early stopping on the training loss.
+    5. Saves the best adapter to ``out_dir / 'adapter'`` via
+       ``peft.PeftModel.save_pretrained`` and writes a step-level metrics
+       log to ``out_dir / 'training.log'``.
     """
-    raise NotImplementedError(
-        "LoRA training loop is not implemented in this commit. "
-        "It requires torch + peft + Chatterbox weights on a GPU host. "
-        "See the implementation checklist in _run_training's docstring "
-        "and run this script on a GPU host once that commit lands. "
-        f"Run directory already prepared at {config.out_dir}."
+    # Import guard: these imports must all succeed, and CUDA must be
+    # available, before we'll dispatch to the actual training loop.
+    try:
+        import torch  # type: ignore[import-not-found]  # noqa: F401
+        import peft  # type: ignore[import-not-found]  # noqa: F401
+        import torchaudio  # type: ignore[import-not-found]  # noqa: F401
+        import chatterbox  # type: ignore[import-not-found]  # noqa: F401
+    except ImportError as exc:
+        raise NotImplementedError(
+            "LoRA training requires torch + peft + torchaudio + chatterbox "
+            "on a CUDA GPU host. Missing import: "
+            f"{exc}. Run directory already prepared at {config.out_dir}."
+        ) from exc
+
+    if not torch.cuda.is_available():
+        raise NotImplementedError(
+            "LoRA training requires a CUDA GPU. No CUDA device detected. "
+            f"Run directory already prepared at {config.out_dir}."
+        )
+
+    _run_training_impl(config, manifest)
+
+
+# Emotion → `exaggeration` (emotion_adv) mapping. Conservative defaults —
+# keep the training signal close to the base model's distribution so the
+# adapter learns timbre and accent, not exaggerated prosody. These match
+# the inference-time defaults used elsewhere in the pipeline.
+_EMOTION_TO_EXAGGERATION: dict[str, float] = {
+    "neutral": 0.5,
+    "happy": 0.65,
+    "sad": 0.4,
+    "angry": 0.7,
+    "unknown": 0.5,
+}
+
+
+def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
+    """Actual LoRA training loop. Called from :func:`_run_training` only
+    after import + CUDA availability checks pass.
+
+    This function is not covered by unit tests — it only runs on GPU hosts
+    with the full TTS stack installed. Validation is done end-to-end on a
+    real voice-pack dataset.
+    """
+    import math
+    import random
+    import time
+
+    import numpy as np  # type: ignore[import-not-found]
+    import torch  # type: ignore[import-not-found]
+    import torchaudio  # type: ignore[import-not-found]
+    from peft import LoraConfig, get_peft_model  # type: ignore[import-not-found]
+    from torch.optim import AdamW  # type: ignore[import-not-found]
+    from torch.optim.lr_scheduler import LambdaLR  # type: ignore[import-not-found]
+    from torch.utils.data import DataLoader, Dataset  # type: ignore[import-not-found]
+
+    from chatterbox.models.t3.modules.cond_enc import T3Cond  # type: ignore[import-not-found]
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # type: ignore[import-not-found]
+
+    # --- Determinism (best-effort; torch non-determinism on GPU is real) -
+    torch.manual_seed(config.seed)
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+
+    device = torch.device("cuda")
+
+    # --- Load base model ------------------------------------------------
+    engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
+
+    # Freeze everything; LoRA wrapper re-enables its own params below.
+    for p in engine.t3.parameters():
+        p.requires_grad = False
+
+    lora_cfg = LoraConfig(
+        r=config.lora_rank,
+        lora_alpha=config.lora_alpha,
+        lora_dropout=config.lora_dropout,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        bias="none",
     )
+    engine.t3.tfmr = get_peft_model(engine.t3.tfmr, lora_cfg)
+    # `get_peft_model` re-registers LoRA params with requires_grad=True,
+    # but to be safe we explicitly mark them trainable and collect them.
+    trainable_params: list[torch.nn.Parameter] = []
+    for name, param in engine.t3.named_parameters():
+        if "lora_" in name:
+            param.requires_grad = True
+            trainable_params.append(param)
+    if not trainable_params:
+        raise RuntimeError(
+            "No LoRA parameters found after wrapping. Check that "
+            "target_modules match the model's module names."
+        )
+
+    # --- Dataset + loader -----------------------------------------------
+    sot = int(engine.t3.hp.start_text_token)
+    eot = int(engine.t3.hp.stop_text_token)
+    start_speech = int(engine.t3.hp.start_speech_token)
+    stop_speech = int(engine.t3.hp.stop_speech_token)
+
+    class _VoicePackDataset(Dataset):
+        """Loads one DatasetClip into the tensors T3.loss expects.
+
+        We intentionally keep this CPU-only and let the DataLoader's main
+        thread do the work. The Chatterbox submodels (ve, s3gen.tokenizer)
+        are nn.Modules on CUDA; we run them under inference_mode here, not
+        as part of the forward graph.
+        """
+
+        def __init__(self, m: DatasetManifest) -> None:
+            self.manifest = m
+
+        def __len__(self) -> int:
+            return len(self.manifest.clips)
+
+        def __getitem__(self, idx: int) -> dict:
+            clip = self.manifest.clips[idx]
+            wav_path = self.manifest.root_dir / clip.path
+            wav, sr = torchaudio.load(str(wav_path))
+            if wav.shape[0] > 1:
+                wav = wav.mean(dim=0, keepdim=True)
+            wav_16k_np = (
+                torchaudio.functional.resample(wav, sr, 16000)
+                .squeeze(0)
+                .numpy()
+                .astype(np.float32)
+            )
+
+            # Text tokens. language_id="en" for the current English
+            # audiobook use case; when the pipeline grows multi-lingual
+            # callers, the manifest will carry a language field and we'll
+            # plumb it through.
+            tt = engine.tokenizer.text_to_tokens(
+                clip.text, language_id="en"
+            ).squeeze(0).long()
+            text_tokens = torch.cat(
+                [
+                    torch.tensor([sot], dtype=torch.long),
+                    tt,
+                    torch.tensor([eot], dtype=torch.long),
+                ]
+            )
+
+            # Speech tokens from S3 tokenizer (16 kHz input).
+            with torch.inference_mode():
+                st_batch, _ = engine.s3gen.tokenizer([wav_16k_np])
+            st = st_batch.squeeze(0).detach().cpu().long()
+            speech_tokens = torch.cat(
+                [
+                    torch.tensor([start_speech], dtype=torch.long),
+                    st,
+                    torch.tensor([stop_speech], dtype=torch.long),
+                ]
+            )
+
+            # Speaker embedding — numpy (B, 256) → (256,) mean.
+            with torch.inference_mode():
+                ve_embed_np = engine.ve.embeds_from_wavs(
+                    [wav_16k_np], sample_rate=16000
+                )
+            speaker_emb = torch.from_numpy(np.asarray(ve_embed_np)).float()
+            if speaker_emb.ndim == 2:
+                speaker_emb = speaker_emb.mean(dim=0)
+
+            emotion_adv = torch.tensor(
+                [_EMOTION_TO_EXAGGERATION.get(clip.emotion, 0.5)],
+                dtype=torch.float32,
+            )
+
+            return {
+                "text_tokens": text_tokens,
+                "text_token_len": torch.tensor(
+                    text_tokens.shape[0], dtype=torch.long
+                ),
+                "speech_tokens": speech_tokens,
+                "speech_token_len": torch.tensor(
+                    speech_tokens.shape[0], dtype=torch.long
+                ),
+                "speaker_emb": speaker_emb,
+                "emotion_adv": emotion_adv,
+            }
+
+    def _collate(batch: list[dict]) -> dict:
+        text_lens = torch.stack([b["text_token_len"] for b in batch])
+        speech_lens = torch.stack([b["speech_token_len"] for b in batch])
+        max_text = int(text_lens.max().item())
+        max_speech = int(speech_lens.max().item())
+
+        text = torch.zeros(len(batch), max_text, dtype=torch.long)
+        speech = torch.zeros(len(batch), max_speech, dtype=torch.long)
+        for i, b in enumerate(batch):
+            tlen = int(b["text_token_len"].item())
+            slen = int(b["speech_token_len"].item())
+            text[i, :tlen] = b["text_tokens"]
+            speech[i, :slen] = b["speech_tokens"]
+
+        speaker_emb = torch.stack([b["speaker_emb"] for b in batch])
+        # T3Cond expects emotion_adv shape (B, 1, 1).
+        emotion_adv = torch.stack(
+            [b["emotion_adv"] for b in batch]
+        ).unsqueeze(-1)
+
+        return {
+            "text_tokens": text,
+            "text_token_lens": text_lens,
+            "speech_tokens": speech,
+            "speech_token_lens": speech_lens,
+            "speaker_emb": speaker_emb,
+            "emotion_adv": emotion_adv,
+        }
+
+    dataset = _VoicePackDataset(manifest)
+    # num_workers=0: DataLoader workers + CUDA submodels don't mix well on
+    # Windows, and the dataset already does heavy lifting (resample +
+    # s3_tokenizer) on the main thread — sequential is fine here.
+    loader = DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        collate_fn=_collate,
+        num_workers=0,
+        drop_last=False,
+    )
+
+    # --- Optimizer + scheduler ------------------------------------------
+    optimizer = AdamW(
+        trainable_params,
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
+    batches_per_epoch = max(1, len(loader))
+    steps_per_epoch = max(
+        1, batches_per_epoch // max(1, config.grad_accum_steps)
+    )
+    total_steps = config.max_steps or (steps_per_epoch * config.epochs)
+    warmup_steps = max(1, int(total_steps * config.warmup_ratio))
+
+    def _lr_lambda(step: int) -> float:
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        progress = min(1.0, max(0.0, progress))
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+    scheduler = LambdaLR(optimizer, _lr_lambda)
+
+    # --- Mixed precision ------------------------------------------------
+    use_fp16 = config.mixed_precision == "fp16"
+    use_bf16 = config.mixed_precision == "bf16"
+    autocast_dtype = (
+        torch.float16 if use_fp16 else torch.bfloat16 if use_bf16 else torch.float32
+    )
+    scaler = torch.amp.GradScaler("cuda", enabled=use_fp16)
+
+    # --- Output staging -------------------------------------------------
+    adapter_dir = config.out_dir / "adapter"
+    adapter_dir.mkdir(parents=True, exist_ok=True)
+    log_path = config.out_dir / "training.log"
+
+    best_loss = float("inf")
+    no_improve_evals = 0
+    global_step = 0
+    start_wall = time.time()
+
+    with log_path.open("w", encoding="utf-8") as logf:
+        logf.write(
+            "# voice_pack_train run log\n"
+            f"# speaker={manifest.speaker} "
+            f"clips={len(manifest.clips)} "
+            f"total_seconds={manifest.total_seconds:.1f}\n"
+            f"# lora_rank={config.lora_rank} lora_alpha={config.lora_alpha} "
+            f"lora_dropout={config.lora_dropout}\n"
+            f"# total_steps={total_steps} warmup_steps={warmup_steps} "
+            f"batch_size={config.batch_size} "
+            f"grad_accum={config.grad_accum_steps} "
+            f"mixed_precision={config.mixed_precision}\n"
+        )
+        logf.flush()
+
+        engine.t3.train()
+        should_stop = False
+
+        for epoch in range(config.epochs):
+            if should_stop:
+                break
+            optimizer.zero_grad(set_to_none=True)
+            micro_step_in_accum = 0
+
+            for batch in loader:
+                # Move tensors to device; reconstruct T3Cond on device.
+                text_tokens = batch["text_tokens"].to(device)
+                text_token_lens = batch["text_token_lens"].to(device)
+                speech_tokens = batch["speech_tokens"].to(device)
+                speech_token_lens = batch["speech_token_lens"].to(device)
+                speaker_emb = batch["speaker_emb"].to(device)
+                emotion_adv = batch["emotion_adv"].to(device).unsqueeze(-1)
+
+                t3_cond = T3Cond(
+                    speaker_emb=speaker_emb,
+                    cond_prompt_speech_tokens=None,
+                    emotion_adv=emotion_adv,
+                )
+
+                with torch.amp.autocast(
+                    "cuda",
+                    dtype=autocast_dtype,
+                    enabled=config.mixed_precision != "no",
+                ):
+                    loss_text, loss_speech = engine.t3.loss(
+                        t3_cond=t3_cond,
+                        text_tokens=text_tokens,
+                        text_token_lens=text_token_lens,
+                        speech_tokens=speech_tokens,
+                        speech_token_lens=speech_token_lens,
+                    )
+                    loss = (loss_text + loss_speech) / config.grad_accum_steps
+
+                if use_fp16:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
+                micro_step_in_accum += 1
+                if micro_step_in_accum < config.grad_accum_steps:
+                    continue
+
+                # Optimizer step
+                if use_fp16:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+                micro_step_in_accum = 0
+                global_step += 1
+
+                reported_loss = float(
+                    loss.item() * config.grad_accum_steps
+                )
+                lr_now = scheduler.get_last_lr()[0]
+                logf.write(
+                    f"step={global_step} epoch={epoch} "
+                    f"loss={reported_loss:.4f} "
+                    f"text={float(loss_text.item()):.4f} "
+                    f"speech={float(loss_speech.item()):.4f} "
+                    f"lr={lr_now:.3e}\n"
+                )
+                logf.flush()
+
+                # Checkpoint cadence: save on improvement (best-so-far).
+                # config.save_every_n_steps is used only for the
+                # improvement eval cadence below.
+                if global_step % max(1, config.eval_every_n_steps) == 0:
+                    if reported_loss < best_loss:
+                        best_loss = reported_loss
+                        no_improve_evals = 0
+                        engine.t3.tfmr.save_pretrained(str(adapter_dir))
+                        logf.write(
+                            f"# checkpoint step={global_step} "
+                            f"best_loss={best_loss:.4f}\n"
+                        )
+                        logf.flush()
+                    else:
+                        no_improve_evals += 1
+                        if (
+                            config.early_stopping_patience is not None
+                            and no_improve_evals
+                            >= config.early_stopping_patience
+                        ):
+                            logf.write(
+                                f"# early_stop step={global_step} "
+                                f"patience={config.early_stopping_patience}\n"
+                            )
+                            should_stop = True
+                            break
+
+                if config.max_steps and global_step >= config.max_steps:
+                    should_stop = True
+                    break
+
+        # Always save the final state — if the best-so-far didn't update
+        # in the final eval window we still want a usable adapter on disk.
+        engine.t3.tfmr.save_pretrained(str(adapter_dir))
+        wall = time.time() - start_wall
+        logf.write(
+            f"# done steps={global_step} "
+            f"best_loss={best_loss:.4f} "
+            f"wall_seconds={wall:.1f}\n"
+        )
 
 
 def _build_parser() -> argparse.ArgumentParser:
