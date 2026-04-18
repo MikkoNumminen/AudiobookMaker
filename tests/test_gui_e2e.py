@@ -7,7 +7,7 @@ Tkinter works headlessly on Windows CI runners.
 from __future__ import annotations
 
 import tkinter as tk
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1147,3 +1147,28 @@ class TestVoicePackImport:
         manual = str(tmp_path / "manual.wav")
         resolved = app._effective_reference_audio(voice, manual_ref=manual)
         assert resolved == manual
+
+
+class TestInlineAudioPlayer:
+    """The Preview button hands off to the in-process AudioPlayer instead
+    of shelling out to the OS default player.
+    """
+
+    def test_listen_click_invokes_inline_player(self, app, tmp_path):
+        """Clicking Preview with a finished MP3 calls AudioPlayer.play()."""
+        fake_clip = tmp_path / "finished.mp3"
+        fake_clip.write_bytes(b"")
+        app._last_playable_path = str(fake_clip)
+        app._output_path = None
+        app._listening = False
+        app._synth_running = False
+
+        fake_player = MagicMock()
+        fake_player.is_playing.return_value = False
+        with patch(
+            "src.gui_unified._audio_player.get_player",
+            return_value=fake_player,
+        ):
+            app._on_listen_click()
+
+        fake_player.play.assert_called_once_with(str(fake_clip))
