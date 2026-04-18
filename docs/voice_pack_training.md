@@ -21,19 +21,18 @@ use case on a 12 GB RTX 3080 Ti.
    │  (2) voice_pack_analyze.py   → transcripts.jsonl + speakers.yaml
    ▼
 <per-speaker VoiceChunks>
-   │  (3) emotion-tag + export  → manifest.json + wavs/
-   ▼          (not yet a CLI — see "Bridge" below)
+   │  (3) voice_pack_export.py   → manifest.json + wavs/
+   ▼
 <DatasetManifest>
-   │  (4) voice_pack_train.py   → adapter/
+   │  (4) voice_pack_train.py    → adapter/
    ▼
 <LoRA adapter ready to load>
-   │  (5) voice_pack_package.py → voice pack directory
+   │  (5) voice_pack_package.py  → voice pack directory
    ▼
 <installable voice pack>
 ```
 
-Stages 1, 2, 4, 5 have CLIs today. Stage 3 needs a small Python driver
-until the bridge CLI lands.
+All five stages are one-shot CLIs.
 
 ## Step-by-step — 1 hour sample
 
@@ -61,42 +60,25 @@ Open `report.md` and pick the speaker you want to clone. For a LitRPG
 audiobook this is usually `SPEAKER_00` (the narrator), measured in
 tens of minutes even in a 1 h sample.
 
-### 3. Emotion-tag + export a single-speaker dataset
+### 3. Export a single-speaker dataset
 
-Temporary bridge — until the export CLI lands, run this snippet:
-
-```python
-# save as bridge_export.py, run with .venv-chatterbox/Scripts/python.exe
-import json
-from pathlib import Path
-from src.voice_pack.types import VoiceChunk, TaggedChunk
-from src.voice_pack.dataset import export_dataset
-
-SPEAKER = "SPEAKER_00"                          # from report.md
-SOURCE = Path("dual_class_1h.wav")
-ANALYSIS = Path("analysis_1h/transcripts.jsonl")
-OUT = Path("dataset_1h/")
-
-tagged: list[TaggedChunk] = []
-with ANALYSIS.open("r", encoding="utf-8") as fh:
-    for line in fh:
-        raw = json.loads(line)
-        if raw["speaker"] != SPEAKER:
-            continue
-        vc = VoiceChunk(**raw)
-        # Simplest emotion pass: everything "neutral". Swap in a real
-        # classifier here if you want emotion-balanced training.
-        tagged.append(TaggedChunk(chunk=vc, emotion="neutral"))
-
-manifest = export_dataset(
-    tagged,
-    source_audio_path=SOURCE,
-    out_dir=OUT,
-    sample_rate_hz=24000,
-)
-print(f"Exported {len(manifest.clips)} clips, "
-      f"{manifest.total_seconds / 60:.1f} min, tier target: full_lora")
+```bash
+.venv-chatterbox/Scripts/python.exe scripts/voice_pack_export.py \
+  --transcripts analysis_1h/transcripts.jsonl \
+  --source dual_class_1h.wav \
+  --speaker SPEAKER_00 \
+  --out dataset_1h/
 ```
+
+Outputs under `dataset_1h/`:
+- `manifest.json` — ready for `voice_pack_train.py`.
+- `wavs/NNNN.wav` — one clip per VoiceChunk for the chosen speaker.
+- `metadata.csv` — LJSpeech-format companion (path|text|emotion|duration).
+
+Every clip gets labelled `neutral` by default. Pass `--emotion-label
+happy|sad|angry|unknown` to override for the whole set, or plug a real
+emotion classifier in by re-exporting stage 2's chunks with per-clip
+labels (the `TaggedChunk.from_chunk` helper is the hook point).
 
 ### 4. Train
 
@@ -145,10 +127,11 @@ Expected: ~30–60 min wall time for 1 h of source audio on a 3080 Ti.
 - **Speaker selection.** The analyzer gives you a report, not a pick.
   For multi-speaker audiobooks you run steps 3–5 once per speaker you
   want to clone.
-- **Emotion tagging.** The bridge snippet above labels every clip
-  "neutral". For expressive voices you'd plug in a real emotion classifier
-  between analyze and export. Low-effort upgrade: use heuristics on text
-  punctuation (`!` → angry/happy, long ellipses → sad).
+- **Emotion tagging.** `voice_pack_export.py` labels every clip
+  `neutral` by default. For expressive voices plug in a real emotion
+  classifier upstream and write the per-clip labels into the manifest
+  directly. Low-effort upgrade: heuristics on text punctuation (`!` →
+  angry/happy, long ellipses → sad).
 - **Listening check.** Nothing here measures audio quality. After
   training, synthesize a sample and listen. If it's overshooting the
   accent (buzzy, stiff), drop `--lr` to 5e-5 and retrain.
