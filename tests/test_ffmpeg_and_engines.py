@@ -99,6 +99,38 @@ class TestGetFfmpegExe:
 class TestSetupFfmpegPath:
     """Tests for setup_ffmpeg_path() pydub configuration."""
 
+    @pytest.fixture(autouse=True)
+    def _restore_ffmpeg_globals(self):
+        """Snapshot and restore globals that setup_ffmpeg_path mutates.
+
+        Without this, leftover state (a tmp_path entry prepended to
+        ``PATH`` or pydub.AudioSegment.converter pointing at a deleted
+        stub) leaks into later tests. tests/test_piper_e2e.py was the
+        first casualty: shutil.which('ffmpeg') would find the deleted
+        stub still in ``PATH``, and a real subprocess.run would crash
+        with WinError 216 because the file is just b"fake".
+        """
+        saved_path = os.environ.get("PATH", "")
+        try:
+            from pydub import AudioSegment
+            import pydub.utils
+            saved_converter = AudioSegment.converter
+            saved_ffprobe = getattr(AudioSegment, "ffprobe", None)
+            saved_get_prober_name = pydub.utils.get_prober_name
+        except ImportError:
+            saved_converter = saved_ffprobe = saved_get_prober_name = None
+
+        yield
+
+        os.environ["PATH"] = saved_path
+        if saved_get_prober_name is not None:
+            from pydub import AudioSegment
+            import pydub.utils
+            AudioSegment.converter = saved_converter
+            if saved_ffprobe is not None:
+                AudioSegment.ffprobe = saved_ffprobe
+            pydub.utils.get_prober_name = saved_get_prober_name
+
     def test_sets_audiosegment_converter(self, tmp_path: Path) -> None:
         from src.ffmpeg_path import setup_ffmpeg_path
 
@@ -131,13 +163,9 @@ class TestSetupFfmpegPath:
         ffmpeg = tmp_path / "ffmpeg.exe"
         ffmpeg.write_bytes(b"fake")
 
-        old_path = os.environ.get("PATH", "")
-        try:
-            with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=str(ffmpeg)):
-                setup_ffmpeg_path()
-                assert str(tmp_path) in os.environ["PATH"]
-        finally:
-            os.environ["PATH"] = old_path
+        with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=str(ffmpeg)):
+            setup_ffmpeg_path()
+            assert str(tmp_path) in os.environ["PATH"]
 
     def test_noop_when_ffmpeg_not_found(self) -> None:
         from src.ffmpeg_path import setup_ffmpeg_path
@@ -145,6 +173,38 @@ class TestSetupFfmpegPath:
         with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=None):
             # Should not raise
             setup_ffmpeg_path()
+
+    def test_repeated_setup_does_not_wrap_popen_recursively(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: calling setup_ffmpeg_path repeatedly must not
+        re-wrap subprocess.Popen each time. Before the idempotency
+        guard, every call added another _SilentPopen layer, producing
+        arbitrarily deep recursion in the Popen.__init__ chain on
+        every spawned subprocess (visible as a 5-deep traceback in
+        the bug that motivated this test)."""
+        from src import ffmpeg_path
+        from src.ffmpeg_path import setup_ffmpeg_path
+
+        ffmpeg = tmp_path / "ffmpeg.exe"
+        ffmpeg.write_bytes(b"fake")
+
+        # Force a fresh patch attempt regardless of prior test state.
+        ffmpeg_path._PYDUB_PATCHED = False
+
+        with patch("src.ffmpeg_path.get_ffmpeg_exe", autospec=True, return_value=str(ffmpeg)):
+            setup_ffmpeg_path()
+            try:
+                import pydub.utils
+                first_popen = pydub.utils.Popen
+            except ImportError:
+                pytest.skip("pydub not installed")
+
+            for _ in range(4):
+                setup_ffmpeg_path()
+
+            # Same wrapper class — no new layer added on each call.
+            assert pydub.utils.Popen is first_popen
 
 
 # ---------------------------------------------------------------------------
