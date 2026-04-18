@@ -113,6 +113,129 @@ class TestSplitSentences:
 
 
 # ---------------------------------------------------------------------------
+# _split_sentences — URL / decimal / enumeration edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSplitSentencesEdgeCases:
+    # --- URLs ---
+
+    def test_https_url_with_path_does_not_split(self) -> None:
+        text = "Lähde: https://example.com/page. Seuraava lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "example.com/page" in sentences[0]
+
+    def test_url_with_query_string_does_not_split(self) -> None:
+        text = "Katso https://example.com/search?q=test&n=5 ohjetta. Toinen."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_url_with_multiple_dots_does_not_split(self) -> None:
+        text = "Palvelin on api.example.co.uk/v2. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_www_prefixed_domain_does_not_split(self) -> None:
+        text = "Sivu on www.google.com. Seuraava lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    # --- Decimals and numbers ---
+
+    def test_money_amount_does_not_split(self) -> None:
+        # "Hinta on 5,99 €." is Finnish convention; "Price is $5.99." the
+        # English one. Both should stay in one sentence.
+        text = "Price is $5.99. Next sentence."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_version_number_does_not_split(self) -> None:
+        text = "Päivitä versioon 3.9.1 heti. Toinen."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "3.9.1" in sentences[0]
+
+    def test_ip_address_does_not_split(self) -> None:
+        text = "Palvelin 192.168.1.1 vastaa. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "192.168.1.1" in sentences[0]
+
+    def test_long_decimal_does_not_split(self) -> None:
+        text = "Piin arvo on 3.14159 noin. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    # --- Additional Finnish abbreviations listed in _ABBREVIATIONS ---
+
+    def test_finnish_yms_does_not_split(self) -> None:
+        text = "Omenoita, päärynöitä yms. ostettiin kaupasta. Toinen."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "yms." in sentences[0]
+
+    def test_finnish_jne_does_not_split(self) -> None:
+        text = "Autoja, busseja jne. nähtiin tiellä. Toinen."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_finnish_vrt_does_not_split(self) -> None:
+        text = "Sääntö on sama, vrt. Kissan laki. Toinen lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_finnish_n_followed_by_number_does_not_split(self) -> None:
+        # "n." is a very common Finnish approximation marker ("noin").
+        text = "Paikalla oli n. 50 ihmistä. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_finnish_s_as_page_abbrev_does_not_split(self) -> None:
+        # "s." is "sivu" (page) in Finnish citations.
+        text = "Lue s. 45 ohjeistus. Seuraava."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+
+    def test_finnish_tms_does_not_split(self) -> None:
+        text = "Valinnat ovat kaksi tms. vaihtoehtoa. Toinen lause."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert "tms." in sentences[0]
+
+    # --- Repeated / compound terminators ---
+
+    def test_question_exclamation_compound_splits_once(self) -> None:
+        text = "Mitä?! Hän kysyi."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert sentences[0].endswith("?!")
+
+    def test_ellipsis_splits_once(self) -> None:
+        text = "Hän mietti... Seuraava ajatus."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 2
+        assert sentences[0].endswith("...")
+
+    # --- End-of-text / whitespace edges ---
+
+    def test_trailing_whitespace_is_dropped(self) -> None:
+        text = "Ensimmäinen. Toinen.   \n\n"
+        sentences = _split_sentences(text)
+        # Should not produce a trailing empty sentence for the padding.
+        assert all(s.strip() for s in sentences)
+
+    def test_abbrev_at_end_of_text_keeps_last_sentence(self) -> None:
+        # "Dr." at the very end of the text — no following sentence. The
+        # final "." is inside the abbreviation but the text still needs
+        # to come out as one whole sentence, not be dropped.
+        text = "They met Dr."
+        sentences = _split_sentences(text)
+        assert len(sentences) == 1
+        assert sentences[0].strip() == "They met Dr."
+
+
+# ---------------------------------------------------------------------------
 # _force_split
 # ---------------------------------------------------------------------------
 

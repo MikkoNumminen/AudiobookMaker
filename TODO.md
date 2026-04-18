@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Sentence splitter edge-case tests (URLs / decimals / FI abbreviations) | 2026-04-18 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -100,7 +100,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### TTS Output Quality
 - [ ] Create a comparison script that runs the same text through all three engines for manual A/B review
 - [ ] Verify silence trimming between chunks — check for gaps or over-trimming
-- [ ] Test sentence splitter against edge cases (URLs, decimals, Finnish abbreviations) [Claude 1, main]
 
 ### PDF Parser Stress Testing
 - [ ] Collect 10-15 diverse test PDFs (scanned, two-column, academic, Finnish hyphenation, tables)
