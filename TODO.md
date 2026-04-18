@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Dependency security — pip audit + fix any flagged CVEs | 2026-04-18 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -117,10 +117,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Memory Profiling
 - [ ] Profile memory during conversion of a 300+ page PDF
 - [ ] Check pydub audio chunks are released properly
-
-### Dependency Security [Claude 1, main]
-- [ ] Run pip audit against requirements.txt
-- [ ] Update any packages with known vulnerabilities
 
 ### Qwen3-TTS — DROPPED
 Investigated and ruled out. Finnish not supported, CUDA-only, too slow. No further action.
