@@ -57,6 +57,9 @@ def get_ffmpeg_exe() -> str | None:
     return None
 
 
+_PYDUB_PATCHED = False
+
+
 def _patch_pydub_no_window() -> None:
     """Monkey-patch pydub's subprocess calls to hide console windows.
 
@@ -64,7 +67,16 @@ def _patch_pydub_no_window() -> None:
     causing ffmpeg/ffprobe to flash console windows on every call.
     We patch the Popen references in pydub's modules to use a wrapper
     that adds CREATE_NO_WINDOW on Windows.
+
+    Idempotent — calling this more than once is a no-op. Without the
+    guard, each call wrapped the previously-wrapped Popen, producing
+    arbitrarily deep recursion (and a corresponding stack trace) on
+    every spawned subprocess.
     """
+    global _PYDUB_PATCHED
+    if _PYDUB_PATCHED:
+        return
+
     import subprocess as _sp
 
     _OrigPopen = _sp.Popen
@@ -86,6 +98,8 @@ def _patch_pydub_no_window() -> None:
         pydub.audio_segment.subprocess.Popen = _SilentPopen
     except (ImportError, AttributeError):
         pass
+
+    _PYDUB_PATCHED = True
 
 
 def setup_ffmpeg_path() -> None:
