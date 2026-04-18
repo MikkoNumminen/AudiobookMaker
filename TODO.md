@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | Analyze→train bridge CLI (Slice 2b) | 2026-04-19 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -54,7 +54,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
-- [ ] **Analyze→train bridge CLI (Slice 2b):** wrap the `export_dataset` Python function in a CLI that takes `analysis/transcripts.jsonl` + a chosen speaker id and writes a single-speaker `manifest.json` ready for `voice_pack_train.py`. Simplest first version labels every clip `neutral` — emotion classifier plugs in later. See `docs/voice_pack_training.md` stage 3 for the current Python-snippet workaround. 🟢 ⚡ Sonnet.
+- [ ] **Analyze→train bridge CLI (Slice 2b):** [Claude 1, main] wrap the `export_dataset` Python function in a CLI that takes `analysis/transcripts.jsonl` + a chosen speaker id and writes a single-speaker `manifest.json` ready for `voice_pack_train.py`. Simplest first version labels every clip `neutral` — emotion classifier plugs in later. See `docs/voice_pack_training.md` stage 3 for the current Python-snippet workaround. 🟢 ⚡ Sonnet.
 - [ ] **GPU validation of the LoRA training loop (Slice 3 validate):** shipped in e7fa81c. Needs a live GPU run on a real 1 h sample to confirm target_modules match the installed Chatterbox build and that the adapter loads back into inference. 🟡 🧠 Opus.
 - [ ] **Expression markup wire-up (Slice 5 inference-path integration):** consume the `ExpressionPlan` produced by `src.voice_pack.expression.parse_markup` inside `scripts/generate_chatterbox_audiobook.py` so per-sentence `exaggeration` / `cfg_weight` overrides take effect during synthesis. Optional lightweight emotion-prefix token during training. 🟡 🧠 Opus.
 - [ ] **XTTS v2 bake-off (Slice 5a, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
