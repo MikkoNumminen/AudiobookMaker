@@ -82,7 +82,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Delete `.venv-chatterbox/`, `.venv-qwen/`, HuggingFace model caches (~9.4 GB reclaimable). Do NOT delete while Mac is still used for dev. 🟢 ⚡ Sonnet
 
 ### Make a Finnish audiobook of "Testoman ja Sauro"
-- [ ] Convert the two Testo Mani / Raudo gym-story texts to a single Finnish audiobook. Sources attached at repo root: `testoman_ja_sauro_part1.txt` (~64 KB, from https://users.aalto.fi/~jlinnosa/massaa/massaa.txt) and `testoman_ja_sauro_part2.txt` (~10 KB, from https://users.aalto.fi/~jlinnosa/massaa/massaa2.txt). Both are UTF-8, Finnish. Default engine: Chatterbox-Finnish Grandmom. Concatenate parts in order, run through GUI or `scripts/generate_chatterbox_audiobook.py`, deliver MP3. 🟡 ⚡ Sonnet
+- [ ] Convert the two Testo Mani / Raudo gym-story texts to a single Finnish audiobook. Sources attached at repo root: `testoman_ja_sauro_part1.txt` (~64 KB, from https://users.aalto.fi/~jlinnosa/massaa/massaa.txt) and `testoman_ja_sauro_part2.txt` (~10 KB, from https://users.aalto.fi/~jlinnosa/massaa/massaa2.txt). Both are UTF-8, Finnish. Plan: (1) concatenate part1 + part2 in order, (2) strip email/forum metadata headers ("Subject:", "Mega Man kirjoitti 3.7 13:39", "ilmianna asiaton viesti", "vastaa", etc.) so only the story prose reads aloud, (3) synth via GUI or `scripts/generate_chatterbox_audiobook.py`. **Voice/engine still TBD — wait for user.** Do NOT start synth without explicit go-ahead. 🟡 ⚡ Sonnet
 
 ## Post-Audit Tasks
 
