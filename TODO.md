@@ -59,7 +59,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Voice cloning — real-world end-to-end validation
 - [ ] Test `scripts/record_voice_sample.py` live with a real 12 s recording. Raise input volume to ~85% first (Zoom/Teams leaves it at ~5–10%). 🟢 ⚡ Sonnet
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
-- [ ] Document the "input volume gotcha" in README. 🟢 ⚡ Sonnet
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
 - [ ] **GPU training loop (Slice 3 inner):** fill in the `NotImplementedError` seam in `scripts/voice_pack_train.py::_run_training` with the actual Chatterbox LoRA fine-tune loop. Borrow from the existing Finnish finetune. Low LR + early stopping to preserve accent/dialect. Needs a GPU host to validate. 🔴 🧠 Opus.

@@ -470,7 +470,13 @@ are not part of the shipped installer.
 - **`scripts/generate_audiobook_parallel.py`** -- parallel Edge-TTS
   generator, about 8x faster than the GUI for large books
 - **`scripts/record_voice_sample.py`** -- record a voice clip, validate
-  its quality, and synthesize text in the cloned voice
+  its quality, and synthesize text in the cloned voice.
+  **Input-volume gotcha:** Zoom, Teams, and Discord silently lower the
+  system mic level to roughly 5-10 % so you don't blow out calls. That
+  level is too quiet for voice cloning -- the preflight SNR check will
+  fail or the clone will sound whispery. Before recording, open the OS
+  sound settings and raise the input volume to about 85 %, then speak
+  at a normal conversational distance (~20 cm from the mic)
 - **`dev_qwen_tts.py`** -- Qwen3-TTS experiment. **Abandoned** --
   Finnish isn't supported, MPS is broken, CPU is too slow. Kept so
   nobody re-investigates the same dead end
