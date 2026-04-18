@@ -15,7 +15,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude 1 | 🔵 working | Pass N acronym letter-by-letter fallback | 2026-04-19 |
 | Claude 2 | 🔵 working | File Chatterbox upstream bug report + hook_leak_fix.patch PR | 2026-04-19 |
 | Claude 3 | 🔵 working | Inline audio player widget (pygame.mixer play/stop on sample preview) | 2026-04-19 |
-| Claude 4 | 🟢 idle | — | — |
+| Claude 4 | 🔵 working | Retire Windows fast-track bundle (scripts/*.bat, *.ps1, quickstart) — GUI installer replaces it | 2026-04-19 |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
 
@@ -67,9 +67,8 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Chatterbox-Finnish — upstream contribution [Claude 2, worktree-upstream-pr]
 - [ ] Submit bug report + patch (`docs/upstream/chatterbox/BUG_REPORT.md` + `hook_leak_fix.patch`) as a GitHub issue + PR to `resemble-ai/chatterbox`. 🟡 🧠 Opus
 
-### Chatterbox-Finnish — tester feedback loop
-- [ ] Collect errors/friction from testers running the fast-track bundle. 🟡 ⚡ Sonnet
-- [ ] If a tester hits the "open PowerShell" wall: write a `setup.bat` wrapper. 🟢 ⚡ Sonnet
+### Retire Windows fast-track bundle [Claude 4, main]
+- [ ] Delete `scripts/setup_chatterbox_windows.{bat,ps1}`, `scripts/run_audiobook.bat`, `scripts/chatterbox_windows_quickstart.md`. Update README.md, DEVELOPMENT.md, QUICKSTART_DEV.md, and four production error messages (gui_unified / launcher / tts_chatterbox_bridge / record_voice_sample) to point at the in-GUI Engine Manager instead. Keep `scripts/generate_chatterbox_audiobook.py` — still used by the GUI. 🟢 ⚡ Sonnet.
 
 ### VoxCPM2 — GPU testing (requires NVIDIA machine)
 - [ ] Run `pip install voxcpm` and verify the GUI sees the engine. 🟢 ⚡ Sonnet
