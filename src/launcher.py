@@ -355,8 +355,8 @@ class LauncherApp(tk.Tk):
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
         if python_exe is None or not runner_script.exists():
             self._fail(
-                "Chatterbox-venviä ei löytynyt. Asenna se ensin "
-                "suorittamalla scripts/setup_chatterbox_windows.bat."
+                "Chatterbox-moottoria ei ole asennettu. Asenna se "
+                "Asetukset-paneelin \"Asenna moottoreita…\" -painikkeesta."
             )
             return
 

@@ -1,10 +1,10 @@
 """Post-install setup for the Chatterbox-Finnish engine.
 
 Invoked by the Launcher Inno Setup wizard (``installer/launcher.iss``) only
-when the user ticked the "Chatterbox Finnish (GPU)" component. Does the
-same work as ``scripts/setup_chatterbox_windows.ps1`` but as a pure Python
-script so it can be driven by the installer without hitting Windows'
-PowerShell execution-policy wall.
+when the user ticked the "Chatterbox Finnish (GPU)" component. Pure Python
+so it can be driven by the installer without hitting Windows' PowerShell
+execution-policy wall; also the code path the in-app "Install engines…"
+button shells out to when a user installs Chatterbox post-install.
 
 Responsibilities (in order):
 
@@ -43,8 +43,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Versions pinned to what we verified working on dev_chatterbox_fi.py /
-# setup_chatterbox_windows.ps1. Raising these requires a smoke-test.
+# Versions pinned to what we verified working on dev_chatterbox_fi.py.
+# Raising these requires a smoke-test.
 TORCH_WHEEL_VERSION = "2.6.0"
 TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 

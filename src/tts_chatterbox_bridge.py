@@ -68,8 +68,8 @@ class ChatterboxFiEngine(TTSEngine):
             return EngineStatus(
                 available=False,
                 reason=(
-                    "Chatterbox-venviä ei löytynyt. Asenna se ajamalla "
-                    "scripts/setup_chatterbox_windows.bat."
+                    "Chatterbox-moottoria ei ole asennettu. Asenna se "
+                    "Asetukset-paneelin \"Asenna moottoreita…\" -painikkeesta."
                 ),
             )
         repo_root = Path(__file__).resolve().parent.parent

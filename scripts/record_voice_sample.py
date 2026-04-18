@@ -469,8 +469,9 @@ def synthesize_with_cloned_voice(
     if not venv_py.exists():
         raise RuntimeError(
             f"Chatterbox venv Python not found at {venv_py}. "
-            "Run scripts/setup_chatterbox_windows.ps1 on Windows or "
-            "recreate the .venv-chatterbox virtualenv on Mac."
+            "Install it from the GUI's \"Install engines…\" panel on "
+            "Windows, or recreate the .venv-chatterbox virtualenv manually "
+            "on Mac (see docs/QUICKSTART_DEV.md)."
         )
     if not CHATTERBOX_SCRIPT.exists():
         raise RuntimeError(f"{CHATTERBOX_SCRIPT} not found.")
