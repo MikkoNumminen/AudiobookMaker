@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | Mixin dedup — merge diverged SynthMixin / UnifiedApp overrides | 2026-04-18 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -37,7 +37,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Inline audio player in the GUI
 - [ ] Replace the external-player shell-out with a minimal in-GUI play/stop widget. Scope: play/stop only, no seek bar, no volume slider. Library choice: `pygame.mixer` (~5 MB) or `miniaudio` (lighter). Must stop on window close and stop the previous clip before starting a new one. ~1 h for samples-only, ~2 h if it also plays the final book MP3. 🟡 ⚡ Sonnet.
 
-### Mixin dedup: merge diverged SynthMixin / UnifiedApp overrides
+### Mixin dedup: merge diverged SynthMixin / UnifiedApp overrides [Claude 1, main]
 - [ ] `SynthMixin._pump_events`, `_set_running_state`, `_set_idle_state` diverged from the `UnifiedApp` overrides. Merge into one canonical implementation. Code health, not urgent. 🟡 ⚡ Sonnet.
 
 ### Finnish voice mispronounces "s" as "sch"
