@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | Fix first-pass audio_s telemetry in generate_chatterbox_audiobook | 2026-04-18 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -31,7 +31,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### Audiobook generator: first-pass `audio_s` telemetry is wrong
+### Audiobook generator: first-pass `audio_s` telemetry is wrong [Claude 1, main]
 - [ ] `.chunk_stats.jsonl` `audio_s` field is unreliable for chunks written on the original (pre-retry-guard) code path — e.g. chunk idx 255 in `dist/audiobook_tail_fix/test_book/.chunk_stats.jsonl` reports `audio_s=0.38` while the on-disk WAV is 11.18 s. Second-pass entries (those with `retries_used` present) match WAV duration exactly. Likely an intermediate-tensor capture that pre-dates concat/trim. Track down the instrumentation seam and fix it so telemetry is trustworthy for future regression checks. 🟡 ⚡ Sonnet.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
