@@ -28,6 +28,10 @@ Pillow==12.2.0
 # Audio processing
 pydub==0.25.1
 
+# In-process audio playback for the Preview button (replaces shelling out
+# to the OS default player, which fails on systems with no MP3 association).
+pygame>=2.5,<3
+
 # Packaging (dev dependency)
 pyinstaller==6.8.0
 

@@ -33,7 +33,7 @@ from typing import Any, Optional
 
 import customtkinter as ctk
 
-from src import app_config
+from src import _audio_player, app_config
 from src.auto_updater import (
     check_for_update, download_update, apply_update,
     APP_VERSION, GITHUB_REPO, UpdateInfo,
@@ -246,6 +246,8 @@ _STRINGS = {
         "update_failed": "Päivitys epäonnistui.",
         "update_error_detail": "Päivitys epäonnistui: {error}",
         "listen": "Esikuuntele",
+        "play": "Esikuuntele",
+        "stop": "Pys\u00e4yt\u00e4",
         "listening": "Toistetaan...",
         "listen_no_text": "Kirjoita ensin teksti Teksti-välilehdelle.",
         "pdf_no_text": "PDF ei sisällä tekstiä (tiedosto voi olla skannattu). Kokeile ensin OCR-muunnosta.",
@@ -352,6 +354,8 @@ _STRINGS = {
         "update_failed": "Update failed.",
         "update_error_detail": "Update failed: {error}",
         "listen": "Preview",
+        "play": "Preview",
+        "stop": "Stop",
         "listening": "Playing...",
         "listen_no_text": "Enter text in the Text tab first.",
         "pdf_no_text": "PDF contains no extractable text (it may be scanned). Try OCR first.",
@@ -669,7 +673,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         # Listen / convert / cancel / open folder buttons.
         if not self._listening:
-            self._listen_btn.configure(text=s("listen"))
+            self._refresh_listen_btn_label()
         self._convert_btn.configure(text=s("convert"))
         self._sample_btn.configure(text=s("make_sample"))
         if not self._cancel_requested:
@@ -2013,14 +2017,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         def _play() -> None:
             self._status_label_val.configure(text=self._s("sample_saved").format(path=path))
             try:
-                if sys.platform == "win32":
-                    os.startfile(path)  # type: ignore[attr-defined]
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", path])
-                else:
-                    subprocess.Popen(["xdg-open", path])
+                _audio_player.get_player().play(path)
+                self._refresh_listen_btn_label()
             except Exception as exc:
-                logger.debug("failed to launch OS player for sample %s", path, exc_info=exc)
+                logger.debug("failed to play sample %s", path, exc_info=exc)
+                self._append_log_error(self._s("playback_failed").format(error=exc))
         self.after(0, _play)
 
     # ------------------------------------------------------------------
@@ -2041,6 +2042,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         return None
 
     def _on_listen_click(self) -> None:
+        # If a clip is already playing, the button acts as Stop.
+        player = _audio_player.get_player()
+        if player.is_playing():
+            player.stop()
+            self._refresh_listen_btn_label()
+            return
+
         if self._listening or self._synth_running:
             return
 
@@ -2058,12 +2066,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             if cand_file.is_file() and cand_file.suffix.lower() == ".mp3":
                 self._append_log(f"Toistetaan: {cand_file}")
                 try:
-                    if sys.platform == "win32":
-                        os.startfile(str(cand_file))  # type: ignore[attr-defined]
-                    elif sys.platform == "darwin":
-                        subprocess.Popen(["open", str(cand_file)])
-                    else:
-                        subprocess.Popen(["xdg-open", str(cand_file)])
+                    player.play(str(cand_file))
+                    self._refresh_listen_btn_label()
                 except Exception as exc:
                     self._append_log_error(self._s("playback_failed").format(error=exc))
                 return
@@ -2185,15 +2189,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
             self.after(0, lambda: self._append_log("Toistetaan ääntä..."))
 
-            # Play via the system's default audio player.
-            if sys.platform == "win32":
-                os.startfile(tmp_path)  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", tmp_path])
-            else:
-                subprocess.Popen(["xdg-open", tmp_path])
-            # Give the player time to open the file before cleanup.
-            time.sleep(2)
+            # Play in-process via the shared AudioPlayer singleton.
+            try:
+                _audio_player.get_player().play(tmp_path)
+                self.after(0, self._refresh_listen_btn_label)
+            except Exception as exc:
+                self.after(0, lambda e=exc: self._append_log_error(
+                    self._s("playback_failed").format(error=e)
+                ))
 
         except Exception as exc:
             self.after(0, lambda: self._append_log_error(self._s("generic_error").format(error=exc)))
@@ -2209,10 +2212,47 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     def _listen_finished(self) -> None:
         self._listening = False
-        self._listen_btn.configure(state="normal", text=self._s("listen"))
         self._convert_btn.configure(state="normal")
+        self._listen_btn.configure(state="normal")
+        self._refresh_listen_btn_label()
         if not self._synth_running:
             self._status_label_val.configure(text=self._s("select_input_prompt"))
+
+    def _refresh_listen_btn_label(self) -> None:
+        """Flip the Preview button between Esikuuntele/Preview and Pys\u00e4yt\u00e4/Stop.
+
+        Polls the AudioPlayer once per ~250ms while playback is active so the
+        label reverts to Preview when the clip ends naturally without the user
+        clicking Stop.
+        """
+        try:
+            playing = _audio_player.get_player().is_playing()
+        except Exception as exc:  # noqa: BLE001 — best-effort UI sync
+            logger.debug("is_playing query failed: %s", exc)
+            playing = False
+        if self._listening:
+            # Mid-synthesis: keep the "Toistetaan..." label that
+            # _on_listen_click set so the user knows we're working.
+            return
+        target = self._s("stop") if playing else self._s("listen")
+        try:
+            current = self._listen_btn.cget("text")
+        except Exception:  # noqa: BLE001 — widget may be torn down
+            return
+        if current != target:
+            self._listen_btn.configure(text=target)
+        if playing:
+            # Re-poll until playback ends so the label can flip back.
+            self.after(250, self._refresh_listen_btn_label)
+
+    def destroy(self) -> None:  # type: ignore[override]
+        """Tear down the window. Stop in-process playback so the mixer
+        thread doesn't keep audio resources after the GUI closes."""
+        try:
+            _audio_player.get_player().stop()
+        except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+            logger.debug("audio player stop on destroy failed: %s", exc)
+        super().destroy()
 
     # ------------------------------------------------------------------
     # Config persistence

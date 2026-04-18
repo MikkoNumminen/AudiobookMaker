@@ -39,10 +39,14 @@ fi
 # (pytest.ini sets timeout=60), but once in a while an otherwise-green
 # run fails. Retry once before declaring the commit broken — real test
 # failures are reproducible, flakes aren't.
-PYTEST_ARGS="tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short"
+#
+# `-m "not slow"` honors the pytest.ini docstring: slow tests run a
+# real engine end-to-end and are skipped by default in pre-commit.
+# They still run in full CI / manual `pytest` invocations.
+PYTEST_ARGS=(tests/ --ignore=tests/test_record_voice_sample.py -m "not slow" -x -q --tb=short)
 
 run_tests() {
-    py -3 -m pytest $PYTEST_ARGS 2>&1
+    py -3 -m pytest "${PYTEST_ARGS[@]}" 2>&1
 }
 
 echo "Running tests before commit..."

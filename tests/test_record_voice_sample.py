@@ -14,7 +14,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from scipy.io import wavfile
+
+wavfile = pytest.importorskip("scipy.io.wavfile", reason="scipy not installed")
 
 # ---------------------------------------------------------------------------
 # Load the script as a module despite its non-package path.
