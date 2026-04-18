@@ -126,14 +126,22 @@ def _expand_abbreviations(text: str) -> str:
     return text
 
 
-# Pass N: Finnish acronym expansion (known whitelist).
+# Pass N: Finnish acronym expansion (known whitelist + letter-by-letter fallback).
 #
-# Expands a fixed set of acronyms to their Finnish spoken forms.
-# Matching is exact-case and word-boundary anchored so that:
+# Step 1 — expand a fixed set of acronyms to their Finnish spoken forms
+# (``_expand_acronyms``). Matching is exact-case and word-boundary anchored so
+# that:
 #   - lowercase `eu` (negative prefix) is NOT expanded
 #   - inflected forms like `NATOn` or `EU:n` may or may not match depending
 #     on whether the boundary falls (see _expand_acronyms docstring)
-#   - unknown ALL-CAPS tokens are left unchanged (no heuristic fallback)
+#
+# Step 2 — letter-by-letter fallback (``_expand_acronym_fallback``) for
+# 2–5 letter ALL-CAPS tokens that survived step 1. Spells them with spaces
+# between letters so Chatterbox reads "XKJ" as three separate letters
+# instead of trying to pronounce it as a garbled word. Accented Finnish
+# uppercase (Ä, Ö, Å) stays out of ``[A-Z]`` so real Finnish all-caps
+# words like "SÄÄ" and "TYÖ" are naturally excluded. Headings (a run of
+# 3+ all-caps tokens) are left alone to keep chapter titles readable.
 #
 # Run AFTER Pass K (abbreviations) and BEFORE Pass M (units).
 
@@ -174,6 +182,106 @@ def _expand_acronyms(text: str) -> str:
     def _sub(m: re.Match) -> str:
         return lookup[m.group(1)]
     return _fi_acronym_re().sub(_sub, text)
+
+
+# --- Pass N step 2: letter-by-letter fallback for unknown all-caps tokens ---
+#
+# 2-4 uppercase A-Z letters, bounded by word boundaries. The upper bound is
+# 4 (not 5) so real Finnish words commonly written in all caps in headings
+# or emphasis (e.g. "RAJAT", "HÄNEN") are not spelled out. Accented letters
+# (Ä, Ö, Å) are also excluded — all-caps Finnish words that contain them
+# (SÄÄ, TYÖ, PÄÄ) are real words that the TTS model can already read.
+_FI_ACRONYM_FALLBACK_RE = re.compile(r"\b[A-Z]{2,4}\b")
+
+# Common short Finnish words that sometimes appear in all-caps inside
+# prose (emphasis, OCR artifacts, contrived test fixtures). These must
+# NOT be spelled letter-by-letter. This list is intentionally small —
+# grow it when a real audiobook flags a regression.
+_FI_NONACRONYM_WORDS: frozenset[str] = frozenset({
+    "JA", "JO", "ON", "OS", "SE", "EI", "EN",
+    "JOS", "KUN", "NYT", "MUT", "TAI", "MIT", "NIN",
+})
+
+# Used for the heading-run heuristic: a whitespace-separated token that is
+# entirely uppercase Latin letters (any length >= 2). Accented chars are
+# allowed here because a heading like "VAARALLISIA SÄÄTILOJA" still reads
+# as a heading even though it contains Ä.
+_FI_ALLCAPS_NEIGHBOR_RE = re.compile(r"^[A-ZÅÄÖ]{2,}$")
+
+
+def _fi_is_allcaps_neighbor(tok: str) -> bool:
+    """Return True if ``tok`` looks like another ALL-CAPS word."""
+    if not tok:
+        return False
+    # Strip trailing punctuation so "LUKU," still counts as a heading token.
+    stripped = tok.strip(".,:;!?\"'()[]{}")
+    return bool(_FI_ALLCAPS_NEIGHBOR_RE.match(stripped))
+
+
+def _fi_heading_run_spans(text: str) -> list[tuple[int, int]]:
+    """Return (start, end) spans for runs of 3+ consecutive ALL-CAPS
+    (length >= 2) whitespace-separated tokens. Tokens inside these spans
+    are treated as headings and left alone by the fallback."""
+    spans: list[tuple[int, int]] = []
+    tokens: list[tuple[int, int, str]] = []
+    for m in re.finditer(r"\S+", text):
+        tokens.append((m.start(), m.end(), m.group(0)))
+
+    i = 0
+    n = len(tokens)
+    while i < n:
+        if _fi_is_allcaps_neighbor(tokens[i][2]):
+            j = i
+            while j < n and _fi_is_allcaps_neighbor(tokens[j][2]):
+                j += 1
+            if j - i >= 3:
+                spans.append((tokens[i][0], tokens[j - 1][1]))
+            i = j
+        else:
+            i += 1
+    return spans
+
+
+def _fi_in_heading_run(spans: list[tuple[int, int]], start: int, end: int) -> bool:
+    for s, e in spans:
+        if s <= start and end <= e:
+            return True
+    return False
+
+
+def _expand_acronym_fallback(text: str) -> str:
+    """Spell unknown 2-5 letter ALL-CAPS tokens letter-by-letter.
+
+    Runs after :func:`_expand_acronyms`, so any token listed in
+    ``data/fi_acronyms.yaml`` has already been replaced with its Finnish
+    spoken form and won't reach this pass. Idempotent: once a token
+    becomes ``X K J``, the individual letters are length 1 and no longer
+    match the 2-5 letter pattern.
+
+    Caveats:
+    - Common short Finnish words (``JA``, ``ON``, ``NYT`` etc.) are
+      protected by ``_FI_NONACRONYM_WORDS``; grow that set if a new
+      regression surfaces.
+    - A single all-caps token inside a 3+ all-caps heading run is left
+      alone via :func:`_fi_heading_run_spans`.
+    - Tokens of 5+ characters (often Finnish words written as chapter
+      headings, e.g. ``RAJAT``) never match the regex and are always
+      left alone.
+    """
+    if not text:
+        return text
+
+    heading_spans = _fi_heading_run_spans(text)
+
+    def _sub(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        if tok in _FI_NONACRONYM_WORDS:
+            return tok
+        if _fi_in_heading_run(heading_spans, m.start(), m.end()):
+            return tok
+        return " ".join(tok)
+
+    return _FI_ACRONYM_FALLBACK_RE.sub(_sub, text)
 
 
 # Pass M: measurement unit / currency symbol expansion.
@@ -771,8 +879,10 @@ def normalize_finnish_text(
     # don't bleed into Roman numeral detection; before Pass M so unit expansion
     # doesn't consume context the ordinal classifier needs.
     text = _expand_roman_numerals(text)
-    # Pass N — acronym expansion (known whitelist, exact-case).
+    # Pass N — acronym expansion (known whitelist, exact-case) followed
+    # by the letter-by-letter fallback for unknown all-caps tokens.
     text = _expand_acronyms(text)
+    text = _expand_acronym_fallback(text)
 
     # Pass M — measurement unit / currency symbol expansion. Must run
     # before Pass D/F/G so the digit prefix stays intact for governor
