@@ -260,8 +260,10 @@ work in parallel via git worktrees. To avoid collisions:
   voice models, ~60 MB each. Downloaded on demand by
   [src/tts_piper.py](src/tts_piper.py).
 - `.venv-chatterbox/` — Chatterbox venv. Installed by
-  [src/engine_installer.py](src/engine_installer.py) using
-  [scripts/setup_chatterbox_windows.ps1](scripts/setup_chatterbox_windows.ps1).
+  [src/engine_installer.py](src/engine_installer.py) (invoked from the
+  GUI's "Install engines…" panel), or by the Inno Setup installer via
+  [installer/post_install_chatterbox.py](installer/post_install_chatterbox.py)
+  when the user ticks the Chatterbox component at install time.
 - ffmpeg/ffplay/ffprobe — bundled at PyInstaller root in releases;
   fall back to `dist/ffmpeg/` in dev. Resolution lives in
   [src/ffmpeg_path.py](src/ffmpeg_path.py), which also patches `pydub`

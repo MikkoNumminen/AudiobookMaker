@@ -443,14 +443,15 @@ pytest tests/
 **Edge-TTS** and **Piper** work the same as in the installer.
 
 **Chatterbox-Finnish** needs a separate venv because it has heavy
-dependencies (PyTorch, CUDA). The setup script handles everything:
-
-```bash
-powershell -ExecutionPolicy Bypass -File scripts\setup_chatterbox_windows.ps1
-```
-
-This creates `.venv-chatterbox/`, installs CUDA-enabled PyTorch,
+dependencies (PyTorch, CUDA). Easiest path: install the Windows `.exe`
+and tick the **Chatterbox Finnish (GPU)** component during setup; the
+installer creates `.venv-chatterbox/`, installs CUDA-enabled PyTorch,
 downloads the AI models (~5 GB), and applies necessary patches.
+
+If you're running from source, open the app (`python -m src.main`)
+and click the **Install engines…** button in the Settings panel —
+same work, same venv. See [docs/QUICKSTART_DEV.md](docs/QUICKSTART_DEV.md)
+for Linux/Mac equivalent commands.
 
 **VoxCPM2** is an experimental engine from OpenBMB. It supports voice
 cloning and natural-language voice design ("warm baritone elderly

@@ -123,13 +123,14 @@ continue to step 4.
 
 **4. Create the Chatterbox environment** (skip if step 3 found one).
 
-Windows has a single setup script that does everything:
+On Windows, run the GUI once (`python -m src.main`) and click the
+**Install engines…** button in the Settings panel. It shells out to
+[installer/post_install_chatterbox.py](../installer/post_install_chatterbox.py),
+which creates `.venv-chatterbox`, installs CUDA torch + chatterbox-tts,
+pre-downloads the Chatterbox base model and the Finnish-NLP T3 finetune,
+and applies the Finnish gemination patch.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup_chatterbox_windows.ps1
-```
-
-On Linux there's no setup script yet — run the equivalent commands
+On Linux or Mac there's no GUI path yet — run the equivalent commands
 manually:
 
 ```bash
@@ -141,15 +142,14 @@ pip install --upgrade pip
 # PyTorch 2.6.0 with CUDA 12.4 runtime
 pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
-# Chatterbox + the extras the Windows script also installs:
+# Chatterbox + the extras the Windows installer also installs:
 pip install chatterbox-tts safetensors num2words silero-vad PyMuPDF pydub
 
 # Optional: Finnish "gemination patch" that reduces stuttering on long
 # sequences. Windows applies it automatically. On Linux, open
 # .venv-chatterbox/lib/python3.11/site-packages/chatterbox/models/t3/inference/alignment_stream_analyzer.py
-# and refer to scripts/setup_chatterbox_windows.ps1 (Step 7/8) for the
-# exact edits if you want it applied. It's optional and the synthesis
-# works without it.
+# and refer to installer/post_install_chatterbox.py for the exact edits
+# if you want it applied. It's optional and synthesis works without it.
 
 deactivate  # leave the Chatterbox venv; main .venv is what you use day-to-day
 ```
