@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Fix first-pass audio_s telemetry in generate_chatterbox_audiobook | 2026-04-18 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -30,9 +30,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
-
-### Audiobook generator: first-pass `audio_s` telemetry is wrong [Claude 1, main]
-- [ ] `.chunk_stats.jsonl` `audio_s` field is unreliable for chunks written on the original (pre-retry-guard) code path — e.g. chunk idx 255 in `dist/audiobook_tail_fix/test_book/.chunk_stats.jsonl` reports `audio_s=0.38` while the on-disk WAV is 11.18 s. Second-pass entries (those with `retries_used` present) match WAV duration exactly. Likely an intermediate-tensor capture that pre-dates concat/trim. Track down the instrumentation seam and fix it so telemetry is trustworthy for future regression checks. 🟡 ⚡ Sonnet.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
