@@ -13,8 +13,8 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🔵 working | Pass N acronym letter-by-letter fallback | 2026-04-19 |
-| Claude 2 | 🟢 idle | — | — |
-| Claude 3 | 🟢 idle | — | — |
+| Claude 2 | 🔵 working | File Chatterbox upstream bug report + hook_leak_fix.patch PR | 2026-04-19 |
+| Claude 3 | 🔵 working | Inline audio player widget (pygame.mixer play/stop on sample preview) | 2026-04-19 |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -34,7 +34,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
 
-### Inline audio player in the GUI
+### Inline audio player in the GUI [Claude 3, worktree-audioplayer]
 - [ ] Replace the external-player shell-out with a minimal in-GUI play/stop widget. Scope: play/stop only, no seek bar, no volume slider. Library choice: `pygame.mixer` (~5 MB) or `miniaudio` (lighter). Must stop on window close and stop the previous clip before starting a new one. ~1 h for samples-only, ~2 h if it also plays the final book MP3. 🟡 ⚡ Sonnet.
 
 ### Finnish voice mispronounces "s" as "sch"
@@ -64,7 +64,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] **Architecture write-up (`docs/voice_pack_design.md`):** capture the design rationale — Chatterbox LoRA primary (MIT, shared inference path), <200 MB/speaker adapters, emotional range via training-data balance + inference knobs, ~5 h source is the quality ceiling. Internal dev doc; may reference the audiobook source use case. 🟢 ⚡ Sonnet.
 - [ ] **License/ethics guardrail note:** voice packs stay local by default (no cloud upload, no sharing button). Capability-framed README note ("voice cloning of third-party voices is your own responsibility, keep local, don't redistribute"). 🟢 ⚡ Sonnet.
 
-### Chatterbox-Finnish — upstream contribution
+### Chatterbox-Finnish — upstream contribution [Claude 2, worktree-upstream-pr]
 - [ ] Submit bug report + patch (`docs/upstream/chatterbox/BUG_REPORT.md` + `hook_leak_fix.patch`) as a GitHub issue + PR to `resemble-ai/chatterbox`. 🟡 🧠 Opus
 
 ### Chatterbox-Finnish — tester feedback loop
