@@ -13,8 +13,8 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
 | Claude 1 | 🟢 idle | — | — |
-| Claude 2 | 🔵 working | File Chatterbox upstream bug report + hook_leak_fix.patch PR | 2026-04-19 |
-| Claude 3 | 🔵 working | Inline audio player widget (pygame.mixer play/stop on sample preview) | 2026-04-19 |
+| Claude 2 | 🟢 idle | — | — |
+| Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
@@ -34,8 +34,8 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
 
-### Inline audio player in the GUI [Claude 3, worktree-audioplayer]
-- [ ] Replace the external-player shell-out with a minimal in-GUI play/stop widget. Scope: play/stop only, no seek bar, no volume slider. Library choice: `pygame.mixer` (~5 MB) or `miniaudio` (lighter). Must stop on window close and stop the previous clip before starting a new one. ~1 h for samples-only, ~2 h if it also plays the final book MP3. 🟡 ⚡ Sonnet.
+### Piper E2E test pollutes / is polluted by ffmpeg-stub tests
+- [ ] `tests/test_piper_e2e.py` fails with `WinError 216` when run in the full suite, but skips cleanly in isolation. An earlier ffmpeg-stub test caches a fake `ffmpeg.EXE` path globally via `src/ffmpeg_path.py::setup_ffmpeg_path()`, and piper later picks up that stale cache. Pre-commit hook now skips `@slow` tests so this no longer blocks commits, but the underlying isolation bug still bites anyone running `pytest` directly. Fix: clear the ffmpeg cache between tests, or have the piper test re-validate `get_ffmpeg_exe()` actually exists on disk before using it. 🟢 ⚡ Sonnet.
 
 ### Finnish voice mispronounces "s" as "sch"
 - [ ] Finnish Grandmom occasionally pronounces plain `s` as `sch` (German-like sibilant). Likely candidates: normalizer context around certain `s` positions, loanword respelling, compound-seam insertion, or specific clusters (`st`, `sk`, `sp`, word-final `s`). Next step: collect 5–10 concrete failing words from a test chapter, then decide on a targeted normalization pass or adjustment. 🟡 🧠 Opus.
@@ -62,9 +62,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] **XTTS v2 bake-off (Slice 5a, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
 - [ ] **Architecture write-up (`docs/voice_pack_design.md`):** capture the design rationale — Chatterbox LoRA primary (MIT, shared inference path), <200 MB/speaker adapters, emotional range via training-data balance + inference knobs, ~5 h source is the quality ceiling. Internal dev doc; may reference the audiobook source use case. 🟢 ⚡ Sonnet.
 - [ ] **License/ethics guardrail note:** voice packs stay local by default (no cloud upload, no sharing button). Capability-framed README note ("voice cloning of third-party voices is your own responsibility, keep local, don't redistribute"). 🟢 ⚡ Sonnet.
-
-### Chatterbox-Finnish — upstream contribution [Claude 2, worktree-upstream-pr]
-- [ ] Submit bug report + patch (`docs/upstream/chatterbox/BUG_REPORT.md` + `hook_leak_fix.patch`) as a GitHub issue + PR to `resemble-ai/chatterbox`. 🟡 🧠 Opus
 
 ### VoxCPM2 — GPU testing (requires NVIDIA machine)
 - [ ] Run `pip install voxcpm` and verify the GUI sees the engine. 🟢 ⚡ Sonnet
