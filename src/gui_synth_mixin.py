@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import queue
-import re
 import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox
 from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from src.launcher_bridge import ChatterboxRunner, ProgressEvent
@@ -76,13 +74,6 @@ if TYPE_CHECKING:
     _Base = _SynthHost
 else:
     _Base = object
-
-
-# Lines that represent a successful chunk/chapter progress step. Mirrors the
-# regex in gui_unified.py so both code paths color progress lines green.
-_PROGRESS_SUCCESS_RE = re.compile(
-    r"\[chapter\s+\d+/\d+\]\s+(?:chunk\s+\d+/\d+|idx=\d+)"
-)
 
 
 class SynthMixin(_Base):
@@ -220,118 +211,6 @@ class SynthMixin(_Base):
             ev = runner.poll_event(timeout=0.2)
             if ev is not None:
                 self._event_queue.put(ev)
-
-    # ------------------------------------------------------------------
-    # Event pump (Tk main thread)
-    # ------------------------------------------------------------------
-
-    def _pump_events(self) -> None:
-        had_exit = False
-        while True:
-            try:
-                ev = self._event_queue.get_nowait()
-            except queue.Empty:
-                break
-            self._handle_event(ev)
-            if ev.kind == "exit":
-                had_exit = True
-
-        if not had_exit and self._synth_running:
-            self.after(self.POLL_INTERVAL_MS, self._pump_events)
-
-    def _handle_event(self, ev: ProgressEvent) -> None:
-        if ev.raw_line:
-            # Auto-detect severity from the content so WARNING lines
-            # from the Chatterbox runner show up yellow and errors red.
-            line = ev.raw_line
-            upper = line.upper()
-            if ev.kind == "error" or "ERROR:" in upper or "TRACEBACK" in upper or "\u2718" in line:
-                self._append_log_error(line)
-            elif "WARNING" in upper or "WARN:" in upper or "FUTUREWARNING" in upper or "DEPRECATIONWARNING" in upper:
-                self._append_log_warning(line)
-            elif (
-                "\u2714" in line
-                or "DONE" in upper
-                or "VALMIS" in upper
-                or _PROGRESS_SUCCESS_RE.search(line) is not None
-            ):
-                self._append_log_success(line)
-            else:
-                self._append_log(line)
-
-        if ev.kind == "setup_total":
-            self._eta_label.configure(
-                text=self._s("total_chunks").format(n=ev.total_chunks)
-            )
-        elif ev.kind == "setup_cached":
-            self._progress_bar.set(ev.total_done / max(ev.total_chunks, 1))
-            self._eta_label.configure(
-                text=self._s("cache_resume").format(
-                    done=ev.total_done, total=ev.total_chunks
-                )
-            )
-        elif ev.kind == "chunk":
-            if ev.total_chunks > 0:
-                self._progress_bar.set(ev.total_done / ev.total_chunks)
-            if ev.chapter_total > 0:
-                self._status_label_val.configure(
-                    text=self._s("chapter_chunk_status").format(
-                        ci=ev.chapter_idx, ct=ev.chapter_total,
-                        chi=ev.chunk_idx, cht=ev.chunk_total,
-                    )
-                )
-                if ev.elapsed_s or ev.eta_s:
-                    self._eta_label.configure(
-                        text=self._s("elapsed_eta").format(
-                            elapsed=int(ev.elapsed_s // 60),
-                            eta=int(ev.eta_s // 60),
-                        )
-                    )
-            else:
-                self._status_label_val.configure(
-                    text=ev.raw_line or self._s("synth_in_progress")
-                )
-        elif ev.kind in ("full_done", "chapter_done"):
-            if ev.output_path:
-                self._output_path = ev.output_path
-        elif ev.kind == "done":
-            self._progress_bar.set(1.0)
-        elif ev.kind == "signal":
-            self._cancel_requested = True
-        elif ev.kind == "exit":
-            self._on_synth_exit(ev.returncode)
-
-    def _on_synth_exit(self, returncode: int) -> None:
-        self._set_idle_state()
-
-        if returncode == 0 and not self._cancel_requested:
-            self._progress_bar.set(1.0)
-            out_name = (
-                Path(self._output_path).name if self._output_path else ""
-            )
-            self._status_label_val.configure(text=f"{self._s('done')} {out_name}")
-            self._open_folder_btn.configure(state="normal")
-            messagebox.showinfo(self._s("done"), f"{out_name}")
-        elif self._cancel_requested:
-            self._status_label_val.configure(text=self._s("cancelling"))
-            self._append_log_error(f"\u2718 {self._s('cancelling')}")
-            self._cancel_requested = False
-        else:
-            tail = ""
-            if self._chatterbox_runner is not None:
-                tail = "\n".join(self._chatterbox_runner.tail_lines(15))
-            self._status_label_val.configure(text=f"{self._s('error')} \u2014 log")
-            self._append_log_error(
-                self._s("error_exit_code").format(
-                    error=self._s("error"), rc=returncode
-                )
-            )
-            messagebox.showerror(
-                self._s("error"),
-                tail or self._s("error"),
-            )
-
-        self._chatterbox_runner = None
 
     # ------------------------------------------------------------------
     # Cancel

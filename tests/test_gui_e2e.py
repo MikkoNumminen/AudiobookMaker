@@ -727,45 +727,43 @@ class TestLogColoring:
 
 
 class TestAutoSeverityDetection:
-    """Verify _handle_event routes lines to the right color based on content."""
-
-    def _make_event(self, raw_line: str, kind: str = "log"):
-        from src.launcher_bridge import ProgressEvent
-        return ProgressEvent(kind=kind, raw_line=raw_line)
+    """Verify _log_line_by_severity routes lines to the right color based
+    on content. This is the live severity-routing path used by
+    UnifiedApp._pump_events for all subprocess stdout lines."""
 
     def test_warning_keyword_routed_to_warning(self, app):
         app._clear_log()
-        app._handle_event(self._make_event("WARNING: deprecated feature"))
+        app._log_line_by_severity("WARNING: deprecated feature")
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_warning" in tags
 
     def test_futurewarning_routed_to_warning(self, app):
         app._clear_log()
-        app._handle_event(self._make_event(
+        app._log_line_by_severity(
             "FutureWarning: `LoRACompatibleLinear` is deprecated"
-        ))
+        )
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_warning" in tags
 
     def test_error_kind_routed_to_error(self, app):
         app._clear_log()
-        app._handle_event(self._make_event("Something failed", kind="error"))
+        app._log_line_by_severity("Something failed", kind="error")
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_error" in tags
 
     def test_checkmark_routed_to_success(self, app):
         app._clear_log()
-        app._handle_event(self._make_event("\u2714 Valmis! out.mp3"))
+        app._log_line_by_severity("\u2714 Valmis! out.mp3")
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_success" in tags
 
     def test_plain_info_stays_plain(self, app):
         app._clear_log()
-        app._handle_event(self._make_event("[setup] device=cuda"))
+        app._log_line_by_severity("[setup] device=cuda")
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_warning" not in tags
@@ -774,26 +772,26 @@ class TestAutoSeverityDetection:
 
     def test_chunk_progress_routed_to_success(self, app):
         app._clear_log()
-        app._handle_event(self._make_event(
+        app._log_line_by_severity(
             "[chapter 1/1] chunk 1/3 (1/3 total) - 0m13s elapsed, "
             "~0m26s remaining, RTF 1.14x"
-        ))
+        )
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_success" in tags
 
     def test_chapter_idx_routed_to_success(self, app):
         app._clear_log()
-        app._handle_event(self._make_event(
+        app._log_line_by_severity(
             "[chapter 1/1] idx=0 title='Text' chunks=3"
-        ))
+        )
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_success" in tags
 
     def test_generic_tts_line_stays_plain(self, app):
         app._clear_log()
-        app._handle_event(self._make_event("[tts] loading voice model"))
+        app._log_line_by_severity("[tts] loading voice model")
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_success" not in tags

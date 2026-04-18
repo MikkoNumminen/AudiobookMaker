@@ -438,8 +438,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._chatterbox_runner: Optional[ChatterboxRunner] = None
         self._chatterbox_last_mp3: str = ""
         # Sample-mode flags. Set by _on_sample_click, cleared by
-        # _on_convert_click and _on_synth_exit so the success path can
-        # show "Sample saved" instead of the generic "Done".
+        # _on_convert_click and the "done" branch of _pump_events so the
+        # success path can show "Sample saved" instead of the generic "Done".
         self._is_sample_run: bool = False
         self._sample_output_path: Optional[str] = None
         # The most recently produced MP3 from this session — sample or full

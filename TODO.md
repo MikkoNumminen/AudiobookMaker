@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Mixin dedup: delete dead `_pump_events` path (option b) | 2026-04-18 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -36,9 +36,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### Inline audio player in the GUI
 - [ ] Replace the external-player shell-out with a minimal in-GUI play/stop widget. Scope: play/stop only, no seek bar, no volume slider. Library choice: `pygame.mixer` (~5 MB) or `miniaudio` (lighter). Must stop on window close and stop the previous clip before starting a new one. ~1 h for samples-only, ~2 h if it also plays the final book MP3. 🟡 ⚡ Sonnet.
-
-### Mixin dedup: merge diverged `_pump_events`
-- [ ] `_set_running_state` and `_set_idle_state` deduped (commit `441ce40`) — SynthMixin is now canonical. `_pump_events` still diverges between `SynthMixin` (delegates to `_handle_event` for setup/chunk/done/signal/exit) and `UnifiedApp` (inline handling with sample-run finalizer + `_log_line_by_severity`). Merging means either (a) promoting UnifiedApp's pump into the mixin as the canonical impl and exposing extension hooks for subclass finalization, or (b) deleting SynthMixin's pump + its direct-call tests as dead code. Not urgent. 🟡 ⚡ Sonnet.
 
 ### Finnish voice mispronounces "s" as "sch"
 - [ ] Finnish Grandmom occasionally pronounces plain `s` as `sch` (German-like sibilant). Likely candidates: normalizer context around certain `s` positions, loanword respelling, compound-seam insertion, or specific clusters (`st`, `sk`, `sp`, word-final `s`). Next step: collect 5–10 concrete failing words from a test chapter, then decide on a targeted normalization pass or adjustment. 🟡 🧠 Opus.
