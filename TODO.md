@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Tier 2 tail re-synth of Turo's audiobook (ch 5-8, ~4h GPU, delivers TURO_tail_fixed.mp3) | 2026-04-17 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -31,13 +31,8 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### Verify Chatterbox long-run hardening [Claude 1, main]
-- [ ] **Tier 1 PASSED** on 2026-04-17 — 500 `engine.generate()` calls in one process. `hook_count` stayed at 0 after call #1 (was 30 residual from load), `allocated_mb` drifted only +2.6 MiB end-to-end, `reserved_mb` +45 MiB (noise). Memory hygiene fix confirmed. Summary at `dist/stress_test/20260417_030630/summary.txt`.
-- [ ] **Tier 2 first pass DONE 2026-04-17** — tail re-synth of Turo's audiobook (chapters 5-8 = ~4h-onward stretch) completed 979/979 chunks with `FI_TEMPERATURE=0.5` + normalizer Pass H + `_clear_chatterbox_state` memory hygiene. Memory trend clean (`hook_count=0`, `allocated_mb` flat). **BUT** Turo reported the swallowed-sentence symptom is still present (e.g. `asianosaisaloitteinen menettely` → `…menet`). Telemetry confirmed 261 of 979 chunks (27%) had `s_per_char < 0.040` — far below the ~0.06 s/char Finnish baseline = T3 sampler early-stop. Root-caused to three bugs in upstream `AlignmentStreamAnalyzer` (see chatterbox commit `fix(t3): tighten EOS suppression and token-repetition heuristic`). Also added audiobook-side retry guard in `scripts/generate_chatterbox_audiobook.py` (commit `cb7e13a`).
-- [ ] **Tier 2 second pass in progress** — 261 bad WAVs deleted, re-running generator with `--resume` + fixed analyzer + retry-on-short-audio guard. Same output dir `dist/audiobook_tail_fix/test_book/`. ETA ~30-60 min GPU. On completion, rename `00_full.mp3` → `TURO_tail_fixed.mp3` and verify via stats scan that <1% of chunks fall below 0.040 s/char. 🔴 🧠 Opus.
-
-### Chatterbox: 1-in-500 stochastic early-stop glitch
-- [ ] **Root cause identified and fixed 2026-04-17** — three bugs in `AlignmentStreamAnalyzer`: (a) `complete` flag fired at `text_position >= S - 3` instead of `S - 1`, letting `long_tail`/`alignment_repetition` heuristics force EOS mid-sentence; (b) EOS suppression stopped at the same `S - 3` line, so noisy attention argmax could briefly cross into that zone and let T3 naturally sample EOS; (c) `token_repetition` checked only 2 identical adjacent tokens despite comment claiming "3x" — 2x is extremely common in normal speech and fired constantly. Patched in chatterbox fork + added audio-ratio retry guard in audiobook generator (`MIN_AUDIO_S_PER_CHAR = 0.040`, up to 2 retries). Validated on Turo's tail re-synth (Tier 2 second pass). Keep item open until second pass confirms <1% of chunks below threshold. 🟡 🧠 Opus.
+### Audiobook generator: first-pass `audio_s` telemetry is wrong
+- [ ] `.chunk_stats.jsonl` `audio_s` field is unreliable for chunks written on the original (pre-retry-guard) code path — e.g. chunk idx 255 in `dist/audiobook_tail_fix/test_book/.chunk_stats.jsonl` reports `audio_s=0.38` while the on-disk WAV is 11.18 s. Second-pass entries (those with `retries_used` present) match WAV duration exactly. Likely an intermediate-tensor capture that pre-dates concat/trim. Track down the instrumentation seam and fix it so telemetry is trustworthy for future regression checks. 🟡 ⚡ Sonnet.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
