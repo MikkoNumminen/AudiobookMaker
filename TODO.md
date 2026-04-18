@@ -80,6 +80,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Local disk cleanup (deferred — Mac still in use)
 - [ ] Delete `.venv-chatterbox/`, `.venv-qwen/`, HuggingFace model caches (~9.4 GB reclaimable). Do NOT delete while Mac is still used for dev. 🟢 ⚡ Sonnet
 
+### Make a Finnish audiobook of "Testoman ja Sauro"
+- [ ] User wants the text "Testoman ja Sauro" converted to a Finnish audiobook via the app. Source material location TBD (need a PDF / .txt / .epub from the user). Once source is provided: pick engine (Chatterbox-Finnish Grandmom is the obvious default), run through GUI or `scripts/generate_chatterbox_audiobook.py`, deliver MP3. 🟡 ⚡ Sonnet
+
 ## Post-Audit Tasks
 
 ### TTS Output Quality
