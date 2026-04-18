@@ -6,6 +6,7 @@ import queue
 import re
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox
 from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
@@ -95,6 +96,10 @@ class SynthMixin(_Base):
 
     def _set_running_state(self) -> None:
         self._synth_running = True
+        # Hosts that render a "done in Xs" strip read this attribute
+        # from _update_done_strip; hosts that don't simply ignore it.
+        # Setting unconditionally keeps the two run-state paths unified.
+        self._synth_started_at = datetime.now()
         self._cancel_requested = False
         self._cancel_flag.clear()
         self._listen_btn.configure(state="disabled")
@@ -115,6 +120,13 @@ class SynthMixin(_Base):
         self._listen_btn.configure(state="normal")
         self._convert_btn.configure(state="normal")
         self._sample_btn.configure(state="normal")
+        # Re-enable the Open-folder button so the user can browse the
+        # output the moment synthesis returns control. Runner reference
+        # is cleared here too — _on_synth_exit double-clears, which is
+        # harmless and keeps belt-and-suspenders for non-exit idle paths
+        # (e.g. successful "done" event handling in UnifiedApp).
+        self._open_folder_btn.configure(state="normal")
+        self._chatterbox_runner = None
         self._cancel_btn.grid_remove()
 
     # ---- Chatterbox subprocess ----------------------------------------

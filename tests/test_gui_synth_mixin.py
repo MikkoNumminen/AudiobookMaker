@@ -116,13 +116,12 @@ class TestRunningIdleStateTransitions:
         assert not app._cancel_flag.is_set()
 
     def test_mixin_running_state_disables_open_folder_button(self, app):
-        # UnifiedApp overrides _set_running_state (see gui_unified.py
-        # line 2997) and the override does NOT touch _open_folder_btn.
-        # We invoke SynthMixin._set_running_state directly to pin the
-        # mixin's own contract: a run start must disable the
+        # Pin the mixin contract directly: a run start must disable the
         # "Avaa kansio" button so the user can't open a stale folder
-        # mid-synthesis. Divergence between the two implementations is
-        # noted in the audit follow-up.
+        # mid-synthesis. SynthMixin is now the canonical implementation
+        # (UnifiedApp no longer overrides this method — see the mixin
+        # dedup commit), but we still invoke the method explicitly on
+        # SynthMixin so the test stays independent of MRO regressions.
         app._open_folder_btn.configure(state="normal")
         app.update_idletasks()
         calls: list = []
