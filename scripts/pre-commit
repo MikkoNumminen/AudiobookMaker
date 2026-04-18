@@ -2,12 +2,21 @@
 # Pre-commit hook: run tests before allowing commits.
 # Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
-# Docs-only shortcut: if every staged change is to a markdown, .txt, or
-# .gitignore-style file, skip the test suite entirely. Tests don't
+# Docs-only shortcut: if every staged change is a pure-asset or
+# markdown-style file, skip the test suite entirely. Tests don't
 # exercise docs, so running them costs ~12 s for no safety gain.
 # Safety net: any non-doc file in the stage (even one) falls back to
 # the full run.
-DOC_PATTERN='\.(md|txt|rst|gitattributes|gitignore|mp3|wav|ico|png|jpg|yaml)$|^(\.gitattributes|\.gitignore|TODO\.md|README\.md|BUILDING\.md|DEVELOPMENT\.md|CONVENTIONS\.md|LICENSE(\.txt)?)$'
+#
+# NOT in this list on purpose:
+# - `.txt` (except LICENSE.txt, explicitly re-allowed): `requirements.txt`
+#   is the only other tracked .txt and changes to it absolutely must run
+#   tests — a silent dep bump that breaks runtime would otherwise land
+#   without any signal.
+# - `.yaml`: the `data/*.yaml` files drive the text normalizer (acronyms,
+#   loanwords, governors) and tests explicitly exercise them, so a YAML
+#   edit must run the suite.
+DOC_PATTERN='\.(md|rst|gitattributes|gitignore|mp3|wav|ico|png|jpg)$|^(\.gitattributes|\.gitignore|TODO\.md|README\.md|BUILDING\.md|DEVELOPMENT\.md|CONVENTIONS\.md|LICENSE(\.txt)?)$'
 
 staged=$(git diff --cached --name-only)
 if [ -z "$staged" ]; then
