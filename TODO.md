@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | Dependency security — pip audit + fix any flagged CVEs | 2026-04-18 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -118,7 +118,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Profile memory during conversion of a 300+ page PDF
 - [ ] Check pydub audio chunks are released properly
 
-### Dependency Security
+### Dependency Security [Claude 1, main]
 - [ ] Run pip audit against requirements.txt
 - [ ] Update any packages with known vulnerabilities
 
