@@ -81,7 +81,7 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Delete `.venv-chatterbox/`, `.venv-qwen/`, HuggingFace model caches (~9.4 GB reclaimable). Do NOT delete while Mac is still used for dev. 🟢 ⚡ Sonnet
 
 ### Make a Finnish audiobook of "Testoman ja Sauro"
-- [ ] User wants the text "Testoman ja Sauro" converted to a Finnish audiobook via the app. Source material location TBD (need a PDF / .txt / .epub from the user). Once source is provided: pick engine (Chatterbox-Finnish Grandmom is the obvious default), run through GUI or `scripts/generate_chatterbox_audiobook.py`, deliver MP3. 🟡 ⚡ Sonnet
+- [ ] Convert the two Testo Mani / Raudo gym-story texts to a single Finnish audiobook. Sources attached at repo root: `testoman_ja_sauro_part1.txt` (~64 KB, from https://users.aalto.fi/~jlinnosa/massaa/massaa.txt) and `testoman_ja_sauro_part2.txt` (~10 KB, from https://users.aalto.fi/~jlinnosa/massaa/massaa2.txt). Both are UTF-8, Finnish. Default engine: Chatterbox-Finnish Grandmom. Concatenate parts in order, run through GUI or `scripts/generate_chatterbox_audiobook.py`, deliver MP3. 🟡 ⚡ Sonnet
 
 ## Post-Audit Tasks
 
