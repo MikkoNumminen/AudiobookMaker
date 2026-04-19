@@ -610,6 +610,15 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
     total_steps = config.max_steps or (steps_per_epoch * config.epochs)
     warmup_steps = max(1, int(total_steps * config.warmup_ratio))
 
+    # Auto-scale eval cadence when the configured default would never
+    # fire (e.g. 500 vs a 162-step short run on ~45 min of audio). We
+    # want at least ~5 eval checkpoints across the run so short training
+    # sessions still produce a saved best adapter instead of landing
+    # at best_loss=inf with nothing checkpointed via the eval path.
+    effective_eval_cadence = config.eval_every_n_steps
+    if total_steps < effective_eval_cadence * 2:
+        effective_eval_cadence = max(1, total_steps // 5)
+
     def _lr_lambda(step: int) -> float:
         if step < warmup_steps:
             return float(step) / float(max(1, warmup_steps))
@@ -646,6 +655,7 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
             f"# lora_rank={config.lora_rank} lora_alpha={config.lora_alpha} "
             f"lora_dropout={config.lora_dropout}\n"
             f"# total_steps={total_steps} warmup_steps={warmup_steps} "
+            f"eval_cadence={effective_eval_cadence} "
             f"batch_size={config.batch_size} "
             f"grad_accum={config.grad_accum_steps} "
             f"mixed_precision={config.mixed_precision}\n"
@@ -726,7 +736,7 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
                 # Checkpoint cadence: save on improvement (best-so-far).
                 # config.save_every_n_steps is used only for the
                 # improvement eval cadence below.
-                if global_step % max(1, config.eval_every_n_steps) == 0:
+                if global_step % max(1, effective_eval_cadence) == 0:
                     if reported_loss < best_loss:
                         best_loss = reported_loss
                         no_improve_evals = 0
