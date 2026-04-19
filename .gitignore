@@ -43,12 +43,35 @@ installer/Unicode/
 *.pfx
 *.p12
 
-# Source PDFs — copyrighted material, must never be committed
+# Source PDFs / EPUBs — copyrighted material, must never be committed
 *.pdf
+*.epub
 
 # Personal voice recordings used as Chatterbox --ref-audio clips.
 # The user's own voice is personal data and must not be committed.
 voice_samples/
+
+# Voice-pack pipeline artefacts — KEEP LOCAL. These contain LoRA adapter
+# weights trained on copyrighted source audio (audiobooks etc.). Sharing
+# them would redistribute a voice clone of a third-party narrator, which
+# is a legal/ethical minefield. Everything derived from a copyrighted
+# source stays on the local disk.
+voice_packs/
+runs/
+dataset_*/
+analysis_*/
+characters_*/
+# Adapter / checkpoint weight files in any location.
+*.safetensors
+*.pt
+*.ckpt
+# Raw source audio beyond the generic *.wav/*.mp3 rules above.
+*.m4b
+*.ogg
+*.mpeg
+*.flac
+# ECAPA / HuggingFace / torch hub download caches.
+.cache/
 
 # Visual Studio
 .vs/
