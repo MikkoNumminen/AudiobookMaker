@@ -15,7 +15,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude 1 | 🔵 working | Voice-pack pipeline fixes from 1h run (incl. second-narrator recovery) | 2026-04-19 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
-| Claude 4 | 🔵 working | Custom Claude skills bundle + eval loop | 2026-04-19 |
+| Claude 4 | 🟢 idle | — | — |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
 
@@ -39,9 +39,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Character clustering default `distance_threshold=0.25` merged 2 characters into 1; only 0.15 separated them on the 1h source. Retune default or emit a warning when the result has a single cluster despite multiple input chunks. 🟡 🧠 Opus.
 - [ ] Windows speechbrain symlink failure — ECAPA productised path must pass `local_strategy=LocalStrategy.COPY` or first-run dies with WinError 1314. Prototype in `d:/tmp/analyze_ecapa.py` already carries the fix; port when implementing `src/voice_pack/diarize_ecapa.py`. 🟢 ⚡ Sonnet.
 - [ ] Voice-pack CLIs skip MP3 encode silently when ffmpeg isn't on PATH. Repo already ships `dist/ffmpeg/ffmpeg.exe`; add a shared helper that prefers the bundled binary before falling back to PATH. 🟢 ⚡ Sonnet.
-
-### Custom Claude skills bundle + eval loop [Claude 4, worktree-skills-bundle]
-- [ ] Author project-local Claude skills for the four recurring workflows (release cut, TODO session lifecycle, Finnish normalizer Pass authoring, pronunciation corpus append) under `.claude/skills/`, tracked in git so every session shares them. Run the skill-creator eval loop on each (with-skill vs no-skill baseline, human review via eval viewer). 🔴 🧠 Opus.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
