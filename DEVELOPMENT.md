@@ -268,9 +268,11 @@ work in parallel via git worktrees. To avoid collisions:
   fall back to `dist/ffmpeg/` in dev. Resolution lives in
   [src/ffmpeg_path.py](src/ffmpeg_path.py), which also patches `pydub`
   to suppress console windows on Windows.
-- Output MP3s default next to the PDF (PDF input mode) or to
-  `~/Documents/AudiobookMaker/` (text input mode), with
-  auto-incrementing filenames so nothing is overwritten.
+- Output MP3s default to the canonical output directory: `./out/`
+  in dev mode (gitignored), next to the running `.exe` in frozen
+  builds. PDF input keeps the book stem (`book.pdf` -> `out/book.mp3`);
+  text input auto-increments (`texttospeech_1.mp3`, `_2.mp3`, ...).
+  See CLAUDE.md "One canonical output directory" for the full rule.
 
 ## Languages used in this repo
 

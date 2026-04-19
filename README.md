@@ -270,8 +270,9 @@ a lot of fixes to make everything actually work reliably:
   need two windows (e.g. different engines on different files), the app
   asks you to confirm
 - **Automatic output paths** -- no more file-picker dialogs before you
-  start. PDF input saves the MP3 next to the PDF. Text input saves to
-  Documents/AudiobookMaker with auto-incrementing filenames
+  start. Every generated MP3 lands next to the installed app (same
+  folder as the .exe), with auto-incrementing filenames so nothing is
+  overwritten
 - **500+ tests** -- pre-commit hooks and CI enforce that all tests pass
   before any code ships
 
