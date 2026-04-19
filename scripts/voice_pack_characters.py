@@ -39,6 +39,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from src.ffmpeg_path import setup_ffmpeg_path  # noqa: E402
+
+# Point pydub / the voice-encoder audio loader at the bundled ffmpeg
+# before any audio-library import so this CLI works on fresh checkouts
+# where ffmpeg isn't on PATH.
+setup_ffmpeg_path()
+
 from src.voice_pack.characters import (  # noqa: E402
     CharacterClusteringResult,
     ClusterConfig,
@@ -236,6 +243,30 @@ def cluster_transcripts(
         max_characters_per_speaker=max_characters_per_speaker,
     )
     result = cluster_all_speakers(all_chunks, embeddings_by_index, config=config)
+
+    # Warn when the clustering collapsed a speaker with plenty of chunks
+    # into a single character — on the Dual Class 3 1h source this
+    # happened at the default 0.25 threshold (both narrators merged);
+    # dropping to 0.15 split them. No hard fail because single-narrator
+    # books legitimately produce one cluster per speaker — but the
+    # message points at the knob to turn.
+    if verbose:
+        for speaker, speaker_indices in by_speaker_indices.items():
+            if len(speaker_indices) < 50:
+                continue  # too few chunks to reason about under-splitting
+            speaker_chars = {
+                c.character for c in result.chunks
+                if c.speaker == speaker and c.character is not None
+            }
+            if len(speaker_chars) <= 1:
+                print(
+                    f"[voice_pack_characters] warning: speaker {speaker} "
+                    f"has {len(speaker_indices)} chunks but only "
+                    f"{len(speaker_chars)} character(s) at "
+                    f"--distance-threshold {distance_threshold}. If this "
+                    f"speaker is actually multiple narrators/characters, "
+                    f"retry with a tighter threshold (e.g. 0.15)."
+                )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(out_dir / "transcripts_with_characters.jsonl", result.chunks)
