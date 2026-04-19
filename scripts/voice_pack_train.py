@@ -349,8 +349,67 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
     from torch.optim.lr_scheduler import LambdaLR  # type: ignore[import-not-found]
     from torch.utils.data import DataLoader, Dataset  # type: ignore[import-not-found]
 
+    from chatterbox.models.t3 import T3  # type: ignore[import-not-found]
     from chatterbox.models.t3.modules.cond_enc import T3Cond  # type: ignore[import-not-found]
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # type: ignore[import-not-found]
+
+    # --- Patch chatterbox T3.loss shape bug ----------------------------
+    # The upstream `T3.loss` passes logits shaped [B, L, V] straight to
+    # `F.cross_entropy`, which expects `[B, V, L]` (or flattened). That
+    # raises "Expected target size [B, V], got [B, L]" at step 0. Fix:
+    # transpose logits to put the class dim second. No behaviour change
+    # beyond making the loss actually compute.
+    import torch.nn.functional as F  # type: ignore[import-not-found]
+
+    def _fixed_t3_loss(
+        self: T3,
+        *,
+        t3_cond,
+        text_tokens,
+        text_token_lens,
+        speech_tokens,
+        speech_token_lens,
+    ):
+        len_text = text_tokens.size(1)
+        len_speech = speech_tokens.size(1)
+        assert len_text == int(text_token_lens.max())
+        assert len_speech == int(speech_token_lens.max())
+
+        out = self.forward(
+            t3_cond=t3_cond,
+            text_tokens=text_tokens,
+            text_token_lens=text_token_lens,
+            speech_tokens=speech_tokens,
+            speech_token_lens=speech_token_lens,
+            training=True,
+        )
+
+        IGNORE_ID = -100
+        dev = out.text_logits.device
+        mask_text = (
+            torch.arange(len_text, device=dev)[None] >= text_token_lens[:, None]
+        )
+        mask_speech = (
+            torch.arange(len_speech, device=dev)[None] >= speech_token_lens[:, None]
+        )
+        masked_text = text_tokens.masked_fill(mask_text, IGNORE_ID)
+        masked_speech = speech_tokens.masked_fill(mask_speech, IGNORE_ID)
+
+        # transpose [B, L, V] -> [B, V, L] so cross_entropy picks the
+        # right class dim; masked labels stay [B, L].
+        loss_text = F.cross_entropy(
+            out.text_logits.transpose(1, 2),
+            masked_text,
+            ignore_index=IGNORE_ID,
+        )
+        loss_speech = F.cross_entropy(
+            out.speech_logits.transpose(1, 2),
+            masked_speech,
+            ignore_index=IGNORE_ID,
+        )
+        return loss_text, loss_speech
+
+    T3.loss = _fixed_t3_loss  # type: ignore[assignment]
 
     # --- Determinism (best-effort; torch non-determinism on GPU is real) -
     torch.manual_seed(config.seed)
