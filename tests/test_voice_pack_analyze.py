@@ -223,3 +223,103 @@ def test_analyze_filters_apply(fake_audio: Path, tmp_path: Path) -> None:
     yaml_data = yaml.safe_load((out / "speakers.yaml").read_text(encoding="utf-8"))
     # safe_dump of [] writes "[]\n" which safe_load parses back to [].
     assert yaml_data == [] or yaml_data is None
+
+
+# ---------------------------------------------------------------------------
+# Speaker count hints — pinning pyannote for solo or ensemble audiobooks
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_forwards_num_speakers_to_diarize(
+    fake_audio: Path, tmp_path: Path
+) -> None:
+    """num_speakers=N must reach the diarizer verbatim."""
+    captured_kwargs: dict[str, Any] = {}
+    transcribe, _ = _make_fakes()
+
+    def capturing_diarize(audio_path, **kwargs):  # noqa: ARG001
+        captured_kwargs.update(kwargs)
+        return _fake_turns()
+
+    voice_pack_analyze.analyze(
+        fake_audio,
+        tmp_path / "out",
+        transcribe_fn=transcribe,
+        diarize_fn=capturing_diarize,
+        num_speakers=6,
+    )
+
+    assert captured_kwargs.get("num_speakers") == 6
+    # When num_speakers is set, min/max should NOT be forwarded.
+    assert "min_speakers" not in captured_kwargs
+    assert "max_speakers" not in captured_kwargs
+
+
+def test_analyze_forwards_min_max_when_num_unset(
+    fake_audio: Path, tmp_path: Path
+) -> None:
+    captured_kwargs: dict[str, Any] = {}
+    transcribe, _ = _make_fakes()
+
+    def capturing_diarize(audio_path, **kwargs):  # noqa: ARG001
+        captured_kwargs.update(kwargs)
+        return _fake_turns()
+
+    voice_pack_analyze.analyze(
+        fake_audio,
+        tmp_path / "out",
+        transcribe_fn=transcribe,
+        diarize_fn=capturing_diarize,
+        min_speakers=2,
+        max_speakers=4,
+    )
+
+    assert captured_kwargs.get("min_speakers") == 2
+    assert captured_kwargs.get("max_speakers") == 4
+    assert "num_speakers" not in captured_kwargs
+
+
+def test_analyze_num_overrides_min_max(fake_audio: Path, tmp_path: Path) -> None:
+    """When num_speakers is set, min/max are intentionally dropped so the
+    operator-supplied exact count wins."""
+    captured_kwargs: dict[str, Any] = {}
+    transcribe, _ = _make_fakes()
+
+    def capturing_diarize(audio_path, **kwargs):  # noqa: ARG001
+        captured_kwargs.update(kwargs)
+        return _fake_turns()
+
+    voice_pack_analyze.analyze(
+        fake_audio,
+        tmp_path / "out",
+        transcribe_fn=transcribe,
+        diarize_fn=capturing_diarize,
+        num_speakers=1,
+        min_speakers=2,
+        max_speakers=4,
+    )
+
+    assert captured_kwargs.get("num_speakers") == 1
+    assert "min_speakers" not in captured_kwargs
+    assert "max_speakers" not in captured_kwargs
+
+
+def test_analyze_no_hints_by_default(fake_audio: Path, tmp_path: Path) -> None:
+    """No count hints → diarize is called with just hf_token."""
+    captured_kwargs: dict[str, Any] = {}
+    transcribe, _ = _make_fakes()
+
+    def capturing_diarize(audio_path, **kwargs):  # noqa: ARG001
+        captured_kwargs.update(kwargs)
+        return _fake_turns()
+
+    voice_pack_analyze.analyze(
+        fake_audio,
+        tmp_path / "out",
+        transcribe_fn=transcribe,
+        diarize_fn=capturing_diarize,
+    )
+
+    assert "num_speakers" not in captured_kwargs
+    assert "min_speakers" not in captured_kwargs
+    assert "max_speakers" not in captured_kwargs

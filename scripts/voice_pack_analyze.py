@@ -174,6 +174,9 @@ def analyze(
     min_duration: float = 1.0,
     max_duration: float = 30.0,
     min_confidence: float = 0.3,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
     transcribe_fn: "TranscribeFn | None" = None,
     diarize_fn: "DiarizeFn | None" = None,
     verbose: bool = False,
@@ -183,6 +186,16 @@ def analyze(
     Returns the :class:`AnalyzeResult` carrying the in-memory chunks and
     speaker summaries as well — useful for tests and for callers who want
     to post-process without re-parsing the artefacts.
+
+    ``num_speakers`` / ``min_speakers`` / ``max_speakers`` pin the
+    diarizer when the operator knows how many readers are in the
+    source. Pyannote is good but not perfect at distinguishing similar-
+    register readers (two male narrators of similar timbre), and
+    telling it the true count avoids the two most common failure
+    modes: splitting one reader into ghost speakers, or merging two
+    similar readers into one. ``num_speakers`` is exact; min/max are
+    ranges; all three unset lets pyannote decide. Exact overrides
+    min/max when both are supplied.
     """
 
     audio_path = Path(audio_path)
@@ -201,7 +214,15 @@ def analyze(
     _stamp("asr", t0)
 
     t0 = time.monotonic()
-    turns = diarize_fn(audio_path, hf_token=hf_token)
+    diarize_kwargs: dict[str, Any] = {"hf_token": hf_token}
+    if num_speakers is not None:
+        diarize_kwargs["num_speakers"] = num_speakers
+    else:
+        if min_speakers is not None:
+            diarize_kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            diarize_kwargs["max_speakers"] = max_speakers
+    turns = diarize_fn(audio_path, **diarize_kwargs)
     _stamp("diarize", t0)
 
     t0 = time.monotonic()
@@ -317,6 +338,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Drop chunks below this ASR confidence. Default: 0.3.",
     )
     parser.add_argument(
+        "--num-speakers",
+        dest="num_speakers",
+        type=int,
+        default=None,
+        help=(
+            "Exact number of readers in the source (pyannote hint). "
+            "Use when you know the cast size, e.g. '1' for a solo "
+            "narrator or '6' for a full-cast production. Overrides "
+            "--min-speakers / --max-speakers when set."
+        ),
+    )
+    parser.add_argument(
+        "--min-speakers",
+        dest="min_speakers",
+        type=int,
+        default=None,
+        help="Lower bound on reader count (pyannote hint).",
+    )
+    parser.add_argument(
+        "--max-speakers",
+        dest="max_speakers",
+        type=int,
+        default=None,
+        help="Upper bound on reader count (pyannote hint).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         dest="verbose",
@@ -361,6 +408,9 @@ def main(argv: "list[str] | None" = None) -> int:
             min_duration=args.min_duration,
             max_duration=args.max_duration,
             min_confidence=args.min_confidence,
+            num_speakers=args.num_speakers,
+            min_speakers=args.min_speakers,
+            max_speakers=args.max_speakers,
             verbose=args.verbose,
         )
     except SystemExit as exc:
