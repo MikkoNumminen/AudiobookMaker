@@ -72,6 +72,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] Try `voice_description` and `reference_audio` cloning. 🟡 🧠 Opus
 - [ ] If VoxCPM2's Finnish is not clearly better than Noora: decide whether to keep it or remove it. 🟢 🧠 Opus
 
+### Per-character voice packs via text attribution (deferred — needs local LLM)
+- [ ] Build a `voice_pack_text_attribution` stage that reads the source book text alongside the audio transcripts, attributes each quoted line to a named character (dialogue tags + conversational context), and propagates character labels to audio chunks. Combined with ECAPA speaker ID, yields per (narrator × character) buckets — e.g. "Christopher-voicing-Drake" vs "Jessica-voicing-Emma" — each trainable as its own LoRA. Three attribution backends considered: BookNLP (English-only, free, plug-and-play), LLM-based (any language, requires a **local** LLM — paid cloud APIs explicitly ruled out), and simple dialogue-tag regex (fallback). Text↔audio alignment via Whisper timestamps + edit-distance over transcript vs book text. Blocked until a local LLM is available on the dev machine. 🔴 🧠 Opus.
+
 ### Rallienglanti-mode preset
 - [ ] Fun preset that routes English text through the FI T3 finetune with English→Finnish-phonetic text normalizations (`computer` → `kompuutteri`, `th` → `t`/`d`, `w` → `v`, etc.). Low priority — for after English Grandmom is fully validated. 🟡 🧠 Opus.
 
