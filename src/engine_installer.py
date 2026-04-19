@@ -47,6 +47,11 @@ PIP_PACKAGES_MAIN = [
     "pydub",
     "PyMuPDF",
     "huggingface_hub",
+    # Voice-pack LoRA training (scripts/voice_pack_train.py). Adds ~6 MB
+    # on top of the ~5 GB Chatterbox stack; listed here so training does
+    # not fail with NotImplementedError on a fresh install.
+    "peft",
+    "accelerate",
 ]
 
 HF_REPOS = [
