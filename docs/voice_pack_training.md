@@ -18,21 +18,30 @@ use case on a 12 GB RTX 3080 Ti.
    │  (1) ffmpeg extract
    ▼
 <clip.wav, 24 kHz mono>
-   │  (2) voice_pack_analyze.py   → transcripts.jsonl + speakers.yaml
+   │  (2) voice_pack_analyze.py      → transcripts.jsonl + speakers.yaml
    ▼
 <per-speaker VoiceChunks>
-   │  (3) voice_pack_export.py   → manifest.json + wavs/
+   │  (2b, optional) voice_pack_characters.py
+   │                → transcripts_with_characters.jsonl + characters.yaml
+   ▼
+<per-speaker, per-character VoiceChunks>
+   │  (3) voice_pack_export.py       → manifest.json + wavs/
    ▼
 <DatasetManifest>
-   │  (4) voice_pack_train.py    → adapter/
+   │  (4) voice_pack_train.py        → adapter/
    ▼
 <LoRA adapter ready to load>
-   │  (5) voice_pack_package.py  → voice pack directory
+   │  (5) voice_pack_package.py      → voice pack directory
    ▼
 <installable voice pack>
 ```
 
-All five stages are one-shot CLIs.
+Stage 2b is optional. Skip it if one adapter per reader is enough.
+Run it when the source audio has one reader performing multiple
+characters (narrator + villain + hero) and you want a separate voice
+clone for each character instead of a single averaged blend.
+
+All stages are one-shot CLIs.
 
 ## Step-by-step — 1 hour sample
 
@@ -60,6 +69,49 @@ Open `report.md` and pick the speaker you want to clone. For a LitRPG
 audiobook this is usually `SPEAKER_00` (the narrator), measured in
 tens of minutes even in a 1 h sample.
 
+### 2b. (Optional) Cluster characters within each speaker
+
+```bash
+.venv-chatterbox/Scripts/python.exe scripts/voice_pack_characters.py \
+  --transcripts analysis_1h/transcripts.jsonl \
+  --source dual_class_1h.wav \
+  --out characters_1h/ \
+  --max-characters-per-speaker 3
+```
+
+Outputs under `characters_1h/`:
+
+- `transcripts_with_characters.jsonl` — same chunks, each with a
+  `character` field like `CHAR_A`, `CHAR_B`. Character ids are unique
+  per speaker, not globally.
+- `characters.yaml` — per-(speaker, character) stats, biggest first.
+- `characters_report.md` — human summary with the table and a
+  ready-to-paste `voice_pack_export.py` command.
+
+What the knobs do:
+
+- `--distance-threshold 0.25` — cosine distance at which two chunks
+  are considered "same character voice". Lower splits subtly-different
+  voices apart; higher merges them.
+- `--min-character-seconds 60` / `--min-character-chunks 8` — quality
+  floor. Clusters below these gates fold into the dominant (narrator)
+  cluster so you don't end up with a "CHAR_D has 15 s of audio"
+  dead slot.
+- `--max-characters-per-speaker N` — budget cap. Keep at most N
+  characters per reader, ranked by total duration. Smaller clusters
+  fold into the dominant one. Use this to predictably bound GPU cost
+  for voice-pack training: each surviving character gets its own LoRA
+  adapter at ~30-60 min each on a 3080 Ti. Unset (default) to keep
+  every cluster that passes the quality floor.
+- `--max-chunks-per-speaker N` — optional cap on how many chunks per
+  reader get embedded at all. Helpful for very long source files
+  where the embedding step is the slow part. Evenly-spread sampling
+  preserves timeline coverage.
+
+After this stage, use `--transcripts` pointing at
+`characters_1h/transcripts_with_characters.jsonl` and
+`--character CHAR_A` (or whichever label you pick) in Stage 3.
+
 ### 3. Export a single-speaker dataset
 
 ```bash
@@ -69,6 +121,21 @@ tens of minutes even in a 1 h sample.
   --speaker SPEAKER_00 \
   --out dataset_1h/
 ```
+
+If you ran the optional character-clustering stage, point at the
+character-aware transcripts and add `--character`:
+
+```bash
+.venv-chatterbox/Scripts/python.exe scripts/voice_pack_export.py \
+  --transcripts characters_1h/transcripts_with_characters.jsonl \
+  --source dual_class_1h.wav \
+  --speaker SPEAKER_00 \
+  --character CHAR_A \
+  --out dataset_char_a/
+```
+
+Run one export + train + package chain per character you want to
+ship.
 
 Outputs under `dataset_1h/`:
 - `manifest.json` — ready for `voice_pack_train.py`.
