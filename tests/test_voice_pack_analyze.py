@@ -323,3 +323,66 @@ def test_analyze_no_hints_by_default(fake_audio: Path, tmp_path: Path) -> None:
     assert "num_speakers" not in captured_kwargs
     assert "min_speakers" not in captured_kwargs
     assert "max_speakers" not in captured_kwargs
+
+
+# --- Diarizer selection ---------------------------------------------------
+
+
+def test_select_diarize_fn_pyannote_returns_pyannote_impl() -> None:
+    fn = voice_pack_analyze._select_diarize_fn("pyannote")
+    assert fn.__module__ == "src.voice_pack.diarize"
+    assert fn.__name__ == "diarize"
+
+
+def test_select_diarize_fn_ecapa_returns_ecapa_impl() -> None:
+    fn = voice_pack_analyze._select_diarize_fn("ecapa")
+    assert fn.__module__ == "src.voice_pack.diarize_ecapa"
+    assert fn.__name__ == "diarize_ecapa"
+
+
+def test_select_diarize_fn_unknown_raises() -> None:
+    with pytest.raises(ValueError, match="unknown diarizer"):
+        voice_pack_analyze._select_diarize_fn("bogus")
+
+
+def test_analyze_report_uses_pyannote_model_id_by_default(
+    fake_audio: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "out"
+    transcribe, diarize = _make_fakes()
+    voice_pack_analyze.analyze(
+        fake_audio, out, transcribe_fn=transcribe, diarize_fn=diarize
+    )
+    report = (out / "report.md").read_text(encoding="utf-8")
+    assert "pyannote/speaker-diarization-3.1" in report
+
+
+def test_analyze_report_uses_ecapa_model_id_when_selected(
+    fake_audio: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "out"
+    transcribe, diarize = _make_fakes()
+    voice_pack_analyze.analyze(
+        fake_audio,
+        out,
+        transcribe_fn=transcribe,
+        diarize_fn=diarize,
+        diarizer="ecapa",
+    )
+    report = (out / "report.md").read_text(encoding="utf-8")
+    assert "speechbrain/spkrec-ecapa-voxceleb" in report
+    assert "pyannote/speaker-diarization-3.1" not in report
+
+
+def test_analyze_rejects_unknown_diarizer(
+    fake_audio: Path, tmp_path: Path
+) -> None:
+    transcribe, diarize = _make_fakes()
+    with pytest.raises(ValueError, match="unknown diarizer"):
+        voice_pack_analyze.analyze(
+            fake_audio,
+            tmp_path / "out",
+            transcribe_fn=transcribe,
+            diarize_fn=diarize,
+            diarizer="bogus",
+        )

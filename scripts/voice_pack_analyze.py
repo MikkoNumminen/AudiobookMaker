@@ -165,10 +165,35 @@ def _default_transcribe_fn() -> TranscribeFn:
     return transcribe
 
 
-def _default_diarize_fn() -> DiarizeFn:
-    from src.voice_pack.diarize import diarize  # noqa: WPS433 — lazy import
+def _select_diarize_fn(name: str) -> DiarizeFn:
+    """Return the diarizer backend matching ``name``.
 
-    return diarize
+    ``pyannote`` is the default (higher accuracy on typical audiobooks
+    when the HF-gated model loads cleanly). ``ecapa`` is the pyannote-free
+    fallback: no HF token required, and it has also handled cases where
+    pyannote collapsed two similar-timbre readers into one speaker.
+    """
+    if name == "pyannote":
+        from src.voice_pack.diarize import diarize  # noqa: WPS433
+
+        return diarize
+    if name == "ecapa":
+        from src.voice_pack.diarize_ecapa import diarize_ecapa  # noqa: WPS433
+
+        return diarize_ecapa
+    raise ValueError(
+        f"unknown diarizer {name!r}; expected 'pyannote' or 'ecapa'"
+    )
+
+
+def _default_diarize_fn() -> DiarizeFn:
+    return _select_diarize_fn("pyannote")
+
+
+_DIARIZATION_MODEL_ID = {
+    "pyannote": "pyannote/speaker-diarization-3.1",
+    "ecapa": "speechbrain/spkrec-ecapa-voxceleb",
+}
 
 
 def analyze(
@@ -186,6 +211,7 @@ def analyze(
     max_speakers: int | None = None,
     transcribe_fn: "TranscribeFn | None" = None,
     diarize_fn: "DiarizeFn | None" = None,
+    diarizer: str = "pyannote",
     verbose: bool = False,
 ) -> AnalyzeResult:
     """Run the full analyze pipeline and write artefacts to ``out_dir``.
@@ -210,7 +236,12 @@ def analyze(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     transcribe_fn = transcribe_fn or _default_transcribe_fn()
-    diarize_fn = diarize_fn or _default_diarize_fn()
+    if diarize_fn is None:
+        diarize_fn = _select_diarize_fn(diarizer)
+    if diarizer not in _DIARIZATION_MODEL_ID:
+        raise ValueError(
+            f"unknown diarizer {diarizer!r}; expected 'pyannote' or 'ecapa'"
+        )
 
     def _stamp(label: str, t0: float) -> None:
         if verbose:
@@ -256,7 +287,7 @@ def analyze(
         audio_seconds=audio_seconds,
         speakers=speakers,
         asr_model=asr_model_size,
-        diarization_model="pyannote/speaker-diarization-3.1",
+        diarization_model=_DIARIZATION_MODEL_ID[diarizer],
         min_duration=min_duration,
         max_duration=max_duration,
         min_confidence=min_confidence,
@@ -371,6 +402,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Upper bound on reader count (pyannote hint).",
     )
     parser.add_argument(
+        "--diarizer",
+        dest="diarizer",
+        choices=("pyannote", "ecapa"),
+        default="pyannote",
+        help=(
+            "Diarization backend. 'pyannote' (default) is higher quality "
+            "on typical audiobooks but requires an accepted HF license + "
+            "HF_TOKEN. 'ecapa' uses speechbrain ECAPA-TDNN + agglomerative "
+            "clustering — no HF gating, and has rescued runs where pyannote "
+            "collapsed two similar-timbre readers into one speaker."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         dest="verbose",
@@ -418,6 +462,7 @@ def main(argv: "list[str] | None" = None) -> int:
             num_speakers=args.num_speakers,
             min_speakers=args.min_speakers,
             max_speakers=args.max_speakers,
+            diarizer=args.diarizer,
             verbose=args.verbose,
         )
     except SystemExit as exc:
