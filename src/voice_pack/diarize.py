@@ -63,6 +63,57 @@ def resolve_token(hf_token: str | None) -> str:
     )
 
 
+_HF_TOKEN_SHIM_APPLIED = False
+
+
+def _apply_hf_token_shim() -> None:
+    """Rename ``use_auth_token`` → ``token`` on ``hf_hub_download`` calls.
+
+    pyannote.audio 3.x passes ``use_auth_token`` straight through to
+    ``huggingface_hub.hf_hub_download``. huggingface_hub >= 1.0 removed that
+    kwarg entirely (it was deprecated years earlier in favour of
+    ``token``), so a fresh install crashes with ``TypeError:
+    hf_hub_download() got an unexpected keyword argument 'use_auth_token'``
+    before diarization ever starts.
+
+    This shim wraps ``hf_hub_download`` so the old kwarg is translated to
+    the new one on the fly. It is idempotent: calling it more than once
+    is a no-op. No effect on callers already using ``token=``.
+    """
+    global _HF_TOKEN_SHIM_APPLIED
+    if _HF_TOKEN_SHIM_APPLIED:
+        return
+    import sys as _sys
+
+    import huggingface_hub  # type: ignore[import-not-found]
+
+    original = huggingface_hub.hf_hub_download
+
+    def _download_with_token_alias(*args: Any, **kwargs: Any) -> Any:
+        if "use_auth_token" in kwargs and "token" not in kwargs:
+            kwargs["token"] = kwargs.pop("use_auth_token")
+        else:
+            kwargs.pop("use_auth_token", None)
+        return original(*args, **kwargs)
+
+    # Patch the canonical binding.
+    huggingface_hub.hf_hub_download = _download_with_token_alias
+
+    # Also patch any modules that already did ``from huggingface_hub import
+    # hf_hub_download`` before this shim ran. pyannote.audio.core.pipeline is
+    # the one we actually need, but patching every cached copy is cheap.
+    for mod in list(_sys.modules.values()):
+        if mod is None:
+            continue
+        try:
+            if getattr(mod, "hf_hub_download", None) is original:
+                setattr(mod, "hf_hub_download", _download_with_token_alias)
+        except Exception:  # noqa: BLE001 - best-effort patch
+            continue
+
+    _HF_TOKEN_SHIM_APPLIED = True
+
+
 def _resolve_device(device: str) -> str:
     """Turn ``"auto"`` into a concrete ``"cpu"`` / ``"cuda"`` selection.
 
@@ -116,6 +167,13 @@ def load_pipeline(
             "pyannote.audio is required for voice pack diarization. "
             "Install with: pip install pyannote.audio"
         ) from exc
+
+    # Compatibility shim: pyannote.audio 3.x forwards ``use_auth_token`` to
+    # ``huggingface_hub.hf_hub_download``, but hf_hub >= 1.0 removed that
+    # kwarg in favour of ``token``. Rename it in-flight so the call lands
+    # cleanly regardless of which hf_hub version is installed. Safe to
+    # re-apply; _apply_hf_token_shim is idempotent.
+    _apply_hf_token_shim()
 
     pipeline = Pipeline.from_pretrained(_PYANNOTE_MODEL_ID, use_auth_token=token)
 
