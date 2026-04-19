@@ -56,7 +56,7 @@ ffmpeg -i "D:/satellite/Dual Class 3 - A LitRPG Adventure.m4b" \
 
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_analyze.py \
-  --audio dual_class_1h.wav \
+  --input dual_class_1h.wav \
   --out analysis_1h/
 ```
 

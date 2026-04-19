@@ -210,7 +210,7 @@ def analyze(
             print(f"[voice_pack_analyze] {label}: {time.monotonic() - t0:.2f}s")
 
     t0 = time.monotonic()
-    segments = transcribe_fn(audio_path, model=asr_model_size, device=asr_device)
+    segments = transcribe_fn(audio_path, model_size=asr_model_size, device=asr_device)
     _stamp("asr", t0)
 
     t0 = time.monotonic()
