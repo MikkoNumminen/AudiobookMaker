@@ -15,7 +15,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 | Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
-| Claude 4 | 🟢 idle | — | — |
+| Claude 4 | 🔵 working | Custom Claude skills bundle + eval loop | 2026-04-19 |
 
 Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ offline
 
@@ -30,6 +30,9 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### Custom Claude skills bundle + eval loop [Claude 4, worktree-skills-bundle]
+- [ ] Author project-local Claude skills for the four recurring workflows (release cut, TODO session lifecycle, Finnish normalizer Pass authoring, pronunciation corpus append) under `.claude/skills/`, tracked in git so every session shares them. Run the skill-creator eval loop on each (with-skill vs no-skill baseline, human review via eval viewer). 🔴 🧠 Opus.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
