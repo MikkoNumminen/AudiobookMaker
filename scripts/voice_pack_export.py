@@ -55,12 +55,14 @@ def _iter_transcripts(path: Path) -> list[VoiceChunk]:
                 continue
             try:
                 obj = json.loads(raw)
+                character = obj.get("character")
                 chunk = VoiceChunk(
                     start=float(obj["start"]),
                     end=float(obj["end"]),
                     text=str(obj["text"]),
                     speaker=str(obj["speaker"]),
                     confidence=float(obj["confidence"]),
+                    character=str(character) if character is not None else None,
                 )
             except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                 raise ValueError(
@@ -79,11 +81,19 @@ def export_for_speaker(
     emotion_label: str = "neutral",
     sample_rate_hz: int = 24000,
     rebalance_by_emotion: bool = False,
+    character: str | None = None,
 ) -> DatasetManifest:
     """Run the whole bridge end-to-end and return the manifest.
 
     Kept as a plain function so it's unit-testable without invoking the
     argparse layer. The CLI entry point is :func:`main`.
+
+    When ``character`` is provided, the filter is speaker AND character —
+    use this after running the character-clustering stage to train a
+    per-character adapter. If the transcripts file contains no chunks
+    with a ``character`` field, we raise with a "did you run
+    voice_pack_characters?" hint rather than silently returning zero
+    clips.
     """
     if emotion_label not in EMOTION_CLASSES:
         raise ValueError(
@@ -103,6 +113,25 @@ def export_for_speaker(
             f"no chunks for speaker {speaker!r} in {transcripts_path}. "
             f"Speakers present: {seen or '[none]'}"
         )
+
+    if character is not None:
+        if not any(c.character is not None for c in speaker_chunks):
+            raise ValueError(
+                f"speaker {speaker!r} has no character labels in "
+                f"{transcripts_path}. Run voice_pack_characters.py on the "
+                f"transcripts first to produce per-character voice sets."
+            )
+        filtered = [c for c in speaker_chunks if c.character == character]
+        if not filtered:
+            seen = sorted(
+                {c.character for c in speaker_chunks if c.character is not None}
+            )
+            raise ValueError(
+                f"no chunks for speaker {speaker!r} character {character!r} "
+                f"in {transcripts_path}. Characters present for this speaker: "
+                f"{seen or '[none]'}"
+            )
+        speaker_chunks = filtered
 
     tagged = [
         TaggedChunk.from_chunk(
@@ -185,6 +214,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "emotion label."
         ),
     )
+    parser.add_argument(
+        "--character",
+        default=None,
+        help=(
+            "Optional character label to filter on (e.g. CHAR_A). Requires "
+            "transcripts produced by voice_pack_characters.py. Combined "
+            "with --speaker to produce a per-character dataset."
+        ),
+    )
     return parser
 
 
@@ -201,15 +239,19 @@ def main(argv: list[str] | None = None) -> int:
             emotion_label=args.emotion_label,
             sample_rate_hz=args.sample_rate_hz,
             rebalance_by_emotion=args.rebalance_by_emotion,
+            character=args.character,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     total_min = manifest.total_seconds / 60.0
+    scope = manifest.speaker
+    if args.character is not None:
+        scope = f"{manifest.speaker} character {args.character}"
     print(
         f"Exported {len(manifest.clips)} clips "
-        f"({total_min:.1f} min) for speaker {manifest.speaker} "
+        f"({total_min:.1f} min) for speaker {scope} "
         f"→ {args.out}/manifest.json"
     )
     return 0

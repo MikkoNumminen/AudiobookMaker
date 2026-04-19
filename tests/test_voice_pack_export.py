@@ -213,6 +213,125 @@ def test_export_for_speaker_missing_source_raises(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# --character filter
+# ---------------------------------------------------------------------------
+
+
+def _character_chunks() -> list[VoiceChunk]:
+    """Three chunks for SPEAKER_00, two characters (A and B)."""
+    return [
+        VoiceChunk(
+            start=0.0, end=3.0, text="narrator line one",
+            speaker="SPEAKER_00", confidence=0.95, character="CHAR_A",
+        ),
+        VoiceChunk(
+            start=3.0, end=6.0, text="narrator line two",
+            speaker="SPEAKER_00", confidence=0.95, character="CHAR_A",
+        ),
+        VoiceChunk(
+            start=6.0, end=9.0, text="villain line",
+            speaker="SPEAKER_00", confidence=0.90, character="CHAR_B",
+        ),
+    ]
+
+
+def test_export_for_speaker_with_character_filters(tmp_path: Path) -> None:
+    transcripts = _write_transcripts(tmp_path, _character_chunks())
+    source = tmp_path / "src.wav"
+    source.write_bytes(b"RIFF" + b"\x00" * 40)
+
+    orig_export = voice_pack_export.export_dataset
+
+    def _patched(*args, **kwargs):
+        kwargs.setdefault("audio_slicer", _noop_slicer)
+        return orig_export(*args, **kwargs)
+
+    voice_pack_export.export_dataset = _patched
+    try:
+        manifest = voice_pack_export.export_for_speaker(
+            transcripts_path=transcripts,
+            source_audio_path=source,
+            speaker="SPEAKER_00",
+            out_dir=tmp_path / "ds",
+            character="CHAR_B",
+        )
+    finally:
+        voice_pack_export.export_dataset = orig_export
+
+    assert len(manifest.clips) == 1
+    assert manifest.clips[0].text == "villain line"
+
+
+def test_export_for_speaker_character_unknown_raises(tmp_path: Path) -> None:
+    transcripts = _write_transcripts(tmp_path, _character_chunks())
+    source = tmp_path / "src.wav"
+    source.write_bytes(b"RIFF")
+
+    with pytest.raises(ValueError) as excinfo:
+        voice_pack_export.export_for_speaker(
+            transcripts_path=transcripts,
+            source_audio_path=source,
+            speaker="SPEAKER_00",
+            out_dir=tmp_path / "ds",
+            character="CHAR_Z",
+        )
+    msg = str(excinfo.value)
+    assert "CHAR_Z" in msg
+    # Should list characters actually present for this speaker.
+    assert "CHAR_A" in msg or "CHAR_B" in msg
+
+
+def test_export_for_speaker_character_without_labels_raises(tmp_path: Path) -> None:
+    # Old transcripts.jsonl without character labels.
+    transcripts = _write_transcripts(tmp_path, _make_chunks())
+    source = tmp_path / "src.wav"
+    source.write_bytes(b"RIFF")
+
+    with pytest.raises(ValueError, match="voice_pack_characters"):
+        voice_pack_export.export_for_speaker(
+            transcripts_path=transcripts,
+            source_audio_path=source,
+            speaker="SPEAKER_00",
+            out_dir=tmp_path / "ds",
+            character="CHAR_A",
+        )
+
+
+def test_main_with_character_flag(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    transcripts = _write_transcripts(tmp_path, _character_chunks())
+    source = tmp_path / "src.wav"
+    source.write_bytes(b"RIFF" + b"\x00" * 40)
+    out_dir = tmp_path / "ds"
+
+    orig_export = voice_pack_export.export_dataset
+
+    def _patched(*args, **kwargs):
+        kwargs.setdefault("audio_slicer", _noop_slicer)
+        return orig_export(*args, **kwargs)
+
+    voice_pack_export.export_dataset = _patched
+    try:
+        rc = voice_pack_export.main(
+            [
+                "--transcripts", str(transcripts),
+                "--source", str(source),
+                "--speaker", "SPEAKER_00",
+                "--character", "CHAR_A",
+                "--out", str(out_dir),
+            ]
+        )
+    finally:
+        voice_pack_export.export_dataset = orig_export
+
+    assert rc == 0
+    captured = capfd.readouterr()
+    assert "Exported 2 clips" in captured.out
+    assert "CHAR_A" in captured.out
+
+
+# ---------------------------------------------------------------------------
 # CLI main()
 # ---------------------------------------------------------------------------
 
