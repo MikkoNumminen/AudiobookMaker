@@ -1,0 +1,26 @@
+{
+  "skill_name": "work-session",
+  "evals": [
+    {
+      "id": 1,
+      "name": "claim-named-backlog-item",
+      "prompt": "I'd like you to pick up the inline audio player widget task from TODO.md. you're Claude 3 this session. get started.",
+      "expected_output": "Assistant pulls master, re-reads TODO.md, adds [Claude 3, worktree-audioplayer] tag to the inline audio player item in In Progress, flips Claude 3's status-board row to working with today's date, commits chore(todo): ... + pushes, then creates .claude/worktrees/audioplayer via git worktree add and switches into it before editing code.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "finish-and-clean",
+      "prompt": "the audioplayer work is done, pytest is green, just merged my PR. close it out and go idle.",
+      "expected_output": "Assistant pulls master, merges feature/audioplayer if not already merged, deletes local + remote branch and the worktree, removes the audioplayer item from TODO.md entirely (no 'Recently Completed' archive), flips Claude 3's status-board row back to idle / — / —, commits chore(todo): clear ... + pushes.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "block-on-external",
+      "prompt": "the GPU training loop work is stalled — the lambda box is down until next week. mark it blocked.",
+      "expected_output": "Assistant edits TODO.md: appends [BLOCKED: lambda GPU host offline until <date>] to the GPU training task line, flips the session's status-board row to blocked (yellow), commits chore(todo): block ... + pushes. Does not remove the claim or the tag.",
+      "files": []
+    }
+  ]
+}
