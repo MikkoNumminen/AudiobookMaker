@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Voice-pack pipeline fixes from 1h run (incl. second-narrator recovery) | 2026-04-19 |
+| Claude 1 | 🟡 blocked | Second-narrator recovery (listening confirmation needed) | 2026-04-19 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🔵 working | Custom Claude skills bundle + eval loop | 2026-04-19 |
@@ -31,14 +31,11 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### 🚨 PRIORITY: Second narrator missed by 1h voice-pack run [Claude 1, main]
-- [ ] The Dual Class 3 1h sample has **two narrators (Christopher + Jessica)**, both reading prose + doing character voices. Pyannote collapsed them into SPEAKER_00 (54.7 min vs SPEAKER_01 0.8 min of scraps). ECAPA character clustering then split SPEAKER_00 into CHAR_A (44.4 min) + CHAR_B (10.2 min) — almost certainly one narrator per character, not "narration vs dialogue" as we first thought. We only trained + packaged CHAR_A, so one of the two narrators is missing entirely. Action: (a) confirm CHAR_A ≠ CHAR_B by sampling 2–3 clips from each speaker bucket, (b) re-export CHAR_B → train → package as a second voice pack, (c) write a structural fix so future runs auto-package every (speaker, character) bucket above the skip floor instead of stopping at the largest. 🔴 🧠 Opus.
+### 🚨 PRIORITY: Second narrator missed by 1h voice-pack run [Claude 1, main] [BLOCKED: user listening confirmation]
+- [ ] The Dual Class 3 1h sample has **two narrators (Christopher Boucher + Jessica Threat)**. Pyannote collapsed them into SPEAKER_00 (54.7 min vs SPEAKER_01 0.8 min of scraps). ECAPA character clustering then split SPEAKER_00 into CHAR_A (44.4 min) + CHAR_B (10.2 min). We only trained + packaged CHAR_A. Sample clips cut to `d:/tmp/char_clips/CHAR_{A,B}_{1,2,3}.wav` for listening. Awaiting user confirmation that CHAR_A and CHAR_B are different voices (Christopher vs Jessica) before spending ~2 h GPU on the second training run. Structural follow-up (auto-package every above-floor (speaker, character) bucket) tracked separately once the first retrain confirms the approach. 🔴 🧠 Opus.
 
-### Voice-pack pipeline fixes from 1h run [Claude 1, main]
-- [ ] Eval cadence default (`eval_every_n_steps=500`) is too coarse for short runs — 162-step 1h run produced `best_loss=inf`. Auto-scale to `max(1, total_steps // 5)` when `eval_every_n_steps` is left at default and total steps is small. 🟢 ⚡ Sonnet.
-- [ ] Character clustering default `distance_threshold=0.25` merged 2 characters into 1; only 0.15 separated them on the 1h source. Retune default or emit a warning when the result has a single cluster despite multiple input chunks. 🟡 🧠 Opus.
-- [ ] Windows speechbrain symlink failure — ECAPA productised path must pass `local_strategy=LocalStrategy.COPY` or first-run dies with WinError 1314. Prototype in `d:/tmp/analyze_ecapa.py` already carries the fix; port when implementing `src/voice_pack/diarize_ecapa.py`. 🟢 ⚡ Sonnet.
-- [ ] Voice-pack CLIs skip MP3 encode silently when ffmpeg isn't on PATH. Repo already ships `dist/ffmpeg/ffmpeg.exe`; add a shared helper that prefers the bundled binary before falling back to PATH. 🟢 ⚡ Sonnet.
+### Windows speechbrain symlink failure (port into productised ECAPA diarizer)
+- [ ] When the pyannote-free diarizer is productised into `src/voice_pack/diarize_ecapa.py`, it MUST pass `local_strategy=LocalStrategy.COPY` to `EncoderClassifier.from_hparams`, or first-run fails on Windows with `OSError: [WinError 1314]`. Prototype in `d:/tmp/analyze_ecapa.py` already carries this fix — copy the same argument over. 🟢 ⚡ Sonnet.
 
 ### Custom Claude skills bundle + eval loop [Claude 4, worktree-skills-bundle]
 - [ ] Author project-local Claude skills for the four recurring workflows (release cut, TODO session lifecycle, Finnish normalizer Pass authoring, pronunciation corpus append) under `.claude/skills/`, tracked in git so every session shares them. Run the skill-creator eval loop on each (with-skill vs no-skill baseline, human review via eval viewer). 🔴 🧠 Opus.
