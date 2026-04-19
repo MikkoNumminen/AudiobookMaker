@@ -87,12 +87,17 @@ def default_output_dir() -> Path:
     """Return the default folder where generated MP3s go.
 
     Installed (frozen) mode: next to the running ``.exe`` (install root).
-    Dev mode: ``Documents/AudiobookMaker`` (no sensible install root when
-    running from source).
+    Dev mode: ``./out/`` under the current working directory.
+
+    The two modes are kept deliberately different: frozen builds drop
+    output next to the installed .exe so non-technical users find their
+    audiobooks in the place they expect, while dev work stays inside the
+    repo's gitignored ``out/`` directory so nothing escapes into the
+    developer's Documents folder or the repo root.
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path.home() / "Documents" / "AudiobookMaker"
+    return Path.cwd() / "out"
 
 
 def suggest_output_path(
@@ -102,11 +107,17 @@ def suggest_output_path(
 ) -> str:
     """Return a default output path for a conversion.
 
-    - ``input_mode == "pdf"`` with a path: sibling ``.mp3`` next to the book
-      (``book.pdf`` -> ``book.mp3``).
+    Every path lands inside ``out_dir`` (or :func:`default_output_dir`
+    when ``out_dir`` is ``None``). Never sibling-to-input, never at the
+    repo root — the canonical output directory is the single source of
+    truth for where generated material goes.
+
+    - ``input_mode == "pdf"`` with a path: ``<out_dir>/<book-stem>.mp3``
+      (``book.pdf`` -> ``<out_dir>/book.mp3``). Keeps the book-stem
+      naming so users can tell which book produced the MP3; loses the
+      original parent directory.
     - Otherwise (text-paste mode or no path): auto-increment
-      ``texttospeech_1.mp3``, ``texttospeech_2.mp3``, ... inside ``out_dir``
-      (or :func:`default_output_dir` when ``out_dir`` is ``None``).
+      ``texttospeech_1.mp3``, ``texttospeech_2.mp3``, ... inside ``out_dir``.
 
     The auto-increment scan stops at the first free slot — it does not
     skip gaps. So if ``texttospeech_3.mp3`` exists but ``_2`` doesn't, the
@@ -115,10 +126,10 @@ def suggest_output_path(
     The helper creates the output directory when it doesn't exist so the
     caller can immediately write to the returned path.
     """
-    if input_mode == "pdf" and pdf_path:
-        return str(Path(pdf_path).with_suffix(".mp3"))
     base_dir = out_dir if out_dir is not None else default_output_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
+    if input_mode == "pdf" and pdf_path:
+        return str(base_dir / (Path(pdf_path).stem + ".mp3"))
     n = 1
     while True:
         candidate = base_dir / f"texttospeech_{n}.mp3"

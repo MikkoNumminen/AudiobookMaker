@@ -71,14 +71,18 @@ def test_parse_book_unknown_ext_falls_through_to_pdf(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_default_output_dir_dev_mode(monkeypatch: pytest.MonkeyPatch):
-    # Dev mode: not frozen. Should return Documents/AudiobookMaker.
+def test_default_output_dir_dev_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # Dev mode: not frozen. Should return ``<cwd>/out`` — the canonical
+    # dev-mode output directory. Never escapes into ~/Documents/… and
+    # never lands at the repo root.
     monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.chdir(tmp_path)
 
     result = default_output_dir()
 
-    assert result.name == "AudiobookMaker"
-    assert result.parent.name == "Documents"
+    assert result == tmp_path / "out"
 
 
 def test_default_output_dir_frozen_mode(
@@ -101,25 +105,34 @@ def test_default_output_dir_frozen_mode(
 # ---------------------------------------------------------------------------
 
 
-def test_suggest_output_path_pdf_mode_sibling(tmp_path: Path):
-    pdf = tmp_path / "my_book.pdf"
+def test_suggest_output_path_pdf_mode_routes_to_out_dir(tmp_path: Path):
+    # PDF mode keeps the book stem but forces the file into ``out_dir``
+    # — never sibling-to-PDF. Protects the canonical output-dir rule
+    # from being violated by the auto-path helper.
+    pdf = tmp_path / "source" / "my_book.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"")
+    out_dir = tmp_path / "out"
+
+    result = suggest_output_path("pdf", str(pdf), out_dir=out_dir)
+
+    assert Path(result) == out_dir / "my_book.mp3"
+
+
+def test_suggest_output_path_pdf_mode_uses_default_when_out_dir_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # When the caller doesn't pass out_dir, PDF mode still routes through
+    # default_output_dir() rather than dropping next to the source.
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.chdir(tmp_path)
+    pdf = tmp_path / "source" / "title.pdf"
+    pdf.parent.mkdir()
     pdf.write_bytes(b"")
 
     result = suggest_output_path("pdf", str(pdf))
 
-    assert Path(result) == pdf.with_suffix(".mp3")
-
-
-def test_suggest_output_path_pdf_mode_preserves_directory(tmp_path: Path):
-    # PDF in a nested folder → MP3 lands in the same folder.
-    nested = tmp_path / "sub" / "dir"
-    nested.mkdir(parents=True)
-    pdf = nested / "title.pdf"
-    pdf.write_bytes(b"")
-
-    result = suggest_output_path("pdf", str(pdf))
-
-    assert Path(result).parent == nested
+    assert Path(result) == tmp_path / "out" / "title.mp3"
 
 
 def test_suggest_output_path_text_mode_auto_increments(tmp_path: Path):

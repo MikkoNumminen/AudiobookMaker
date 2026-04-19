@@ -197,9 +197,10 @@ class TestRequestCancel:
 class TestStartChatterboxSubprocess:
     def test_text_override_writes_temp_file_with_prefix(self, app, tmp_path):
         # UnifiedApp doesn't expose _out_var (legacy attribute from the
-        # old gui.py GUI); the mixin's hasattr guard falls back to
-        # ~/Documents/AudiobookMaker. We patch mkdir so no directory
-        # is actually created on disk during the test.
+        # old gui.py GUI); the mixin's hasattr guard falls back to the
+        # canonical default output dir (``./out/`` in dev). We patch
+        # mkdir so no directory is actually created on disk during the
+        # test.
         captured: dict = {}
 
         def _fake_runner(**kwargs):
