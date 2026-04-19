@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟡 blocked | Second-narrator recovery (listening confirmation needed) | 2026-04-19 |
+| Claude 1 | 🔵 working | ECAPA diarizer productisation (+ Windows symlink fix folded in) | 2026-04-20 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -31,11 +31,11 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ## In Progress
 
-### 🚨 PRIORITY: Second narrator missed by 1h voice-pack run [Claude 1, main] [BLOCKED: user listening confirmation]
+### 🚨 PRIORITY: Second narrator missed by 1h voice-pack run [BLOCKED: user listening confirmation]
 - [ ] The Dual Class 3 1h sample has **two narrators (Christopher Boucher + Jessica Threat)**. Pyannote collapsed them into SPEAKER_00 (54.7 min vs SPEAKER_01 0.8 min of scraps). ECAPA character clustering then split SPEAKER_00 into CHAR_A (44.4 min) + CHAR_B (10.2 min). We only trained + packaged CHAR_A. Sample clips cut to `d:/tmp/char_clips/CHAR_{A,B}_{1,2,3}.wav` for listening. Awaiting user confirmation that CHAR_A and CHAR_B are different voices (Christopher vs Jessica) before spending ~2 h GPU on the second training run. Structural follow-up (auto-package every above-floor (speaker, character) bucket) tracked separately once the first retrain confirms the approach. 🔴 🧠 Opus.
 
-### Windows speechbrain symlink failure (port into productised ECAPA diarizer)
-- [ ] When the pyannote-free diarizer is productised into `src/voice_pack/diarize_ecapa.py`, it MUST pass `local_strategy=LocalStrategy.COPY` to `EncoderClassifier.from_hparams`, or first-run fails on Windows with `OSError: [WinError 1314]`. Prototype in `d:/tmp/analyze_ecapa.py` already carries this fix — copy the same argument over. 🟢 ⚡ Sonnet.
+### Pyannote-free ECAPA diarizer productisation [Claude 1, main]
+- [ ] Port the prototype in `d:/tmp/analyze_ecapa.py` into `src/voice_pack/diarize_ecapa.py` and wire a `--diarizer ecapa` flag on `scripts/voice_pack_analyze.py`. MUST pass `local_strategy=LocalStrategy.COPY` to `EncoderClassifier.from_hparams` or first-run fails on Windows with `OSError: [WinError 1314]`. Goal: future runs aren't gated on a Hugging Face pyannote account, and the Dual Class man+woman collapse we saw on the 1h run doesn't happen again. Absorbs the earlier Windows-symlink sibling TODO. 🟡 🧠 Opus.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
