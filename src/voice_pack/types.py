@@ -85,6 +85,16 @@ class VoiceChunk:
     Produced by :mod:`src.voice_pack.bucket` by intersecting ASR segments
     with diarization turns. This is the atomic training unit for the later
     fine-tune stage.
+
+    ``character`` is an optional per-chunk label produced by
+    :mod:`src.voice_pack.characters` when the operator runs the optional
+    character-clustering stage after analyze. Diarization answers "which
+    reader voiced this line"; character clustering then subclusters each
+    reader's chunks acoustically to find distinct character voices the
+    reader performs (narrator vs villain vs hero, etc.). ``None`` means
+    "character clustering was never run" or "this chunk was assigned to
+    the residual/narrator bucket"; downstream export filters treat the
+    two cases differently.
     """
 
     start: float
@@ -92,6 +102,7 @@ class VoiceChunk:
     text: str
     speaker: str
     confidence: float
+    character: str | None = None
 
     @property
     def duration(self) -> float:
@@ -99,6 +110,22 @@ class VoiceChunk:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def with_character(self, character: str | None) -> "VoiceChunk":
+        """Return a copy with ``character`` replaced.
+
+        Frozen dataclasses can't mutate, so clustering produces new chunks
+        rather than editing in place. Kept as a method so callers don't
+        have to know the full field list.
+        """
+        return VoiceChunk(
+            start=self.start,
+            end=self.end,
+            text=self.text,
+            speaker=self.speaker,
+            confidence=self.confidence,
+            character=character,
+        )
 
 
 @dataclass(frozen=True)
