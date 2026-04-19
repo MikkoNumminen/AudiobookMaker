@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🟢 idle | — | — |
+| Claude 1 | 🔵 working | Voice-pack pipeline fixes from 1h run (incl. second-narrator recovery) | 2026-04-19 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🔵 working | Custom Claude skills bundle + eval loop | 2026-04-19 |
@@ -30,6 +30,15 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 7. **No private task lists.** Do NOT use the internal TodoWrite tool for tracking work. ALL tasks — planned, in progress, blocked, or speculative — go in THIS file. When the user says "todo", pull this file from git and report its full contents: status board, in-progress items, and the complete backlog. The user expects one place with everything, not a split between an ephemeral in-session list and this file.
 
 ## In Progress
+
+### 🚨 PRIORITY: Second narrator missed by 1h voice-pack run [Claude 1, main]
+- [ ] The Dual Class 3 1h sample has **two narrators (Christopher + Jessica)**, both reading prose + doing character voices. Pyannote collapsed them into SPEAKER_00 (54.7 min vs SPEAKER_01 0.8 min of scraps). ECAPA character clustering then split SPEAKER_00 into CHAR_A (44.4 min) + CHAR_B (10.2 min) — almost certainly one narrator per character, not "narration vs dialogue" as we first thought. We only trained + packaged CHAR_A, so one of the two narrators is missing entirely. Action: (a) confirm CHAR_A ≠ CHAR_B by sampling 2–3 clips from each speaker bucket, (b) re-export CHAR_B → train → package as a second voice pack, (c) write a structural fix so future runs auto-package every (speaker, character) bucket above the skip floor instead of stopping at the largest. 🔴 🧠 Opus.
+
+### Voice-pack pipeline fixes from 1h run [Claude 1, main]
+- [ ] Eval cadence default (`eval_every_n_steps=500`) is too coarse for short runs — 162-step 1h run produced `best_loss=inf`. Auto-scale to `max(1, total_steps // 5)` when `eval_every_n_steps` is left at default and total steps is small. 🟢 ⚡ Sonnet.
+- [ ] Character clustering default `distance_threshold=0.25` merged 2 characters into 1; only 0.15 separated them on the 1h source. Retune default or emit a warning when the result has a single cluster despite multiple input chunks. 🟡 🧠 Opus.
+- [ ] Windows speechbrain symlink failure — ECAPA productised path must pass `local_strategy=LocalStrategy.COPY` or first-run dies with WinError 1314. Prototype in `d:/tmp/analyze_ecapa.py` already carries the fix; port when implementing `src/voice_pack/diarize_ecapa.py`. 🟢 ⚡ Sonnet.
+- [ ] Voice-pack CLIs skip MP3 encode silently when ffmpeg isn't on PATH. Repo already ships `dist/ffmpeg/ffmpeg.exe`; add a shared helper that prefers the bundled binary before falling back to PATH. 🟢 ⚡ Sonnet.
 
 ### Custom Claude skills bundle + eval loop [Claude 4, worktree-skills-bundle]
 - [ ] Author project-local Claude skills for the four recurring workflows (release cut, TODO session lifecycle, Finnish normalizer Pass authoring, pronunciation corpus append) under `.claude/skills/`, tracked in git so every session shares them. Run the skill-creator eval loop on each (with-skill vs no-skill baseline, human review via eval viewer). 🔴 🧠 Opus.
@@ -57,7 +66,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
-- [ ] **Inference-load validation of trained LoRA adapter:** end-to-end 5-CLI pipeline confirmed on 1 h Dual Class 3 sample (see commits `f7174c8` + `459d7ec` for the fixes that unblocked it). Still pending: load `voice_packs/dual_class_narrator_1h/adapter.pt` back into the inference path and synthesize a sample, to prove the adapter round-trips into generation. 🟡 🧠 Opus.
 - [ ] **Pyannote-free diarization path:** the 1h run bypassed pyannote's HF-gated model using an ECAPA-TDNN + agglomerative-clustering diarizer (prototype in `d:/tmp/analyze_ecapa.py`). Productise into `src/voice_pack/diarize_ecapa.py` + `--diarizer ecapa` flag on `voice_pack_analyze.py` so future users aren't blocked by HF account gates. 🟡 🧠 Opus.
 - [ ] **Expression markup wire-up (Slice 5 inference-path integration):** consume the `ExpressionPlan` produced by `src.voice_pack.expression.parse_markup` inside `scripts/generate_chatterbox_audiobook.py` so per-sentence `exaggeration` / `cfg_weight` overrides take effect during synthesis. Optional lightweight emotion-prefix token during training. 🟡 🧠 Opus.
 - [ ] **XTTS v2 bake-off (Slice 5a, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
