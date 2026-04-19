@@ -211,6 +211,37 @@ users discover only *after* their audiobooks are gone. Much cheaper to
 audit the checklist on every path-touching PR than to write an apology
 later.
 
+## Finnish text normalizer — lexicon vs. new pass
+
+The Finnish normalizer pipeline ([src/tts_normalizer_fi.py](../src/tts_normalizer_fi.py))
+is a sequence of ~20 lettered passes (A–N). Each pass owns one phenomenon
+and has load-bearing ordering constraints with its neighbours; the
+dispatcher docstring enumerates them.
+
+When a mispronunciation report lands ("please fix `patriotismi`", "page
+ranges read wrong", "acronym pronounced as a word"), classify the fix
+**before** you touch code:
+
+- **Lexicon / data extension** — the phenomenon is already covered by an
+  existing pass, but the pass's whitelist is missing the specific word
+  or stem. Fix is a YAML edit in `data/fi_*.yaml` plus a regression
+  test. Examples: new `-ismi` stem, new `-tio` loanword, new
+  abbreviation expansion for Pass K. No code change, no ordering
+  change, no invariants-docstring edit.
+- **Bug in an existing pass** — the pattern/regex is wrong, over-fires,
+  or under-fires. Fix is in the pass function plus a regression test.
+  No ordering change.
+- **Genuinely new phenomenon** — nothing in the pipeline addresses it.
+  Only then add a new pass, wire it into the dispatcher at the correct
+  slot, and add a new invariants bullet to the docstring explaining
+  what must run before and after it.
+
+Don't reach for "new pass" when "new lexicon entry" or "fix existing
+pass" is the right shape. New passes add ordering surface area that
+later changes have to reason about forever. See
+[docs/tts_text_normalization_cases.md](tts_text_normalization_cases.md)
+for the canonical test inventory.
+
 ## Auto-update is critical — it must work for every release
 
 Auto-update is the lifeline to existing users. If it breaks, every user
