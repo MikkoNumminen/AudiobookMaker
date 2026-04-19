@@ -3,23 +3,40 @@
 These instructions are loaded automatically at the start of every session,
 including worktrees. They override default behavior.
 
-## Task tracking — TODO.md is the ONLY task list
+## Task tracking — `TODO.md` is local-only, never tracked
+
+`TODO.md` lives at the repo root and is gitignored. It is a per-machine
+scratch list, not a shared multi-session coordination surface. **Never**
+`git add` it, never reference it in a commit message, never let its
+contents leak into a diff or a PR body.
 
 When the user says "todo":
-1. `git pull --rebase origin master`
-2. Read `TODO.md` in full
-3. Report: status board, in-progress items, complete backlog summary
+1. Read the local `TODO.md` if it exists.
+2. Report its contents: current tasks, notes, backlog.
+3. Do not attempt to sync with remote — there is no remote copy.
 
-**Do NOT use the internal TodoWrite tool.** It is invisible to other Claude
-sessions and creates confusion. ALL tasks — planned, in progress, blocked,
-speculative — live in `TODO.md` on git.
+**Do not use the internal TodoWrite tool.** Keep all task notes in the
+local `TODO.md` file. If the user wants tasks tracked, it goes there.
 
-When starting work: move the item to "In Progress" in `TODO.md`, update the
-status board, commit + push.
+Before every commit, scan the staged diff for any accidental `TODO.md`
+entry (e.g. if it was briefly un-ignored, or if a script wrote content
+that mirrors task-list text). If found, stop and remove it.
 
-When finishing: remove the item, set status to idle, commit + push.
+## Commit messages — zero tolerance for AI-origin mentions
 
-Read `TODO.md`'s full rules section before your first action in any session.
+Never put `Claude`, `Anthropic`, `AI`, `agent`, `session`, `Co-Authored-By`,
+or any variant of these in a commit subject, body, trailer, tag, or PR
+description. The repo's public history must not reveal that automation
+produced the changes. This rule has been broken before; every violation
+requires a force-push to scrub. Before every `git commit`:
+
+1. Draft the message.
+2. Re-read it slowly, looking specifically for any of the forbidden
+   strings above.
+3. Only then commit.
+
+If a violation already landed, treat as P0: rewrite history and
+force-push immediately, then ask the user before doing anything else.
 
 ## No third-party copyrighted material in the repo — P0
 
@@ -62,10 +79,11 @@ leak the same severity as leaked secrets.
 
 ### Workflow rules
 
-- **Keep source material in untracked local paths only:** worktree root
-  (already gitignored for new files you don't `git add`), `d:/tmp/`, or
-  a path added to `.gitignore`. If you find yourself typing `git add
-  some_book.epub`, stop.
+- **Keep source material in `.local/`.** The repo root has `.local/` as
+  the one canonical directory for third-party source inputs (EPUBs,
+  audiobooks, test texts, reference clips). Everything there is
+  gitignored. Never add new source material outside `.local/`; never
+  scatter copyrighted inputs at the repo root.
 - **Before every commit and every push, scan the diff** for book/
   audiobook titles, author/narrator names, identifying paths, third-party
   URLs, and any file that looks like source content by size or extension.
@@ -73,6 +91,36 @@ leak the same severity as leaked secrets.
   the tree via `gh api` Contents PUT/DELETE (works even when another
   Claude owns the main worktree — see `feedback_gh_api_merge_pattern.md`
   in memory), and ask the user before any history rewrite (destructive).
+
+## One canonical output directory — `out/` (dev) and next-to-exe (frozen)
+
+All generated material — audiobook MP3s, synthesis logs, diagnostic
+CSVs, stress-test outputs, scratch files from scripts — goes to **one
+place, always**:
+
+- **Dev mode:** `./out/` in the repo root. Gitignored.
+- **Frozen mode (installed .exe):** next to the running `.exe` (install
+  root). Users expect their files there.
+
+**Do not** write generated files to:
+- The repo root — no more `*.log`, `diagnostic_*.csv`, or ad-hoc
+  `*_input.txt` scratch files scattered next to `README.md`.
+- `dist/` — reserved for the PyInstaller build pipeline (ffmpeg.exe
+  input + frozen-exe output consumed by the installer). Never a runtime
+  target. If you find a leaked scratch dir under `dist/`, move it to
+  `out/` and fix the write site.
+- Sibling-to-input paths — don't auto-name an MP3 next to the source
+  PDF just because the PDF was at the repo root.
+- `~/Documents/AudiobookMaker/` — the old dev default. Replace with
+  `./out/` when you touch that code next.
+
+If code today writes somewhere else (e.g. `synthesis_orchestrator.default_output_dir`
+returning `~/Documents/AudiobookMaker`), that's a bug — fix it at the
+write site, don't add a second output root to work around it.
+
+`out/` is for runtime and dev-work output. `.local/` is for local-only
+input source material. `dist/` is for the PyInstaller build pipeline.
+Never mix the three.
 
 ## Auto-update is critical
 

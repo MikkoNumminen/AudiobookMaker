@@ -14,11 +14,24 @@
 !.claude/skills/**
 # Personal planning notes — kept locally, not part of the repo.
 docs/plans/
+# Local-only task list. Intentionally NOT tracked — keeps coordination
+# notes (ownership tags, status markers) out of git history, where they
+# have repeatedly leaked as AI-origin references in commit messages and
+# diffs. Each machine keeps its own copy under the repo root.
+TODO.md
 __pycache__/
 *.pyc
 *.pyo
+# Build / packaging output (PyInstaller, setuptools).
+# dist/ is RESERVED for the PyInstaller build pipeline only — ffmpeg.exe
+# build input lives at dist/ffmpeg/, frozen-exe output at dist/AudiobookMaker/,
+# consumed by installer/setup.iss. Nothing runtime-generated goes here.
 dist/
 build/
+# Runtime and dev-work output — audiobook MP3s, synthesis logs, diagnostic
+# CSVs, stress-test outputs, scratch files from scripts. Anything the app
+# or a dev script generates locally goes under out/.
+out/
 # Ignore auto-generated specs but not our handcrafted ones
 *.spec
 !audiobookmaker.spec
