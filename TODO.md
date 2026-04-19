@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Voice pack 1h validation run (Dual Class 3) | 2026-04-19 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -54,7 +54,8 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
-- [ ] **GPU validation of the LoRA training loop (Slice 3 validate):** training loop shipped in `e7fa81c`, bridge CLI in `c2e08d0`. Run the five-CLI pipeline end-to-end on a real 1 h sample to confirm `target_modules` match the installed Chatterbox build and the adapter loads back into inference. 🟡 🧠 Opus. `[Claude 1, main]` — in progress: 1h Dual Class 3 sample, phase 1/3 (ffmpeg extract → analyze → character cluster).
+- [ ] **Inference-load validation of trained LoRA adapter:** end-to-end 5-CLI pipeline confirmed on 1 h Dual Class 3 sample (see commits `f7174c8` + `459d7ec` for the fixes that unblocked it). Still pending: load `voice_packs/dual_class_narrator_1h/adapter.pt` back into the inference path and synthesize a sample, to prove the adapter round-trips into generation. 🟡 🧠 Opus.
+- [ ] **Pyannote-free diarization path:** the 1h run bypassed pyannote's HF-gated model using an ECAPA-TDNN + agglomerative-clustering diarizer (prototype in `d:/tmp/analyze_ecapa.py`). Productise into `src/voice_pack/diarize_ecapa.py` + `--diarizer ecapa` flag on `voice_pack_analyze.py` so future users aren't blocked by HF account gates. 🟡 🧠 Opus.
 - [ ] **Expression markup wire-up (Slice 5 inference-path integration):** consume the `ExpressionPlan` produced by `src.voice_pack.expression.parse_markup` inside `scripts/generate_chatterbox_audiobook.py` so per-sentence `exaggeration` / `cfg_weight` overrides take effect during synthesis. Optional lightweight emotion-prefix token during training. 🟡 🧠 Opus.
 - [ ] **XTTS v2 bake-off (Slice 5a, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
 - [ ] **Architecture write-up (`docs/voice_pack_design.md`):** capture the design rationale — Chatterbox LoRA primary (MIT, shared inference path), <200 MB/speaker adapters, emotional range via training-data balance + inference knobs, ~5 h source is the quality ceiling. Internal dev doc; may reference the audiobook source use case. 🟢 ⚡ Sonnet.
