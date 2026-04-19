@@ -453,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"Clustered {len(result.chunks)} chunks into "
         f"{len(result.summaries)} (speaker, character) buckets "
-        f"→ {args.out}/transcripts_with_characters.jsonl"
+        f"-> {args.out}/transcripts_with_characters.jsonl"
     )
     return 0
 

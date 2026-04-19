@@ -252,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"Exported {len(manifest.clips)} clips "
         f"({total_min:.1f} min) for speaker {scope} "
-        f"→ {args.out}/manifest.json"
+        f"-> {args.out}/manifest.json"
     )
     return 0
 
