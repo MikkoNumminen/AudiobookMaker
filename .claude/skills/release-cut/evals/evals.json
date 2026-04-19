@@ -1,0 +1,26 @@
+{
+  "skill_name": "release-cut",
+  "evals": [
+    {
+      "id": 1,
+      "name": "casual-patch-bump",
+      "prompt": "ok time to cut 3.9.2, there was that small edge timeout fix we landed last week and I'd like it out today. can you do the release?",
+      "expected_output": "A release cut from 3.9.1 to 3.9.2: both APP_VERSION and #define MyAppVersion bumped, README links updated, one release commit, tag v3.9.2 pushed, CI monitored, live release verified to contain SHA-256 in body and sidecar asset.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "vague-ship-request",
+      "prompt": "ship a new release",
+      "expected_output": "Assistant asks which version bump (patch / minor / major) and what's going in the release before touching anything. Does not invent a version number.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "explicit-minor-bump",
+      "prompt": "bump to 3.10.0 for the new English Grandmom and the VoxCPM2 engine slot, then push and watch CI",
+      "expected_output": "A full release cut to 3.10.0: version strings synced across auto_updater.py and setup.iss, README download links updated, release commit, tag v3.10.0 pushed, CI run watched through to green, live release body + sidecar verified.",
+      "files": []
+    }
+  ]
+}
