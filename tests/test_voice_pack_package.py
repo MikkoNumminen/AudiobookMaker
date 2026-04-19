@@ -125,6 +125,43 @@ def test_package_reduced_lora_accepts_adapter(tmp_path: Path) -> None:
     assert (result / "adapter.pt").is_file()
 
 
+def test_package_accepts_peft_adapter_directory(tmp_path: Path) -> None:
+    """A PEFT save-directory should be accepted as ``--adapter``.
+
+    ``peft.PeftModel.save_pretrained`` writes a folder containing
+    ``adapter_model.safetensors`` + ``adapter_config.json``. Pointing
+    ``--adapter`` at that folder used to raise ``FileNotFoundError``
+    from ``_require_file``; now the packager auto-resolves the inner
+    file.
+    """
+
+    adapter_dir = tmp_path / "in" / "adapter"
+    adapter_dir.mkdir(parents=True)
+    _make_file(adapter_dir / "adapter_model.safetensors", b"LORA")
+    _make_file(adapter_dir / "adapter_config.json", b"{}")
+
+    kwargs = _common_kwargs(tmp_path, tier="full_lora", with_adapter=False)
+    kwargs["adapter_path"] = adapter_dir
+    result = voice_pack_package.package(**kwargs)
+    assert (result / "adapter.pt").is_file()
+    # Payload copied verbatim from the safetensors file in the dir.
+    assert (result / "adapter.pt").read_bytes() == b"LORA"
+
+
+def test_package_adapter_directory_without_weights_errors(tmp_path: Path) -> None:
+    """A directory that lacks ``adapter_model.*`` must fail loudly."""
+
+    empty_dir = tmp_path / "in" / "adapter"
+    empty_dir.mkdir(parents=True)
+    (empty_dir / "README.md").write_text("nothing useful", encoding="utf-8")
+
+    kwargs = _common_kwargs(tmp_path, tier="full_lora", with_adapter=False)
+    kwargs["adapter_path"] = empty_dir
+    with pytest.raises(FileNotFoundError) as exc:
+        voice_pack_package.package(**kwargs)
+    assert "adapter_model" in str(exc.value)
+
+
 def test_package_unknown_tier_raises(tmp_path: Path) -> None:
     kwargs = _common_kwargs(tmp_path, tier="bogus_tier")
     with pytest.raises(ValueError) as exc:

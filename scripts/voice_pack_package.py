@@ -114,6 +114,30 @@ def _require_file(path: Path, label: str) -> None:
         raise FileNotFoundError(f"{label} not found: {path}")
 
 
+def _resolve_adapter_path(raw: str | Path) -> Path:
+    """Accept either a single-file adapter or a PEFT save directory.
+
+    ``peft.PeftModel.save_pretrained`` produces a *directory* containing
+    ``adapter_model.safetensors`` + ``adapter_config.json``. Users
+    (rightly) point ``--adapter`` at that directory, and used to get a
+    cryptic ``FileNotFoundError``. Now we accept both forms: if a
+    directory is passed, we pick ``adapter_model.safetensors`` (or
+    fall back to ``adapter_model.bin``) from inside it.
+    """
+
+    path = Path(raw)
+    if path.is_dir():
+        for candidate in ("adapter_model.safetensors", "adapter_model.bin"):
+            inner = path / candidate
+            if inner.is_file():
+                return inner
+        raise FileNotFoundError(
+            f"adapter directory {path} does not contain "
+            f"adapter_model.safetensors or adapter_model.bin"
+        )
+    return path
+
+
 def package(
     *,
     out_dir: str | Path,
@@ -167,7 +191,7 @@ def package(
 
     adapter: Path | None = None
     if adapter_path is not None:
-        adapter = Path(adapter_path)
+        adapter = _resolve_adapter_path(adapter_path)
         _require_file(adapter, "adapter")
 
     reference: Path | None = None
@@ -275,7 +299,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--adapter",
         default=None,
-        help="path to LoRA adapter weights (required for full_lora / reduced_lora)",
+        help=(
+            "path to LoRA adapter weights (required for full_lora / reduced_lora). "
+            "Accepts either the .safetensors/.bin file or the PEFT save "
+            "directory that contains it."
+        ),
     )
     parser.add_argument(
         "--reference",
