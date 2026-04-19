@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | ECAPA diarizer productisation (+ Windows symlink fix folded in) | 2026-04-20 |
+| Claude 1 | 🔵 working | VoxCPM2 GPU install + sanity test | 2026-04-20 |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -33,9 +33,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 
 ### 🚨 PRIORITY: Second narrator missed by 1h voice-pack run [BLOCKED: user listening confirmation]
 - [ ] A 1h voice-pack sample had **two narrators (male + female)**. Pyannote collapsed them into SPEAKER_00 (54.7 min vs SPEAKER_01 0.8 min of scraps). ECAPA character clustering then split SPEAKER_00 into CHAR_A (44.4 min) + CHAR_B (10.2 min). We only trained + packaged CHAR_A. Sample clips cut to `d:/tmp/char_clips/CHAR_{A,B}_{1,2,3}.wav` for listening. Awaiting user confirmation that CHAR_A and CHAR_B are the two different narrators before spending ~2 h GPU on the second training run. Structural follow-up (auto-package every above-floor (speaker, character) bucket) tracked separately once the first retrain confirms the approach. 🔴 🧠 Opus.
-
-### Pyannote-free ECAPA diarizer productisation [Claude 1, main]
-- [ ] Port the prototype in `d:/tmp/analyze_ecapa.py` into `src/voice_pack/diarize_ecapa.py` and wire a `--diarizer ecapa` flag on `scripts/voice_pack_analyze.py`. MUST pass `local_strategy=LocalStrategy.COPY` to `EncoderClassifier.from_hparams` or first-run fails on Windows with `OSError: [WinError 1314]`. Goal: future runs aren't gated on a Hugging Face pyannote account, and the man+woman collapse we saw on the 1h run doesn't happen again. Absorbs the earlier Windows-symlink sibling TODO. 🟡 🧠 Opus.
 
 ### Chatterbox-Finnish: collect pronunciation failure corpus (seeded — keep appending)
 - [ ] Corpus file lives at `docs/pronunciation_corpus_fi.md` with 5 seeded entries across 5 failure categories. Keep appending each new failing word Turo or other testers report. Target: 20 concrete entries across ≥3 categories before attempting a targeted Pass I fix. 🟡 🧠 Opus.
@@ -60,13 +57,12 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
-- [ ] **Pyannote-free diarization path:** the 1h run bypassed pyannote's HF-gated model using an ECAPA-TDNN + agglomerative-clustering diarizer (prototype in `d:/tmp/analyze_ecapa.py`). Productise into `src/voice_pack/diarize_ecapa.py` + `--diarizer ecapa` flag on `voice_pack_analyze.py` so future users aren't blocked by HF account gates. 🟡 🧠 Opus.
 - [ ] **Expression markup wire-up (Slice 5 inference-path integration):** consume the `ExpressionPlan` produced by `src.voice_pack.expression.parse_markup` inside `scripts/generate_chatterbox_audiobook.py` so per-sentence `exaggeration` / `cfg_weight` overrides take effect during synthesis. Optional lightweight emotion-prefix token during training. 🟡 🧠 Opus.
 - [ ] **XTTS v2 bake-off (Slice 5a, research lane):** run the same source audio through Coqui XTTS v2 finetune, listen side-by-side vs Chatterbox LoRA. If XTTS clearly wins on emotional range / accent, ship as a second engine slot (private-use builds only — XTTS is CPML non-commercial). 🟡 🧠 Opus.
 - [ ] **Architecture write-up (`docs/voice_pack_design.md`):** capture the design rationale — Chatterbox LoRA primary (MIT, shared inference path), <200 MB/speaker adapters, emotional range via training-data balance + inference knobs, ~5 h source is the quality ceiling. Internal dev doc; may reference the audiobook source use case. 🟢 ⚡ Sonnet.
 - [ ] **License/ethics guardrail note:** voice packs stay local by default (no cloud upload, no sharing button). Capability-framed README note ("voice cloning of third-party voices is your own responsibility, keep local, don't redistribute"). 🟢 ⚡ Sonnet.
 
-### VoxCPM2 — GPU testing (requires NVIDIA machine)
+### VoxCPM2 — GPU testing (NVIDIA machine) [Claude 1, main]
 - [ ] Run `pip install voxcpm` and verify the GUI sees the engine. 🟢 ⚡ Sonnet
 - [ ] Synthesize ~5000 chars in Finnish, compare against Edge-TTS Noora. 🟡 🧠 Opus
 - [ ] Try `voice_description` and `reference_audio` cloning. 🟡 🧠 Opus
