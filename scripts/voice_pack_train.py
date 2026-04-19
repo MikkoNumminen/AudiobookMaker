@@ -359,7 +359,21 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
     # raises "Expected target size [B, V], got [B, L]" at step 0. Fix:
     # transpose logits to put the class dim second. No behaviour change
     # beyond making the loss actually compute.
+    #
+    # Guarded by a source sniff so that if chatterbox ships a real fix
+    # upstream, our patch becomes a no-op instead of silently shadowing
+    # a corrected implementation. Markers we look for: any `.transpose(`
+    # / `.permute(` on the logits, which is how a proper fix would read.
+    import inspect  # type: ignore[import-not-found]
     import torch.nn.functional as F  # type: ignore[import-not-found]
+
+    try:
+        _t3_loss_src = inspect.getsource(T3.loss)
+    except (OSError, TypeError):
+        _t3_loss_src = ""
+    _already_fixed_upstream = (
+        ".transpose(" in _t3_loss_src or ".permute(" in _t3_loss_src
+    )
 
     def _fixed_t3_loss(
         self: T3,
@@ -409,7 +423,14 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
         )
         return loss_text, loss_speech
 
-    T3.loss = _fixed_t3_loss  # type: ignore[assignment]
+    if _already_fixed_upstream:
+        print(
+            "[voice_pack_train] detected fixed T3.loss upstream — "
+            "skipping local monkey-patch.",
+            flush=True,
+        )
+    else:
+        T3.loss = _fixed_t3_loss  # type: ignore[assignment]
 
     # --- Determinism (best-effort; torch non-determinism on GPU is real) -
     torch.manual_seed(config.seed)
