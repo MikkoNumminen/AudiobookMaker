@@ -12,7 +12,7 @@ Any Claude can read this section to know instantly what every other Claude is do
 
 | Claude | Status | Current task | Since |
 |--------|--------|-------------|-------|
-| Claude 1 | 🔵 working | Voice pack — character-level clustering | 2026-04-19 |
+| Claude 1 | 🟢 idle | — | — |
 | Claude 2 | 🟢 idle | — | — |
 | Claude 3 | 🟢 idle | — | — |
 | Claude 4 | 🟢 idle | — | — |
@@ -52,9 +52,6 @@ Status values: 🟢 idle · 🔵 working · 🟡 blocked · 🔴 error · ⚫ of
 ### Voice cloning — real-world end-to-end validation
 - [ ] Test `scripts/record_voice_sample.py` live with a real 12 s recording. Raise input volume to ~85% first (Zoom/Teams leaves it at ~5–10%). 🟢 ⚡ Sonnet
 - [ ] If cloning quality is below v7, iterate: longer recording, more varied prosody, explicit `--ref-audio`. 🟡 🧠 Opus
-
-### Voice pack — character-level clustering [Claude 1, main]
-- [ ] Extend the analyze pipeline so per-reader adapters can split into per-character voices. Add optional `character` field to `VoiceChunk`, new `src/voice_pack/characters.py` clustering module, new `scripts/voice_pack_characters.py` CLI (acoustic subclustering within each speaker using Chatterbox voice-encoder embeddings), and `--character` filter in `voice_pack_export.py`. Tests must stay hermetic via DI embedder/slicer seams. 🔴 🧠 Opus.
 
 ### Voice pack pipeline — remaining slices (Slices 1–5 scaffolding landed)
 - [ ] **GPU validation of the LoRA training loop (Slice 3 validate):** training loop shipped in `e7fa81c`, bridge CLI in `c2e08d0`. Run the five-CLI pipeline end-to-end on a real 1 h sample to confirm `target_modules` match the installed Chatterbox build and the adapter loads back into inference. 🟡 🧠 Opus.
