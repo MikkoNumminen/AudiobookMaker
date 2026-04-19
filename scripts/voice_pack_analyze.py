@@ -38,6 +38,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from src.ffmpeg_path import setup_ffmpeg_path  # noqa: E402
+
+# Point pydub / faster-whisper at the bundled ffmpeg before any audio
+# library import, so voice-pack CLIs work on fresh checkouts where
+# ffmpeg isn't on PATH.
+setup_ffmpeg_path()
+
 from src.voice_pack.bucket import (  # noqa: E402
     assign_speakers,
     filter_quality,
