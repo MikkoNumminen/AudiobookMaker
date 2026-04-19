@@ -7,10 +7,10 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-1565%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1598%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
-Turn a PDF (or plain text) into an audiobook. Pick a file, press a button, get an MP3.
+Turn a PDF, EPUB, or plain text file into an audiobook. Pick a file, press a button, get an MP3.
 
 Works best with Finnish text. Other languages work too, but the
 support depends on which Engine you pick. Here's the honest
@@ -75,6 +75,28 @@ If you hit a bug, open an issue -- they get fixed fast. The
 right now.
 
 ## What's new
+
+**v3.9.1** -- Bug reporting, a voice pack builder, and small polish:
+
+- **Report a bug button** -- a new link in Settings opens a pre-filled
+  GitHub issue with your app version, OS, and engine info. So fixes
+  don't wait on you remembering which build you were running
+- **Engine Manager follows the Language toggle** -- flipping Language
+  between Finnish and English now also relocalises the Engine Manager
+  window, Back button included
+- **Voice pack builder pipeline** -- five command-line tools under
+  `scripts/voice_pack_*.py` turn a clean sample recording into an
+  installable voice pack. The stages are: analyze (ASR + diarization),
+  cluster characters, export per-speaker clips, train a LoRA adapter,
+  package for the app. Dev-only for now; the app still imports
+  finished packs through the **Import voice pack** button
+- **Inline audio sample player** -- the Listen and Make Sample
+  buttons now play through an in-app player instead of shelling out
+  to the OS default app. Faster, quieter, no orphaned windows
+- **Finnish acronym fallback** -- unknown uppercase acronyms now
+  fall back to a clean letter-by-letter read (`NSA` → "en-es-aa")
+  instead of getting mangled by the AI
+- **1598 tests passing** -- up from 1565
 
 **v3.9.0** -- Import voice packs, Cold Forge redesign, and a much
 bigger test suite keeping it all honest:
@@ -595,36 +617,3 @@ AudiobookMaker/
 ## License
 
 MIT
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
