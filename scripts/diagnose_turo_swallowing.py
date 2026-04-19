@@ -43,7 +43,7 @@ from pydub.silence import detect_nonsilent  # noqa: E402
 
 
 DEFAULT_INPUT = REPO_ROOT / "TURO_00_full.mp3.mpeg"
-DEFAULT_OUTPUT = REPO_ROOT / "diagnostic_turo.csv"
+DEFAULT_OUTPUT = REPO_ROOT / "out" / "diagnostic_turo.csv"
 
 WINDOW_MS = 5 * 60 * 1000          # 5-minute windows
 SILENCE_THRESH_DB = -40            # below this is silence
@@ -151,6 +151,7 @@ def main():
 
     # Write CSV.
     out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = list(rows[0].keys())
     with open(out_path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)

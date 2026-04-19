@@ -22,7 +22,7 @@ Hardware expectations:
     quality; we default to CPU on Mac and CUDA on Windows.
 
 Resume semantics:
-  * Per-chunk WAV cache at dist/audiobook/{pdf_stem}/.chunks/
+  * Per-chunk WAV cache at out/audiobook/{pdf_stem}/.chunks/
     ch{ci:02d}_chunk{chi:04d}.wav. Re-running the script skips any
     chunk whose WAV already exists. Ctrl-C is safe between chunks.
   * .progress.json in the output dir tracks completed chapters, total
@@ -30,7 +30,7 @@ Resume semantics:
   * Pass --no-resume to wipe the cache dir and start from scratch.
 
 Output layout:
-  dist/audiobook/{pdf_stem}/
+  out/audiobook/{pdf_stem}/
     .chunks/ch{ci:02d}_chunk{chi:04d}.wav   (intermediate)
     .progress.json                          (resume state)
     {idx:02d}_{safe_title}.mp3              (one per chapter)
@@ -214,7 +214,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--out",
-        default="dist/audiobook",
+        default="out/audiobook",
         help="Output directory root. Per-book subdir is created.",
     )
     p.add_argument(

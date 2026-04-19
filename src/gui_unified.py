@@ -2801,7 +2801,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             return
 
         # Do not delete the nested Chatterbox folder after a sample run.
-        # It lives under dist/audiobook/<stem>/ and may hold a full-book
+        # It lives under out/audiobook/<stem>/ and may hold a full-book
         # .chunks/ WAV cache; rmtree here wiped user data when sample and
         # long jobs shared the same output tree.
 

@@ -28,11 +28,11 @@ Usage
     python scripts/stress_test_chatterbox_longrun.py \
         --n 500 --snapshot-at 1,100,250,500 \
         --text "Tämä on pitkän ajon stressitestin vakiolause." \
-        --out-dir dist/stress_test
+        --out-dir out/stress_test
 
 Output
 ======
-Per run, under ``--out-dir`` (default ``dist/stress_test/<timestamp>``):
+Per run, under ``--out-dir`` (default ``out/stress_test/<timestamp>``):
   * ``stress_test_stats.jsonl`` — one JSON record per call
   * ``snapshots/chunk_NNNN.wav`` — audio at configured snapshot indices
   * ``summary.txt`` — trend analysis + pass/fail verdict
@@ -118,13 +118,13 @@ def parse_args() -> argparse.Namespace:
                     help="Comma-separated chunk indices to save as WAV "
                          "(1-based). Default: 1,100,250,500")
     ap.add_argument("--out-dir", default=None,
-                    help="Output directory (default: dist/stress_test/<ts>)")
+                    help="Output directory (default: out/stress_test/<ts>)")
     return ap.parse_args()
 
 
 def _default_out_dir() -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return REPO_ROOT / "dist" / "stress_test" / stamp
+    return REPO_ROOT / "out" / "stress_test" / stamp
 
 
 def _trend(values: list[float]) -> tuple[float, float, float]:
