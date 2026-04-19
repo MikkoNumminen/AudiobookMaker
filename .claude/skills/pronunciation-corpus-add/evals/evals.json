@@ -1,0 +1,26 @@
+{
+  "skill_name": "pronunciation-corpus-add",
+  "evals": [
+    {
+      "id": 1,
+      "name": "single-turo-report",
+      "prompt": "Turo just heard Grandmom read `kommunikaatio` as `kommunikaashio` in chapter 3 of Rubicon. log it in the corpus.",
+      "expected_output": "One new entry appended to docs/pronunciation_corpus_fi.md under Entries, dated today, reporter Turo, source 'Rubicon, chapter 3', written kommunikaatio, heard as kommunikaashio, category 'Loanword suffix' (the -tio ending). Committed as docs(corpus): log kommunikaatio mispronunciation (loanword suffix) and pushed.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "batch-five-reports",
+      "prompt": "log these five from my testing session today on Rubicon ch4: `identiteetti` came out as `identiteeti` (last double t got shortened), `revoluutio` as `revolushio`, `ideologia` was fine actually scratch that, `kansanedustajakandidaatti` read as one blob no pause, `pystysuoraan` stressed on the wrong syllable sounded like pystoo-SUO-raan",
+      "expected_output": "Four new entries appended (ideologia correctly SKIPPED per user's scratch-that). Each entry dated today, reporter Mikko (user speaking firsthand), source 'Rubicon, ch4'. Categories: identiteetti = Vowel length/quality, revoluutio = Loanword suffix, kansanedustajakandidaatti = Compound seam, pystysuoraan = Accent placement. Single docs(corpus): log 4 ... commit.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "ambiguous-category",
+      "prompt": "add this one: `sähköinen` → heard it as `schähköinen`, the s is doing that german thing again",
+      "expected_output": "Assistant recognises this is the known 's-as-sch' cluster failure (a documented in-progress investigation in TODO.md). Entry appended, dated today, reporter Mikko, source unspecified (assistant may ask or leave blank), written sähköinen, heard as schähköinen, category 'Consonant cluster'. Notes field may reference the open TODO.md investigation. docs(corpus) commit.",
+      "files": []
+    }
+  ]
+}
