@@ -69,6 +69,26 @@ Open `report.md` and pick the speaker you want to clone. For a LitRPG
 audiobook this is usually `SPEAKER_00` (the narrator), measured in
 tens of minutes even in a 1 h sample.
 
+**When you know the cast size, pin it.** Pyannote is good but not
+perfect at distinguishing similar-register readers; telling it the
+truth avoids the two most common failure modes (splitting one reader
+into ghost speakers, or merging two readers into one):
+
+```bash
+# Solo narrator — force one speaker.
+… voice_pack_analyze.py … --num-speakers 1
+
+# Two-reader audiobook (M + F).
+… voice_pack_analyze.py … --num-speakers 2
+
+# Full-cast production, unknown exact size.
+… voice_pack_analyze.py … --min-speakers 4 --max-speakers 8
+```
+
+`--num-speakers` is exact and overrides the min/max range when both
+are supplied. Leave all three unset only when you genuinely don't
+know the cast.
+
 ### 2b. (Optional) Cluster characters within each speaker
 
 ```bash
