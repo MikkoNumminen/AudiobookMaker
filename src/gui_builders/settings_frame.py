@@ -257,6 +257,20 @@ def build_settings_frame(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> 
     # Set initial auto-generated path.
     host._auto_output_path()
 
+    # Row 6: Report-a-bug button. Right-aligned on its own row so it
+    # reads as a secondary utility action, not a primary workflow step.
+    srow += 1
+    host._report_bug_btn = ctk.CTkButton(
+        settings, text="Ilmoita bugista\u2026",
+        command=host._report_a_bug,
+        width=180, **_sec,
+        image=gui_style.icon("bug", size=16),
+        compound="left",
+    )
+    host._report_bug_btn.grid(
+        row=srow, column=3, sticky="e", pady=(gui_style.PAD_SM, 0),
+    )
+
     # Initially hide capability-specific widgets.
     host._ref_label.grid_remove()
     host._ref_frame.grid_remove()

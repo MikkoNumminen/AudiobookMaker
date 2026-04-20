@@ -295,6 +295,7 @@ _STRINGS = {
         "import_pack_error": "\u00c4\u00e4nipaketin tuonti ep\u00e4onnistui: {error}",
         "import_pack_invalid": "Kansio ei ole kelvollinen \u00e4\u00e4nipaketti: {issues}",
         "voice_pack_tag": "\u00e4\u00e4nipaketti",
+        "report_bug_btn": "Ilmoita bugista\u2026",
     },
     "en": {
         "window_title": "AudiobookMaker",
@@ -403,6 +404,7 @@ _STRINGS = {
         "import_pack_error": "Voice pack import failed: {error}",
         "import_pack_invalid": "Folder is not a valid voice pack: {issues}",
         "voice_pack_tag": "voice pack",
+        "report_bug_btn": "Report a bug\u2026",
     },
 }
 
@@ -638,6 +640,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         # Voice pack import button (visible in Settings regardless of engine).
         self._import_pack_btn.configure(text=s("import_pack_btn"))
+
+        # Report-a-bug button (always visible in Settings).
+        if hasattr(self, "_report_bug_btn"):
+            self._report_bug_btn.configure(text=s("report_bug_btn"))
 
         # Voice description label.
         self._desc_label.configure(text=s("voice_desc_label"))
@@ -1608,6 +1614,27 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             wall_human=est.get("wall_human", "?"),
             engine_display=engine_display,
         )
+
+    def _report_a_bug(self) -> None:
+        """Open a pre-filled GitHub issue in the user's browser.
+
+        The URL carries the app version, OS, and selected engine id so
+        the user doesn't have to remember which build they were running.
+        Failures are swallowed — if the browser can't be opened, we do
+        not want to crash the GUI.
+        """
+        import webbrowser
+
+        from src.bug_report import build_bug_report_url
+
+        url = build_bug_report_url(
+            app_version=APP_VERSION,
+            engine_id=self._current_engine_id() or None,
+        )
+        try:
+            webbrowser.open(url, new=2)
+        except Exception:  # pragma: no cover - browser launcher is OS-level
+            pass
 
     def _import_voice_pack(self) -> None:
         """Folder picker → ``install_pack`` → refresh Voice dropdown.
