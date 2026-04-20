@@ -159,6 +159,12 @@ is ~3 GB, the Chatterbox models another ~5 GB). HuggingFace caches
 the models under `~/.cache/huggingface/hub/`; they're shared across
 all projects on the machine so later rebuilds skip the heavy download.
 
+**If faster-whisper / voice-pack tools later crash with "Could not
+load symbol cudnnGetLibConfig. Error code 127",** two packages shipped
+the same cuDNN DLL into this venv. See
+[docs/CONVENTIONS.md](CONVENTIONS.md#cudnn-duplicate-dll-in-venv-chatterbox-ctranslate2-vs-torch)
+for the one-line rename that fixes it.
+
 **5. Drop your book in the repo root.** An EPUB, a PDF, or a plain
 `.txt` file will all work. Copy `Rubicon.epub` (or whatever book you
 have) into the `AudiobookMaker/` folder you cloned in step 1.

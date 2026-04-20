@@ -242,6 +242,60 @@ later changes have to reason about forever. See
 [docs/tts_text_normalization_cases.md](tts_text_normalization_cases.md)
 for the canonical test inventory.
 
+## cuDNN duplicate DLL in `.venv-chatterbox` (ctranslate2 vs. torch)
+
+If you run anything in the Chatterbox venv that touches
+faster-whisper (voice-pack analysis, diarization, transcription, some
+of the `scripts/voice_pack_*.py` tools) and the process dies with:
+
+```
+Could not load symbol cudnnGetLibConfig. Error code 127.
+```
+
+...the cause is two copies of `cudnn64_9.dll` sitting in the same
+venv. `ctranslate2` ships a small single-file build of the DLL, and
+`torch` ships the full modular cuDNN 9 suite (the top-level
+`cudnn64_9.dll` plus seven siblings like `cudnn_ops`, `cudnn_graph`,
+`cudnn_engines_precompiled`, and so on). Whichever copy Windows' DLL
+loader binds first wins, and the other package's code breaks because
+its expected symbols aren't there.
+
+**Fix — rename the ctranslate2 copy aside so torch's full suite
+loads.** cuDNN 9 has a stable ABI, so ctranslate2 is happy using
+torch's DLL instead of its own.
+
+Bash (Git Bash / WSL):
+```bash
+mv .venv-chatterbox/Lib/site-packages/ctranslate2/cudnn64_9.dll \
+   .venv-chatterbox/Lib/site-packages/ctranslate2/cudnn64_9.dll.disabled
+```
+
+PowerShell:
+```powershell
+Rename-Item `
+  -Path .venv-chatterbox\Lib\site-packages\ctranslate2\cudnn64_9.dll `
+  -NewName cudnn64_9.dll.disabled
+```
+
+**Re-apply the rename any time pip puts the file back.** That means
+after:
+
+- `pip install --upgrade ctranslate2`
+- `pip install --force-reinstall ctranslate2`
+- A fresh `.venv-chatterbox` setup
+- Any `pip install` that pulls `ctranslate2` as a transitive dependency
+
+The runtime guard at `src/voice_pack/_cudnn_compat.py` detects the
+duplicate at import time and logs a warning telling you exactly which
+file to rename — so you don't have to remember the symptom to find
+the fix. Voice-pack scripts import the guard near the top of their
+entry points.
+
+**Frozen `.exe` bundles are not affected.** The PyInstaller spec
+excludes the ctranslate2 copy of `cudnn64_9.dll` from the shipped
+bundle, so end users of the installer never see this crash. This is a
+dev-venv-only gotcha.
+
 ## Auto-update is critical — it must work for every release
 
 Auto-update is the lifeline to existing users. If it breaks, every user

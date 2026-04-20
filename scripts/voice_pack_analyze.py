@@ -57,6 +57,12 @@ from src.ffmpeg_path import setup_ffmpeg_path  # noqa: E402
 # ffmpeg isn't on PATH.
 setup_ffmpeg_path()
 
+# Warn early if the active venv has both ctranslate2's and torch's
+# cudnn64_9.dll — the collision silently breaks faster-whisper later.
+from src.voice_pack._cudnn_compat import ensure_no_duplicate_cudnn  # noqa: E402
+
+ensure_no_duplicate_cudnn()
+
 from src.voice_pack.bucket import (  # noqa: E402
     assign_speakers,
     filter_quality,

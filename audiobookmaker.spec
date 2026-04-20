@@ -173,6 +173,19 @@ a = Analysis(
     noarchive=False,
 )
 
+# Drop ctranslate2's bundled cudnn64_9.dll. The ctranslate2 wheel ships a
+# 266 KB single-file cuDNN build that is ABI-incompatible with the 438 KB
+# cuDNN 9 suite torch ships (plus its 7 sibling DLLs) under torch/lib/.
+# If both land in the frozen package, whichever wins the Windows DLL search
+# order crashes the other consumer — torch fails to load cuDNN ops when the
+# ctranslate2 copy gets picked first. Keep torch's full cuDNN suite; strip
+# the ctranslate2 duplicate so the end-user .exe matches the dev workaround
+# (we rename the ctranslate2 copy to .disabled on developer machines).
+a.binaries = [
+    b for b in a.binaries
+    if not b[0].lower().replace('\\', '/').endswith('ctranslate2/cudnn64_9.dll')
+]
+
 pyz = PYZ(
     a.pure,
     a.zipped_data,
