@@ -56,6 +56,12 @@ installer/Unicode/
 *.pfx
 *.p12
 
+# Local secrets and config. `.env` holds things like HF_TOKEN (for
+# pyannote gating + large-model HF downloads). `.env.example` is tracked
+# and lists the expected variables with empty placeholders.
+.env
+!.env.example
+
 # Source PDFs / EPUBs — copyrighted material, must never be committed
 *.pdf
 *.epub

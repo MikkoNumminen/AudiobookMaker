@@ -38,6 +38,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Load repo-root .env so HF_TOKEN (and any future secret) is available
+# in os.environ for everything imported below. override=False lets an
+# explicit shell env var win — useful for one-off overrides in CI.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_REPO_ROOT / ".env", override=False)
+except ImportError:
+    # python-dotenv is a dev-time dep; if it's not installed we just
+    # rely on os.environ, same as frozen .exe builds.
+    pass
+
 from src.ffmpeg_path import setup_ffmpeg_path  # noqa: E402
 
 # Point pydub / faster-whisper at the bundled ffmpeg before any audio

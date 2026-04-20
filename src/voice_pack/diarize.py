@@ -24,6 +24,20 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+# Dev-time: pull HF_TOKEN from a repo-root .env if available. This keeps
+# the module working when imported directly (e.g. from a REPL or a test
+# script that didn't route through scripts/voice_pack_analyze.py, which
+# already loads dotenv). override=False means an explicit shell export
+# still wins. Frozen .exe builds skip this — dotenv isn't bundled and
+# the install path doesn't use pyannote.
+try:
+    from dotenv import load_dotenv
+
+    _repo_root = Path(__file__).resolve().parents[2]
+    load_dotenv(_repo_root / ".env", override=False)
+except ImportError:
+    pass
+
 from src.voice_pack.types import DiarTurn
 
 if TYPE_CHECKING:  # pragma: no cover - import guard for type checkers only
