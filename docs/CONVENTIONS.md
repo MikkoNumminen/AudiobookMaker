@@ -260,9 +260,25 @@ venv. `ctranslate2` ships a small single-file build of the DLL, and
 loader binds first wins, and the other package's code breaks because
 its expected symbols aren't there.
 
-**Fix — rename the ctranslate2 copy aside so torch's full suite
-loads.** cuDNN 9 has a stable ABI, so ctranslate2 is happy using
-torch's DLL instead of its own.
+**Fix — the runtime guard renames the ctranslate2 copy aside
+automatically.** cuDNN 9 has a stable ABI, so ctranslate2 is happy
+using torch's DLL instead of its own. The guard at
+`src/voice_pack/_cudnn_compat.py` runs on every voice-pack entry
+point; when it sees both copies on disk it renames
+`ctranslate2/cudnn64_9.dll` to `cudnn64_9.dll.disabled` and prints one
+info line. If a `.disabled` sidecar already exists (pip just put the
+duplicate back), it silently deletes the fresh duplicate. No developer
+action is required after:
+
+- `pip install --upgrade ctranslate2`
+- `pip install --force-reinstall ctranslate2`
+- A fresh `.venv-chatterbox` setup
+- Any `pip install` that pulls `ctranslate2` as a transitive dependency
+
+**Manual fallback for edge cases.** If the auto-fix can't proceed —
+file locked by another running process, read-only filesystem,
+permission denied — the guard falls back to a stderr warning with the
+exact command to run. The commands are:
 
 Bash (Git Bash / WSL):
 ```bash
@@ -277,19 +293,9 @@ Rename-Item `
   -NewName cudnn64_9.dll.disabled
 ```
 
-**Re-apply the rename any time pip puts the file back.** That means
-after:
-
-- `pip install --upgrade ctranslate2`
-- `pip install --force-reinstall ctranslate2`
-- A fresh `.venv-chatterbox` setup
-- Any `pip install` that pulls `ctranslate2` as a transitive dependency
-
-The runtime guard at `src/voice_pack/_cudnn_compat.py` detects the
-duplicate at import time and logs a warning telling you exactly which
-file to rename — so you don't have to remember the symptom to find
-the fix. Voice-pack scripts import the guard near the top of their
-entry points.
+Close any process holding the DLL open (old Python REPLs, running
+voice-pack scripts) before re-running, or just let the guard retry on
+the next invocation once the lock clears.
 
 **Frozen `.exe` bundles are not affected.** The PyInstaller spec
 excludes the ctranslate2 copy of `cudnn64_9.dll` from the shipped

@@ -1,10 +1,10 @@
 """Tests for :mod:`src.voice_pack._cudnn_compat`.
 
-The detector is pure filesystem + importlib introspection, so these tests
-fake the ctranslate2 / torch installs by writing tiny placeholder DLL
-files into ``tmp_path`` and monkeypatching ``importlib.util.find_spec`` to
-point the module at them. No real CUDA / cuDNN / faster-whisper / torch
-install is required.
+The auto-fix is pure filesystem + importlib introspection, so these
+tests fake the ctranslate2 / torch installs by writing tiny placeholder
+DLL files into ``tmp_path`` and monkeypatching
+``importlib.util.find_spec`` to point the module at them. No real CUDA
+/ cuDNN / faster-whisper / torch install is required.
 """
 
 from __future__ import annotations
@@ -79,26 +79,40 @@ def fake_environments(tmp_path, monkeypatch):
     return _setup
 
 
-def test_warns_when_both_dlls_present(force_windows, fake_environments, capsys):
+def _sidelined(dll: Path) -> Path:
+    """Return the ``.disabled`` sibling path for a given DLL."""
+    return dll.with_name(dll.name + _cudnn_compat._DISABLED_SUFFIX)
+
+
+def test_auto_renames_when_both_dlls_present(force_windows, fake_environments, capsys):
     paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
 
     _cudnn_compat.ensure_no_duplicate_cudnn()
 
+    ct2_dll = paths["ct2_dll"]
+    sidelined = _sidelined(ct2_dll)
+    # ctranslate2's copy is gone, renamed aside with .disabled suffix.
+    assert not ct2_dll.exists()
+    assert sidelined.exists()
+    # torch's copy is untouched.
+    assert paths["torch_dll"].exists()
+
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "duplicate cuDNN DLL detected" in captured.err
-    assert str(paths["ct2_dll"]) in captured.err
-    assert str(paths["torch_dll"]) in captured.err
-    # The actionable rename command should mention the sidelined name.
-    assert "cudnn64_9.dll.disabled" in captured.err
-    # Pointer to docs is part of the contract.
-    assert "docs/CONVENTIONS.md" in captured.err
+    # One concise info line, no multi-line warning banner.
+    assert "sidelined duplicate cuDNN DLL" in captured.err
+    assert "duplicate cuDNN DLL detected" not in captured.err
+    assert str(sidelined) in captured.err
 
 
 def test_silent_when_only_ctranslate2_has_dll(force_windows, fake_environments, capsys):
-    fake_environments(ct2_has_dll=True, torch_has_dll=False)
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=False)
 
     _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    # Never orphan ctranslate2: leave its DLL alone when torch's is absent.
+    assert paths["ct2_dll"].exists()
+    assert not _sidelined(paths["ct2_dll"]).exists()
 
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -106,9 +120,13 @@ def test_silent_when_only_ctranslate2_has_dll(force_windows, fake_environments, 
 
 
 def test_silent_when_only_torch_has_dll(force_windows, fake_environments, capsys):
-    fake_environments(ct2_has_dll=False, torch_has_dll=True)
+    paths = fake_environments(ct2_has_dll=False, torch_has_dll=True)
 
     _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    # No ctranslate2 copy to rename; torch's copy untouched.
+    assert not paths["ct2_dll"].exists()
+    assert paths["torch_dll"].exists()
 
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -145,24 +163,125 @@ def test_silent_when_torch_not_installed(force_windows, fake_environments, capsy
 
 def test_silent_on_non_windows(monkeypatch, fake_environments, capsys):
     monkeypatch.setattr(sys, "platform", "linux")
-    fake_environments(ct2_has_dll=True, torch_has_dll=True)
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
 
     _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    # Nothing touched on non-Windows.
+    assert paths["ct2_dll"].exists()
+    assert paths["torch_dll"].exists()
+    assert not _sidelined(paths["ct2_dll"]).exists()
 
     captured = capsys.readouterr()
     assert captured.err == ""
 
 
-def test_idempotent_safe_to_call_twice(force_windows, fake_environments, capsys):
-    fake_environments(ct2_has_dll=True, torch_has_dll=True)
+def test_existing_disabled_sidecar_triggers_silent_delete(
+    force_windows, fake_environments, capsys
+):
+    """pip put the duplicate back; a .disabled file already exists.
+
+    In that case we just delete the fresh duplicate — no rename, no
+    stderr output.
+    """
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
+    # Pre-seed the sideline: a previous run already renamed once.
+    sidelined = _sidelined(paths["ct2_dll"])
+    sidelined.write_bytes(b"old sidelined copy")
 
     _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    # Fresh duplicate is gone, old sideline preserved.
+    assert not paths["ct2_dll"].exists()
+    assert sidelined.exists()
+    assert sidelined.read_bytes() == b"old sidelined copy"
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == ""
+
+
+def test_permission_error_on_rename_falls_back_to_warning(
+    force_windows, fake_environments, monkeypatch, capsys
+):
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
+
+    def _boom(self, *args, **kwargs):
+        raise PermissionError("file locked by another process")
+
+    monkeypatch.setattr(Path, "rename", _boom)
+
+    # Must not raise.
+    _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    # Files untouched because rename failed.
+    assert paths["ct2_dll"].exists()
+    assert not _sidelined(paths["ct2_dll"]).exists()
+
+    captured = capsys.readouterr()
+    # Fallback warning with the manual command.
+    assert "duplicate cuDNN DLL detected" in captured.err
+    assert "auto-fix FAILED" in captured.err
+    assert "rename failed" in captured.err
+    # Manual command should still be in there.
+    assert "cudnn64_9.dll.disabled" in captured.err
+
+
+def test_permission_error_on_delete_falls_back_to_warning(
+    force_windows, fake_environments, monkeypatch, capsys
+):
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
+    _sidelined(paths["ct2_dll"]).write_bytes(b"old")
+
+    def _boom(self, *args, **kwargs):
+        raise PermissionError("file locked")
+
+    monkeypatch.setattr(Path, "unlink", _boom)
+
     _cudnn_compat.ensure_no_duplicate_cudnn()
 
     captured = capsys.readouterr()
-    # Two calls = two warnings. Point of the test is that no state is
-    # stashed and no exception is raised.
-    assert captured.err.count("duplicate cuDNN DLL detected") == 2
+    assert "auto-fix FAILED" in captured.err
+    assert "could not delete fresh duplicate" in captured.err
+
+
+def test_idempotent_safe_to_call_twice(force_windows, fake_environments, capsys):
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
+
+    _cudnn_compat.ensure_no_duplicate_cudnn()
+    # Second call: nothing to do (no ct2 dll anymore), so no new output.
+    _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    sidelined = _sidelined(paths["ct2_dll"])
+    assert not paths["ct2_dll"].exists()
+    assert sidelined.exists()
+
+    captured = capsys.readouterr()
+    # Only one info line from the first call.
+    assert captured.err.count("sidelined duplicate cuDNN DLL") == 1
+
+
+def test_idempotent_when_pip_puts_file_back(force_windows, fake_environments, capsys):
+    """Simulate ``pip install --upgrade ctranslate2`` between calls.
+
+    First call renames; pip puts a fresh duplicate back; second call
+    silently deletes it because .disabled already exists.
+    """
+    paths = fake_environments(ct2_has_dll=True, torch_has_dll=True)
+
+    _cudnn_compat.ensure_no_duplicate_cudnn()
+    # pip reinstates the DLL:
+    paths["ct2_dll"].write_bytes(b"fresh ct2 cudnn from pip")
+
+    _cudnn_compat.ensure_no_duplicate_cudnn()
+
+    # Fresh copy gone, .disabled preserved from first call.
+    assert not paths["ct2_dll"].exists()
+    assert _sidelined(paths["ct2_dll"]).exists()
+
+    captured = capsys.readouterr()
+    # One info from the first call; second call is silent.
+    assert captured.err.count("sidelined duplicate cuDNN DLL") == 1
 
 
 def test_find_spec_raising_is_swallowed(monkeypatch, force_windows, capsys):
