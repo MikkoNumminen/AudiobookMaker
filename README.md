@@ -537,6 +537,61 @@ this automatically. We've reported the bug and submitted a fix:
 
 ---
 
+## Optional: Murre puhekieli normalizer
+
+Finnish text in the wild — dialogue, internet posts, transcribed
+speech, meme culture — is often written in **puhekieli** (the spoken
+register), not **kirjakieli** (standard written form). Lines like
+`mä oon menos kauppaan` come out as garbled syllables in TTS because
+the engine was trained on written Finnish (`minä olen menossa
+kauppaan`).
+
+Mika Hämäläinen's [Murre](https://github.com/mikahama/murre) library
+trains a small seq2seq model that maps puhekieli → kirjakieli. It's
+the missing piece that makes Chatterbox-Finnish (or any TTS engine)
+read informal Finnish naturally.
+
+The catch: Murre's distributed checkpoint uses an OpenNMT-py 2.x
+format that depends on `torchtext.Field`, which was removed from
+torchtext in March 2023. Modern Windows + Python 3.11 can't load it.
+
+The workaround is a **one-time conversion** to the CTranslate2 format,
+which then runs on Windows natively without any of the legacy
+dependencies. Steps:
+
+1. Download the Murre checkpoint to `.local/murre_models/murre_norm_default.pt`:
+
+   ```bash
+   curl -L -o .local/murre_models/murre_norm_default.pt \
+     https://github.com/mikahama/murre/raw/master/murre/models/murre_norm_default.pt
+   ```
+
+2. Run the conversion script in a Python 3.9 environment (WSL or
+   Docker — see the script's docstring for the exact commands):
+
+   ```bash
+   python scripts/convert_murre_model.py
+   ```
+
+   This writes `.local/murre_models_ct2/` (gitignored, ~35 MB).
+
+3. Install `ctranslate2` in your normal AudiobookMaker environment:
+
+   ```bash
+   pip install "ctranslate2>=4.0,<5"
+   ```
+
+4. That's it. The Finnish normalizer auto-detects the converted model
+   on next run and inserts the puhekieli → kirjakieli pass before the
+   existing 18 passes. If anything is missing (model dir, ctranslate2
+   package, model corruption), the wrapper logs one warning and falls
+   back to passing text through unchanged — the rest of the pipeline
+   still works.
+
+Murre is licensed Apache-2.0 and is safe to use commercially. The
+converted CTranslate2 model is not redistributed in this repo because
+it's a derivative of upstream weights you should download yourself.
+
 ## How it fits together
 
 ```mermaid
@@ -587,8 +642,9 @@ AudiobookMaker/
 │   ├── tts_voxcpm.py              # VoxCPM2 adapter (dev only)
 │   ├── tts_chatterbox_bridge.py   # Chatterbox registration (subprocess)
 │   ├── tts_engine.py              # Text chunking, normalizer, audio combining
-│   ├── tts_normalizer_fi.py       # Finnish normalizer (16 passes)
+│   ├── tts_normalizer_fi.py       # Finnish normalizer (19 passes)
 │   ├── tts_normalizer_en.py       # English normalizer (12 passes)
+│   ├── murre_normalize.py         # Optional puhekieli→kirjakieli (Murre, CTranslate2)
 │   ├── launcher_bridge.py         # Chatterbox subprocess runner
 │   ├── fi_loanwords.py            # Finnish loanword respelling
 │   ├── app_config.py              # Settings persistence
