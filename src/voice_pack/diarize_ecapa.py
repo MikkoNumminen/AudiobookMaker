@@ -65,7 +65,7 @@ def _resolve_device(device: str) -> str:
 
 
 def load_encoder(
-    device: str = "auto", cache_dir: str | Path | None = None
+    device: str = "cpu", cache_dir: str | Path | None = None
 ) -> Any:
     """Load the ECAPA-TDNN speaker encoder.
 
@@ -74,7 +74,10 @@ def load_encoder(
     on Windows where symlink creation without admin rights fails.
 
     Args:
-        device: ``"auto"``, ``"cpu"``, or ``"cuda"``.
+        device: ``"cpu"`` (default), ``"cuda"``, or ``"auto"``. Default is
+            ``"cpu"`` because ECAPA on GPU has produced a degenerate
+            single-speaker clustering on a 1h dual-narrator source that
+            CPU handles cleanly; see :func:`diarize_ecapa` for detail.
         cache_dir: Where to cache the ECAPA weights. Defaults to
             ``<repo>/.cache/ecapa``.
     """
@@ -243,6 +246,16 @@ def _windows_to_turns(
     ]
 
 
+# Device default note: ECAPA diarization defaults to CPU. A verification
+# run on a 1h dual-narrator source produced a degenerate split on GPU
+# (one cluster ~51 min, the other ~0.4 min across 6 short chunks) while
+# CPU on the same input gave a clean ~36 / ~13 minute split. Root cause
+# of the GPU regression is not yet understood — candidates include cuDNN
+# non-determinism in ECAPA embeddings, fp16 precision loss, or a device
+# string mismatch somewhere in the embed path. Until that is resolved,
+# default to CPU; the 1h PoC ran in ~167 s on CPU which is fast enough
+# that this is not a throughput problem. Callers that want GPU can pass
+# ``device="cuda"`` (or ``device="auto"``) explicitly. ASR stays on GPU.
 def diarize_ecapa(
     audio_path: str | Path,
     *,
@@ -250,7 +263,7 @@ def diarize_ecapa(
     num_speakers: int | None = None,
     min_speakers: int | None = None,
     max_speakers: int | None = None,
-    device: str = "auto",
+    device: str = "cpu",
     encoder: Any | None = None,
     cache_dir: str | Path | None = None,
     distance_threshold: float = _DEFAULT_DISTANCE_THRESHOLD,
@@ -271,6 +284,11 @@ def diarize_ecapa(
     clean way to enforce them — so they're noted in verbose output and
     ignored. Operators who know the exact cast should pass
     ``num_speakers``; otherwise tune ``distance_threshold``.
+
+    ``device`` defaults to ``"cpu"`` because ECAPA on GPU has produced a
+    degenerate clustering on a trusted dual-narrator source that CPU
+    handles correctly. Pass ``device="cuda"`` or ``device="auto"``
+    explicitly to re-enable GPU once the underlying issue is understood.
     """
     path = Path(audio_path)
     if not path.exists():
