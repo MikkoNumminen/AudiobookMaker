@@ -197,13 +197,28 @@ def _cluster_embeddings(
     num_speakers: int | None,
     distance_threshold: float,
 ) -> Any:
-    """Agglomerative cosine clustering over the window embeddings.
+    """Cluster the window embeddings into per-window speaker labels.
 
-    When ``num_speakers`` is supplied it wins; otherwise the clustering
-    cuts at ``distance_threshold``. Returns a per-window label array.
+    When ``num_speakers`` is supplied we use KMeans; otherwise we fall
+    back to agglomerative clustering with complete linkage and
+    ``distance_threshold``. Returns a per-window label array.
+
+    Why KMeans and not agglomerative-average (the old default)? With
+    ECAPA embeddings computed on GPU, the values differ from their CPU
+    counterparts by only ~1e-6 in cosine similarity — essentially
+    bit-identical. But scikit-learn's ``AgglomerativeClustering`` with
+    ``linkage="average"`` is catastrophically sensitive to those tiny
+    perturbations: on the same 1h dual-narrator audio it produces a
+    26/74 male/female split from CPU embeddings and a degenerate 97/3
+    collapse from GPU embeddings. KMeans (n_init=10) and spectral
+    clustering both give identical splits in either device, so we
+    switched. Complete-linkage agglomerative is also stable, and we
+    keep it for the ``num_speakers=None`` path because it still honours
+    ``distance_threshold``. See d:/tmp/ecapa_cluster_robustness.log for
+    the A/B numbers that motivated the change.
     """
     import numpy as np
-    from sklearn.cluster import AgglomerativeClustering
+    from sklearn.cluster import AgglomerativeClustering, KMeans
 
     if X.shape[0] == 0:
         return np.zeros(0, dtype=int)
@@ -213,17 +228,17 @@ def _cluster_embeddings(
             # Not enough windows to produce that many clusters — put
             # every window in cluster 0 so downstream code still works.
             return np.zeros(X.shape[0], dtype=int)
-        model = AgglomerativeClustering(
+        model = KMeans(
             n_clusters=num_speakers,
-            metric="cosine",
-            linkage="average",
+            n_init=10,
+            random_state=0,
         )
     else:
         model = AgglomerativeClustering(
             n_clusters=None,
             distance_threshold=distance_threshold,
             metric="cosine",
-            linkage="average",
+            linkage="complete",
         )
     return model.fit_predict(X)
 
