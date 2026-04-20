@@ -251,10 +251,10 @@ def cluster_transcripts(
     result = cluster_all_speakers(all_chunks, embeddings_by_index, config=config)
 
     # Warn when the clustering collapsed a speaker with plenty of chunks
-    # into a single character — on the Dual Class 3 1h source this
+    # into a single character — on a 1h dual-narrator test source this
     # happened at the default 0.25 threshold (both narrators merged);
     # dropping to 0.15 split them. No hard fail because single-narrator
-    # books legitimately produce one cluster per speaker — but the
+    # sources legitimately produce one cluster per speaker — but the
     # message points at the knob to turn.
     if verbose:
         for speaker, speaker_indices in by_speaker_indices.items():

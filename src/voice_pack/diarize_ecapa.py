@@ -37,7 +37,7 @@ from typing import Any, Callable
 
 from src.voice_pack.types import DiarTurn
 
-# Defaults tuned on the Dual Class 1h sample. Operators with very
+# Defaults tuned on a 1h dual-narrator sample. Operators with very
 # different sources (rapid dialogue, short turns) may want to override.
 _DEFAULT_WINDOW_S = 1.5
 _DEFAULT_HOP_S = 0.75

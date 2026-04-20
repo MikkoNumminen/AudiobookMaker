@@ -48,15 +48,15 @@ All stages are one-shot CLIs.
 ### 1. Extract 1 hour of mono 24 kHz audio
 
 ```bash
-ffmpeg -i "D:/satellite/Dual Class 3 - A LitRPG Adventure.m4b" \
-  -t 3600 -ar 24000 -ac 1 dual_class_1h.wav
+ffmpeg -i "D:/path/to/source_audiobook.m4b" \
+  -t 3600 -ar 24000 -ac 1 sample_1h.wav
 ```
 
 ### 2. Analyze (ASR + diarization)
 
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_analyze.py \
-  --input dual_class_1h.wav \
+  --input sample_1h.wav \
   --out analysis_1h/
 ```
 
@@ -65,9 +65,9 @@ Outputs:
 - `analysis_1h/speakers.yaml` — speakers sorted by total seconds.
 - `analysis_1h/report.md` — human summary with tier suggestions.
 
-Open `report.md` and pick the speaker you want to clone. For a LitRPG
-audiobook this is usually `SPEAKER_00` (the narrator), measured in
-tens of minutes even in a 1 h sample.
+Open `report.md` and pick the speaker you want to clone. For a single-
+narrator audiobook this is usually `SPEAKER_00` (the narrator), measured
+in tens of minutes even in a 1 h sample.
 
 **When you know the cast size, pin it.** Pyannote is good but not
 perfect at distinguishing similar-register readers; telling it the
@@ -94,7 +94,7 @@ know the cast.
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_characters.py \
   --transcripts analysis_1h/transcripts.jsonl \
-  --source dual_class_1h.wav \
+  --source sample_1h.wav \
   --out characters_1h/ \
   --max-characters-per-speaker 3
 ```
@@ -137,7 +137,7 @@ After this stage, use `--transcripts` pointing at
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_export.py \
   --transcripts analysis_1h/transcripts.jsonl \
-  --source dual_class_1h.wav \
+  --source sample_1h.wav \
   --speaker SPEAKER_00 \
   --out dataset_1h/
 ```
@@ -148,7 +148,7 @@ character-aware transcripts and add `--character`:
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_export.py \
   --transcripts characters_1h/transcripts_with_characters.jsonl \
-  --source dual_class_1h.wav \
+  --source sample_1h.wav \
   --speaker SPEAKER_00 \
   --character CHAR_A \
   --out dataset_char_a/
@@ -172,7 +172,7 @@ labels (the `TaggedChunk.from_chunk` helper is the hook point).
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_train.py \
   --manifest dataset_1h/manifest.json \
-  --out runs/dual_class_1h/ \
+  --out runs/sample_1h/ \
   --batch-size 2 \
   --grad-accum 8 \
   --epochs 3 \
@@ -189,7 +189,7 @@ Why these knobs on a 3080 Ti:
 - `--mixed-precision fp16` → Ampere's native fast path; bf16 is slower on
   3080 Ti.
 
-Outputs under `runs/dual_class_1h/`:
+Outputs under `runs/sample_1h/`:
 
 - `config.json` — effective hyperparameters.
 - `manifest_snapshot.json` — frozen dataset spec.
@@ -203,10 +203,10 @@ Expected: ~30–60 min wall time for 1 h of source audio on a 3080 Ti.
 
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_package.py \
-  --run runs/dual_class_1h/ \
+  --run runs/sample_1h/ \
   --tier full_lora \
   --sample dataset_1h/wavs/0000.wav \
-  --out voice_packs/dual_class_narrator/
+  --out voice_packs/my_narrator/
 ```
 
 ## What still needs a human
