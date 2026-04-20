@@ -899,13 +899,6 @@ def normalize_finnish_text(
           everything else so no later regex has to consider whether a
           random pictograph could fall inside its character class. Cheap,
           and isolates emoji handling to one place.
-        - S must run after O and before all other passes: Pass S is the
-          optional Murre puhekieli → kirjakieli model. It works on raw
-          words (no pre-tokenization needed beyond whitespace) so it
-          should see clean text with no emoji garbage but with all
-          period-bearing abbreviations still intact — the model was
-          trained on natural text, not on pre-normalized text. Skipped
-          silently if the converted model is missing.
         - T must run before C, D, F, G: Pass T expands `D.M.YYYY` dates
           and `klo HH:MM` clock times into spoken form. Without it, F
           would misread `14.4.2026` as the decimal `14.4` followed by
@@ -1019,18 +1012,8 @@ def normalize_finnish_text(
             return str(n)
 
     # Pass O — strip emoji. Runs first so no later regex needs to worry
-    # about pictographs sneaking through character classes; also keeps
-    # the optional Pass S (Murre) from seeing pictographs as OOV tokens.
+    # about pictographs sneaking through character classes.
     text = _strip_emoji(text)
-
-    # Pass S — optional Murre puhekieli → kirjakieli normalization. No-op
-    # if the converted model is missing or `ctranslate2` is not
-    # installed; logs a single warning then falls through. See
-    # src/murre_normalize.py for the conversion + setup story.
-    from src.murre_normalize import is_available as _murre_available
-    from src.murre_normalize import normalize as _murre_normalize
-    if _murre_available():
-        text = _murre_normalize(text)
 
     # Pass A — drop bibliographic citations and metadata parens.
     if drop_citations:

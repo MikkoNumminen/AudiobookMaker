@@ -7,37 +7,46 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-1598%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1729%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 Turn a PDF, EPUB, or plain text file into an audiobook. Pick a file, press a button, get an MP3.
 
-Works best with Finnish text. Other languages work too, but the
-support depends on which Engine you pick. Here's the honest
-breakdown:
+The app reads Finnish best, and English almost as well. Those are the
+two languages you can pick in the Language menu today. Other languages
+aren't in the menu yet — the voices exist underneath, but nobody has
+tested them carefully enough to put them in front of you. Here's what
+you get with each Engine:
 
-| Language | Edge-TTS | Piper | Chatterbox       | VoxCPM2 |
-|----------|----------|-------|------------------|---------|
-| Finnish  | Yes (Noora)      | Yes | Yes (Grandmom)   | Yes |
-| English  | Yes (Jenny etc.) | Yes | Yes (Route B, Grandmom voice) | Yes |
-| German   | Yes (Katja etc.) | Yes | —                | —   |
-| Swedish  | Yes (Sofie)      | Yes | —                | —   |
-| French   | Yes (Denise etc.)| Yes | —                | —   |
-| Spanish  | Yes (Elvira etc.)| Yes | —                | —   |
+| Language | Edge-TTS          | Piper | Chatterbox                    | VoxCPM2 (dev only) |
+|----------|-------------------|-------|-------------------------------|--------------------|
+| Finnish  | Yes (Noora)       | Yes   | Yes (Grandmom)                | Yes |
+| English  | Yes (Jenny etc.)  | Yes   | Yes (Route B, Grandmom voice) | Yes |
 
-Quick guide to picking an Engine:
+Which Engine should you pick? Short answer: try Edge-TTS first, it's
+the quickest to hear something. Longer answer:
 
-- **Edge-TTS** is the widest coverage and sounds great, but needs an
-  internet connection — it calls Microsoft's cloud voices.
-- **Piper** is fully offline and fast. It ships bundled voice models
-  for the six Languages above.
-- **Chatterbox** gives the highest quality for Finnish through the
-  Grandmom Voice. English works too via the "Route B" recipe (the
-  multilingual base model with Grandmom as the reference clip), so
-  you get Grandmom's timbre reading English natively. Other Languages
-  are not supported here.
-- **VoxCPM2** is an experimental local neural Engine, currently
-  wired up for Finnish and English only in the GUI.
+- **Edge-TTS** uses Microsoft's cloud voices. You need an internet
+  connection because the voice lives on their servers, not your
+  computer. It's fast, free, and sounds very good. The trade-off is
+  that you can't use it on a plane or in a cabin with no Wi-Fi.
+- **Piper** runs entirely on your own computer. The first time you
+  pick a voice it downloads a small voice file (about the size of a
+  phone photo), and after that it works forever without internet.
+  Not quite as smooth as Edge-TTS but very close, and it's yours.
+- **Chatterbox** is the quality champion for Finnish. It uses a voice
+  called Grandmom that sounds like, well, a grandma reading to you.
+  English also works: we take the same Grandmom voice and have her
+  read English text (this is what "Route B" means — think of it as
+  Grandmom wearing a second hat). Downside: it needs an NVIDIA
+  graphics card with 8 GB or more of video memory, and the first-time
+  setup downloads about 15 GB. Other languages beyond Finnish and
+  English don't work here.
+- **VoxCPM2** is a science-experiment engine. It's powerful but not
+  ready for normal users, so it's hidden unless you're working from
+  the source code. The installer leaves it out on purpose. If you
+  download the `.exe` from the Releases page, you won't see it in the
+  Engine menu — and that's intentional, not a bug.
 
 ## Hear it first
 
@@ -511,7 +520,7 @@ The normalizer makes Finnish numbers, abbreviations, and special terms
 sound natural when read aloud. It runs automatically when using
 Chatterbox-Finnish (via the app or dev scripts).
 
-It works as a series of 16 text transformation passes covering:
+It works as a series of 19 text transformation passes covering:
 
 - Century expressions (`1300-luvulla`)
 - Year numbers and numeric ranges
@@ -536,61 +545,6 @@ this automatically. We've reported the bug and submitted a fix:
 [resemble-ai/chatterbox#505](https://github.com/resemble-ai/chatterbox/pull/505).
 
 ---
-
-## Optional: Murre puhekieli normalizer
-
-Finnish text in the wild — dialogue, internet posts, transcribed
-speech, meme culture — is often written in **puhekieli** (the spoken
-register), not **kirjakieli** (standard written form). Lines like
-`mä oon menos kauppaan` come out as garbled syllables in TTS because
-the engine was trained on written Finnish (`minä olen menossa
-kauppaan`).
-
-Mika Hämäläinen's [Murre](https://github.com/mikahama/murre) library
-trains a small seq2seq model that maps puhekieli → kirjakieli. It's
-the missing piece that makes Chatterbox-Finnish (or any TTS engine)
-read informal Finnish naturally.
-
-The catch: Murre's distributed checkpoint uses an OpenNMT-py 2.x
-format that depends on `torchtext.Field`, which was removed from
-torchtext in March 2023. Modern Windows + Python 3.11 can't load it.
-
-The workaround is a **one-time conversion** to the CTranslate2 format,
-which then runs on Windows natively without any of the legacy
-dependencies. Steps:
-
-1. Download the Murre checkpoint to `.local/murre_models/murre_norm_default.pt`:
-
-   ```bash
-   curl -L -o .local/murre_models/murre_norm_default.pt \
-     https://github.com/mikahama/murre/raw/master/murre/models/murre_norm_default.pt
-   ```
-
-2. Run the conversion script in a Python 3.9 environment (WSL or
-   Docker — see the script's docstring for the exact commands):
-
-   ```bash
-   python scripts/convert_murre_model.py
-   ```
-
-   This writes `.local/murre_models_ct2/` (gitignored, ~35 MB).
-
-3. Install `ctranslate2` in your normal AudiobookMaker environment:
-
-   ```bash
-   pip install "ctranslate2>=4.0,<5"
-   ```
-
-4. That's it. The Finnish normalizer auto-detects the converted model
-   on next run and inserts the puhekieli → kirjakieli pass before the
-   existing 18 passes. If anything is missing (model dir, ctranslate2
-   package, model corruption), the wrapper logs one warning and falls
-   back to passing text through unchanged — the rest of the pipeline
-   still works.
-
-Murre is licensed Apache-2.0 and is safe to use commercially. The
-converted CTranslate2 model is not redistributed in this repo because
-it's a derivative of upstream weights you should download yourself.
 
 ## How it fits together
 
@@ -642,9 +596,8 @@ AudiobookMaker/
 │   ├── tts_voxcpm.py              # VoxCPM2 adapter (dev only)
 │   ├── tts_chatterbox_bridge.py   # Chatterbox registration (subprocess)
 │   ├── tts_engine.py              # Text chunking, normalizer, audio combining
-│   ├── tts_normalizer_fi.py       # Finnish normalizer (19 passes)
+│   ├── tts_normalizer_fi.py       # Finnish normalizer (18 passes)
 │   ├── tts_normalizer_en.py       # English normalizer (12 passes)
-│   ├── murre_normalize.py         # Optional puhekieli→kirjakieli (Murre, CTranslate2)
 │   ├── launcher_bridge.py         # Chatterbox subprocess runner
 │   ├── fi_loanwords.py            # Finnish loanword respelling
 │   ├── app_config.py              # Settings persistence
@@ -652,7 +605,7 @@ AudiobookMaker/
 │   └── voice_pack/                # Voice pack artefact format + import
 ├── data/
 │   └── fi_loanwords.yaml          # Loanword lexicon
-├── tests/                         # Unit tests (1565)
+├── tests/                         # Unit tests (1729)
 ├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
 ├── docs/                          # Documentation and research notes
 ├── installer/                     # Inno Setup build scripts
