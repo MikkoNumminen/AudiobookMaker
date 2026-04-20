@@ -51,17 +51,27 @@ _ECAPA_EMBED_DIM = 192
 
 
 def _resolve_device(device: str) -> str:
-    """Turn ``"auto"`` into a concrete ``"cpu"`` / ``"cuda"`` selection."""
-    if device != "auto":
-        return device
-    try:
-        import torch  # type: ignore[import-not-found]
+    """Turn ``"auto"`` into a concrete ``"cpu"`` / ``"cuda:N"`` selection.
 
-        if torch.cuda.is_available():
-            return "cuda"
-    except Exception:  # pragma: no cover - torch missing or broken
-        pass
-    return "cpu"
+    speechbrain's ``EncoderClassifier`` parses the device string with
+    ``device.split(":")`` and logs a noisy warning to stderr when the
+    split doesn't yield ``(type, index)`` — e.g. when the caller passes a
+    bare ``"cuda"``. We normalise GPU strings to always include an index
+    so that warning never fires. ``"cpu"`` and any already-indexed string
+    like ``"cuda:1"`` are passed through unchanged.
+    """
+    if device == "auto":
+        try:
+            import torch  # type: ignore[import-not-found]
+
+            if torch.cuda.is_available():
+                return "cuda:0"
+        except Exception:  # pragma: no cover - torch missing or broken
+            pass
+        return "cpu"
+    if device == "cuda":
+        return "cuda:0"
+    return device
 
 
 def load_encoder(

@@ -17,6 +17,7 @@ np = pytest.importorskip("numpy")
 
 from src.voice_pack.diarize_ecapa import (  # noqa: E402
     _cluster_embeddings,
+    _resolve_device,
     _slice_and_filter_windows,
     _windows_to_turns,
     diarize_ecapa,
@@ -234,3 +235,35 @@ def test_diarize_ecapa_accepts_hf_token_kwarg_for_compat(tmp_path):
         _load_audio_fn=fake_loader,
     )
     assert turns == []
+
+
+def test_resolve_device_normalises_bare_cuda_to_indexed():
+    """speechbrain's EncoderClassifier splits the device string on ``:``
+    and emits a stderr warning ("Could not parse CUDA device string
+    'cuda': not enough values to unpack ... Falling back to device 0.")
+    when there is no index. Always hand it ``cuda:0`` instead so the
+    warning never fires. See interfaces.py in speechbrain.
+    """
+    assert _resolve_device("cuda") == "cuda:0"
+
+
+def test_resolve_device_passes_through_cpu_and_indexed_cuda():
+    assert _resolve_device("cpu") == "cpu"
+    assert _resolve_device("cuda:1") == "cuda:1"
+    assert _resolve_device("cuda:0") == "cuda:0"
+
+
+def test_resolve_device_auto_without_cuda_is_cpu(monkeypatch):
+    """Without a visible GPU, auto resolves to cpu and doesn't crash."""
+    import torch as _torch
+
+    monkeypatch.setattr(_torch.cuda, "is_available", lambda: False)
+    assert _resolve_device("auto") == "cpu"
+
+
+def test_resolve_device_auto_with_cuda_is_indexed(monkeypatch):
+    """When auto picks GPU, it must pick ``cuda:0`` not bare ``cuda``."""
+    import torch as _torch
+
+    monkeypatch.setattr(_torch.cuda, "is_available", lambda: True)
+    assert _resolve_device("auto") == "cuda:0"
