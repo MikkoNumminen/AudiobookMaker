@@ -33,6 +33,51 @@ from src.fi_loanwords import apply_loanword_respellings
 # example, "1500-luvulla" MUST be handled by pass C before pass G sees a
 # loose 1500.
 
+# Pass O — emoji strip.
+#
+# Removes Unicode emoji from text before any other pass touches it. TTS
+# engines either skip them silently, mispronounce them, or (worst case)
+# read out the Unicode codepoint name. We strip them entirely because
+# audiobook prose almost never uses emoji intentionally; when it does,
+# losing them is preferable to hearing "unicorn face" mid-sentence.
+#
+# The character ranges below cover the main emoji blocks plus their
+# modifiers (skin tones, variation selector-16, ZWJ, regional indicators).
+# Sourced from Unicode 15.1 "Emoji" property; conservative — Latin-1
+# punctuation and dingbats commonly used in books (©, ®, ™, ★) are NOT
+# stripped because they often carry meaning.
+_FI_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001F5FF"   # Misc symbols & pictographs
+    "\U0001F600-\U0001F64F"   # Emoticons (smileys)
+    "\U0001F680-\U0001F6FF"   # Transport & map symbols
+    "\U0001F700-\U0001F77F"   # Alchemical
+    "\U0001F780-\U0001F7FF"   # Geometric shapes extended
+    "\U0001F800-\U0001F8FF"   # Supplemental arrows-C
+    "\U0001F900-\U0001F9FF"   # Supplemental symbols & pictographs
+    "\U0001FA00-\U0001FA6F"   # Chess symbols
+    "\U0001FA70-\U0001FAFF"   # Symbols & pictographs extended-A
+    "\U0001F1E6-\U0001F1FF"   # Regional indicator symbols (flags)
+    "\U0001F3FB-\U0001F3FF"   # Skin tone modifiers
+    "\U00002702-\U000027B0"   # Dingbats (✂ ✈ ✉ ✏ ✨ ❌ ❤ etc.)
+    "\u2600-\u26FF"           # Misc symbols (☀ ☁ ☎ ⚡ ♻ etc.)
+    "\uFE0F"                  # Variation selector-16 (emoji presentation)
+    "\u200D"                  # Zero-width joiner (ZWJ sequences)
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _strip_emoji(text: str) -> str:
+    """Strip emoji and emoji-related codepoints (Pass O).
+
+    Replaces consecutive emoji runs with a single space so adjacent words
+    do not get glued together (`hello👍world` → `hello world`). The final
+    whitespace cleanup pass collapses any double spaces.
+    """
+    return _FI_EMOJI_RE.sub(" ", text)
+
+
 # Pass A: bibliographic citations — parens containing a 4-digit year and a
 # Capitalized publisher-ish token. Conservative: requires BOTH.
 _FI_CITE_RE = re.compile(
@@ -123,6 +168,109 @@ def _expand_abbreviations(text: str) -> str:
 
     text = _fi_abbrev_re().sub(_abbrev_sub, text)
     text = _FI_TRI_RE.sub("tohtori", text)
+    return text
+
+
+# Pass T: Finnish date and clock-time expansion.
+#
+# Catches two common formats that downstream digit passes (D/F/G) would
+# otherwise mangle:
+#
+#   - Numeric date `D.M.YYYY` or `DD.MM.YYYY` (Finnish convention) →
+#     "{day-ordinal} {month-name-partitive} {year-cardinal}".
+#     Example: "14.4.2026" → "neljästoista huhtikuuta kaksituhatta
+#     kaksikymmentäkuusi". Requires a 4-digit year so we don't eat
+#     decimal numbers like "3.14" or version strings like "1.0.2".
+#
+#   - Clock time `klo HH:MM` or `kello HH:MM` →
+#     "kello {hour-cardinal} {minute-cardinal}".
+#     Example: "klo 20:30" → "kello kaksikymmentä kolmekymmentä".
+#     Standalone `HH:MM` without a `klo`/`kello` prefix is NOT touched,
+#     to avoid mangling sports scores, ratios, or chapter numbering.
+#
+# Must run BEFORE Pass C (centuries: `1500-luvulla` doesn't collide here
+# but date passes care about period-separated digits), Pass D (numeric
+# ranges: would split the day-month-year on the dots... actually D only
+# touches dashes, so no conflict — but ordering kept conservative), Pass
+# F (decimals: `14.4.2026` looks like decimal `14.4` to F), and Pass G
+# (cardinal expansion: would expand each digit run independently).
+# Order relative to Pass K is irrelevant — Pass K targets word
+# abbreviations like `klo.`, while this pass matches `klo` with no
+# trailing period (the in-time form). Both `klo` and `kello` are
+# accepted as the prefix here for robustness.
+
+# Finnish month names — partitive form ("of June", "of April"). The
+# partitive is the form used after an ordinal day in spoken date
+# readouts ("neljäs huhtikuuta", "kolmas tammikuuta").
+_FI_MONTH_PARTITIVE: tuple[str, ...] = (
+    "tammikuuta",   # 1
+    "helmikuuta",   # 2
+    "maaliskuuta",  # 3
+    "huhtikuuta",   # 4
+    "toukokuuta",   # 5
+    "kesäkuuta",    # 6
+    "heinäkuuta",   # 7
+    "elokuuta",     # 8
+    "syyskuuta",    # 9
+    "lokakuuta",    # 10
+    "marraskuuta",  # 11
+    "joulukuuta",   # 12
+)
+
+# Date: `D.M.YYYY` or `DD.MM.YYYY`. 4-digit year is mandatory so the
+# regex doesn't accidentally swallow decimal numbers or version strings.
+_FI_DATE_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b")
+
+# Clock time: `klo` or `kello` followed by HH:MM. The prefix is mandatory
+# to avoid eating ratios / sports scores / chapter ranges. The hour and
+# minute are validated in the substitution function (0–23, 0–59).
+_FI_TIME_RE = re.compile(r"\b(?:klo|kello)\s+(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+
+
+def _expand_dates_and_times(text: str) -> str:
+    """Expand Finnish dates and clock times to spoken form (Pass T).
+
+    Date format: ``D.M.YYYY`` → ``{day-ordinal} {month-partitive} {year}``.
+    Time format: ``klo HH:MM`` / ``kello HH:MM`` →
+    ``kello {hour-cardinal} {minute-cardinal}``.
+
+    Invalid dates (day > 31, month > 12) and invalid times (hour > 23,
+    minute > 59) are left unchanged so that pathological inputs fall
+    through to the later passes unmolested.
+    """
+    try:
+        from num2words import num2words  # type: ignore
+    except ImportError:
+        return text
+
+    def _date_sub(m: re.Match[str]) -> str:
+        day = int(m.group(1))
+        month = int(m.group(2))
+        year = int(m.group(3))
+        if not (1 <= day <= 31 and 1 <= month <= 12):
+            return m.group(0)
+        try:
+            day_word = num2words(day, lang="fi", to="ordinal")
+            year_word = num2words(year, lang="fi")
+        except (NotImplementedError, OverflowError, ValueError, TypeError):
+            return m.group(0)
+        month_word = _FI_MONTH_PARTITIVE[month - 1]
+        return f"{day_word} {month_word} {year_word}"
+
+    def _time_sub(m: re.Match[str]) -> str:
+        hour = int(m.group(1))
+        minute = int(m.group(2))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return m.group(0)
+        try:
+            hour_word = num2words(hour, lang="fi")
+            minute_word = num2words(minute, lang="fi")
+        except (NotImplementedError, OverflowError, ValueError, TypeError):
+            return m.group(0)
+        return f"kello {hour_word} {minute_word}"
+
+    text = _FI_DATE_RE.sub(_date_sub, text)
+    text = _FI_TIME_RE.sub(_time_sub, text)
     return text
 
 
@@ -747,6 +895,16 @@ def normalize_finnish_text(
         them and the later pass silently produces wrong output. These are
         load-bearing; do not shuffle them without updating this list.
 
+        - O must run first: Pass O strips emoji codepoints. Done before
+          everything else so no later regex has to consider whether a
+          random pictograph could fall inside its character class. Cheap,
+          and isolates emoji handling to one place.
+        - T must run before C, D, F, G: Pass T expands `D.M.YYYY` dates
+          and `klo HH:MM` clock times into spoken form. Without it, F
+          would misread `14.4.2026` as the decimal `14.4` followed by
+          another decimal `.2026`, and G would expand each digit run as
+          an independent cardinal. Run after K so abbreviation periods
+          (which T does not touch) are already gone.
         - K must run before C, D, F, G: Pass K expands abbreviations like
           ``esim.`` / ``ks.`` whose trailing periods would otherwise look
           like sentence-terminal dots to the later passes. Finish the
@@ -853,6 +1011,10 @@ def normalize_finnish_text(
         except (NotImplementedError, OverflowError, ValueError, TypeError):
             return str(n)
 
+    # Pass O — strip emoji. Runs first so no later regex needs to worry
+    # about pictographs sneaking through character classes.
+    text = _strip_emoji(text)
+
     # Pass A — drop bibliographic citations and metadata parens.
     if drop_citations:
         text = _FI_CITE_RE.sub("", text)
@@ -873,6 +1035,12 @@ def normalize_finnish_text(
     # Pass K — Finnish abbreviation expansion. Must run before Pass C so
     # abbreviation periods do not interfere with period-sensitive patterns.
     text = _expand_abbreviations(text)
+
+    # Pass T — date and clock-time expansion. Runs after K (so any `klo.`
+    # abbreviation form is already `kello`, although the time regex also
+    # accepts the bare `klo` form) and before C/D/F/G (whose digit
+    # handlers would otherwise mangle `14.4.2026` and `klo 20:30`).
+    text = _expand_dates_and_times(text)
 
     # Pass L — Roman numerals (regnal ordinals, chapter ordinals, cardinal fallback).
     # Runs after Pass K (abbreviation expansion) so periods in abbreviations

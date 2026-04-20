@@ -38,3 +38,16 @@
 "kpl.": "kappaletta"
 "milj.": "miljoonaa"
 "mrd.": "miljardia"
+# General-purpose abbreviations frequently seen in Finnish prose, news,
+# and informal writing. Added Phase 1 of the normalization upgrade.
+"n.": "noin"
+"v.": "vuonna"
+"kk.": "kuukautta"
+"klo.": "kello"
+"pvm.": "päivämäärä"
+"nim.": "nimittäin"
+"ml.": "mukaanlukien"
+"pl.": "paitsi"
+"tark.": "tarkoittaa"
+"tav.": "tavallisesti"
+"lyh.": "lyhennys"

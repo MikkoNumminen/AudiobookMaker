@@ -13,7 +13,9 @@ import pytest
 from src.tts_normalizer_fi import (
     _expand_acronym_fallback,
     _expand_acronyms,
+    _expand_dates_and_times,
     _roman_to_int,
+    _strip_emoji,
     normalize_finnish_text,
 )
 
@@ -1407,3 +1409,189 @@ class TestPassNFallback:
     def test_no_uppercase_tokens(self):
         text = "pelkkää pientä kirjainta"
         assert _expand_acronym_fallback(text) == text
+
+
+# ---------------------------------------------------------------------------
+# Pass O — emoji strip
+# ---------------------------------------------------------------------------
+
+
+class TestStripEmoji:
+    def test_strips_smileys(self) -> None:
+        assert _strip_emoji("Hei 😀 maailma") == "Hei   maailma"
+
+    def test_strips_skin_tone_modified(self) -> None:
+        # 👍🏼 is a thumbs-up + medium-light skin tone (two codepoints).
+        assert _strip_emoji("Hieno 👍🏼 juttu") == "Hieno   juttu"
+
+    def test_strips_zwj_sequence(self) -> None:
+        # Family emoji uses ZWJ between figures; the whole sequence should go.
+        assert _strip_emoji("Perhe 👨‍👩‍👧 koolla") == "Perhe   koolla"
+
+    def test_strips_flag(self) -> None:
+        # Finnish flag = two regional indicator symbols (F + I).
+        assert _strip_emoji("Lippu 🇫🇮 liehuu") == "Lippu   liehuu"
+
+    def test_strips_consecutive_emoji_run_to_single_space(self) -> None:
+        # Multiple emoji in a row collapse to one space gap (the regex
+        # uses `+` so the whole run is one match).
+        assert _strip_emoji("a😀😎😍b") == "a b"
+
+    def test_no_emoji_left_unchanged(self) -> None:
+        text = "Tavallista tekstiä ilman kuvasymboleita."
+        assert _strip_emoji(text) == text
+
+    def test_keeps_latin1_typography(self) -> None:
+        # Copyright / trademark / registered symbols live in Latin-1 and
+        # General Punctuation — outside the emoji ranges. They survive.
+        text = "© 2024 ™ ®"
+        assert _strip_emoji(text) == text
+
+    def test_empty_string(self) -> None:
+        assert _strip_emoji("") == ""
+
+    def test_runs_inside_normalize(self) -> None:
+        # Pass O should fire as part of the full pipeline.
+        out = normalize_finnish_text("Tervehdys 👋 lukijalle")
+        assert "👋" not in out
+        assert "Tervehdys" in out
+        assert "lukijalle" in out
+
+
+# ---------------------------------------------------------------------------
+# Pass T — dates and clock times
+# ---------------------------------------------------------------------------
+
+
+class TestExpandDatesAndTimes:
+    # --- Dates ---
+
+    def test_date_basic(self) -> None:
+        out = _expand_dates_and_times("14.4.2026")
+        assert "neljästoista" in out
+        assert "huhtikuuta" in out
+        # Year must contain "kaksituhatta" and "kaksikymmentä" word forms.
+        assert "kaksituhatta" in out
+        assert "kaksikymmentä" in out
+
+    def test_date_zero_padded(self) -> None:
+        out = _expand_dates_and_times("01.01.2025")
+        assert "ensimmäinen" in out
+        assert "tammikuuta" in out
+
+    def test_date_all_twelve_months(self) -> None:
+        expected_months = (
+            "tammikuuta", "helmikuuta", "maaliskuuta", "huhtikuuta",
+            "toukokuuta", "kesäkuuta", "heinäkuuta", "elokuuta",
+            "syyskuuta", "lokakuuta", "marraskuuta", "joulukuuta",
+        )
+        for month, word in enumerate(expected_months, start=1):
+            out = _expand_dates_and_times(f"15.{month}.2024")
+            assert word in out, f"month {month} → {out!r}"
+
+    def test_date_invalid_day_left_alone(self) -> None:
+        # Day 32 is not a valid date — leave the literal in place so a
+        # later pass can do whatever it wants with the digits.
+        text = "32.5.2024"
+        assert _expand_dates_and_times(text) == text
+
+    def test_date_invalid_month_left_alone(self) -> None:
+        text = "15.13.2024"
+        assert _expand_dates_and_times(text) == text
+
+    def test_date_two_digit_year_not_matched(self) -> None:
+        # Only 4-digit years are eligible — protects decimals like 3.14
+        # and version strings like 1.0.2 from being misread as dates.
+        text = "3.14.26"
+        assert _expand_dates_and_times(text) == text
+
+    def test_decimal_not_consumed(self) -> None:
+        # Plain decimals (no further `.YYYY` tail) must pass through Pass T.
+        text = "Pii on 3.14"
+        assert _expand_dates_and_times(text) == text
+
+    def test_version_string_not_consumed(self) -> None:
+        # Version `1.0.2` has a 1-digit "year" → won't match.
+        text = "Versio 1.0.2"
+        assert _expand_dates_and_times(text) == text
+
+    # --- Times ---
+
+    def test_time_klo_prefix(self) -> None:
+        out = _expand_dates_and_times("klo 20:30")
+        assert out == "kello kaksikymmentä kolmekymmentä"
+
+    def test_time_kello_prefix(self) -> None:
+        out = _expand_dates_and_times("kello 20:30")
+        assert out == "kello kaksikymmentä kolmekymmentä"
+
+    def test_time_zero_padded_hour(self) -> None:
+        out = _expand_dates_and_times("klo 08:15")
+        assert "kello" in out
+        assert "kahdeksan" in out
+        assert "viisitoista" in out
+
+    def test_time_midnight(self) -> None:
+        out = _expand_dates_and_times("klo 00:00")
+        assert "kello nolla nolla" in out
+
+    def test_time_invalid_hour_left_alone(self) -> None:
+        # Hour 25 is not a valid time → leave literal in place.
+        text = "klo 25:00"
+        assert _expand_dates_and_times(text) == text
+
+    def test_time_invalid_minute_left_alone(self) -> None:
+        text = "klo 20:60"
+        assert _expand_dates_and_times(text) == text
+
+    def test_standalone_hh_mm_not_touched(self) -> None:
+        # No `klo`/`kello` prefix → leave alone (avoids mangling sports
+        # scores, ratios, chapter numbering).
+        text = "Ottelu päättyi 20:30."
+        assert _expand_dates_and_times(text) == text
+
+    def test_runs_inside_normalize_date(self) -> None:
+        # Full pipeline integration: the date passes through Pass T and
+        # later passes do not re-mangle the spelled-out form.
+        out = normalize_finnish_text("Päivämäärä on 14.4.2026.")
+        assert "14" not in out
+        assert "2026" not in out
+        assert "huhtikuuta" in out
+
+    def test_runs_inside_normalize_time(self) -> None:
+        out = normalize_finnish_text("Tapaaminen klo 20:30.")
+        assert "20:30" not in out
+        assert "kello" in out
+        assert "kolmekymmentä" in out
+
+
+# ---------------------------------------------------------------------------
+# Pass K extension — internet/general abbreviation lexicon additions
+# ---------------------------------------------------------------------------
+
+
+class TestAbbreviationLexiconExtensions:
+    """Smoke tests for the Phase 1 additions to data/fi_abbreviations.yaml."""
+
+    def test_noin_abbreviation(self) -> None:
+        out = normalize_finnish_text("Matka kesti n. tunnin")
+        assert "noin tunnin" in out
+
+    def test_kuukautta_abbreviation(self) -> None:
+        out = normalize_finnish_text("Kurssi kestää kk. mittaisesti")
+        assert "kuukautta" in out
+
+    def test_paivamaara_abbreviation(self) -> None:
+        out = normalize_finnish_text("Lisää pvm. tähän kohtaan")
+        assert "päivämäärä" in out
+
+    def test_nimittain_abbreviation(self) -> None:
+        out = normalize_finnish_text("Asia on nim. selvä")
+        assert "nimittäin" in out
+
+    def test_klo_abbreviation_passthrough(self) -> None:
+        # `klo.` (with period) → "kello" via Pass K. The bare `klo` form
+        # without a period is handled by Pass T's time matcher only when
+        # followed by HH:MM.
+        out = normalize_finnish_text("Aamulla klo. on rauhallista")
+        assert "kello" in out
