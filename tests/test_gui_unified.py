@@ -485,6 +485,100 @@ class TestProgressBarVisibilityLifecycle:
         )
 
 
+class TestProgressiveDisclosure:
+    """Action-row buttons follow configuration state:
+
+    - Convert / Make sample: need input + voice.
+    - Preview / Open folder: need a playable output from a prior run.
+
+    A run in flight freezes this whole picture (``_set_running_state``
+    owns button state), which we don't re-verify here because the
+    progress-bar lifecycle suite already pins that.
+    """
+
+    def test_convert_disabled_without_input(self, app):
+        # Text mode, placeholder still in place → no usable input.
+        app._input_mode_raw = "text"
+        for tab_name, mode in app._tab_name_map.items():
+            if mode == "text":
+                app._input_nb.set(tab_name)
+                break
+        app._text_has_placeholder = True
+        app._pdf_path = None
+        app._last_playable_path = None
+        app._output_path = None
+        app._update_action_buttons_state()
+        app.update_idletasks()
+
+        assert app._convert_btn.cget("state") == "disabled"
+        assert app._sample_btn.cget("state") == "disabled"
+
+    def test_convert_enabled_when_text_and_voice_ready(self, app):
+        # Force the engine back to Edge (a prior test may have left the
+        # combobox on something else that clean_registry then wiped) and
+        # rebuild the display->id map so _current_voice resolves.
+        app._populate_engine_list()
+        for display, eid in app._engine_display_to_id.items():
+            if eid == "edge":
+                app._engine_cb.set(display)
+                break
+        app._refresh_voice_list()
+
+        for tab_name, mode in app._tab_name_map.items():
+            if mode == "text":
+                app._input_nb.set(tab_name)
+                app._input_mode_raw = "text"
+                break
+        app._text_has_placeholder = False
+        app._text_widget.delete("1.0", tk.END)
+        app._text_widget.insert("1.0", "Testilause.")
+        app._pdf_path = None
+        app._update_action_buttons_state()
+        app.update_idletasks()
+
+        assert app._current_voice() is not None, "fixture must ship a default voice"
+        assert app._convert_btn.cget("state") == "normal"
+        assert app._sample_btn.cget("state") == "normal"
+
+    def test_preview_and_open_folder_require_output(self, app, tmp_path):
+        # Even with input + voice ready, no prior output means these stay off.
+        for tab_name, mode in app._tab_name_map.items():
+            if mode == "text":
+                app._input_nb.set(tab_name)
+                app._input_mode_raw = "text"
+                break
+        app._text_has_placeholder = False
+        app._text_widget.delete("1.0", tk.END)
+        app._text_widget.insert("1.0", "Testilause.")
+        app._last_playable_path = None
+        app._output_path = None
+        app._update_action_buttons_state()
+        app.update_idletasks()
+        assert app._listen_btn.cget("state") == "disabled"
+        assert app._open_folder_btn.cget("state") == "disabled"
+
+        # Now a real file exists on disk → both light up.
+        out_mp3 = tmp_path / "done.mp3"
+        out_mp3.write_bytes(b"fake")
+        app._last_playable_path = str(out_mp3)
+        app._update_action_buttons_state()
+        app.update_idletasks()
+        assert app._listen_btn.cget("state") == "normal"
+        assert app._open_folder_btn.cget("state") == "normal"
+
+    def test_set_idle_state_does_not_reenable_output_buttons_without_output(
+        self, app
+    ):
+        """The mixin's _set_idle_state force-enables Open folder; the override
+        must re-gate it when no run has actually produced anything."""
+        app._last_playable_path = None
+        app._output_path = None
+        app._set_idle_state()
+        app.update_idletasks()
+        assert app._open_folder_btn.cget("state") == "disabled"
+        assert app._listen_btn.cget("state") == "disabled"
+
+
 class TestChatterboxFinalizePreservesNestedCache:
     """Nested dist/audiobook/<stem>/ must survive sample-run finalization."""
 

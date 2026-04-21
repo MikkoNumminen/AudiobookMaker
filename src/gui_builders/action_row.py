@@ -35,9 +35,12 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
     btn_row.columnconfigure(0, weight=1)
 
     # The star of the show — wide, bold, clearly the primary action.
+    # Convert, Make sample and Preview all ship disabled and are
+    # switched on by _update_action_buttons_state once input + voice
+    # are both configured (Convert/Sample) or output exists (Preview).
     host._convert_btn = ctk.CTkButton(
         btn_row, text="Muunna", command=host._on_convert_click,
-        height=44,
+        height=44, state="disabled",
         font=gui_style.font_primary_button(),
         image=gui_style.icon("play", size=20),
         compound="left",
@@ -59,7 +62,7 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
 
     host._sample_btn = ctk.CTkButton(
         btn_row, text="Tee n\u00e4yte", command=host._on_sample_click,
-        height=44, width=140, **_sec,
+        height=44, width=140, state="disabled", **_sec,
         image=gui_style.icon("music", size=18),
         compound="left",
     )
@@ -67,7 +70,7 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
 
     host._listen_btn = ctk.CTkButton(
         btn_row, text="Esikuuntele", command=host._on_listen_click,
-        height=44, width=140, **_sec,
+        height=44, width=140, state="disabled", **_sec,
         image=gui_style.icon("volume", size=18),
         compound="left",
     )

@@ -1080,6 +1080,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._text_widget.configure(text_color="gray")
         self._text_widget.bind("<FocusIn>", self._on_text_focus_in)
         self._text_widget.bind("<FocusOut>", self._on_text_focus_out)
+        self._text_widget.bind("<KeyRelease>", self._on_text_keyrelease)
 
         # Build the tab name map.
         self._tab_name_map = {
@@ -1092,6 +1093,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._text_widget.delete("1.0", tk.END)
             self._text_widget.configure(text_color=("black", "white"))
             self._text_has_placeholder = False
+            self._update_action_buttons_state()
 
     def _on_text_focus_out(self, _event: object = None) -> None:
         content = self._text_widget.get("1.0", tk.END).strip()
@@ -1099,6 +1101,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._text_widget.insert("1.0", self._text_placeholder)
             self._text_widget.configure(text_color="gray")
             self._text_has_placeholder = True
+        self._update_action_buttons_state()
+
+    def _on_text_keyrelease(self, _event: object = None) -> None:
+        """Keep the action-row gating honest while the user types."""
+        self._update_action_buttons_state()
 
     # ---- 2. Settings frame --------------------------------------------
 
@@ -1356,6 +1363,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Update the raw input mode tracker.
         self._input_mode_raw = self._input_mode
         self._auto_output_path()
+        self._update_action_buttons_state()
 
     def _get_input_text(self) -> str:
         """Return the text to synthesize based on the active input tab."""
@@ -1449,6 +1457,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             supports_cloning=bool(engine.supports_voice_cloning),
             supports_description=bool(engine.supports_voice_description),
         )
+        self._update_action_buttons_state()
 
     def _populate_voice_combobox(self, engine: TTSEngine) -> None:
         lang = self._current_language()
@@ -1497,6 +1506,58 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 widget.grid()
             else:
                 widget.grid_remove()
+
+    # ------------------------------------------------------------------
+    # Progressive disclosure — action buttons follow configuration state
+    # ------------------------------------------------------------------
+
+    def _has_usable_input(self) -> bool:
+        """True iff the active input tab actually has something to synthesize."""
+        if self._input_mode == "pdf":
+            return bool(self._pdf_path)
+        if self._text_has_placeholder:
+            return False
+        return bool(self._text_widget.get("1.0", tk.END).strip())
+
+    def _has_playable_output(self) -> bool:
+        """True iff a previous run left a real MP3 for Preview / Open folder."""
+        for path in (
+            getattr(self, "_last_playable_path", None),
+            getattr(self, "_output_path", None),
+        ):
+            if path and Path(path).is_file():
+                return True
+        return False
+
+    def _update_action_buttons_state(self) -> None:
+        """Central switchboard for Convert / Make sample / Preview / Open folder.
+
+        Called on every hook that changes input- or voice-configuration
+        state (tab change, text edit, PDF load, engine/voice refresh,
+        apply_loaded_config, run-complete). Skipped while a run is in
+        flight — _set_running_state owns the buttons during synthesis.
+
+        Convert + Make sample: need input + voice.
+        Preview + Open folder: need a playable output from a prior run.
+        Test voice is on the engine bar and owns its own state.
+        """
+        if getattr(self, "_synth_running", False):
+            return
+
+        has_input = self._has_usable_input()
+        has_voice = self._current_voice() is not None
+        primary_state = "normal" if has_input and has_voice else "disabled"
+
+        for attr in ("_convert_btn", "_sample_btn"):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                btn.configure(state=primary_state)
+
+        output_state = "normal" if self._has_playable_output() else "disabled"
+        for attr in ("_listen_btn", "_open_folder_btn"):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                btn.configure(state=output_state)
 
     # ------------------------------------------------------------------
     # File dialogs
@@ -1577,6 +1638,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             # Kick off a background parse+estimate so the sticky status
             # strip shows book metadata without blocking the UI thread.
             self._start_ready_estimate(path)
+            self._update_action_buttons_state()
 
     # ---- Sticky status strip: ready-state estimate --------------------
 
@@ -2609,6 +2671,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if not cfg.log_panel_visible:
             self._toggle_log()
 
+        # Paint the action-row gating now that every input signal
+        # (input mode, voice, pdf path) is back to the persisted value.
+        self._update_action_buttons_state()
+
     def _save_current_config(self) -> None:
         """Snapshot current UI state into on-disk config."""
         cfg = self._user_cfg
@@ -3251,6 +3317,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         super()._request_cancel()
         if hasattr(self, "_status_strip_frame"):
             self._set_status_strip("idle")
+
+    def _set_idle_state(self) -> None:  # type: ignore[override]
+        """Override mixin's idle transition to re-paint progressive-disclosure
+        state. The mixin force-enables Open folder unconditionally; we need
+        to reassert that Open folder / Preview are only live when an output
+        actually exists, and Convert / Make sample only when input + voice
+        are configured. Runs once per run-end."""
+        super()._set_idle_state()
+        self._update_action_buttons_state()
 
 
 # ---------------------------------------------------------------------------

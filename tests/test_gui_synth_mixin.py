@@ -151,7 +151,18 @@ class TestRunningIdleStateTransitions:
         text = app._status_label_val.cget("text")
         assert text == app._s("converting")
 
-    def test_idle_reverses_running_state(self, app):
+    def test_idle_reverses_running_state(self, app, tmp_path):
+        # Progressive disclosure: Convert/Sample need input+voice; Preview
+        # needs a playable output. Set all three up so post-idle state
+        # can legitimately return the buttons to "normal" — that is what
+        # "idle reverses running" means under the new gating.
+        app._text_has_placeholder = False
+        app._text_widget.delete("1.0", tk.END)
+        app._text_widget.insert("1.0", "Testilause.")
+        out_mp3 = tmp_path / "done.mp3"
+        out_mp3.write_bytes(b"fake")
+        app._last_playable_path = str(out_mp3)
+
         app._set_running_state()
         app.update_idletasks()
         app._set_idle_state()
