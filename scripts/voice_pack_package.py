@@ -228,6 +228,22 @@ def package(
     shutil.copy2(sample, destination / "sample.wav")
     if tier in ("full_lora", "reduced_lora") and adapter is not None:
         shutil.copy2(adapter, destination / "adapter.pt")
+        # If the adapter originates from a peft-native save directory
+        # (or sits next to one), copy ``adapter_config.json`` across so
+        # inference can reconstruct the wrapper without hard-coding the
+        # LoRA hyperparameters. ``_resolve_adapter_path`` returns the
+        # weights file even when the user pointed at a directory, so
+        # check both the adapter file's parent (typical peft layout) and
+        # the originally-supplied path (if it was a directory).
+        source_candidates: list[Path] = [adapter.parent]
+        raw_adapter = Path(adapter_path) if adapter_path is not None else None
+        if raw_adapter is not None and raw_adapter.is_dir():
+            source_candidates.append(raw_adapter)
+        for candidate_dir in source_candidates:
+            cfg_src = candidate_dir / "adapter_config.json"
+            if cfg_src.is_file():
+                shutil.copy2(cfg_src, destination / "adapter_config.json")
+                break
     if tier == "few_shot" and reference is not None:
         shutil.copy2(reference, destination / "reference.wav")
 
