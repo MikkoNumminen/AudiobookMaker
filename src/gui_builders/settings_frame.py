@@ -147,6 +147,27 @@ def build_settings_frame(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> 
     )
     srow += 1
 
+    # Clone-voice-from-file button — sits directly under the import
+    # button so the two "get a voice into the dropdown" paths read as a
+    # pair. Click routes to UnifiedApp._clone_voice_from_file, which
+    # checks whether the Voice Cloner capability is installed and
+    # either starts the pipeline or explains how to install it.
+    from src.gui_clone_voice import clone_voice_string
+
+    host._clone_voice_btn = ctk.CTkButton(
+        settings,
+        text=clone_voice_string(getattr(host, "_ui_lang", "fi"), "clone_voice_btn"),
+        command=host._clone_voice_from_file,
+        width=180, **_sec,
+        image=gui_style.icon("mic", size=16),
+        compound="left",
+    )
+    host._clone_voice_btn.grid(
+        row=srow, column=3, sticky="e", padx=(gui_style.PAD_SM, 0),
+        pady=(gui_style.PAD_XS, 0),
+    )
+    srow += 1
+
     # Row 3: Reference audio (voice cloning) — hidden when unsupported
     host._ref_label = ctk.CTkLabel(
         settings, text="Ref. ääni:", font=gui_style.font_label(),

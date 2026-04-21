@@ -1676,6 +1676,150 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             if target_name in values:
                 self._voice_cb.set(target_name)
 
+    # ------------------------------------------------------------------
+    # Clone voice from file
+    # ------------------------------------------------------------------
+
+    def _voice_cloner_installed(self) -> bool:
+        """True iff the Voice Cloner capability installer reports installed."""
+        try:
+            from src.engine_installer import get_capability_installer
+            from src.engine_installer_voice_cloner import VOICE_CLONER_ID
+
+            installer = get_capability_installer(VOICE_CLONER_ID)
+            if installer is None:
+                return False
+            return bool(installer.is_installed())
+        except Exception:
+            return False
+
+    def _clone_voice_from_file(self) -> None:
+        """Entry point for the Clone voice from file button.
+
+        Checks the capability is installed, prompts for an audio file,
+        opens the pre-analyze modal, then kicks off the clone-voice
+        pipeline on a worker thread. The naming-grid modal is opened
+        via the ``request_names_fn`` callback marshalled back onto the
+        Tk main thread via ``self.after(0, …)``.
+        """
+        from src.gui_clone_voice import (
+            CloneVoiceJobConfig,
+            NamingGridModal,
+            PreAnalyzeModal,
+            clone_voice_string,
+            run_clone_voice_job,
+            safe_source_display_name,
+        )
+
+        def s(key: str) -> str:
+            return clone_voice_string(self._ui_lang, key)
+
+        if not self._voice_cloner_installed():
+            messagebox.showinfo(
+                s("clone_voice_not_installed_title"),
+                s("clone_voice_not_installed_body"),
+                parent=self,
+            )
+            return
+
+        path = filedialog.askopenfilename(
+            title=s("clone_voice_pick_file_title"),
+            filetypes=[
+                ("Audio", "*.wav *.mp3 *.flac *.ogg *.m4a *.m4b"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+
+        modal = PreAnalyzeModal(self, ui_lang=self._ui_lang)
+        choice = modal.show()
+        if choice is None:
+            return
+        language, num_speakers, min_speakers, max_speakers = choice
+
+        wav_path = Path(path)
+        display_name = safe_source_display_name(wav_path)
+
+        # Scratch dir: always under .local/ so the P0 "don't leak
+        # copyrighted source material into the repo" rule holds even
+        # if the user runs from the repo root.
+        from datetime import datetime
+
+        scratch_root = Path.cwd() / ".local" / "clone_scratch"
+        scratch_dir = scratch_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        config = CloneVoiceJobConfig(
+            wav_path=wav_path,
+            language=language,
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+            scratch_dir=scratch_dir,
+        )
+
+        # Names-request callback: block the worker thread while we
+        # marshal a NamingGridModal onto the Tk main thread and wait
+        # for the user's decisions.
+        result_container: dict = {}
+        result_event = threading.Event()
+
+        def _request_names(speakers):
+            ui_container: dict = {}
+            ui_done = threading.Event()
+
+            def _open_modal():
+                naming = NamingGridModal(self, speakers, ui_lang=self._ui_lang)
+                ui_container["decisions"] = naming.show()
+                ui_done.set()
+
+            self.after(0, _open_modal)
+            ui_done.wait()
+            return ui_container.get("decisions", [])
+
+        def _progress(event):
+            # Forward to the main log box with severity routing.
+            msg = event.message
+            from src.gui_clone_voice import (
+                STAGE_CANCELLED,
+                STAGE_DONE,
+                STAGE_ERROR,
+                STAGE_SPEAKER_DONE,
+                STAGE_SPEAKER_SKIPPED,
+            )
+            if event.stage == STAGE_ERROR:
+                self.after(0, lambda m=msg: self._append_log_error(m))
+            elif event.stage in (STAGE_DONE, STAGE_SPEAKER_DONE):
+                self.after(0, lambda m=msg: self._append_log_success(m))
+            elif event.stage in (STAGE_CANCELLED, STAGE_SPEAKER_SKIPPED):
+                self.after(0, lambda m=msg: self._append_log_warning(m))
+            else:
+                self.after(0, lambda m=msg: self._append_log(m))
+
+        def _worker():
+            try:
+                result = run_clone_voice_job(
+                    config,
+                    request_names_fn=_request_names,
+                    progress_cb=_progress,
+                    wav_display_name=display_name,
+                )
+                result_container["result"] = result
+            except Exception as exc:
+                self.after(
+                    0,
+                    lambda e=exc: self._append_log_error(
+                        f"Clone voice failed: {e}"
+                    ),
+                )
+            finally:
+                result_event.set()
+                self.after(0, self._refresh_voice_list)
+
+        threading.Thread(
+            target=_worker, daemon=True, name="clone-voice-job",
+        ).start()
+
     def _browse_reference_audio(self) -> None:
         path = filedialog.askopenfilename(
             title="Valitse referenssiäänitiedosto",
