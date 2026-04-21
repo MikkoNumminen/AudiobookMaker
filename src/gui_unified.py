@@ -1483,6 +1483,21 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             else:
                 w.grid_remove()
 
+        # Chatterbox is the only engine that reads the chunk-chars knob; for
+        # every other engine the spinbox is inert clutter, so hide it unless
+        # Chatterbox is the active pick. Keeps the engine-bar honest: if a
+        # widget is visible, the engine actually uses it.
+        engine_id = self._current_engine_id()
+        chunk_visible = engine_id == "chatterbox_fi"
+        for attr in ("_chunk_chars_label", "_chunk_chars_spin"):
+            widget = getattr(self, attr, None)
+            if widget is None:
+                continue
+            if chunk_visible:
+                widget.grid()
+            else:
+                widget.grid_remove()
+
     # ------------------------------------------------------------------
     # File dialogs
     # ------------------------------------------------------------------

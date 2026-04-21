@@ -386,6 +386,67 @@ class TestSampleRunFlag:
         assert str(app._sample_output_path).endswith("kirja_sample.mp3")
 
 
+class TestChunkCharsVisibility:
+    """Chatterbox chunk-chars spinbox must only be visible when Chatterbox
+    is the active engine — for every other engine the knob is inert, so
+    hiding it keeps the engine bar honest.
+
+    Note: we check ``grid_info()`` rather than ``winfo_ismapped()`` because
+    headless tests never actually map the toplevel, so ``ismapped`` is
+    always 0 regardless of grid state. An empty ``grid_info()`` dict means
+    ``grid_remove()`` was called — exactly what we want to assert.
+    """
+
+    def test_chunk_chars_hidden_for_edge(self, app):
+        # Force the engine selection to Edge, then re-trigger the capability
+        # refresh path — _refresh_voice_list is the documented entry point.
+        for display, eid in app._engine_display_to_id.items():
+            if eid == "edge":
+                app._engine_cb.set(display)
+                break
+        else:
+            pytest.skip("edge engine not registered")
+        app._refresh_voice_list()
+        app.update_idletasks()
+
+        assert app._chunk_chars_spin.grid_info() == {}, (
+            "chunk-chars spinbox must be hidden when Edge is selected"
+        )
+        assert app._chunk_chars_label.grid_info() == {}, (
+            "chunk-chars label must be hidden when Edge is selected"
+        )
+
+    def test_chunk_chars_shown_for_chatterbox(self, app):
+        """When the user flips back to Chatterbox the spinbox returns."""
+        from src.tts_chatterbox_bridge import ChatterboxFiEngine
+
+        # clean_registry wipes the registry between tests, and the module-
+        # scoped _shared_app's _engine_display_to_id can go stale if an
+        # earlier test populated it. Re-register Chatterbox and rebuild
+        # the engine map so this test doesn't depend on ordering.
+        if "chatterbox_fi" not in _REGISTRY:
+            _REGISTRY["chatterbox_fi"] = ChatterboxFiEngine
+        app._populate_engine_list()
+        app.update_idletasks()
+
+        target_display = None
+        for display, eid in app._engine_display_to_id.items():
+            if eid == "chatterbox_fi":
+                target_display = display
+                break
+        assert target_display is not None, "chatterbox_fi must be in the map"
+        app._engine_cb.set(target_display)
+        app._refresh_voice_list()
+        app.update_idletasks()
+
+        assert app._chunk_chars_spin.grid_info() != {}, (
+            "chunk-chars spinbox must be visible when Chatterbox is selected"
+        )
+        assert app._chunk_chars_label.grid_info() != {}, (
+            "chunk-chars label must be visible when Chatterbox is selected"
+        )
+
+
 class TestChatterboxFinalizePreservesNestedCache:
     """Nested dist/audiobook/<stem>/ must survive sample-run finalization."""
 
