@@ -162,6 +162,20 @@ class SynthMixin(_Base):
             except (ValueError, tk.TclError):
                 chunk_chars = 300
 
+        # Voice pack root: when the user picked a ``voicepack:<slug>`` voice
+        # the subprocess needs --voice-pack <dir> so it can load the bundled
+        # LoRA / metadata alongside the reference clip. The Ref. ääni field
+        # is already populated separately by _effective_reference_audio for
+        # the sample.wav / reference.wav path.
+        voice_pack_path: Optional[str] = None
+        voice = self._current_voice() if hasattr(self, "_current_voice") else None
+        voice_id = getattr(voice, "id", None) if voice is not None else None
+        resolver = getattr(self, "_resolve_voice_pack", None)
+        if voice_id and resolver is not None:
+            pack = resolver(voice_id)
+            if pack is not None:
+                voice_pack_path = str(pack.root)
+
         request = ChatterboxRequest(
             input_mode=self._input_mode,
             pdf_path=self._pdf_path,
@@ -175,6 +189,7 @@ class SynthMixin(_Base):
             # clip. FI -> Finnish T3 finetune.
             # See memory/project_english_grandmom.md.
             language=self._current_language(),
+            voice_pack_path=voice_pack_path,
         )
 
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"

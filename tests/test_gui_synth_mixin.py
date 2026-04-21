@@ -320,3 +320,81 @@ class TestStartChatterboxSubprocess:
         mock_fail.assert_called_once_with(app._s("no_pdf"))
         # Must not reach runner construction.
         mock_runner.assert_not_called()
+
+    def test_voice_pack_selection_forwards_pack_root_as_cli_flag(
+        self, app, tmp_path
+    ):
+        # When the user picks a voicepack:<slug> voice the mixin must
+        # resolve the pack root and forward it as --voice-pack <dir> so
+        # the subprocess can load the bundled LoRA / metadata.
+        from types import SimpleNamespace
+
+        pack_root = tmp_path / "packs" / "my_voice"
+        pack_root.mkdir(parents=True)
+        fake_voice = SimpleNamespace(id="voicepack:my_voice")
+        fake_pack = SimpleNamespace(root=pack_root)
+
+        captured: dict = {}
+
+        def _fake_runner(**kwargs):
+            captured.update(kwargs)
+            inst = MagicMock()
+            inst.start = MagicMock()
+            return inst
+
+        fake_tmp = MagicMock()
+        fake_tmp.name = str(tmp_path / "sample.txt")
+
+        with patch.object(app, "_current_voice", return_value=fake_voice), \
+             patch.object(app, "_resolve_voice_pack", return_value=fake_pack), \
+             patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
+                   side_effect=_fake_runner), \
+             patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,
+                   return_value=Path("python.exe")), \
+             patch("src.gui_synth_mixin.threading.Thread"), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch("src.synthesis_orchestrator.tempfile.NamedTemporaryFile",
+                   return_value=fake_tmp):
+            app._start_chatterbox_subprocess(text_override="hello")
+
+        extra = captured.get("extra_args") or []
+        assert "--voice-pack" in extra, f"expected --voice-pack in {extra!r}"
+        idx = extra.index("--voice-pack")
+        assert extra[idx + 1] == str(pack_root)
+
+    def test_non_voicepack_voice_omits_voice_pack_flag(self, app, tmp_path):
+        # A regular (non-voicepack) voice id must NOT trigger --voice-pack.
+        # The resolver returns None in that case and the mixin skips the flag.
+        from types import SimpleNamespace
+
+        fake_voice = SimpleNamespace(id="edge:en-US-JennyNeural")
+
+        captured: dict = {}
+
+        def _fake_runner(**kwargs):
+            captured.update(kwargs)
+            inst = MagicMock()
+            inst.start = MagicMock()
+            return inst
+
+        fake_tmp = MagicMock()
+        fake_tmp.name = str(tmp_path / "sample.txt")
+
+        with patch.object(app, "_current_voice", return_value=fake_voice), \
+             patch.object(app, "_resolve_voice_pack", return_value=None), \
+             patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
+                   side_effect=_fake_runner), \
+             patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,
+                   return_value=Path("python.exe")), \
+             patch("src.gui_synth_mixin.threading.Thread"), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch("src.synthesis_orchestrator.tempfile.NamedTemporaryFile",
+                   return_value=fake_tmp):
+            app._start_chatterbox_subprocess(text_override="hello")
+
+        extra = captured.get("extra_args") or []
+        assert "--voice-pack" not in extra, (
+            f"expected --voice-pack absent for non-voicepack voice, got {extra!r}"
+        )
