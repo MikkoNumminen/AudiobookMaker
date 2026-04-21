@@ -281,6 +281,13 @@ def parse_args() -> argparse.Namespace:
              "in Finnish). 'en' uses the base multilingual model with a "
              "voice-clone reference (Grandmom in native English).",
     )
+    p.add_argument(
+        "--voice-pack",
+        default=None,
+        help="Optional directory containing a trained LoRA adapter (either "
+             "peft-native with adapter_config.json or a packaged pack with "
+             "adapter.pt).",
+    )
     return p.parse_args()
 
 
@@ -572,7 +579,103 @@ def _bundled_grandmom_ref() -> str | None:
     return None
 
 
-def _load_engine(device: str, ref_override: str | None, language: str = "fi"):
+def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
+    """Apply a trained LoRA adapter to ``engine.t3.tfmr`` in place.
+
+    Two on-disk layouts are supported:
+
+    1. **peft-native** — ``voice_pack_dir/adapter_config.json`` plus a
+       sibling ``adapter_model.safetensors`` (or ``.bin``). Loaded via
+       :class:`peft.PeftModel.from_pretrained`, then merged.
+    2. **packaged pack** — ``voice_pack_dir/adapter.pt`` (safetensors
+       bytes renamed, as produced by the voice-pack pipeline). The peft
+       wrapper is reconstructed from the training defaults
+       (r=32, alpha=32, dropout=0.0, target_modules q/k/v/o_proj,
+       bias='none'), the state dict is loaded non-strictly, and the
+       result merged into a plain module.
+
+    After this call ``engine.t3.tfmr`` is an unwrapped ``nn.Module`` with
+    the adapter deltas baked into the base weights, so the forward pass
+    costs nothing extra.
+    """
+
+    import logging as _logging
+    import torch
+
+    log = _logging.getLogger(__name__)
+    cfg_path = voice_pack_dir / "adapter_config.json"
+    pt_path = voice_pack_dir / "adapter.pt"
+
+    if cfg_path.is_file():
+        from peft import PeftModel
+
+        log.info(
+            "[voice-pack] applying peft-native LoRA adapter from %s",
+            voice_pack_dir,
+        )
+        engine.t3.tfmr = PeftModel.from_pretrained(
+            engine.t3.tfmr, str(voice_pack_dir)
+        )
+        engine.t3.tfmr = engine.t3.tfmr.merge_and_unload()
+        log.info("[voice-pack] adapter merged and unloaded")
+        return
+
+    if pt_path.is_file():
+        from peft import LoraConfig, get_peft_model
+        from peft.utils import set_peft_model_state_dict
+
+        log.info(
+            "[voice-pack] applying packaged LoRA adapter from %s",
+            pt_path,
+        )
+        lora_cfg = LoraConfig(
+            r=32,
+            lora_alpha=32,
+            lora_dropout=0.0,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            bias="none",
+        )
+        engine.t3.tfmr = get_peft_model(engine.t3.tfmr, lora_cfg)
+
+        state: dict
+        try:
+            from safetensors.torch import load_file
+
+            state = load_file(str(pt_path))
+        except Exception as exc:
+            log.warning(
+                "[voice-pack] safetensors load failed (%s); "
+                "falling back to torch.load",
+                exc,
+            )
+            state = torch.load(str(pt_path), weights_only=False)
+
+        # ``set_peft_model_state_dict`` handles the key-name normalization
+        # between the safetensors dump (which omits the ``.default``
+        # adapter-name segment) and the live peft wrapper (which expects
+        # it), so the plain ``load_state_dict`` fallback won't silently
+        # leave the LoRA deltas at their zero initialization.
+        incompat = set_peft_model_state_dict(engine.t3.tfmr, state)
+        missing = getattr(incompat, "missing_keys", []) or []
+        unexpected = getattr(incompat, "unexpected_keys", []) or []
+        log.info(
+            "[voice-pack] loaded adapter state (missing=%d, unexpected=%d)",
+            len(missing),
+            len(unexpected),
+        )
+        engine.t3.tfmr = engine.t3.tfmr.merge_and_unload()
+        log.info("[voice-pack] adapter merged and unloaded")
+        return
+
+    raise FileNotFoundError(
+        f"No LoRA adapter found in {voice_pack_dir}. Expected either "
+        f"'adapter_config.json' (peft-native layout) or 'adapter.pt' "
+        f"(packaged voice-pack layout)."
+    )
+
+
+def _load_engine(device: str, ref_override: str | None, language: str = "fi",
+                 voice_pack_dir: Path | None = None):
     """Load Chatterbox. Returns (engine, ref_wav_path).
 
     Language routing (see memory/project_english_grandmom.md):
@@ -608,6 +711,8 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi"):
             ref_wav_path = bundled
         print(f"[tts] English mode: base model + ref wav: {ref_wav_path}",
               flush=True)
+        if voice_pack_dir is not None:
+            _apply_lora_adapter(engine, voice_pack_dir)
         return engine, ref_wav_path
 
     # Finnish path (default) — keep existing finetune loading unchanged.
@@ -630,6 +735,8 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi"):
         f"unexpected={len(unexpected)})",
         flush=True,
     )
+    if voice_pack_dir is not None:
+        _apply_lora_adapter(engine, voice_pack_dir)
     return engine, ref_wav_path
 
 
@@ -831,8 +938,10 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, _on_sigint)
 
+    voice_pack_dir = Path(args.voice_pack) if args.voice_pack else None
     engine, ref_wav_path = _load_engine(device, args.ref_audio,
-                                         language=args.language)
+                                         language=args.language,
+                                         voice_pack_dir=voice_pack_dir)
     vad_model, get_speech_timestamps = _make_vad()
 
     wall_start = time.time()
