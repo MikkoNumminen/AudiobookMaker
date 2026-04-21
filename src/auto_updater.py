@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "3.9.1"
+APP_VERSION = "3.10.0"
 GITHUB_REPO = "MikkoNumminen/AudiobookMaker"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_DIR = Path(tempfile.gettempdir()) / "audiobookmaker-update"

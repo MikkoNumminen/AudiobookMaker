@@ -92,6 +92,40 @@ right now.
 
 ## What's new
 
+**v3.10.0** -- Clone a voice from any audio file, right inside the app:
+
+- **Clone voice from file button** -- a new button in Settings opens a
+  file picker. Drop in a clean recording of a single voice (or two
+  voices talking), the app listens to it, figures out who is speaking,
+  asks you what to name each voice, and adds them to the Voice
+  dropdown. No command line, no scripts. About ten minutes from drop
+  to voice-in-dropdown for a five-minute recording
+- **Drag and drop audio onto the window** -- same flow, no button
+  needed. Drop a `.wav` / `.mp3` / `.m4a` / `.flac` / `.ogg` / `.m4b`
+  on the main window and the clone-voice flow fires. Silently falls
+  back to the file picker if the drop library is missing
+- **Voice Cloner capability in Engine Manager** -- a new "Extras" row
+  installs the two helper libraries (one that listens to your file,
+  one that figures out who is speaking) into the same Python folder
+  as Chatterbox, so the main app stays lean. Install / Remove works
+  the same as the existing engine rows
+- **Guided Hugging Face setup** -- the listener component needs a
+  free one-time Hugging Face key. A dedicated setup window walks you
+  through it in three clicks with browser buttons that take you to
+  the right pages. If the key is wrong or the network is down you
+  get a plain-language message, not a Python traceback
+- **Pre-analyze modal asks what you want** -- before the app starts
+  listening, it asks: how many voices is the recording (1, 2, 3-8,
+  auto), and which language (Finnish or English). Finnish cloning in
+  v1 is biased toward the stock Finnish voice; English clones more
+  cleanly
+- **Copyright-safe by default** -- the raw filename never leaks into
+  the log panel. Scratch files land in `.local/clone_scratch/` so
+  nothing you feed the app ends up in a diff or a PR
+- **1872 tests passing** -- up from 1598. The clone-voice flow,
+  drag-drop parser, Engine Manager Extras row, and Hugging Face
+  setup modal each have regression coverage
+
 **v3.9.1** -- Bug reporting, a voice pack builder, and small polish:
 
 - **Report a bug button** -- a new link in Settings opens a pre-filled
@@ -238,7 +272,7 @@ audiobooks that finally sound English:
 - **Goat splash on startup and during updates** -- the goat icon
   appears the moment the app starts, and stays on screen through
   the 10-15 second update gap so you never wonder if the app crashed
-- **Running version shown in the title bar** -- `AudiobookMaker v3.9.1`
+- **Running version shown in the title bar** -- `AudiobookMaker v3.10.0`
   so you can confirm which build is actually running after an update
 - **Progress bar reaches 100%** -- "Valmis!" no longer appears while
   the bar is still at 85%. Every gain counts, visibly
@@ -318,10 +352,10 @@ a lot of fixes to make everything actually work reliably:
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.9.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.9.1)
+**Download:** [AudiobookMaker v3.10.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.10.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.9.1.exe`
+1. Download `AudiobookMaker-Setup-3.10.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
