@@ -763,3 +763,35 @@ def test_build_chatterbox_language_forwarded(
     plan = build_chatterbox_runner(req, runner_script, default_out)
 
     assert plan.runner.language == "en"
+
+
+def test_build_chatterbox_voice_pack_path_added_to_extra_args(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """A populated voice_pack_path becomes --voice-pack <dir> in the argv."""
+    runner_script, default_out = fake_chatterbox_env
+    pack_root = tmp_path / "packs" / "my_voice"
+    pack_root.mkdir(parents=True)
+    req = ChatterboxRequest(
+        input_mode="text",
+        input_text="hi",
+        voice_pack_path=str(pack_root),
+    )
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert "--voice-pack" in plan.runner.extra_args
+    idx = plan.runner.extra_args.index("--voice-pack")
+    assert plan.runner.extra_args[idx + 1] == str(pack_root)
+
+
+def test_build_chatterbox_voice_pack_path_absent_when_unset(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """Without a voice_pack_path the --voice-pack flag must not appear."""
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="hi")
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert "--voice-pack" not in plan.runner.extra_args

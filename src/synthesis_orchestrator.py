@@ -321,6 +321,7 @@ class ChatterboxRequest:
     reference_audio: Optional[str] = None
     chunk_chars: int = 300  # only passed to CLI when != default
     language: str = "fi"
+    voice_pack_path: Optional[str] = None  # pack root dir for --voice-pack
 
 
 class ChatterboxBuildError(Exception):
@@ -425,6 +426,8 @@ def build_chatterbox_runner(
     # default runs keep clean logs.
     if request.chunk_chars != 300:
         extra_args.extend(["--chunk-chars", str(request.chunk_chars)])
+    if request.voice_pack_path:
+        extra_args.extend(["--voice-pack", request.voice_pack_path])
 
     runner = ChatterboxRunner(
         python_exe=str(python_exe),
