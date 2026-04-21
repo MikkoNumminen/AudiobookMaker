@@ -582,17 +582,20 @@ def _bundled_grandmom_ref() -> str | None:
 def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
     """Apply a trained LoRA adapter to ``engine.t3.tfmr`` in place.
 
-    Two on-disk layouts are supported:
+    Three on-disk layouts are supported:
 
     1. **peft-native** — ``voice_pack_dir/adapter_config.json`` plus a
        sibling ``adapter_model.safetensors`` (or ``.bin``). Loaded via
        :class:`peft.PeftModel.from_pretrained`, then merged.
-    2. **packaged pack** — ``voice_pack_dir/adapter.pt`` (safetensors
-       bytes renamed, as produced by the voice-pack pipeline). The peft
-       wrapper is reconstructed from the training defaults
-       (r=32, alpha=32, dropout=0.0, target_modules q/k/v/o_proj,
-       bias='none'), the state dict is loaded non-strictly, and the
-       result merged into a plain module.
+    2. **packaged pack with sidecar config** — ``voice_pack_dir/adapter.pt``
+       (safetensors bytes renamed, as produced by the voice-pack pipeline)
+       alongside ``adapter_config.json``. peft's ``from_pretrained`` won't
+       find its expected filenames, so the wrapper is reconstructed using
+       ``LoraConfig.from_pretrained(voice_pack_dir)`` for accurate
+       hyperparameters, then the state dict is loaded non-strictly.
+    3. **packaged pack, legacy** — ``voice_pack_dir/adapter.pt`` only, no
+       config. The wrapper falls back to the training defaults (r=32,
+       alpha=32, dropout=0.0, target_modules q/k/v/o_proj, bias='none').
 
     After this call ``engine.t3.tfmr`` is an unwrapped ``nn.Module`` with
     the adapter deltas baked into the base weights, so the forward pass
@@ -605,8 +608,11 @@ def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
     log = _logging.getLogger(__name__)
     cfg_path = voice_pack_dir / "adapter_config.json"
     pt_path = voice_pack_dir / "adapter.pt"
+    peft_st_path = voice_pack_dir / "adapter_model.safetensors"
+    peft_bin_path = voice_pack_dir / "adapter_model.bin"
+    has_peft_weights = peft_st_path.is_file() or peft_bin_path.is_file()
 
-    if cfg_path.is_file():
+    if cfg_path.is_file() and has_peft_weights:
         from peft import PeftModel
 
         log.info(
@@ -628,13 +634,26 @@ def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
             "[voice-pack] applying packaged LoRA adapter from %s",
             pt_path,
         )
-        lora_cfg = LoraConfig(
-            r=32,
-            lora_alpha=32,
-            lora_dropout=0.0,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-            bias="none",
-        )
+        # Prefer a sidecar adapter_config.json so we use the exact LoRA
+        # hyperparameters the adapter was trained with. Fall back to the
+        # current voice_pack_train.py defaults only if the config is missing
+        # (older packs predate the config preservation).
+        if cfg_path.is_file():
+            lora_cfg = LoraConfig.from_pretrained(str(voice_pack_dir))
+            log.info(
+                "[voice-pack] using sidecar adapter_config.json (r=%s, alpha=%s)",
+                lora_cfg.r,
+                lora_cfg.lora_alpha,
+            )
+        else:
+            lora_cfg = LoraConfig(
+                r=32,
+                lora_alpha=32,
+                lora_dropout=0.0,
+                target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+                bias="none",
+            )
+            log.info("[voice-pack] using hardcoded LoRA defaults (no sidecar config)")
         engine.t3.tfmr = get_peft_model(engine.t3.tfmr, lora_cfg)
 
         state: dict

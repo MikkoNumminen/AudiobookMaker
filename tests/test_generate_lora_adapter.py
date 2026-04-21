@@ -154,6 +154,44 @@ def test_apply_lora_adapter_packaged_pt_layout(tmp_path: Path) -> None:
     assert first_q.weight.shape == (8, 8)
 
 
+def test_apply_lora_adapter_pt_with_sidecar_config(tmp_path: Path) -> None:
+    """adapter.pt + adapter_config.json: sidecar must drive the LoraConfig.
+
+    The hardcoded fallback uses r=32. This fixture saves at r=4; if the
+    loader ignored the sidecar and used defaults, the state-dict key shapes
+    would mismatch and set_peft_model_state_dict would leave the LoRA
+    deltas at zero. We prove the sidecar was honoured by asserting the
+    wrapper merges cleanly.
+    """
+
+    staging = tmp_path / "_staging"
+    staging.mkdir()
+    _save_peft_native_adapter(staging, rank=4)
+
+    pack_dir = tmp_path / "pack"
+    pack_dir.mkdir()
+    shutil.copy(
+        staging / "adapter_model.safetensors",
+        pack_dir / "adapter.pt",
+    )
+    shutil.copy(
+        staging / "adapter_config.json",
+        pack_dir / "adapter_config.json",
+    )
+    assert (pack_dir / "adapter.pt").is_file()
+    assert (pack_dir / "adapter_config.json").is_file()
+    assert not (pack_dir / "adapter_model.safetensors").exists()
+
+    engine = _make_engine()
+    gca._apply_lora_adapter(engine, pack_dir)
+
+    assert isinstance(engine.t3.tfmr, nn.Module)
+    assert not hasattr(engine.t3.tfmr, "peft_type")
+    first_q = engine.t3.tfmr.layers[0].self_attn.q_proj
+    assert isinstance(first_q, nn.Linear)
+    assert first_q.weight.shape == (8, 8)
+
+
 def test_apply_lora_adapter_missing_adapter_errors(tmp_path: Path) -> None:
     """Empty dir — loader must raise with a clear message naming both layouts."""
 
