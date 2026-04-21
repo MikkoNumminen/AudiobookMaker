@@ -447,6 +447,44 @@ class TestChunkCharsVisibility:
         )
 
 
+class TestProgressBarVisibilityLifecycle:
+    """The conversion progress bar is a run-state indicator — it has no
+    meaning when nothing is converting. Hidden by default, grid'd in on
+    ``_set_running_state``, grid-removed again on ``_set_idle_state``.
+
+    ``grid_info()`` dict check (not ``winfo_ismapped``) because headless
+    tests never map the toplevel — same pattern as
+    ``TestChunkCharsVisibility``.
+    """
+
+    def test_progress_bar_hidden_after_init(self, app):
+        app._set_idle_state()
+        app.update_idletasks()
+        assert app._progress_bar.grid_info() == {}, (
+            "progress bar must be hidden when no synthesis is running"
+        )
+
+    def test_progress_bar_shown_while_running(self, app):
+        app._set_running_state()
+        try:
+            app.update_idletasks()
+            assert app._progress_bar.grid_info() != {}, (
+                "progress bar must be visible while a run is in flight"
+            )
+        finally:
+            app._set_idle_state()
+            app.update_idletasks()
+
+    def test_progress_bar_hidden_on_return_to_idle(self, app):
+        app._set_running_state()
+        app.update_idletasks()
+        app._set_idle_state()
+        app.update_idletasks()
+        assert app._progress_bar.grid_info() == {}, (
+            "progress bar must hide again once the run returns to idle"
+        )
+
+
 class TestChatterboxFinalizePreservesNestedCache:
     """Nested dist/audiobook/<stem>/ must survive sample-run finalization."""
 

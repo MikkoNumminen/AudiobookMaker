@@ -98,6 +98,7 @@ class SynthMixin(_Base):
         self._sample_btn.configure(state="disabled")
         self._cancel_btn.grid()
         self._open_folder_btn.configure(state="disabled")
+        self._progress_bar.grid()
         self._progress_bar.set(0)
         self._status_label_val.configure(
             text=self._s("making_sample") if getattr(self, "_is_sample_run", False)
@@ -119,6 +120,10 @@ class SynthMixin(_Base):
         self._open_folder_btn.configure(state="normal")
         self._chatterbox_runner = None
         self._cancel_btn.grid_remove()
+        # Idle means nothing is converting — the bar is conversion-only
+        # clutter now. Status label stays so "Valmis!" / sample path is
+        # still readable.
+        self._progress_bar.grid_remove()
 
     # ---- Chatterbox subprocess ----------------------------------------
 

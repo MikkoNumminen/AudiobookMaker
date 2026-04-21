@@ -107,6 +107,10 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
         row=0, column=0, sticky="ew", padx=(0, gui_style.PAD_SM),
     )
     host._progress_bar.set(0)
+    # Progress bar is conversion-only — it has no meaning when nothing is
+    # running. Hide at build time; _set_running_state grids it back in
+    # when synthesis starts, _set_idle_state removes it again.
+    host._progress_bar.grid_remove()
 
     host._status_label_val = ctk.CTkLabel(
         progress_row, text="",
