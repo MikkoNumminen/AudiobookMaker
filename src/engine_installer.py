@@ -796,3 +796,40 @@ def get_installer(engine_id: str) -> Optional[EngineInstaller]:
 def list_installable() -> list[EngineInstaller]:
     """Return all available engine installers."""
     return [PiperInstaller(), ChatterboxInstaller()]
+
+
+# ---------------------------------------------------------------------------
+# Capability installers — sibling to engine installers
+# ---------------------------------------------------------------------------
+#
+# Capability installers are things that add an ability to the app but are
+# NOT a TTSEngine (no entry in the engine registry, no synthesis endpoint).
+# Voice Cloner is the first one: it lives inside the Chatterbox venv and
+# adds ASR + diarization so users can clone voices from an audio file.
+#
+# Exposed through a separate list so the Engine Manager GUI can render
+# them under a distinct "Extras" header. Importing here, not at module
+# top, to avoid a circular import (the voice-cloner module imports
+# ``InstallProgress`` from this file).
+
+
+def list_capability_installers() -> list[EngineInstaller]:
+    """Return the list of non-engine capability installers.
+
+    Thin re-export of :func:`src.engine_installer_voice_cloner.list_capability_installers`
+    so GUI code can import the two registry functions from the same module.
+    """
+    from src.engine_installer_voice_cloner import (
+        list_capability_installers as _list,
+    )
+
+    return _list()
+
+
+def get_capability_installer(capability_id: str) -> Optional[EngineInstaller]:
+    """Return an installer for the given capability id, or None."""
+    from src.engine_installer_voice_cloner import (
+        get_capability_installer as _get,
+    )
+
+    return _get(capability_id)
