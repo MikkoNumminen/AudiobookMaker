@@ -794,3 +794,103 @@ class TestNamingGridModal:
         modal._name_vars[0].set("   ")
         modal._on_save()
         assert modal._result[0].name == ""
+
+
+class TestHfTokenPromptModal:
+    def test_builds_without_error(self, ctk_root) -> None:
+        from src.gui_clone_voice import HfTokenPromptModal
+
+        modal = HfTokenPromptModal(ctk_root, ui_lang="en")
+        # Entry exists and starts empty; Save/Cancel are wired.
+        assert modal._token_var.get() == ""
+        assert modal._save_btn is not None
+        assert modal._cancel_btn is not None
+        modal._top.destroy()
+
+    def test_cancel_returns_none(self, ctk_root) -> None:
+        from src.gui_clone_voice import HfTokenPromptModal
+
+        modal = HfTokenPromptModal(ctk_root, ui_lang="fi")
+        modal._on_cancel()
+        assert modal._result is None
+
+    def test_save_with_token_returns_token(self, ctk_root) -> None:
+        from src.gui_clone_voice import HfTokenPromptModal
+
+        modal = HfTokenPromptModal(ctk_root, ui_lang="en")
+        modal._token_var.set("  hf_abc123  ")
+        modal._on_save()
+        # Leading/trailing whitespace stripped — users paste from the HF
+        # UI which sometimes includes a trailing space.
+        assert modal._result == "hf_abc123"
+
+    def test_save_empty_returns_none(self, ctk_root) -> None:
+        from src.gui_clone_voice import HfTokenPromptModal
+
+        modal = HfTokenPromptModal(ctk_root, ui_lang="en")
+        modal._token_var.set("   ")
+        modal._on_save()
+        # Empty / whitespace-only key is the same as cancel — avoids
+        # pushing an empty string through to the HF verify step.
+        assert modal._result is None
+
+    def test_browser_buttons_call_open_fn_with_canonical_urls(self, ctk_root) -> None:
+        from src.gui_clone_voice import (
+            HF_PYANNOTE_MODEL_URL,
+            HF_SIGNUP_URL,
+            HF_TOKENS_URL,
+            HfTokenPromptModal,
+        )
+
+        calls: list[str] = []
+        modal = HfTokenPromptModal(
+            ctk_root, ui_lang="en", open_browser_fn=calls.append,
+        )
+        # Find the three "Open *" buttons by iterating children and
+        # invoking their command. Modal keeps them as a flat pack, so
+        # the three consecutive CTkButton children after the step labels
+        # are the ones we want.
+        import customtkinter as ctk
+
+        buttons = [
+            w for w in modal._top.winfo_children()
+            if isinstance(w, ctk.CTkButton)
+        ]
+        # Of the buttons on the top level, the first three are the
+        # browser-launchers (Save/Cancel live inside the button-row
+        # frame, not directly on the top).
+        for btn in buttons[:3]:
+            btn.invoke()
+        assert calls == [HF_SIGNUP_URL, HF_PYANNOTE_MODEL_URL, HF_TOKENS_URL]
+        modal._top.destroy()
+
+
+class TestHfTokenPromptStrings:
+    def test_all_hf_keys_present_in_both_languages(self) -> None:
+        required = {
+            "hf_token_title", "hf_token_barney_intro",
+            "hf_token_step_1", "hf_token_step_2",
+            "hf_token_step_3", "hf_token_step_4",
+            "hf_token_open_signup", "hf_token_open_model_page",
+            "hf_token_open_tokens", "hf_token_entry_label",
+            "hf_token_save", "hf_token_cancel",
+        }
+        for lang in ("fi", "en"):
+            missing = required - set(CLONE_VOICE_STRINGS[lang].keys())
+            assert not missing, (lang, missing)
+
+    def test_installer_and_modal_urls_match(self) -> None:
+        # Keep the modal's URL constants in sync with the installer's.
+        from src.engine_installer_voice_cloner import (
+            HF_PYANNOTE_MODEL_URL as installer_model,
+            HF_SIGNUP_URL as installer_signup,
+            HF_TOKENS_URL as installer_tokens,
+        )
+        from src.gui_clone_voice import (
+            HF_PYANNOTE_MODEL_URL as modal_model,
+            HF_SIGNUP_URL as modal_signup,
+            HF_TOKENS_URL as modal_tokens,
+        )
+        assert installer_signup == modal_signup
+        assert installer_model == modal_model
+        assert installer_tokens == modal_tokens

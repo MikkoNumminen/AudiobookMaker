@@ -39,6 +39,7 @@ _ENGINE_MGR_STRINGS = {
         "py_found": "Asennettu",
         "py_missing": "Ei asennettu (asentuu Chatterboxin yhteydessä)",
         "engines": "Moottorit",
+        "extras": "Lisäosat",
         "installed": "Asennettu",
         "not_installed": "Ei asennettu",
         "available": "Käytettävissä",
@@ -66,6 +67,7 @@ _ENGINE_MGR_STRINGS = {
         "py_found": "Installed",
         "py_missing": "Not installed (installed with Chatterbox)",
         "engines": "Engines",
+        "extras": "Extras",
         "installed": "Installed",
         "not_installed": "Not installed",
         "available": "Available",
@@ -247,52 +249,90 @@ class EngineManagerDialog(ctk.CTkToplevel):
             child.destroy()
         self._engine_rows.clear()
 
-        from src.engine_installer import list_installable
+        from src.engine_installer import (
+            list_capability_installers,
+            list_installable,
+        )
 
-        for i, installer in enumerate(list_installable()):
-            row = ctk.CTkFrame(self._engines_container)
-            row.grid(row=i, column=0, sticky="ew", padx=4, pady=4)
-            row.columnconfigure(1, weight=1)
+        grid_row = 0
+        for installer in list_installable():
+            self._build_installer_row(installer, grid_row)
+            grid_row += 1
 
-            name_lbl = ctk.CTkLabel(
-                row, text=installer.display_name, anchor="w",
-                font=ctk.CTkFont(weight="bold"),
+        # "Extras" header + capability installers (Voice Cloner, etc.).
+        # Rendered only when at least one capability is registered so a
+        # future removal of capabilities doesn't leave an empty header.
+        capabilities = list_capability_installers()
+        if capabilities:
+            header = ctk.CTkLabel(
+                self._engines_container, text=self._s("extras"),
+                font=ctk.CTkFont(weight="bold", size=13),
+                anchor="w",
             )
-            name_lbl.grid(row=0, column=0, sticky="w", padx=(8, 4), pady=4)
-
-            installed = installer.is_installed()
-            status_text = self._s("installed") if installed else self._s("not_installed")
-            status_color = "green" if installed else "gray"
-            status_lbl = ctk.CTkLabel(
-                row, text=status_text, text_color=status_color, anchor="w",
+            header.grid(
+                row=grid_row, column=0, sticky="w", padx=8, pady=(12, 4),
             )
-            status_lbl.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+            grid_row += 1
+            for installer in capabilities:
+                self._prepare_capability_installer(installer)
+                self._build_installer_row(installer, grid_row)
+                grid_row += 1
 
-            # Size (installed: actual on disk; not installed: estimate).
-            size_text = self._engine_size_text(installer)
-            size_lbl = ctk.CTkLabel(
-                row, text=size_text, text_color=("gray40", "gray70"),
-                anchor="e",
+    def _build_installer_row(self, installer, grid_row: int) -> None:
+        """Render one Install/Uninstall row for ``installer`` at ``grid_row``."""
+        row = ctk.CTkFrame(self._engines_container)
+        row.grid(row=grid_row, column=0, sticky="ew", padx=4, pady=4)
+        row.columnconfigure(1, weight=1)
+
+        name_lbl = ctk.CTkLabel(
+            row, text=installer.display_name, anchor="w",
+            font=ctk.CTkFont(weight="bold"),
+        )
+        name_lbl.grid(row=0, column=0, sticky="w", padx=(8, 4), pady=4)
+
+        installed = installer.is_installed()
+        status_text = self._s("installed") if installed else self._s("not_installed")
+        status_color = "green" if installed else "gray"
+        status_lbl = ctk.CTkLabel(
+            row, text=status_text, text_color=status_color, anchor="w",
+        )
+        status_lbl.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+
+        # Size (installed: actual on disk; not installed: estimate).
+        size_text = self._engine_size_text(installer)
+        size_lbl = ctk.CTkLabel(
+            row, text=size_text, text_color=("gray40", "gray70"),
+            anchor="e",
+        )
+        size_lbl.grid(row=0, column=2, sticky="e", padx=(4, 8), pady=4)
+
+        if installed:
+            btn = ctk.CTkButton(
+                row, text=self._s("uninstall_btn"),
+                command=lambda inst=installer: self._on_uninstall(inst),
+                width=110,
             )
-            size_lbl.grid(row=0, column=2, sticky="e", padx=(4, 8), pady=4)
+        else:
+            btn = ctk.CTkButton(
+                row, text=self._s("install_btn"),
+                command=lambda inst=installer: self._on_install(inst),
+                width=110,
+            )
+        btn.grid(row=0, column=3, padx=(4, 8), pady=4)
 
-            if installed:
-                btn = ctk.CTkButton(
-                    row, text=self._s("uninstall_btn"),
-                    command=lambda inst=installer: self._on_uninstall(inst),
-                    width=110,
-                )
-            else:
-                btn = ctk.CTkButton(
-                    row, text=self._s("install_btn"),
-                    command=lambda inst=installer: self._on_install(inst),
-                    width=110,
-                )
-            btn.grid(row=0, column=3, padx=(4, 8), pady=4)
+        self._engine_rows[installer.engine_id] = {
+            "row": row, "status": status_lbl, "size": size_lbl, "btn": btn,
+        }
 
-            self._engine_rows[installer.engine_id] = {
-                "row": row, "status": status_lbl, "size": size_lbl, "btn": btn,
-            }
+    def _prepare_capability_installer(self, installer) -> None:
+        """Subclass hook for injecting GUI-owned callbacks into a capability.
+
+        Base implementation is a no-op. The in-place view overrides this
+        to attach the real HF token prompt modal to ``VoiceClonerInstaller``
+        so that a clean install can surface the modal instead of failing
+        with "no prompt fn attached".
+        """
+        return None
 
     def _on_install(self, installer) -> None:
         # Check prerequisites
@@ -565,8 +605,38 @@ class EngineManagerView(ctk.CTkFrame):
     _fmt_size_mb = EngineManagerDialog._fmt_size_mb
     _refresh_system_info = EngineManagerDialog._refresh_system_info
     _refresh_engine_rows = EngineManagerDialog._refresh_engine_rows
+    _build_installer_row = EngineManagerDialog._build_installer_row
     _on_install = EngineManagerDialog._on_install
     _poll_progress = EngineManagerDialog._poll_progress
     _handle_progress = EngineManagerDialog._handle_progress
     _install_finished = EngineManagerDialog._install_finished
     _on_uninstall = EngineManagerDialog._on_uninstall
+
+    def _prepare_capability_installer(self, installer) -> None:
+        """Attach the real HF-token prompt modal to the Voice Cloner.
+
+        Overrides the base no-op hook. The modal is constructed lazily
+        inside the closure so it runs on the Tk thread when the installer
+        asks for a token (installers run on a worker thread — the modal
+        marshals its :func:`wait_window` call back via the existing
+        :class:`CTkToplevel` parent relationship).
+        """
+        from src.engine_installer_voice_cloner import VoiceClonerInstaller
+
+        if not isinstance(installer, VoiceClonerInstaller):
+            return
+        # Avoid double-wrap if the same installer is refreshed into a new row.
+        if getattr(installer, "_hf_token_prompt_fn", None) is not None:
+            return
+
+        parent = self
+
+        def _prompt() -> Optional[str]:
+            # Import at call-time so engine-manager users without the
+            # voice-cloner dep chain never pay for this module on load.
+            from src.gui_clone_voice import HfTokenPromptModal
+
+            modal = HfTokenPromptModal(parent, ui_lang=self._ui_lang)
+            return modal.ask()
+
+        installer._hf_token_prompt_fn = _prompt

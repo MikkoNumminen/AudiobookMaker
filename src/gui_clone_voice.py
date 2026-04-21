@@ -590,6 +590,36 @@ CLONE_VOICE_STRINGS: dict[str, dict[str, str]] = {
             "Voice Cloner ei ole asennettu. Avaa Moottoreiden hallinta ja "
             "asenna Voice Cloner sielt\u00e4."
         ),
+        "hf_token_title": "Melkein valmis \u2014 yksi pika-askel Hugging Facessa",
+        "hf_token_barney_intro": (
+            "Pyannote \u2014 se osa Voice Cloneria, joka tunnistaa kuka puhuu "
+            "\u2014 on tutkijoiden ty\u00f6t\u00e4, ja he haluavat tiet\u00e4\u00e4 "
+            "kuka sit\u00e4 k\u00e4ytt\u00e4\u00e4. Tarvitset siis ilmaisen "
+            "Hugging Face -tilin ja yhden kertak\u00e4ytt\u00f6isen avaimen. "
+            "Kolmen minuutin homma, sen j\u00e4lkeen t\u00e4t\u00e4 ei tarvitse "
+            "tehd\u00e4 en\u00e4\u00e4 uudestaan."
+        ),
+        "hf_token_step_1": (
+            "1. Paina **Avaa Hugging Face**. Luo tili tai kirjaudu sis\u00e4\u00e4n."
+        ),
+        "hf_token_step_2": (
+            "2. Paina **Avaa pyannote-malli**. Sivulla klikkaa iso\u00e4 nappia "
+            "\u201cAgree and access repository\u201d."
+        ),
+        "hf_token_step_3": (
+            "3. Paina **Avaa avainsivu**. Klikkaa \u201cNew token\u201d, anna sille "
+            "jokin nimi, valitse rooliksi *Read*."
+        ),
+        "hf_token_step_4": (
+            "4. Kopioi avain (alkaa hf_\u2026) ja liit\u00e4 se alla olevaan "
+            "kentt\u00e4\u00e4n. Paina Tallenna avain."
+        ),
+        "hf_token_open_signup": "Avaa Hugging Face",
+        "hf_token_open_model_page": "Avaa pyannote-malli",
+        "hf_token_open_tokens": "Avaa avainsivu",
+        "hf_token_entry_label": "Liit\u00e4 avain t\u00e4h\u00e4n:",
+        "hf_token_save": "Tallenna avain",
+        "hf_token_cancel": "Peruuta",
     },
     "en": {
         "clone_voice_btn": "Clone voice from file\u2026",
@@ -628,6 +658,35 @@ CLONE_VOICE_STRINGS: dict[str, dict[str, str]] = {
             "Voice Cloner is not installed. Open the Engine Manager and "
             "install Voice Cloner from there."
         ),
+        "hf_token_title": "Almost there \u2014 one quick Hugging Face step",
+        "hf_token_barney_intro": (
+            "Pyannote \u2014 the part of Voice Cloner that figures out who's "
+            "speaking \u2014 is made by researchers who give it away for free, "
+            "but they want to know who's using it. That means you need a free "
+            "Hugging Face account and a one-time access key. It's a "
+            "three-minute thing, and then you never have to do it again."
+        ),
+        "hf_token_step_1": (
+            "1. Click **Open Hugging Face**. Make an account or sign in."
+        ),
+        "hf_token_step_2": (
+            "2. Click **Open pyannote model page**. On that page click the "
+            "big button that says \u201cAgree and access repository\u201d."
+        ),
+        "hf_token_step_3": (
+            "3. Click **Open access-tokens page**. Click \u201cNew token\u201d, "
+            "give it any name, pick the *Read* role."
+        ),
+        "hf_token_step_4": (
+            "4. Copy the key (starts with hf_\u2026) and paste it into the "
+            "field below. Click Save key."
+        ),
+        "hf_token_open_signup": "Open Hugging Face",
+        "hf_token_open_model_page": "Open pyannote model page",
+        "hf_token_open_tokens": "Open access-tokens page",
+        "hf_token_entry_label": "Paste key here:",
+        "hf_token_save": "Save key",
+        "hf_token_cancel": "Cancel",
     },
 }
 
@@ -905,6 +964,150 @@ class NamingGridModal:
         self._top.destroy()
 
     def show(self) -> list[SpeakerNamingDecision]:
+        self._top.grab_set()
+        self._top.wait_window()
+        return self._result
+
+
+# ---------------------------------------------------------------------------
+# Hugging Face token prompt modal
+# ---------------------------------------------------------------------------
+
+
+# Canonical URLs the three "Open in browser" buttons launch. Mirrored
+# from :mod:`src.engine_installer_voice_cloner` so the modal stays
+# usable even if the installer module isn't imported at construction
+# time (headless tests, etc.). If the constants in the installer change,
+# update them here too — the :class:`TestHfTokenPromptStrings` parity
+# check pins this.
+HF_SIGNUP_URL: str = "https://huggingface.co/join"
+HF_PYANNOTE_MODEL_URL: str = "https://huggingface.co/pyannote/speaker-diarization-3.1"
+HF_TOKENS_URL: str = "https://huggingface.co/settings/tokens"
+
+
+class HfTokenPromptModal:
+    """Modal that collects a Hugging Face access token from the user.
+
+    Shows a Barney-style explainer, three "Open in browser" buttons for
+    the HF signup / pyannote model / token-creation pages, and a
+    password-style entry. :meth:`ask` is blocking and returns the pasted
+    token string, or ``None`` if the user cancelled.
+
+    Mirrors :class:`PreAnalyzeModal` in shape so the same headless-test
+    pattern applies: the ``_build`` method is side-effect-free beyond
+    widget creation, and constructor-time widget tree construction makes
+    the modal inspectable without running the Tk mainloop.
+    """
+
+    def __init__(
+        self,
+        parent,
+        *,
+        ui_lang: str = "fi",
+        open_browser_fn=None,
+    ) -> None:
+        self._parent = parent
+        self._ui_lang = ui_lang
+        self._result: Optional[str] = None
+        # Browser-open is injectable so tests never launch a real browser.
+        # Default routes through the stdlib ``webbrowser`` module.
+        import webbrowser
+
+        self._open_browser = open_browser_fn or webbrowser.open
+        ctk = _ctk_or_raise()
+        self._top = ctk.CTkToplevel(parent)
+        self._top.title(self._s("hf_token_title"))
+        self._top.geometry("560x520")
+        self._top.transient(parent)
+        self._build()
+
+    def _s(self, key: str) -> str:
+        return clone_voice_string(self._ui_lang, key)
+
+    def _build(self) -> None:
+        ctk = _ctk_or_raise()
+        import tkinter as tk
+
+        pad = 12
+
+        intro = ctk.CTkLabel(
+            self._top,
+            text=self._s("hf_token_barney_intro"),
+            wraplength=520,
+            justify="left",
+            anchor="w",
+        )
+        intro.pack(fill=tk.X, padx=pad, pady=(pad, 8))
+
+        for step_key in (
+            "hf_token_step_1",
+            "hf_token_step_2",
+            "hf_token_step_3",
+            "hf_token_step_4",
+        ):
+            lbl = ctk.CTkLabel(
+                self._top,
+                text=self._s(step_key),
+                wraplength=520,
+                justify="left",
+                anchor="w",
+            )
+            lbl.pack(fill=tk.X, padx=pad, pady=1)
+
+        # Three browser-launch buttons. Stacked vertically so the labels
+        # stay readable; each row grows to the modal width.
+        btn_specs = (
+            ("hf_token_open_signup", HF_SIGNUP_URL),
+            ("hf_token_open_model_page", HF_PYANNOTE_MODEL_URL),
+            ("hf_token_open_tokens", HF_TOKENS_URL),
+        )
+        for label_key, url in btn_specs:
+            btn = ctk.CTkButton(
+                self._top, text=self._s(label_key),
+                command=lambda u=url: self._open_browser(u),
+            )
+            btn.pack(fill=tk.X, padx=pad, pady=3)
+
+        # Token entry
+        entry_lbl = ctk.CTkLabel(
+            self._top, text=self._s("hf_token_entry_label"), anchor="w",
+        )
+        entry_lbl.pack(fill=tk.X, padx=pad, pady=(10, 2))
+        self._token_var = tk.StringVar(value="")
+        self._entry = ctk.CTkEntry(
+            self._top, textvariable=self._token_var, show="\u2022", width=400,
+        )
+        self._entry.pack(fill=tk.X, padx=pad, pady=2)
+
+        # Buttons
+        btn_row = ctk.CTkFrame(self._top, fg_color="transparent")
+        btn_row.pack(fill=tk.X, padx=pad, pady=(pad, pad))
+        self._save_btn = ctk.CTkButton(
+            btn_row, text=self._s("hf_token_save"),
+            command=self._on_save, width=140,
+        )
+        self._save_btn.pack(side=tk.RIGHT)
+        self._cancel_btn = ctk.CTkButton(
+            btn_row, text=self._s("hf_token_cancel"),
+            command=self._on_cancel, width=120,
+            fg_color="#555", hover_color="#444",
+        )
+        self._cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
+
+    def _on_save(self) -> None:
+        token = self._token_var.get().strip()
+        # Return None if the user left the field empty — the installer
+        # treats that as "user cancelled" rather than trying to verify
+        # an empty string against HF.
+        self._result = token or None
+        self._top.destroy()
+
+    def _on_cancel(self) -> None:
+        self._result = None
+        self._top.destroy()
+
+    def ask(self) -> Optional[str]:
+        """Run the modal blocking. Returns the pasted token or None."""
         self._top.grab_set()
         self._top.wait_window()
         return self._result
