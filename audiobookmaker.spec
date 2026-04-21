@@ -60,6 +60,13 @@ hidden_imports = [
 hidden_imports += collect_submodules('edge_tts')
 hidden_imports += collect_submodules('aiohttp')
 hidden_imports += collect_submodules('customtkinter')
+# tkinterdnd2 bundles a tkdnd Tcl extension (C library + Tcl scripts)
+# inside its wheel. PyInstaller has no built-in hook for it, so without
+# these two lines the frozen .exe imports the Python module fine but
+# tkdnd silently fails to load and drag-drop becomes a no-op. The GUI
+# handles ImportError gracefully, so a missing bundle doesn't crash —
+# but we want the drop target to ACTUALLY WORK in the installed build.
+hidden_imports += collect_submodules('tkinterdnd2')
 # Piper + onnxruntime + pathvalidate: use collect_all() to grab source
 # .py files too. collect_submodules alone only adds names.
 hidden_imports += _all_onnx[2]
@@ -106,6 +113,11 @@ datas += _all_pathvalidate[0]
 datas += collect_data_files('edge_tts')
 # customtkinter assets (themes, icons)
 datas += collect_data_files('customtkinter')
+# tkinterdnd2's tkdnd Tcl extension directory (C library + Tcl scripts).
+# Pairs with collect_submodules('tkinterdnd2') above; without the data
+# files the Tcl `package require tkdnd` call raises at runtime and the
+# drop target never registers.
+datas += collect_data_files('tkinterdnd2')
 # YAML lexicons used by the text normalizers. Non-developers curate
 # these tables; the Python modules load them lazily from data/.
 for _yaml in glob.glob(os.path.join('data', '*.yaml')):
