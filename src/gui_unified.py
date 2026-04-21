@@ -482,6 +482,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Apply UI language (updates all widget texts).
         self._apply_ui_language()
 
+        # Wire drag-and-drop on the main window. Gracefully no-ops when
+        # tkinterdnd2 or the underlying tkdnd Tcl extension isn't
+        # available — the file-picker flow always works.
+        self._try_bind_file_drop()
+
         # Check for updates in background (only in frozen/installed mode).
         self._update_queue: "queue.Queue[UpdateInfo]" = queue.Queue()
         if getattr(sys, "frozen", False):
@@ -1693,14 +1698,104 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         except Exception:
             return False
 
-    def _clone_voice_from_file(self) -> None:
+    # ------------------------------------------------------------------
+    # Drag-and-drop
+    # ------------------------------------------------------------------
+
+    # Extensions the drop handler recognises as audio source material.
+    # Lowercased for a case-insensitive suffix check; anything else is
+    # quietly ignored so dropping (say) a PDF on the main window doesn't
+    # try to clone a voice from it.
+    _DROP_AUDIO_EXTS = (
+        ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".m4b", ".aac", ".opus",
+    )
+
+    def _try_bind_file_drop(self) -> None:
+        """Register the main window as a drop target for audio files.
+
+        Graceful fallback: if :mod:`tkinterdnd2` isn't installed or the
+        underlying ``tkdnd`` Tcl extension fails to load, silently skip.
+        The file picker path is the primary UX — drop is a bonus that
+        should never break the app's boot sequence.
+        """
+        try:
+            import tkinterdnd2  # type: ignore[import-not-found]
+        except ImportError:
+            return
+        # Attach the Tcl tkdnd extension to the existing CTk interpreter.
+        # TkinterDnD._require is a classmethod that tolerates being
+        # called on an already-initialised widget.
+        try:
+            tkinterdnd2.TkinterDnD._require(self)
+        except Exception:
+            return
+        try:
+            self.drop_target_register(tkinterdnd2.DND_FILES)
+            self.dnd_bind("<<Drop>>", self._on_file_drop)
+        except Exception:
+            return
+
+    @staticmethod
+    def _parse_dnd_path_list(data: str) -> list[str]:
+        """Split a tkdnd drop payload into a list of file paths.
+
+        tkdnd formats its payload as a Tcl list: paths containing spaces
+        are wrapped in ``{...}``, plain paths are space-separated. This
+        is a minimal parser that handles both shapes without pulling in
+        the Tcl interpreter to do the split. Non-file payloads fall
+        through as a single best-effort item.
+        """
+        data = (data or "").strip()
+        if not data:
+            return []
+        out: list[str] = []
+        i = 0
+        n = len(data)
+        while i < n:
+            if data[i] == "{":
+                end = data.find("}", i + 1)
+                if end == -1:
+                    out.append(data[i + 1:].strip())
+                    break
+                out.append(data[i + 1:end])
+                i = end + 1
+                # Skip whitespace between list entries.
+                while i < n and data[i].isspace():
+                    i += 1
+            else:
+                # Unbraced run — take until next whitespace.
+                end = i
+                while end < n and not data[end].isspace():
+                    end += 1
+                out.append(data[i:end])
+                i = end
+                while i < n and data[i].isspace():
+                    i += 1
+        return [p for p in out if p]
+
+    def _on_file_drop(self, event) -> None:
+        """Route an audio-file drop into the clone-voice flow.
+
+        Non-audio drops (wrong extension) are silently ignored. Multiple
+        files in a single drop use only the first one — the clone-voice
+        pipeline is file-at-a-time.
+        """
+        paths = self._parse_dnd_path_list(getattr(event, "data", ""))
+        for p in paths:
+            suffix = Path(p).suffix.lower()
+            if suffix in self._DROP_AUDIO_EXTS:
+                self._clone_voice_from_file(path_override=p)
+                return
+
+    def _clone_voice_from_file(self, path_override: Optional[str] = None) -> None:
         """Entry point for the Clone voice from file button.
 
-        Checks the capability is installed, prompts for an audio file,
-        opens the pre-analyze modal, then kicks off the clone-voice
-        pipeline on a worker thread. The naming-grid modal is opened
-        via the ``request_names_fn`` callback marshalled back onto the
-        Tk main thread via ``self.after(0, …)``.
+        Checks the capability is installed, prompts for an audio file
+        (or reuses ``path_override`` when called via drag-drop), opens
+        the pre-analyze modal, then kicks off the clone-voice pipeline
+        on a worker thread. The naming-grid modal is opened via the
+        ``request_names_fn`` callback marshalled back onto the Tk main
+        thread via ``self.after(0, …)``.
         """
         from src.gui_clone_voice import (
             CloneVoiceJobConfig,
@@ -1722,13 +1817,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             )
             return
 
-        path = filedialog.askopenfilename(
-            title=s("clone_voice_pick_file_title"),
-            filetypes=[
-                ("Audio", "*.wav *.mp3 *.flac *.ogg *.m4a *.m4b"),
-                ("All files", "*.*"),
-            ],
-        )
+        if path_override:
+            path = path_override
+        else:
+            path = filedialog.askopenfilename(
+                title=s("clone_voice_pick_file_title"),
+                filetypes=[
+                    ("Audio", "*.wav *.mp3 *.flac *.ogg *.m4a *.m4b"),
+                    ("All files", "*.*"),
+                ],
+            )
         if not path:
             return
 

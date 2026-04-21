@@ -19,6 +19,12 @@ PyYAML==6.0.3
 # Modern GUI toolkit
 customtkinter==5.2.2
 
+# Optional drag-and-drop support. Purely additive — if the wheel or its
+# bundled tkdnd Tcl extension fails to load at runtime, the main-window
+# drop bindings silently become no-ops and the file-picker path still
+# works. Pinned to a major version with stable Windows wheels.
+tkinterdnd2==0.4.2
+
 # Pillow — required by CustomTkinter for CTkImage (used by the hero
 # header logo and button icons). CTk installs it transitively but we
 # list it explicitly so the dependency is visible in the lockfile and
