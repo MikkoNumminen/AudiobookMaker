@@ -10,6 +10,13 @@
 [![Tests](https://img.shields.io/badge/tests-1729%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
+[![Stars](https://img.shields.io/github/stars/MikkoNumminen/AudiobookMaker?style=social)](https://github.com/MikkoNumminen/AudiobookMaker/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/MikkoNumminen/AudiobookMaker?color=blue)](https://github.com/MikkoNumminen/AudiobookMaker/commits/master)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/MikkoNumminen/AudiobookMaker?color=blueviolet)](https://github.com/MikkoNumminen/AudiobookMaker/pulse)
+[![Open issues](https://img.shields.io/github/issues/MikkoNumminen/AudiobookMaker?color=informational)](https://github.com/MikkoNumminen/AudiobookMaker/issues)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow)](https://www.conventionalcommits.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/MikkoNumminen/AudiobookMaker/pulls)
+
 Turn a PDF, EPUB, or plain text file into an audiobook. Pick a file, press a button, get an MP3.
 
 The app reads Finnish best, and English almost as well. Those are the
