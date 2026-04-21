@@ -66,7 +66,16 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
         image=gui_style.icon("music", size=18),
         compound="left",
     )
-    host._sample_btn.grid(row=0, column=1, padx=(0, gui_style.PAD_SM))
+    host._sample_btn.grid(row=0, column=1, padx=(0, gui_style.PAD_MD))
+
+    # Vertical separator marks the Configure/Produce → Review/Output
+    # boundary. Convert + Make sample on the left of it are the
+    # production path; Preview + Open folder on the right are for
+    # reviewing what the production path actually emitted.
+    sep = ctk.CTkFrame(
+        btn_row, width=1, height=30, fg_color=gui_style.BORDER_SUBTLE,
+    )
+    sep.grid(row=0, column=2, sticky="ns", padx=(0, gui_style.PAD_MD))
 
     host._listen_btn = ctk.CTkButton(
         btn_row, text="Esikuuntele", command=host._on_listen_click,
@@ -74,7 +83,7 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
         image=gui_style.icon("volume", size=18),
         compound="left",
     )
-    host._listen_btn.grid(row=0, column=2, padx=(0, gui_style.PAD_SM))
+    host._listen_btn.grid(row=0, column=3, padx=(0, gui_style.PAD_SM))
 
     host._cancel_btn = ctk.CTkButton(
         btn_row, text="Peruuta", command=host._request_cancel,
@@ -85,7 +94,7 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
         image=gui_style.icon("x", size=18),
         compound="left",
     )
-    host._cancel_btn.grid(row=0, column=3, padx=(0, gui_style.PAD_SM))
+    host._cancel_btn.grid(row=0, column=4, padx=(0, gui_style.PAD_SM))
     host._cancel_btn.grid_remove()  # Only visible while running.
 
     host._open_folder_btn = ctk.CTkButton(
@@ -94,7 +103,7 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
         image=gui_style.icon("folder", size=18),
         compound="left",
     )
-    host._open_folder_btn.grid(row=0, column=4)
+    host._open_folder_btn.grid(row=0, column=5)
 
     # Bottom: progress bar + inline status (small, right-aligned).
     progress_row = ctk.CTkFrame(ar, fg_color="transparent")
