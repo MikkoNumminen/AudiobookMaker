@@ -584,18 +584,42 @@ class VoiceRecorderDialog:
         self._dlg.after(0, self._on_record_done)
 
     def _on_record_done(self) -> None:
-        """Handle end-of-recording: restore buttons and kick off preflight checks."""
-        self._recording = False
-        self._rec_btn.configure(text=self._s("record"), bg="#cc3333")
-        self._dev_combo.configure(state="readonly")
+        """Handle end-of-recording: restore buttons and kick off preflight checks.
 
-        if self._wav_path and self._wav_path.exists() and self._wav_path.stat().st_size > 44:
-            self._status_var.set(self._s("processing"))
-            self._dlg.update_idletasks()
-            # Run checks in a thread to keep UI responsive
-            threading.Thread(target=self._run_checks, daemon=True).start()
-        else:
-            self._status_var.set(self._s("rec_failed"))
+        The ffmpeg handle on ``self._rec_process`` must always be released
+        by the time this returns, even if a widget call raises partway
+        through — holding a dead handle leaks a file descriptor and
+        confuses later state checks.
+        """
+        try:
+            self._recording = False
+            self._rec_btn.configure(text=self._s("record"), bg="#cc3333")
+            self._dev_combo.configure(state="readonly")
+
+            if self._wav_path and self._wav_path.exists() and self._wav_path.stat().st_size > 44:
+                self._status_var.set(self._s("processing"))
+                self._dlg.update_idletasks()
+                # Run checks in a thread to keep UI responsive
+                threading.Thread(target=self._run_checks, daemon=True).start()
+            else:
+                self._status_var.set(self._s("rec_failed"))
+        finally:
+            self._release_rec_process()
+
+    def _release_rec_process(self) -> None:
+        """Terminate the ffmpeg record process if still alive and drop the handle."""
+        proc = self._rec_process
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except Exception:
+                pass
+            self._rec_process = None
 
     def _run_checks(self) -> None:
         """Background worker that runs preflight analysis on the recorded WAV."""
@@ -668,7 +692,50 @@ class VoiceRecorderDialog:
             self._play_process = subprocess.Popen(
                 cmd, creationflags=creationflags)
         except Exception as exc:
+            self._play_process = None
             messagebox.showwarning("Playback", str(exc), parent=self._dlg)
+            return
+        # Background waiter releases the ffplay handle the moment it exits
+        # so the next Play click does not see a stale "still playing" handle.
+        threading.Thread(target=self._wait_play, daemon=True).start()
+
+    def _wait_play(self) -> None:
+        """Background thread that waits for ffplay to exit then signals the UI."""
+        proc = self._play_process
+        if proc is not None:
+            try:
+                proc.wait()
+            except Exception:
+                pass
+        self._dlg.after(0, self._on_play_done)
+
+    def _on_play_done(self) -> None:
+        """Release the ffplay handle when playback finishes.
+
+        Wrapped in try/finally so a widget callback blowing up here does
+        not leak the subprocess handle.
+        """
+        try:
+            # Hook for future UI updates (e.g. flipping a Play button back
+            # to its idle state).  Kept intentionally small for now.
+            pass
+        finally:
+            self._release_play_process()
+
+    def _release_play_process(self) -> None:
+        """Terminate the ffplay process if still alive and drop the handle."""
+        proc = self._play_process
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except Exception:
+                pass
+            self._play_process = None
 
     # -- re-record / use / cancel -------------------------------------------
 

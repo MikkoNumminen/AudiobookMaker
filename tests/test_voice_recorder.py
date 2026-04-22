@@ -113,6 +113,15 @@ def _make_dialog_stub() -> Any:
     )
     stub._reset_checks = lambda: None
     stub._tick_progress = lambda: None
+    stub._run_checks = lambda: None
+    # Release helpers are real methods bound to the stub so _on_*_done
+    # can invoke them via the try/finally block.
+    stub._release_rec_process = (
+        lambda: vr.VoiceRecorderDialog._release_rec_process(stub)
+    )
+    stub._release_play_process = (
+        lambda: vr.VoiceRecorderDialog._release_play_process(stub)
+    )
     return stub
 
 
@@ -187,3 +196,104 @@ class TestStartRecordPopenFailure:
 
         assert stub._rec_process is fake_proc
         assert stub._recording is True
+
+
+# ---------------------------------------------------------------------------
+# _on_record_done — cleanup on exception
+# ---------------------------------------------------------------------------
+
+
+class TestOnRecordDoneCleanup:
+    def test_rec_process_released_on_success(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """After the done callback fires, _rec_process must be None —
+        holding a dead subprocess handle wastes a file descriptor and
+        confuses later logic that tests ``self._rec_process``."""
+        wav = _write_wav(tmp_path / "rec.wav", [0] * 50)
+
+        stub = _make_dialog_stub()
+        stub._wav_path = wav
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = 0  # already exited
+        stub._rec_process = fake_proc
+        # Stub the preflight thread so nothing actually runs
+        monkeypatch.setattr(vr.threading, "Thread",
+                            lambda *_a, **_kw: MagicMock(start=lambda: None))
+
+        vr.VoiceRecorderDialog._on_record_done(stub)
+
+        assert stub._recording is False
+        assert stub._rec_process is None
+
+    def test_rec_process_released_on_exception(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If something inside _on_record_done blows up (e.g. a widget
+        call fails), the process handle must still get released via the
+        try/finally guard."""
+        wav = _write_wav(tmp_path / "rec.wav", [0] * 50)
+
+        stub = _make_dialog_stub()
+        stub._wav_path = wav
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None  # still alive
+        stub._rec_process = fake_proc
+        # Arrange for a widget call to raise so we can verify the finally
+        # branch still fires.
+        stub._status_var.set.side_effect = RuntimeError("widget gone")
+        monkeypatch.setattr(vr.threading, "Thread",
+                            lambda *_a, **_kw: MagicMock(start=lambda: None))
+
+        with pytest.raises(RuntimeError):
+            vr.VoiceRecorderDialog._on_record_done(stub)
+
+        fake_proc.terminate.assert_called_once()
+        assert stub._rec_process is None
+
+    def test_release_is_idempotent_with_no_process(self) -> None:
+        """Calling the release helper with no handle is a no-op."""
+        stub = _make_dialog_stub()
+        stub._rec_process = None
+        vr.VoiceRecorderDialog._release_rec_process(stub)
+        assert stub._rec_process is None
+
+
+# ---------------------------------------------------------------------------
+# _on_play_done — cleanup parity with record side
+# ---------------------------------------------------------------------------
+
+
+class TestOnPlayDoneCleanup:
+    def test_play_process_released_when_already_exited(self) -> None:
+        """A finished ffplay process must be dropped without trying to
+        terminate() it again."""
+        stub = _make_dialog_stub()
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = 0  # already exited
+        stub._play_process = fake_proc
+
+        vr.VoiceRecorderDialog._on_play_done(stub)
+
+        fake_proc.terminate.assert_not_called()
+        assert stub._play_process is None
+
+    def test_play_process_terminated_when_still_alive(self) -> None:
+        """If ffplay is still alive when the done callback fires (e.g. a
+        hard cancel), terminate + null the handle."""
+        stub = _make_dialog_stub()
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None  # still alive
+        stub._play_process = fake_proc
+
+        vr.VoiceRecorderDialog._on_play_done(stub)
+
+        fake_proc.terminate.assert_called_once()
+        assert stub._play_process is None
+
+    def test_release_is_idempotent_with_no_process(self) -> None:
+        """Calling the release helper with no handle is a no-op."""
+        stub = _make_dialog_stub()
+        stub._play_process = None
+        vr.VoiceRecorderDialog._release_play_process(stub)
+        assert stub._play_process is None
