@@ -38,6 +38,12 @@ MAX_RMS_DBFS = -10.0
 MAX_CLIP_RATIO = 0.0005  # 0.05 %
 
 RECORD_DURATION_S = 15.0
+# 22 050 Hz matches the Chatterbox training target after its internal
+# resample, so asking ffmpeg for this rate up front avoids an extra
+# conversion step in the preflight pipeline.  If the OS audio driver
+# can't deliver exactly this rate, ffmpeg resamples transparently —
+# we don't probe device capabilities because the cost would outweigh
+# any user-visible benefit.
 RECORD_SAMPLE_RATE = 22_050
 VOICE_SAMPLES_DIR = Path("voice_samples")
 
