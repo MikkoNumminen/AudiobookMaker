@@ -447,10 +447,32 @@ class ChatterboxRunner:
                 except OSError:
                     pass
 
+    # Bounded shutdown budget for the Chatterbox runner. The runner
+    # handles SIGINT (CTRL_C_EVENT on Windows) by finishing the current
+    # chunk and exiting cleanly, which takes seconds on a normal exit
+    # and up to ~a minute if a long chunk was in flight. Past that we
+    # escalate instead of waiting forever.
+    _SHUTDOWN_WAIT_S: float = 60.0
+    _TERMINATE_GRACE_S: float = 5.0
+
     def _waiter_loop(self) -> None:
         proc = self._state.proc
         assert proc is not None
-        rc = proc.wait()
+        # proc.wait() without a timeout could pin the waiter thread
+        # indefinitely when a runner child hangs on a stuck cleanup
+        # (rare on Windows, but has happened during torch teardown).
+        # Escalate on timeout: SIGTERM + short grace, then SIGKILL,
+        # so the launcher always reaches the "exit" event and the GUI
+        # never spins on a ghost runner.
+        try:
+            rc = proc.wait(timeout=self._SHUTDOWN_WAIT_S)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                rc = proc.wait(timeout=self._TERMINATE_GRACE_S)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                rc = proc.wait()
         # Reader finishes on stdout EOF, which happens as the child exits.
         if self._state.reader is not None:
             self._state.reader.join(timeout=5.0)

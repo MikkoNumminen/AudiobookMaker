@@ -524,3 +524,103 @@ class TestReaderLoopFinallyClose:
         with pytest.raises(RuntimeError, match="parser blew up"):
             runner._reader_loop(_ExplodingParser())
         assert pipe.closed is True
+
+
+# ---------------------------------------------------------------------------
+# _waiter_loop bounded shutdown
+# ---------------------------------------------------------------------------
+
+
+class _WaiterState:
+    """Minimal state for _waiter_loop: proc + reader + event_queue + done."""
+
+    def __init__(self, proc):
+        from queue import Queue as _Queue
+        from threading import Event as _Event
+
+        self.proc = proc
+        self.reader = None
+        self.event_queue = _Queue()
+        self.done = _Event()
+
+
+def _make_runner_with_proc(proc):
+    runner = ChatterboxRunner.__new__(ChatterboxRunner)
+    runner._state = _WaiterState(proc)
+    return runner
+
+
+class TestWaiterLoopShutdownBudget:
+    """_waiter_loop must bound its wait on the runner subprocess so a
+    stuck child never pins the waiter thread forever — the launcher
+    still needs to deliver the 'exit' event so the GUI stops spinning."""
+
+    def test_wait_called_with_timeout(self) -> None:
+        import subprocess as _sp
+
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = 0
+
+        runner = _make_runner_with_proc(mock_proc)
+        runner._waiter_loop()
+
+        # First wait() must have been bounded.
+        first_call = mock_proc.wait.call_args_list[0]
+        assert first_call.kwargs.get("timeout") is not None
+        assert first_call.kwargs["timeout"] > 0
+        # Happy path reports the clean return code.
+        ev = runner._state.event_queue.get_nowait()
+        assert ev.kind == "exit"
+        assert ev.returncode == 0
+        _ = _sp.TimeoutExpired  # silence unused import warning
+
+    def test_timeout_escalates_to_terminate_then_kill(self) -> None:
+        """If the bounded wait expires, _waiter_loop must terminate the
+        child, give it a short grace period, then kill() if still
+        alive. Without this a hung runner would block shutdown forever."""
+        import subprocess as _sp
+
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        # wait() call sequence: first hangs (bounded wait), second hangs
+        # (post-terminate grace), third returns after kill().
+        mock_proc.wait.side_effect = [
+            _sp.TimeoutExpired(cmd="runner", timeout=60),
+            _sp.TimeoutExpired(cmd="runner", timeout=5),
+            -9,
+        ]
+
+        runner = _make_runner_with_proc(mock_proc)
+        runner._waiter_loop()
+
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        assert mock_proc.wait.call_count == 3
+        ev = runner._state.event_queue.get_nowait()
+        assert ev.kind == "exit"
+        # Return code is whatever the final wait() produced (here -9 from kill).
+        assert ev.returncode == -9
+
+    def test_terminate_grace_skips_kill_when_child_exits(self) -> None:
+        """If terminate() is enough — the child exits within the grace
+        window — kill() must not be called."""
+        import subprocess as _sp
+
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        mock_proc.wait.side_effect = [
+            _sp.TimeoutExpired(cmd="runner", timeout=60),
+            0,  # terminate grace: child exits cleanly
+        ]
+
+        runner = _make_runner_with_proc(mock_proc)
+        runner._waiter_loop()
+
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_not_called()
+        ev = runner._state.event_queue.get_nowait()
+        assert ev.returncode == 0
