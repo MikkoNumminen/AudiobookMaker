@@ -443,3 +443,84 @@ class TestProgressEvent:
     def test_kind_is_required(self) -> None:
         with pytest.raises(TypeError):
             ProgressEvent()  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# _reader_loop invariants (stdout is always closed)
+# ---------------------------------------------------------------------------
+
+
+class _FakeReadline:
+    """Minimal stand-in for proc.stdout that exposes the readline() +
+    close() pair the reader thread expects."""
+
+    def __init__(self, lines):
+        self._lines = list(lines)
+        self._i = 0
+        self.closed = False
+
+    def readline(self):
+        if self._i >= len(self._lines):
+            return ""
+        line = self._lines[self._i]
+        self._i += 1
+        return line
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeState:
+    """_RunnerState stand-in: only the fields _reader_loop actually
+    touches need to exist."""
+
+    def __init__(self, stdout):
+        from collections import deque
+        from queue import Queue as _Queue
+
+        self.proc = type("P", (), {"stdout": stdout})()
+        self.tail = deque(maxlen=20)
+        self.event_queue = _Queue()
+
+
+class TestReaderLoopFinallyClose:
+    """Regression tests: _reader_loop must close its stdout pipe on
+    every exit path. A leaked pipe lets the child block on a full PIPE
+    buffer and turns a graceful exit into a hang."""
+
+    def _run_reader(self, lines, parser_override=None):
+        pipe = _FakeReadline(lines)
+        state = _FakeState(pipe)
+        runner = ChatterboxRunner.__new__(ChatterboxRunner)
+        runner._state = state
+        parser = parser_override if parser_override is not None else ChatterboxLineParser()
+        return runner, pipe, parser
+
+    def test_happy_path_closes_pipe(self) -> None:
+        """Normal exit (EOF) must leave the pipe closed."""
+        runner, pipe, parser = self._run_reader(
+            ["[setup] out=foo\n", "[setup] total chunks to synthesize: 5\n"]
+        )
+        runner._reader_loop(parser)
+        assert pipe.closed is True
+
+    def test_exception_in_loop_body_still_closes_pipe(self) -> None:
+        """If the parser raises inside the for-loop the pipe must still
+        be closed by the finally block. This is the exact invariant
+        called out in the installer/subprocess audit."""
+
+        class _ExplodingParser:
+            @staticmethod
+            def rewrite_alignment_noise(line):
+                return line  # pass-through
+
+            def parse(self, line):
+                raise RuntimeError("parser blew up")
+
+        runner, pipe, _ = self._run_reader(
+            ["[setup] total chunks to synthesize: 5\n"],
+            parser_override=_ExplodingParser(),
+        )
+        with pytest.raises(RuntimeError, match="parser blew up"):
+            runner._reader_loop(_ExplodingParser())
+        assert pipe.closed is True
