@@ -19,10 +19,13 @@ package installed.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from src.voice_pack.types import AsrSegment
+
+logger = logging.getLogger(__name__)
 
 
 _FASTER_WHISPER_MISSING_MSG = (
@@ -69,12 +72,14 @@ def _resolve_device(device: str) -> str:
         return device
     try:
         import torch  # type: ignore[import-not-found]
-    except Exception:
+    except Exception as exc:
+        logger.debug("CUDA probe failed, falling back to CPU: %s", exc)
         return "cpu"
     try:
         if torch.cuda.is_available():
             return "cuda"
-    except Exception:
+    except Exception as exc:
+        logger.debug("CUDA probe failed, falling back to CPU: %s", exc)
         return "cpu"
     return "cpu"
 

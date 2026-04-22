@@ -8,10 +8,11 @@ on any machine (no GPU, no optional dependencies).
 from __future__ import annotations
 
 import builtins
+import logging
 
 import pytest
 
-from src.voice_pack.asr import transcribe
+from src.voice_pack.asr import _resolve_device, transcribe
 from src.voice_pack.types import AsrSegment
 
 
@@ -171,3 +172,61 @@ def test_transcribe_empty_segment_list_returns_empty(tmp_path):
     out = transcribe(audio, model=fake)
 
     assert out == []
+
+
+def test_resolve_device_non_auto_returns_unchanged():
+    assert _resolve_device("cpu") == "cpu"
+    assert _resolve_device("cuda") == "cuda"
+
+
+def test_resolve_device_logs_when_torch_import_fails(monkeypatch, caplog):
+    """A broken torch install should fall back to CPU *and* leave a debug
+    breadcrumb so developers can tell why CUDA was not picked."""
+    real_import = builtins.__import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "torch":
+            raise ImportError("torch not importable")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    with caplog.at_level(logging.DEBUG, logger="src.voice_pack.asr"):
+        result = _resolve_device("auto")
+
+    assert result == "cpu"
+    assert any(
+        "CUDA probe failed" in record.getMessage() and "torch not importable" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_resolve_device_logs_when_cuda_is_available_raises(monkeypatch, caplog):
+    """``torch.cuda.is_available()`` can raise on broken CUDA installs; the
+    fallback to CPU must now leave a debug log instead of swallowing it."""
+
+    class _BrokenCuda:
+        @staticmethod
+        def is_available():
+            raise RuntimeError("driver mismatch")
+
+    class _FakeTorch:
+        cuda = _BrokenCuda()
+
+    real_import = builtins.__import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "torch":
+            return _FakeTorch()
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    with caplog.at_level(logging.DEBUG, logger="src.voice_pack.asr"):
+        result = _resolve_device("auto")
+
+    assert result == "cpu"
+    assert any(
+        "CUDA probe failed" in record.getMessage() and "driver mismatch" in record.getMessage()
+        for record in caplog.records
+    )
