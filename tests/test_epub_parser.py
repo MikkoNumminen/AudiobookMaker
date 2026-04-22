@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -146,6 +147,58 @@ class TestParseEpubBasic:
         bogus.write_text("this is not a zip archive", encoding="utf-8")
         with pytest.raises(ValueError):
             parse_epub(str(bogus))
+
+
+# ---------------------------------------------------------------------------
+# Spine-iteration error logging
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingSpine:
+    """Iterable whose second yield raises — mimics a malformed spine."""
+
+    def __iter__(self):
+        yield ("valid_id",)
+        raise RuntimeError("spine corruption")
+
+
+class _SpineBook:
+    """Minimal stand-in for the object returned by ``epub.read_epub``."""
+
+    def __init__(self, spine) -> None:
+        self.spine = spine
+
+    def get_item_with_id(self, _item_id):  # noqa: D401 - simple override
+        return None
+
+    def get_items(self):
+        return []
+
+
+def test_spine_iteration_failure_logged(monkeypatch, tmp_path, caplog) -> None:
+    """A malformed spine (one that raises mid-iteration) must leave a
+    warning breadcrumb instead of silently dropping the rest of the
+    chapter list."""
+    from src import epub_parser
+
+    fake_path = tmp_path / "fake.epub"
+    fake_path.write_bytes(b"fake")
+
+    monkeypatch.setattr(
+        epub_parser.epub,
+        "read_epub",
+        lambda _p: _SpineBook(_ExplodingSpine()),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="src.epub_parser"):
+        with pytest.raises(EmptyEPUBError):
+            parse_epub(str(fake_path))
+
+    assert any(
+        "EPUB spine iteration failed" in record.getMessage()
+        and "spine corruption" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
