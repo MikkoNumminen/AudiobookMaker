@@ -421,3 +421,108 @@ class TestStartChatterboxSubprocess:
         assert "--voice-pack" not in extra, (
             f"expected --voice-pack absent for non-voicepack voice, got {extra!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# _relay_chatterbox_events — thread safety + failure propagation
+# ---------------------------------------------------------------------------
+
+
+class TestRelayChatterboxEvents:
+    """Exercise ``SynthMixin._relay_chatterbox_events`` directly.
+
+    UnifiedApp overrides the method with its own variant, so these tests
+    call ``SynthMixin._relay_chatterbox_events(app)`` unbound to pin the
+    mixin's thread-safety + failure-propagation contract.
+    """
+
+    def test_cleared_runner_returns_without_dereferencing_none(self, app):
+        # If the main thread cleared self._chatterbox_runner between
+        # scheduling the relay thread and the thread's first read, the
+        # relay must simply return — not raise AttributeError on None.
+        app._chatterbox_runner = None
+        # Should not raise.
+        SynthMixin._relay_chatterbox_events(app)
+
+    def test_runner_cleared_mid_drain_does_not_dereference_none(self, app):
+        # Capture-at-entry pattern: even if the main thread clears the
+        # attribute while the loop is running, the relay keeps using its
+        # local reference and drains cleanly.
+        from src.launcher_bridge import ProgressEvent
+
+        fake_runner = MagicMock()
+        ev = ProgressEvent(kind="log", raw_line="hello")
+
+        def _poll(*_args, **_kwargs):
+            # Simulate the main thread clearing the attribute mid-drain.
+            app._chatterbox_runner = None
+            return ev
+
+        fake_runner.poll_event.side_effect = _poll
+
+        # finished returns False once, then True to exit the loop.
+        calls = {"n": 0}
+
+        def _finished_getter(_self):
+            calls["n"] += 1
+            return calls["n"] > 1
+
+        type(fake_runner).finished = property(_finished_getter)  # type: ignore[misc]
+
+        app._chatterbox_runner = fake_runner
+        SynthMixin._relay_chatterbox_events(app)
+
+        # The event must have been routed even though the attribute was
+        # cleared mid-drain.
+        drained: list = []
+        try:
+            while True:
+                drained.append(app._event_queue.get_nowait())
+        except queue.Empty:
+            pass
+        assert any(e.kind == "log" and e.raw_line == "hello" for e in drained)
+
+    def test_poll_event_exception_enqueues_error_event(self, app):
+        # A raising poll_event (e.g. BrokenPipeError) must not silently
+        # kill the relay thread. The handler logs the exception and
+        # enqueues a synthetic error event so _pump_events drives the UI
+        # into the _fail path.
+        fake_runner = MagicMock()
+
+        class _BrokenPipe(Exception):
+            pass
+
+        fake_runner.poll_event.side_effect = _BrokenPipe("pipe closed")
+        type(fake_runner).finished = property(lambda _self: False)  # type: ignore[misc]
+
+        app._chatterbox_runner = fake_runner
+
+        SynthMixin._relay_chatterbox_events(app)
+
+        # Exactly one error event should be on the queue.
+        drained: list = []
+        try:
+            while True:
+                drained.append(app._event_queue.get_nowait())
+        except queue.Empty:
+            pass
+        errors = [e for e in drained if e.kind == "error"]
+        assert len(errors) == 1, f"expected one error event, got {drained!r}"
+        assert "pipe closed" in errors[0].raw_line
+
+    def test_poll_event_exception_is_logged(self, app, caplog):
+        # The relay's exception handler logs via the module logger so
+        # crashes are visible in the bundled log without having to wait
+        # for the error event to bubble through the UI.
+        fake_runner = MagicMock()
+        fake_runner.poll_event.side_effect = RuntimeError("boom")
+        type(fake_runner).finished = property(lambda _self: False)  # type: ignore[misc]
+        app._chatterbox_runner = fake_runner
+
+        with caplog.at_level("ERROR", logger="src.gui_synth_mixin"):
+            SynthMixin._relay_chatterbox_events(app)
+
+        assert any(
+            "relay thread crashed" in rec.getMessage().lower()
+            for rec in caplog.records
+        ), f"expected log about relay crash, got {[r.getMessage() for r in caplog.records]}"

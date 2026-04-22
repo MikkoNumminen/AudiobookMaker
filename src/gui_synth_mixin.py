@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import tkinter as tk
@@ -15,6 +16,8 @@ from src.synthesis_orchestrator import (
     ChatterboxRequest,
     build_chatterbox_runner,
 )
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.tts_base import Voice
@@ -225,12 +228,37 @@ class SynthMixin(_Base):
         ).start()
 
     def _relay_chatterbox_events(self) -> None:
+        # Capture the runner reference once at entry. The main thread may
+        # clear ``self._chatterbox_runner`` mid-drain (see _set_idle_state
+        # around line 121); without this capture the loop would race on
+        # the attribute and could dereference None. A local reference is
+        # simpler than a lock — the runner object itself is still valid
+        # until its subprocess reaps, and we're the last reader.
         runner = self._chatterbox_runner
-        assert runner is not None
-        while not runner.finished:
-            ev = runner.poll_event(timeout=0.2)
-            if ev is not None:
-                self._event_queue.put(ev)
+        if runner is None:
+            return
+        try:
+            while not runner.finished:
+                ev = runner.poll_event(timeout=0.2)
+                if ev is not None:
+                    self._event_queue.put(ev)
+        except Exception as exc:
+            # Broken pipes, decoder errors, or any other unexpected
+            # failure from poll_event must not silently kill the relay
+            # thread — the UI would then hang forever waiting for a
+            # "done" event that never arrives. Log for diagnostics and
+            # enqueue a synthetic error event so _pump_events surfaces
+            # the failure via the normal _fail() path.
+            logger.exception("Chatterbox relay thread crashed")
+            try:
+                self._event_queue.put(
+                    ProgressEvent(kind="error", raw_line=f"relay: {exc}")
+                )
+            except Exception:
+                # Queue put should not raise for an unbounded Queue, but
+                # if something truly broken happens we must not re-raise
+                # inside the daemon thread.
+                logger.exception("Failed to enqueue relay failure event")
 
     # ------------------------------------------------------------------
     # Cancel
