@@ -517,17 +517,25 @@ class VoiceRecorderDialog:
         ]
 
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        # Order matters: Popen first, store handle, THEN flip _recording.
+        # If Popen raises we must leave _recording False and _rec_process
+        # None, otherwise _tick_progress will loop forever thinking we're
+        # still capturing audio.
         try:
-            self._rec_process = subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 creationflags=creationflags,
             )
         except Exception as exc:
+            self._rec_process = None
+            self._wav_path = None
+            self._recording = False
             messagebox.showerror(self._s("rec_failed"), str(exc),
                                  parent=self._dlg)
             return
 
+        self._rec_process = proc
         self._recording = True
         self._rec_start = time.time()
         self._rec_btn.configure(text=self._s("stop"), bg="#991111")
