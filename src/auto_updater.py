@@ -295,33 +295,48 @@ def download_update(
     req = Request(update.download_url)
     req.add_header("User-Agent", f"AudiobookMaker/{update.current_version}")
 
+    # Any exception in the body (network error, cancel, disk-full, even a
+    # KeyboardInterrupt or BaseException subclass from a thread cancel) must
+    # leave no partial .exe behind. A stale partial would look like a fully
+    # downloaded installer to a retry path and could get executed. The outer
+    # try/except/BaseException ensures cleanup happens before the exception
+    # propagates; the inner branch normalises common I/O failures to a
+    # RuntimeError for the caller.
     try:
-        with urlopen(req, timeout=60) as resp:
-            total = update.asset_size_bytes or int(resp.headers.get("Content-Length", 0))
-            done = 0
+        try:
+            with urlopen(req, timeout=60) as resp:
+                total = update.asset_size_bytes or int(
+                    resp.headers.get("Content-Length", 0)
+                )
+                done = 0
 
-            with open(dest, "wb") as fp:
-                while True:
-                    if cancel_event and cancel_event.is_set():
-                        fp.close()
-                        dest.unlink(missing_ok=True)
-                        raise RuntimeError("Download cancelled")
+                with open(dest, "wb") as fp:
+                    while True:
+                        if cancel_event and cancel_event.is_set():
+                            fp.close()
+                            dest.unlink(missing_ok=True)
+                            raise RuntimeError("Download cancelled")
 
-                    chunk = resp.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
+                        chunk = resp.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
 
-                    fp.write(chunk)
-                    done += len(chunk)
+                        fp.write(chunk)
+                        done += len(chunk)
 
-                    if progress_cb:
-                        progress_cb(done, total)
+                        if progress_cb:
+                            progress_cb(done, total)
 
-    except RuntimeError:
-        raise
-    except Exception as exc:
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"Download failed: {exc}") from exc
+    except BaseException:
+        # Includes RuntimeError, KeyboardInterrupt, SystemExit, and any
+        # thread-cancel exception. Delete the partial file before
+        # re-raising so we never leave a truncated .exe in UPDATE_DIR.
         dest.unlink(missing_ok=True)
-        raise RuntimeError(f"Download failed: {exc}") from exc
+        raise
 
     # Verify integrity — SHA-256 is mandatory (checked at function entry).
     file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()

@@ -505,6 +505,82 @@ class TestDownloadUpdate:
             expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
             assert not expected_path.exists()
 
+    @patch("src.auto_updater.urlopen")
+    def test_keyboard_interrupt_cleans_up_partial_file(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """A KeyboardInterrupt mid-download must not leave a partial .exe.
+
+        If we left it behind, a subsequent retry path (or worse, a naive
+        launcher that sees the file) could execute a truncated installer.
+        """
+        import pytest
+
+        class _KeyboardKillingResp:
+            headers = {"Content-Length": "1000"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def __init__(self):
+                self._calls = 0
+
+            def read(self, _size):
+                self._calls += 1
+                if self._calls == 1:
+                    return b"x" * 256
+                raise KeyboardInterrupt()
+
+        mock_urlopen.return_value = _KeyboardKillingResp()
+        update = self._make_update_info(sha256="f" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(KeyboardInterrupt):
+                download_update(update)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists(), (
+                "Partial .exe leaked after KeyboardInterrupt"
+            )
+
+    @patch("src.auto_updater.urlopen")
+    def test_system_exit_cleans_up_partial_file(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """SystemExit (e.g. thread abort) must still delete the partial file."""
+        import pytest
+
+        class _SystemExitResp:
+            headers = {"Content-Length": "1000"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def __init__(self):
+                self._calls = 0
+
+            def read(self, _size):
+                self._calls += 1
+                if self._calls == 1:
+                    return b"y" * 256
+                raise SystemExit(1)
+
+        mock_urlopen.return_value = _SystemExitResp()
+        update = self._make_update_info(sha256="a" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(SystemExit):
+                download_update(update)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists()
+
 
 # ---------------------------------------------------------------------------
 # Pending update marker — self-heal for failed silent installs
