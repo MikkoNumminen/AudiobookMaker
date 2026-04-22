@@ -6,6 +6,10 @@ require a GPU. A fake pipeline is injected through the ``pipeline=`` kwarg.
 
 from __future__ import annotations
 
+import logging
+import sys
+import types
+
 import pytest
 
 from src.voice_pack.diarize import _merge_adjacent, diarize, resolve_token
@@ -99,3 +103,46 @@ def test_resolve_token_missing(monkeypatch):
 def test_diarize_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         diarize(tmp_path / "nope.wav", pipeline=_FakePipeline(_FakeAnnotation([])))
+
+
+class _BrokenModule:
+    """Stand-in sys.modules entry whose attribute access blows up.
+
+    Drives the ``except Exception: continue`` branch inside the HF-token
+    shim's sys.modules sweep.
+    """
+
+    __name__ = "fake.broken.module"
+
+    def __getattribute__(self, name):  # noqa: D401 - simple override
+        if name == "__name__":
+            return "fake.broken.module"
+        raise RuntimeError(f"broken attribute access: {name}")
+
+
+def test_hf_token_shim_logs_when_module_patch_fails(monkeypatch, caplog):
+    """Installed modules that raise on attribute access must not silently
+    break the shim — a debug log per skipped module now records why."""
+    from src.voice_pack import diarize as diarize_mod
+
+    # Install a minimal fake ``huggingface_hub`` so the shim can import it
+    # without pulling the real (optional) dependency.
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.hf_hub_download = lambda *a, **k: None  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    # Plant a module that explodes when the shim does ``getattr(mod, ...)``.
+    broken = _BrokenModule()
+    monkeypatch.setitem(sys.modules, "fake.broken.module", broken)
+
+    # Reset the idempotency flag so the shim actually runs under the fake.
+    monkeypatch.setattr(diarize_mod, "_HF_TOKEN_SHIM_APPLIED", False)
+
+    with caplog.at_level(logging.DEBUG, logger="src.voice_pack.diarize"):
+        diarize_mod._apply_hf_token_shim()
+
+    assert any(
+        "HF token patch skipped" in record.getMessage()
+        and "fake.broken.module" in record.getMessage()
+        for record in caplog.records
+    )

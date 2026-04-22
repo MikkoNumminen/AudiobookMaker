@@ -20,9 +20,12 @@ path.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 # Dev-time: pull HF_TOKEN from a repo-root .env if available. This keeps
 # the module working when imported directly (e.g. from a REPL or a test
@@ -122,7 +125,11 @@ def _apply_hf_token_shim() -> None:
         try:
             if getattr(mod, "hf_hub_download", None) is original:
                 setattr(mod, "hf_hub_download", _download_with_token_alias)
-        except Exception:  # noqa: BLE001 - best-effort patch
+        except Exception as exc:  # noqa: BLE001 - best-effort patch
+            module_name = getattr(mod, "__name__", repr(mod))
+            logger.debug(
+                "HF token patch skipped for module %r: %s", module_name, exc
+            )
             continue
 
     _HF_TOKEN_SHIM_APPLIED = True
