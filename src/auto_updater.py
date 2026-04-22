@@ -43,6 +43,10 @@ _LEGACY_PENDING_MARKER = Path(tempfile.gettempdir()) / "audiobookmaker_update_pe
 
 CHUNK_SIZE = 256 * 1024  # 256 KB
 API_TIMEOUT = 10  # seconds
+# Sidecar SHA-256 files are tiny (~80 bytes) but still go over GitHub's
+# releases CDN, which can stall. 30 s is generous enough for a slow mobile
+# network but bounded so the update flow never hangs indefinitely.
+SIDECAR_TIMEOUT = 30  # seconds
 
 # ---------------------------------------------------------------------------
 # Data
@@ -121,7 +125,7 @@ def _fetch_sidecar_sha256(
     try:
         req = Request(url)
         req.add_header("User-Agent", f"AudiobookMaker/{current_version}")
-        with urlopen(req, timeout=API_TIMEOUT) as resp:
+        with urlopen(req, timeout=SIDECAR_TIMEOUT) as resp:
             payload = resp.read(512).decode("ascii", errors="replace")
     except (URLError, OSError) as exc:
         logger.debug("Sidecar SHA-256 fetch failed: %s", exc)

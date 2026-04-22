@@ -154,6 +154,44 @@ class TestDownloadVoice:
         with pytest.raises(ValueError, match="Unknown"):
             download_voice("nope")
 
+    def test_download_file_passes_timeout_to_urlopen(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Voice downloads must bound urlopen with a timeout.
+
+        Without this, a slow/dead HuggingFace CDN endpoint could hang the
+        GUI thread that prompted the download for an unbounded amount of
+        time. The exact value is a tuning knob — we only assert that a
+        positive timeout is passed.
+        """
+        from src.tts_piper import _download_file
+
+        captured: dict[str, object] = {}
+
+        class _FakeResp:
+            headers = {"Content-Length": "0"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, _size):
+                return b""
+
+        def fake_urlopen(req, **kwargs):
+            captured.update(kwargs)
+            return _FakeResp()
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        dest = tmp_path / "voice.onnx"
+        _download_file("https://example.com/voice.onnx", dest, None, "label")
+
+        assert "timeout" in captured
+        assert isinstance(captured["timeout"], (int, float))
+        assert captured["timeout"] > 0
+
     def test_noop_when_already_cached(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr("src.tts_piper._cache_dir", lambda: tmp_path)
         spec = _PIPER_VOICES[0]

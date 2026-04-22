@@ -339,6 +339,48 @@ class TestSidecarSha256Fallback:
         assert info.available is True
         assert info.sha256 == ""
 
+    @patch("src.auto_updater.urlopen")
+    def test_sidecar_fetch_uses_bounded_timeout(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        """A hanging sidecar download must not stall the update flow.
+
+        We only assert that the second urlopen call (the sidecar fetch)
+        passes a ``timeout`` keyword — the exact value is a tuning knob.
+        """
+        sha = "e" * 64
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        sidecar_response = _mock_download_response(
+            f"{sha}  AudiobookMaker-Setup-3.0.0.exe\n".encode()
+        )
+        mock_urlopen.side_effect = [api_response, sidecar_response]
+
+        check_for_update("2.0.0")
+
+        # Both calls must have a timeout set; otherwise a slow endpoint
+        # could hang the whole update pipeline.
+        assert mock_urlopen.call_count == 2
+        for call in mock_urlopen.call_args_list:
+            timeout = call.kwargs.get("timeout")
+            assert timeout is not None and timeout > 0
+
 
 # ---------------------------------------------------------------------------
 # E2E: download_update
