@@ -843,3 +843,65 @@ class TestAssertPsSafePath:
             _assert_ps_safe_path(
                 Path('C:/bad"path.png'), "icon_png"
             )
+
+
+# ---------------------------------------------------------------------------
+# apply_update: orphan-file cleanup when Popen fails
+# ---------------------------------------------------------------------------
+
+
+class TestApplyUpdatePopenCleanup:
+    """If subprocess.Popen raises inside apply_update, the splash .ps1 and
+    relaunch .bat we just wrote to %TEMP% must be cleaned up. Otherwise
+    every failed update run leaks two scripts into the user's temp dir."""
+
+    def test_popen_failure_removes_both_script_files(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        import pytest
+        from unittest.mock import patch
+        from pathlib import Path
+        from src import auto_updater
+
+        # Route %TEMP% to tmp_path so the scripts are easy to find.
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+
+        # Installer path must live under tmp_path so _assert_bat_safe_path
+        # accepts it and we can inspect the tmp dir cleanly.
+        fake_installer = tmp_path / "installer.exe"
+        fake_installer.write_bytes(b"fake")
+
+        # Icon path must exist and pass _assert_ps_safe_path.
+        icon_dir = tmp_path / "app" / "_internal" / "assets"
+        icon_dir.mkdir(parents=True)
+        (icon_dir / "icon.png").write_bytes(b"\x89PNG")
+
+        # Popen raises -> cleanup branch must remove both script files.
+        def boom(*args, **kwargs):
+            raise OSError("cmd.exe missing")
+
+        # Neutralise the single-instance release + sys.executable lookup.
+        monkeypatch.setattr(
+            "src.auto_updater.sys.executable", str(tmp_path / "app" / "app.exe")
+        )
+        (tmp_path / "app" / "app.exe").write_bytes(b"fake")
+
+        fake_single_instance = type(
+            "M", (), {"release": staticmethod(lambda: None)}
+        )()
+        monkeypatch.setitem(
+            __import__("sys").modules, "src.single_instance", fake_single_instance
+        )
+
+        with patch("src.auto_updater.subprocess.Popen", side_effect=boom), \
+             patch("src.auto_updater._write_pending_marker", lambda *a, **k: None):
+            with pytest.raises(OSError, match="cmd.exe missing"):
+                auto_updater.apply_update(fake_installer)
+
+        # Neither leftover should survive.
+        assert not (tmp_path / "audiobookmaker_splash.ps1").exists(), (
+            "splash .ps1 leaked after Popen failure"
+        )
+        assert not (tmp_path / "audiobookmaker_relaunch.bat").exists(), (
+            "relaunch .bat leaked after Popen failure"
+        )

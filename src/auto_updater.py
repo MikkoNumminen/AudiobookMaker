@@ -615,10 +615,20 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     ]
     relaunch_bat.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-8"))
 
-    subprocess.Popen(
-        ["cmd.exe", "/c", str(relaunch_bat)],
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+    # If Popen raises (e.g. cmd.exe missing, OSError, permission denied),
+    # the splash .ps1 and relaunch .bat we just wrote would leak into
+    # %TEMP% forever. Clean both up before re-raising — on success they
+    # self-delete via `del "%~f0"` in the .bat and the 25 s timer in the
+    # .ps1.
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(relaunch_bat)],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except BaseException:
+        splash_ps1.unlink(missing_ok=True)
+        relaunch_bat.unlink(missing_ok=True)
+        raise
 
     # Grant the next process (the relaunched app) the right to call
     # SetForegroundWindow. Without this Windows blocks the relaunched
