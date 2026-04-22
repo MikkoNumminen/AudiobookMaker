@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-1729%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1878%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 [![Stars](https://img.shields.io/github/stars/MikkoNumminen/AudiobookMaker?style=social)](https://github.com/MikkoNumminen/AudiobookMaker/stargazers)
@@ -274,7 +274,7 @@ audiobooks that finally sound English:
   the 10-15 second update gap so you never wonder if the app crashed
 - **Running version shown in the title bar** -- `AudiobookMaker v3.10.0`
   so you can confirm which build is actually running after an update
-- **Progress bar reaches 100%** -- "Valmis!" no longer appears while
+- **Progress bar reaches 100%** -- "Done!" no longer appears while
   the bar is still at 85%. Every gain counts, visibly
 - **Chunk progress lines are green** -- successful `[chapter N/N]
   chunk M/K` steps render green so you can watch progress at a glance
@@ -287,7 +287,7 @@ audiobooks that finally sound English:
 - **Generated files save to the install folder root** -- no more
   burrowing into an `audiobooks\` subdirectory. MP3s land next to the
   app .exe and survive uninstall/reinstall
-- **Auto-bump output filenames** -- `Muunna` never overwrites a
+- **Auto-bump output filenames** -- `Convert` never overwrites a
   previous `texttospeech_N.mp3`; the next free number is picked
   automatically
 - **Self-healing auto-updater** -- if the silent install fails for
@@ -561,7 +561,7 @@ The normalizer makes Finnish numbers, abbreviations, and special terms
 sound natural when read aloud. It runs automatically when using
 Chatterbox-Finnish (via the app or dev scripts).
 
-It works as a series of 19 text transformation passes covering:
+It works as a series of 18 text transformation passes covering:
 
 - Century expressions (`1300-luvulla`)
 - Year numbers and numeric ranges
@@ -638,7 +638,7 @@ AudiobookMaker/
 │   ├── tts_chatterbox_bridge.py   # Chatterbox registration (subprocess)
 │   ├── tts_engine.py              # Text chunking, normalizer, audio combining
 │   ├── tts_normalizer_fi.py       # Finnish normalizer (18 passes)
-│   ├── tts_normalizer_en.py       # English normalizer (12 passes)
+│   ├── tts_normalizer_en.py       # English normalizer (18 passes)
 │   ├── launcher_bridge.py         # Chatterbox subprocess runner
 │   ├── fi_loanwords.py            # Finnish loanword respelling
 │   ├── app_config.py              # Settings persistence
@@ -646,7 +646,7 @@ AudiobookMaker/
 │   └── voice_pack/                # Voice pack artefact format + import
 ├── data/
 │   └── fi_loanwords.yaml          # Loanword lexicon
-├── tests/                         # Unit tests (1729)
+├── tests/                         # Unit tests (1878)
 ├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
 ├── docs/                          # Documentation and research notes
 ├── installer/                     # Inno Setup build scripts
