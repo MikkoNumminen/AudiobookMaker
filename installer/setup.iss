@@ -24,7 +24,7 @@
 ; rewrites this line at release time from the git tag. Any local / off-CI
 ; build picks up the value baked in here, so do not let it drift.
 ; -----------------------------------------------------------------------------
-#define MyAppVersion "3.10.0"
+#define MyAppVersion "3.11.0"
 
 
 ; -----------------------------------------------------------------------------

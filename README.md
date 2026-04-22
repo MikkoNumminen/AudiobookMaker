@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-1878%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1884%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 [![Stars](https://img.shields.io/github/stars/MikkoNumminen/AudiobookMaker?style=social)](https://github.com/MikkoNumminen/AudiobookMaker/stargazers)
@@ -91,6 +91,38 @@ If you hit a bug, open an issue -- they get fixed fast. The
 right now.
 
 ## What's new
+
+**v3.11.0** -- GUI polish for the main workflow and voice-pack plumbing:
+
+- **Buttons light up when they are ready** -- Convert and Make sample
+  stay greyed out until you pick both an input and a voice. Preview
+  and Open folder stay greyed out until there is actually a finished
+  audiobook to open. Fewer buttons you can click that do nothing
+- **Progress bar only when something is happening** -- the thin blue
+  bar at the bottom now hides itself when nothing is running. No more
+  static zero-percent bar staring back at you from an idle app
+- **Chatterbox chunk-size dial hides when you are not using Chatterbox**
+  -- the "chunk size" spinbox only matters for the Finnish Chatterbox
+  engine. Pick Edge-TTS or Piper and the control disappears, so the
+  Settings panel shows just the knobs that actually affect your run
+- **Workflow grouping in the action row** -- a thin vertical divider
+  splits the action buttons into two honest halves: on the left, the
+  things that *produce* output (Convert, Make sample); on the right,
+  the things that let you *review* output (Preview, Open folder).
+  Convert stays visually dominant
+- **Voice packs now load their LoRA adapter at synthesis time** -- if
+  you imported or cloned a voice pack that was trained on more data
+  (reduced or full LoRA tier), the synthesis subprocess now actually
+  wires the adapter into the Chatterbox model instead of falling
+  back to the bare reference clip. Few-shot packs keep working the
+  same as before
+- **Voice Cloner survives the PyTorch 2.6 upgrade** -- the diarizer
+  (the part that figures out who is speaking in your audio file) was
+  crashing on checkpoint load after PyTorch's security defaults
+  changed. Two compatibility shims now make pyannote load cleanly
+  again and sidestep a separate speechbrain stack-walk bug that was
+  aborting mid-pipeline on some machines
+- **1884 tests passing** -- up from 1878
 
 **v3.10.0** -- Clone a voice from any audio file, right inside the app:
 
@@ -272,7 +304,7 @@ audiobooks that finally sound English:
 - **Goat splash on startup and during updates** -- the goat icon
   appears the moment the app starts, and stays on screen through
   the 10-15 second update gap so you never wonder if the app crashed
-- **Running version shown in the title bar** -- `AudiobookMaker v3.10.0`
+- **Running version shown in the title bar** -- `AudiobookMaker v3.11.0`
   so you can confirm which build is actually running after an update
 - **Progress bar reaches 100%** -- "Done!" no longer appears while
   the bar is still at 85%. Every gain counts, visibly
@@ -352,7 +384,7 @@ a lot of fixes to make everything actually work reliably:
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.10.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.10.0)
+**Download:** [AudiobookMaker v3.11.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.0)
 
 **How to install:**
 1. Download `AudiobookMaker-Setup-3.10.0.exe`
@@ -646,7 +678,7 @@ AudiobookMaker/
 │   └── voice_pack/                # Voice pack artefact format + import
 ├── data/
 │   └── fi_loanwords.yaml          # Loanword lexicon
-├── tests/                         # Unit tests (1878)
+├── tests/                         # Unit tests (1884)
 ├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
 ├── docs/                          # Documentation and research notes
 ├── installer/                     # Inno Setup build scripts
