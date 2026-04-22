@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from src.auto_updater import (
     UpdateInfo,
     _assert_bat_safe_path,
+    _assert_ps_safe_path,
     _extract_sha256,
     check_for_update,
     clear_pending_marker,
@@ -781,4 +782,64 @@ class TestAssertBatSafePath:
         with pytest.raises(ValueError, match="installer_path"):
             _assert_bat_safe_path(
                 Path('C:/bad"path.exe'), "installer_path"
+            )
+
+
+class TestAssertPsSafePath:
+    """_assert_ps_safe_path refuses paths that would corrupt the splash .ps1."""
+
+    def test_safe_windows_path_does_not_raise(self) -> None:
+        from pathlib import Path
+        _assert_ps_safe_path(
+            Path("C:/Program Files/AudiobookMaker/_internal/assets/icon.png"),
+            "icon_png",
+        )
+
+    def test_safe_path_with_spaces_does_not_raise(self) -> None:
+        from pathlib import Path
+        # Spaces are fine — the .ps1 wraps the path in double-quotes.
+        _assert_ps_safe_path(
+            Path("C:/Users/Alice Smith/AppData/Local/AudiobookMaker/assets/icon.png"),
+            "icon_png",
+        )
+
+    def test_double_quote_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path('C:/evil"path/icon.png'), "icon_png"
+            )
+
+    def test_backtick_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path("C:/weird`path/icon.png"), "icon_png"
+            )
+
+    def test_dollar_raises(self) -> None:
+        """`$` starts PowerShell variable interpolation — must be rejected."""
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path("C:/$env:TEMP/icon.png"), "icon_png"
+            )
+
+    def test_newline_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path("C:/a\nb/icon.png"), "icon_png"
+            )
+
+    def test_error_message_includes_label(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="icon_png"):
+            _assert_ps_safe_path(
+                Path('C:/bad"path.png'), "icon_png"
             )

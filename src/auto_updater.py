@@ -145,6 +145,13 @@ def _fetch_sidecar_sha256(
 # in depth — but we want to fail loud if that assumption ever slips.
 _BAT_UNSAFE_CHARS = ('"', '%', '^', '&', '\r', '\n')
 
+# Characters that would break the PowerShell splash script if present in a
+# substituted path. `"` closes a double-quoted string (letting a path
+# smuggle in PowerShell code), `` ` `` is the PowerShell escape character,
+# `$` starts variable interpolation, and CR/LF terminate statements. Same
+# defense-in-depth model as _BAT_UNSAFE_CHARS above.
+_PS_UNSAFE_CHARS = ('"', '`', '$', '\r', '\n')
+
 
 def _assert_bat_safe_path(path: Path, label: str) -> None:
     """Raise ValueError if *path* contains characters that break a .bat script.
@@ -162,6 +169,23 @@ def _assert_bat_safe_path(path: Path, label: str) -> None:
             raise ValueError(
                 f"{label} contains batch-unsafe character {ch!r}: {s!r}. "
                 "Refusing to build relaunch .bat — would be malformed."
+            )
+
+
+def _assert_ps_safe_path(path: Path, label: str) -> None:
+    """Raise ValueError if *path* contains characters that break a PowerShell script.
+
+    The splash script built in :func:`apply_update` interpolates the icon
+    path into a ``[System.Drawing.Image]::FromFile("...")`` call. An
+    unescaped ``"`` or ``$`` would turn that literal into a code-execution
+    sink. Same fail-loud posture as :func:`_assert_bat_safe_path`.
+    """
+    s = str(path)
+    for ch in _PS_UNSAFE_CHARS:
+        if ch in s:
+            raise ValueError(
+                f"{label} contains PowerShell-unsafe character {ch!r}: {s!r}. "
+                "Refusing to build splash .ps1 — would be malformed."
             )
 
 
@@ -525,6 +549,14 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     if not icon_png.is_file():
         # Fallback: try alongside the exe (legacy onefile layouts).
         icon_png = Path(current_install_dir) / "assets" / "icon.png"
+
+    # Guard the PowerShell interpolation below — a `"`, `` ` ``, or `$` in
+    # the icon path would let the path smuggle PowerShell code into the
+    # splash script. Today icon_png is always under sys.executable's parent
+    # (so this can't happen) but we fail loud the moment that assumption
+    # slips.
+    _assert_ps_safe_path(icon_png, "icon_png")
+
     splash_ps1.write_text(
         'Add-Type -AssemblyName System.Windows.Forms, System.Drawing\n'
         '$form = New-Object System.Windows.Forms.Form\n'
