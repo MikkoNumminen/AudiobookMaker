@@ -212,8 +212,11 @@ class TestDownloadFile:
         dest = tmp_path / "downloaded.bin"
         content = b"A" * 1024
 
-        # Mock urlopen to return a response-like object
+        # Mock urlopen to return a response-like object usable as a context
+        # manager: __enter__ must return the same response object.
         mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
         mock_response.headers.get.return_value = str(len(content))
         mock_response.read.side_effect = [content, b""]
 
@@ -234,12 +237,17 @@ class TestDownloadFile:
         assert len(progress_events) >= 1
         assert progress_events[0].step == 1
         assert progress_events[0].total_steps == 3
+        # __exit__ on the context manager must have fired so the socket is
+        # released even on the happy path.
+        mock_response.__exit__.assert_called()
 
     def test_cancel_during_download(self, tmp_path) -> None:
         dest = tmp_path / "cancelled.bin"
         cancel = threading.Event()
 
         mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
         mock_response.headers.get.return_value = "10000"
 
         def read_and_cancel(size):
@@ -258,6 +266,30 @@ class TestDownloadFile:
 
         # Temp file should have been cleaned up
         assert not dest.with_suffix(".bin.tmp").exists()
+        # The urlopen response must have been closed via __exit__ so the
+        # socket does not leak when the download is cancelled.
+        mock_response.__exit__.assert_called()
+
+    def test_urlopen_called_with_timeout(self, tmp_path) -> None:
+        """Regression test: urlopen must be invoked with a finite timeout so a
+        stalled Python 3.11 download does not freeze the installer modal."""
+        dest = tmp_path / "file.bin"
+
+        mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
+        mock_response.headers.get.return_value = "4"
+        mock_response.read.side_effect = [b"data", b""]
+
+        with patch(
+            "src.engine_installer.urllib.request.urlopen",
+            return_value=mock_response,
+        ) as mock_urlopen:
+            _download_file(url="https://example.com/file.bin", dest=dest)
+
+        _, kwargs = mock_urlopen.call_args
+        assert "timeout" in kwargs
+        assert 0 < kwargs["timeout"] <= 60
 
     def test_cleans_up_temp_on_error(self, tmp_path) -> None:
         dest = tmp_path / "error.bin"
@@ -276,6 +308,8 @@ class TestDownloadFile:
         dest = tmp_path / "sub" / "dir" / "file.bin"
 
         mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
         mock_response.headers.get.return_value = "4"
         mock_response.read.side_effect = [b"data", b""]
 

@@ -194,35 +194,38 @@ def _download_file(
     tmp = dest.with_suffix(dest.suffix + ".tmp")
 
     try:
-        response = urllib.request.urlopen(url, timeout=60)
-        total_bytes = int(response.headers.get("Content-Length", 0))
-        downloaded = 0
-        chunk_size = 256 * 1024  # 256 KB
+        # Context manager guarantees the HTTP response handle is closed on
+        # exception or cancellation, not just on the happy path. Without this
+        # a cancelled download leaks the underlying socket until GC runs.
+        with urllib.request.urlopen(url, timeout=30) as response:
+            total_bytes = int(response.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk_size = 256 * 1024  # 256 KB
 
-        with open(tmp, "wb") as f:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    raise InterruptedError("Cancelled")
-                chunk = response.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_cb:
-                    progress_cb(
-                        InstallProgress(
-                            step=step,
-                            total_steps=total_steps,
-                            step_label=step_label,
-                            bytes_done=downloaded,
-                            bytes_total=total_bytes,
-                            percent=(downloaded / total_bytes * 100)
-                            if total_bytes
-                            else 0,
-                            message=f"{downloaded // (1024 * 1024)}"
-                            f" / {total_bytes // (1024 * 1024)} MB",
+            with open(tmp, "wb") as f:
+                while True:
+                    if cancel_event and cancel_event.is_set():
+                        raise InterruptedError("Cancelled")
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_cb:
+                        progress_cb(
+                            InstallProgress(
+                                step=step,
+                                total_steps=total_steps,
+                                step_label=step_label,
+                                bytes_done=downloaded,
+                                bytes_total=total_bytes,
+                                percent=(downloaded / total_bytes * 100)
+                                if total_bytes
+                                else 0,
+                                message=f"{downloaded // (1024 * 1024)}"
+                                f" / {total_bytes // (1024 * 1024)} MB",
+                            )
                         )
-                    )
 
         # Atomic rename.
         if dest.exists():
