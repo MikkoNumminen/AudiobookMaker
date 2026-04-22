@@ -16,6 +16,19 @@ from pathlib import Path
 from pydub import AudioSegment
 
 
+class AudioFormatMismatch(Exception):
+    """Raised by :func:`combine_audio_files` when a chunk's sample rate,
+    channel count, or sample width does not match the first chunk.
+
+    Before this check existed we silently force-resampled every chunk to
+    match chunk 0. That meant a corrupt or outlier first chunk (wrong
+    sample rate, mono vs stereo mismatch, etc.) quietly dragged the whole
+    audiobook to its format. Raising instead surfaces the drift early so
+    the caller can investigate — usually the upstream synthesis engine
+    has misbehaved on that chunk and the whole run needs a second look.
+    """
+
+
 def _trim_chunk_silence(
     segment: AudioSegment,
     threshold_db: float = -45.0,
@@ -152,10 +165,19 @@ def combine_audio_files(
                 or segment.channels != target_channels
                 or segment.sample_width != target_sw
             ):
-                segment = (
-                    segment.set_frame_rate(target_rate)
-                    .set_channels(target_channels)
-                    .set_sample_width(target_sw)
+                # Historically we silently force-resampled to match chunk
+                # 0. That masks a real bug: if the engine produced an
+                # outlier chunk (wrong sample rate, mono vs stereo flip)
+                # the resample applied to the REST of the run meant every
+                # subsequent chunk got dragged to the wrong format and
+                # the audiobook came out subtly wrong. Fail loud instead
+                # so the caller can retry / regenerate just the bad
+                # chunk.
+                raise AudioFormatMismatch(
+                    f"Chunk {i}: {segment.frame_rate}Hz "
+                    f"{segment.channels}ch {segment.sample_width}B vs "
+                    f"target {target_rate}Hz {target_channels}ch "
+                    f"{target_sw}B"
                 )
             trimmed = staging_dir / f"chunk_{i:05d}.wav"
             segment.export(str(trimmed), format="wav")
