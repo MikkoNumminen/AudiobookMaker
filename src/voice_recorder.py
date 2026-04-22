@@ -120,13 +120,21 @@ class RecordingResult:
 def _read_wav_samples(path: Path) -> tuple[int, int, list[int]]:
     """Read a 16-bit PCM WAV and return (sample_rate, n_channels, samples).
 
-    Returns raw int16 sample values as a flat list.
+    Returns raw int16 sample values as a flat list.  Raises ``ValueError``
+    if the file is not 16-bit PCM — silently re-interpreting 24/32-bit
+    samples as int16 produces nonsense loudness/clipping numbers, so we
+    fail loud rather than convert.
     """
     with wave.open(str(path), "rb") as wf:
         rate = wf.getframerate()
         n_ch = wf.getnchannels()
+        sw = wf.getsampwidth()
         n_frames = wf.getnframes()
         raw = wf.readframes(n_frames)
+    if sw != 2:
+        raise ValueError(
+            f"Unsupported WAV sample width: {sw * 8} bits — expected 16-bit PCM"
+        )
     # 16-bit signed PCM
     count = len(raw) // 2
     samples = list(struct.unpack(f"<{count}h", raw))
