@@ -128,6 +128,89 @@ def _apply_hf_token_shim() -> None:
     _HF_TOKEN_SHIM_APPLIED = True
 
 
+_TORCH_LOAD_SHIM_APPLIED = False
+
+
+def _apply_torch_load_shim() -> None:
+    """Force ``weights_only=False`` on ``torch.load`` for pyannote checkpoints.
+
+    PyTorch 2.6 flipped the default of ``torch.load``'s ``weights_only`` from
+    ``False`` to ``True``. pyannote.audio 3.x checkpoints contain pickled
+    ``TorchVersion`` objects (and potentially other non-tensor globals) that
+    the weights-only unpickler refuses to load, crashing with::
+
+        WeightsUnpickler error: Unsupported global: GLOBAL
+        torch.torch_version.TorchVersion was not an allowed global by default
+
+    We trust pyannote's checkpoints (we're downloading them from the
+    official repo over HTTPS with a valid token), so forcing
+    ``weights_only=False`` is safe here. Idempotent.
+    """
+    global _TORCH_LOAD_SHIM_APPLIED
+    if _TORCH_LOAD_SHIM_APPLIED:
+        return
+    import torch  # type: ignore[import-not-found]
+
+    original = torch.load
+
+    def _load_weights_only_false(*args: Any, **kwargs: Any) -> Any:
+        # Force-override: lightning_fabric.cloud_io passes weights_only=True
+        # explicitly, so setdefault is not enough — we have to clobber it.
+        kwargs["weights_only"] = False
+        return original(*args, **kwargs)
+
+    torch.load = _load_weights_only_false  # type: ignore[assignment]
+    _TORCH_LOAD_SHIM_APPLIED = True
+
+
+_SPEECHBRAIN_LAZY_SHIM_APPLIED = False
+
+
+def _apply_speechbrain_lazy_shim() -> None:
+    """Make speechbrain's ``LazyModule`` raise ``AttributeError`` on missing
+    optional deps instead of ``ImportError``.
+
+    pytorch_lightning's ``load_from_checkpoint`` walks ``inspect.stack()``
+    to detect torch-jit context. ``inspect.getmodule`` calls
+    ``hasattr(module, '__file__')`` on every module on the stack. When
+    speechbrain's ``LazyModule`` wraps an optional integration that isn't
+    installed (``k2_fsa``, ``nlp``, etc.) and ``__getattr__`` raises
+    ``ImportError``, ``hasattr`` does **not** catch it — so the whole
+    pyannote pipeline load crashes mid-init on modules it doesn't need.
+
+    We monkey-patch ``LazyModule.ensure_module`` to convert ``ImportError``
+    to ``AttributeError`` with the same message. ``hasattr`` catches
+    ``AttributeError`` and returns ``False``, which is exactly what we want
+    here — pretend the missing module has no attributes. Idempotent.
+    """
+    global _SPEECHBRAIN_LAZY_SHIM_APPLIED
+    if _SPEECHBRAIN_LAZY_SHIM_APPLIED:
+        return
+    try:
+        from speechbrain.utils import importutils as _imputils  # type: ignore[import-not-found]
+    except ImportError:
+        # speechbrain not installed → nothing to patch, and pyannote will
+        # fail later with a clearer error. Mark applied so we don't retry.
+        _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
+        return
+
+    LazyModule = getattr(_imputils, "LazyModule", None)
+    if LazyModule is None:
+        _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
+        return
+
+    original_ensure = LazyModule.ensure_module
+
+    def _ensure_module_softfail(self, stacklevel=1):  # type: ignore[no-untyped-def]
+        try:
+            return original_ensure(self, stacklevel + 1)
+        except ImportError as exc:  # noqa: BLE001 - we want broad catch here
+            raise AttributeError(str(exc)) from exc
+
+    LazyModule.ensure_module = _ensure_module_softfail  # type: ignore[assignment]
+    _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
+
+
 def _resolve_device(device: str) -> str:
     """Turn ``"auto"`` into a concrete ``"cpu"`` / ``"cuda"`` selection.
 
@@ -188,6 +271,8 @@ def load_pipeline(
     # cleanly regardless of which hf_hub version is installed. Safe to
     # re-apply; _apply_hf_token_shim is idempotent.
     _apply_hf_token_shim()
+    _apply_torch_load_shim()
+    _apply_speechbrain_lazy_shim()
 
     pipeline = Pipeline.from_pretrained(_PYANNOTE_MODEL_ID, use_auth_token=token)
 
