@@ -242,6 +242,14 @@ def _download_file(
         raise
 
 
+# 30 minutes. Covers the worst case we have in production: a fresh torch
+# + CUDA wheel install on a slow residential connection. Anything longer
+# is almost certainly a hung process, not real progress — freezing the
+# install modal forever (the old behaviour) is worse than surfacing the
+# hang to the caller as a TimeoutExpired.
+_DEFAULT_SUBPROCESS_TIMEOUT_S = 1800
+
+
 def _run_subprocess(
     cmd: list[str],
     progress_cb: Optional[ProgressCallback] = None,
@@ -250,8 +258,16 @@ def _run_subprocess(
     step_label: str = "",
     cancel_event: Optional[threading.Event] = None,
     env: Optional[dict] = None,
+    timeout: float = _DEFAULT_SUBPROCESS_TIMEOUT_S,
 ) -> subprocess.CompletedProcess:
-    """Run a subprocess and stream its output to progress_cb."""
+    """Run a subprocess and stream its output to progress_cb.
+
+    Raises ``subprocess.TimeoutExpired`` if the child does not finish
+    within ``timeout`` seconds. Callers that expect legitimately long
+    installs (pip install torch) can raise the timeout; everyone else
+    gets a safe default so a hung pip never freezes the install modal
+    indefinitely.
+    """
     merged_env = {**os.environ, **(env or {})}
     proc = subprocess.Popen(
         cmd,
@@ -262,25 +278,40 @@ def _run_subprocess(
         env=merged_env,
     )
 
-    output_lines = []
-    for line in proc.stdout:  # type: ignore
-        line = line.rstrip()
-        output_lines.append(line)
-        if progress_cb:
-            progress_cb(
-                InstallProgress(
-                    step=step,
-                    total_steps=total_steps,
-                    step_label=step_label,
-                    message=line,
+    output_lines: list[str] = []
+    # Wrap the stdout iteration in try/finally: if the progress_cb
+    # raises, or if we hit the TimeoutExpired path below, the pipe still
+    # gets closed. Without this the read end would linger until GC and
+    # the child could block on a full PIPE buffer.
+    try:
+        for line in proc.stdout:  # type: ignore[union-attr]
+            line = line.rstrip()
+            output_lines.append(line)
+            if progress_cb:
+                progress_cb(
+                    InstallProgress(
+                        step=step,
+                        total_steps=total_steps,
+                        step_label=step_label,
+                        message=line,
+                    )
                 )
-            )
-        if cancel_event and cancel_event.is_set():
-            proc.terminate()
-            proc.wait()
-            raise InterruptedError("Cancelled")
+            if cancel_event and cancel_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                raise InterruptedError("Cancelled")
 
-    proc.wait()
+        proc.wait(timeout=timeout)
+    finally:
+        if proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
     result = subprocess.CompletedProcess(
         cmd, proc.returncode, "\n".join(output_lines), ""
     )

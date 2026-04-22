@@ -325,12 +325,32 @@ class TestDownloadFile:
 # ---------------------------------------------------------------------------
 
 
+class _FakePipe:
+    """Test helper: an iterable with a close() the production code can
+    call. MagicMock's default ``iter(...)`` replacement loses the
+    .close() attribute that the finally-close now depends on."""
+
+    def __init__(self, lines):
+        self._iter = iter(lines)
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._iter)
+
+    def close(self):
+        self.closed = True
+
+
 class TestRunSubprocess:
     def test_streams_output_to_callback(self) -> None:
         events: list[InstallProgress] = []
 
         mock_proc = MagicMock()
-        mock_proc.stdout = iter(["line 1\n", "line 2\n"])
+        pipe = _FakePipe(["line 1\n", "line 2\n"])
+        mock_proc.stdout = pipe
         mock_proc.returncode = 0
         mock_proc.wait.return_value = None
 
@@ -347,6 +367,8 @@ class TestRunSubprocess:
         assert len(events) == 2
         assert events[0].message == "line 1"
         assert events[1].message == "line 2"
+        # finally-close must run on the happy path too.
+        assert pipe.closed is True
 
     def test_cancel_terminates_process(self) -> None:
         cancel = threading.Event()
@@ -358,7 +380,8 @@ class TestRunSubprocess:
             cancel.set()
             yield "line 2\n"
 
-        mock_proc.stdout = lines()
+        pipe = _FakePipe(lines())
+        mock_proc.stdout = pipe
         mock_proc.returncode = -1
         mock_proc.wait.return_value = None
 
@@ -367,6 +390,60 @@ class TestRunSubprocess:
                 _run_subprocess(["cmd"], cancel_event=cancel)
 
         mock_proc.terminate.assert_called_once()
+        # Pipe must be closed even when cancel raises mid-stream.
+        assert pipe.closed is True
+
+    def test_wait_timeout_is_passed_through(self) -> None:
+        """_run_subprocess must call proc.wait(timeout=...) with a finite,
+        positive timeout. A missing timeout is the exact bug that froze the
+        install modal on a hung pip."""
+        mock_proc = MagicMock()
+        pipe = _FakePipe([])
+        mock_proc.stdout = pipe
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = None
+
+        with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc):
+            _run_subprocess(["cmd"], timeout=42.0)
+
+        # The only wait() call in the happy path is the final one.
+        mock_proc.wait.assert_called_once()
+        _, kwargs = mock_proc.wait.call_args
+        assert kwargs.get("timeout") == 42.0
+
+    def test_wait_timeout_propagates(self) -> None:
+        """If proc.wait() raises TimeoutExpired, the caller sees it so the
+        install dialog can surface the hang instead of spinning forever."""
+        mock_proc = MagicMock()
+        pipe = _FakePipe([])
+        mock_proc.stdout = pipe
+        mock_proc.returncode = None
+        mock_proc.wait.side_effect = subprocess.TimeoutExpired(cmd="pip", timeout=1.0)
+
+        with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc):
+            with pytest.raises(subprocess.TimeoutExpired):
+                _run_subprocess(["cmd"], timeout=1.0)
+
+        # Even on timeout, the pipe must be closed.
+        assert pipe.closed is True
+
+    def test_pipe_closed_when_progress_cb_raises(self) -> None:
+        """If the progress callback itself raises, the finally must still
+        close the stdout pipe so the child can exit cleanly."""
+        mock_proc = MagicMock()
+        pipe = _FakePipe(["boom\n"])
+        mock_proc.stdout = pipe
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = None
+
+        def angry_cb(_evt):
+            raise RuntimeError("ui exploded")
+
+        with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="ui exploded"):
+                _run_subprocess(["cmd"], progress_cb=angry_cb)
+
+        assert pipe.closed is True
 
 
 # ---------------------------------------------------------------------------
