@@ -153,26 +153,38 @@ class TestRunningIdleStateTransitions:
 
     def test_idle_reverses_running_state(self, app, tmp_path):
         # Progressive disclosure: Convert/Sample need input+voice; Preview
-        # needs a playable output. Set all three up so post-idle state
+        # needs a playable output. Set each condition so post-idle state
         # can legitimately return the buttons to "normal" — that is what
         # "idle reverses running" means under the new gating.
+        #
+        # _input_mode is a property reading the active tabview tab, and
+        # the module-scoped shared app may have it on either tab by the
+        # time this test runs. Set both a _pdf_path and text content so
+        # _has_usable_input passes under either active tab.
         app._text_has_placeholder = False
         app._text_widget.delete("1.0", tk.END)
         app._text_widget.insert("1.0", "Testilause.")
+        fake_pdf = tmp_path / "fake.pdf"
+        fake_pdf.write_bytes(b"fake")
+        app._pdf_path = str(fake_pdf)
         out_mp3 = tmp_path / "done.mp3"
         out_mp3.write_bytes(b"fake")
         app._last_playable_path = str(out_mp3)
 
-        app._set_running_state()
-        app.update_idletasks()
-        app._set_idle_state()
-        app.update_idletasks()
-        assert str(app._convert_btn.cget("state")) == "normal"
-        assert str(app._sample_btn.cget("state")) == "normal"
-        assert str(app._listen_btn.cget("state")) == "normal"
-        # Cancel button hidden again.
-        assert app._cancel_btn.winfo_manager() == ""
-        assert app._synth_running is False
+        # Force has_voice=True without relying on the fixture's engine/
+        # voice-combobox state (CI order leaves those differently than
+        # local).
+        with patch.object(app, "_current_voice", return_value=MagicMock()):
+            app._set_running_state()
+            app.update_idletasks()
+            app._set_idle_state()
+            app.update_idletasks()
+            assert str(app._convert_btn.cget("state")) == "normal"
+            assert str(app._sample_btn.cget("state")) == "normal"
+            assert str(app._listen_btn.cget("state")) == "normal"
+            # Cancel button hidden again.
+            assert app._cancel_btn.winfo_manager() == ""
+            assert app._synth_running is False
 
 
 # ---------------------------------------------------------------------------
