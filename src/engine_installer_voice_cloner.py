@@ -145,13 +145,25 @@ def _default_hf_verify(token: str) -> HfVerifyResult:
         return HfVerifyResult(ok=False, reason="other", detail=str(exc))
 
 
+# Same ceiling as src.engine_installer._DEFAULT_SUBPROCESS_TIMEOUT_S:
+# 30 minutes covers a full faster-whisper + pyannote install on a slow
+# residential connection. Anything longer is a hung pip, not a real
+# install — propagate TimeoutExpired to the caller so the install modal
+# surfaces a recoverable error instead of freezing indefinitely.
+_PIP_RUNNER_TIMEOUT_S = 1800
+
+
 def _default_pip_runner(
     venv_python: Path,
     packages: tuple[str, ...],
     progress_cb: ProgressCallback,
     cancel_event: threading.Event,
 ) -> int:
-    """Run ``pip install`` inside the Chatterbox venv, stream to progress_cb."""
+    """Run ``pip install`` inside the Chatterbox venv, stream to progress_cb.
+
+    Raises ``subprocess.TimeoutExpired`` if pip does not finish within
+    :data:`_PIP_RUNNER_TIMEOUT_S` seconds.
+    """
     cmd = [str(venv_python), "-m", "pip", "install", *packages]
     proc = subprocess.Popen(
         cmd,
@@ -161,14 +173,25 @@ def _default_pip_runner(
         bufsize=1,
     )
     assert proc.stdout is not None
-    for raw in proc.stdout:
-        if cancel_event.is_set():
-            proc.terminate()
-            proc.wait()
-            return -1
-        line = raw.rstrip()
-        progress_cb(InstallProgress(message=line))
-    return proc.wait()
+    try:
+        for raw in proc.stdout:
+            if cancel_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                return -1
+            line = raw.rstrip()
+            progress_cb(InstallProgress(message=line))
+        return proc.wait(timeout=_PIP_RUNNER_TIMEOUT_S)
+    finally:
+        if proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
 
 
 def _default_smoke_test(
