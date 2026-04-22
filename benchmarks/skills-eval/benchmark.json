@@ -1,0 +1,305 @@
+{
+  "iteration": 1,
+  "skills": [
+    {
+      "skill": "release-cut",
+      "configs": {
+        "with_skill": {
+          "n": 3,
+          "pass_rate_mean": 1.0,
+          "pass_rate_stdev": 0.0,
+          "duration_s_mean": 90.7,
+          "duration_s_stdev": 2.3,
+          "tokens_mean": 28834,
+          "tokens_stdev": 2716,
+          "per_eval": [
+            {
+              "name": "casual-patch-bump",
+              "passed": 8,
+              "total": 8,
+              "pass_rate": 1.0,
+              "tokens": 32627,
+              "duration_s": 93.3
+            },
+            {
+              "name": "vague-ship-request",
+              "passed": 4,
+              "total": 4,
+              "pass_rate": 1.0,
+              "tokens": 27462,
+              "duration_s": 91.0
+            },
+            {
+              "name": "explicit-minor-bump",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 26414,
+              "duration_s": 87.8
+            }
+          ]
+        },
+        "without_skill": {
+          "n": 3,
+          "pass_rate_mean": 1.0,
+          "pass_rate_stdev": 0.0,
+          "duration_s_mean": 144.3,
+          "duration_s_stdev": 13.4,
+          "tokens_mean": 46853,
+          "tokens_stdev": 2879,
+          "per_eval": [
+            {
+              "name": "casual-patch-bump",
+              "passed": 8,
+              "total": 8,
+              "pass_rate": 1.0,
+              "tokens": 50008,
+              "duration_s": 163.2
+            },
+            {
+              "name": "vague-ship-request",
+              "passed": 4,
+              "total": 4,
+              "pass_rate": 1.0,
+              "tokens": 43047,
+              "duration_s": 133.1
+            },
+            {
+              "name": "explicit-minor-bump",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 47503,
+              "duration_s": 136.7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "skill": "work-session",
+      "configs": {
+        "with_skill": {
+          "n": 3,
+          "pass_rate_mean": 0.944,
+          "pass_rate_stdev": 0.079,
+          "duration_s_mean": 77.0,
+          "duration_s_stdev": 15.4,
+          "tokens_mean": 26762,
+          "tokens_stdev": 3143,
+          "per_eval": [
+            {
+              "name": "claim-named-backlog-item",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 31183,
+              "duration_s": 97.9
+            },
+            {
+              "name": "finish-and-clean",
+              "passed": 5,
+              "total": 6,
+              "pass_rate": 0.833,
+              "tokens": 24945,
+              "duration_s": 71.8
+            },
+            {
+              "name": "block-on-external",
+              "passed": 5,
+              "total": 5,
+              "pass_rate": 1.0,
+              "tokens": 24157,
+              "duration_s": 61.4
+            }
+          ]
+        },
+        "without_skill": {
+          "n": 3,
+          "pass_rate_mean": 0.802,
+          "pass_rate_stdev": 0.176,
+          "duration_s_mean": 100.2,
+          "duration_s_stdev": 41.8,
+          "tokens_mean": 33098,
+          "tokens_stdev": 3347,
+          "per_eval": [
+            {
+              "name": "claim-named-backlog-item",
+              "passed": 4,
+              "total": 7,
+              "pass_rate": 0.571,
+              "tokens": 37728,
+              "duration_s": 156.2
+            },
+            {
+              "name": "finish-and-clean",
+              "passed": 5,
+              "total": 6,
+              "pass_rate": 0.833,
+              "tokens": 31632,
+              "duration_s": 88.5
+            },
+            {
+              "name": "block-on-external",
+              "passed": 5,
+              "total": 5,
+              "pass_rate": 1.0,
+              "tokens": 29933,
+              "duration_s": 55.8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "skill": "fi-normalizer-pass",
+      "configs": {
+        "with_skill": {
+          "n": 3,
+          "pass_rate_mean": 1.0,
+          "pass_rate_stdev": 0.0,
+          "duration_s_mean": 169.5,
+          "duration_s_stdev": 44.8,
+          "tokens_mean": 48496,
+          "tokens_stdev": 9513,
+          "per_eval": [
+            {
+              "name": "new-pass-p-compound-splitter",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 51049,
+              "duration_s": 155.5
+            },
+            {
+              "name": "extend-pass-i-lexicon",
+              "passed": 6,
+              "total": 6,
+              "pass_rate": 1.0,
+              "tokens": 35781,
+              "duration_s": 123.1
+            },
+            {
+              "name": "debug-page-range",
+              "passed": 6,
+              "total": 6,
+              "pass_rate": 1.0,
+              "tokens": 58659,
+              "duration_s": 230.0
+            }
+          ]
+        },
+        "without_skill": {
+          "n": 3,
+          "pass_rate_mean": 0.833,
+          "pass_rate_stdev": 0.136,
+          "duration_s_mean": 142.9,
+          "duration_s_stdev": 40.3,
+          "tokens_mean": 43941,
+          "tokens_stdev": 11389,
+          "per_eval": [
+            {
+              "name": "new-pass-p-compound-splitter",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 53572,
+              "duration_s": 157.3
+            },
+            {
+              "name": "extend-pass-i-lexicon",
+              "passed": 4,
+              "total": 6,
+              "pass_rate": 0.667,
+              "tokens": 27945,
+              "duration_s": 87.9
+            },
+            {
+              "name": "debug-page-range",
+              "passed": 5,
+              "total": 6,
+              "pass_rate": 0.833,
+              "tokens": 50305,
+              "duration_s": 183.4
+            }
+          ]
+        }
+      }
+    },
+    {
+      "skill": "pronunciation-corpus-add",
+      "configs": {
+        "with_skill": {
+          "n": 3,
+          "pass_rate_mean": 1.0,
+          "pass_rate_stdev": 0.0,
+          "duration_s_mean": 83.8,
+          "duration_s_stdev": 6.1,
+          "tokens_mean": 27170,
+          "tokens_stdev": 2324,
+          "per_eval": [
+            {
+              "name": "single-turo-report",
+              "passed": 6,
+              "total": 6,
+              "pass_rate": 1.0,
+              "tokens": 25057,
+              "duration_s": 75.1
+            },
+            {
+              "name": "batch-five-reports",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 26047,
+              "duration_s": 88.6
+            },
+            {
+              "name": "ambiguous-category",
+              "passed": 6,
+              "total": 6,
+              "pass_rate": 1.0,
+              "tokens": 30406,
+              "duration_s": 87.6
+            }
+          ]
+        },
+        "without_skill": {
+          "n": 3,
+          "pass_rate_mean": 0.889,
+          "pass_rate_stdev": 0.079,
+          "duration_s_mean": 113.2,
+          "duration_s_stdev": 13.8,
+          "tokens_mean": 29661,
+          "tokens_stdev": 2055,
+          "per_eval": [
+            {
+              "name": "single-turo-report",
+              "passed": 5,
+              "total": 6,
+              "pass_rate": 0.833,
+              "tokens": 26774,
+              "duration_s": 93.7
+            },
+            {
+              "name": "batch-five-reports",
+              "passed": 7,
+              "total": 7,
+              "pass_rate": 1.0,
+              "tokens": 30813,
+              "duration_s": 122.1
+            },
+            {
+              "name": "ambiguous-category",
+              "passed": 5,
+              "total": 6,
+              "pass_rate": 0.833,
+              "tokens": 31396,
+              "duration_s": 123.7
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

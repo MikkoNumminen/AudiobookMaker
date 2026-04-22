@@ -124,246 +124,9 @@ right now.
   aborting mid-pipeline on some machines
 - **1884 tests passing** -- up from 1878
 
-**v3.10.0** -- Clone a voice from any audio file, right inside the app:
-
-- **Clone voice from file button** -- a new button in Settings opens a
-  file picker. Drop in a clean recording of a single voice (or two
-  voices talking), the app listens to it, figures out who is speaking,
-  asks you what to name each voice, and adds them to the Voice
-  dropdown. No command line, no scripts. About ten minutes from drop
-  to voice-in-dropdown for a five-minute recording
-- **Drag and drop audio onto the window** -- same flow, no button
-  needed. Drop a `.wav` / `.mp3` / `.m4a` / `.flac` / `.ogg` / `.m4b`
-  on the main window and the clone-voice flow fires. Silently falls
-  back to the file picker if the drop library is missing
-- **Voice Cloner capability in Engine Manager** -- a new "Extras" row
-  installs the two helper libraries (one that listens to your file,
-  one that figures out who is speaking) into the same Python folder
-  as Chatterbox, so the main app stays lean. Install / Remove works
-  the same as the existing engine rows
-- **Guided Hugging Face setup** -- the listener component needs a
-  free one-time Hugging Face key. A dedicated setup window walks you
-  through it in three clicks with browser buttons that take you to
-  the right pages. If the key is wrong or the network is down you
-  get a plain-language message, not a Python traceback
-- **Pre-analyze modal asks what you want** -- before the app starts
-  listening, it asks: how many voices is the recording (1, 2, 3-8,
-  auto), and which language (Finnish or English). Finnish cloning in
-  v1 is biased toward the stock Finnish voice; English clones more
-  cleanly
-- **Copyright-safe by default** -- the raw filename never leaks into
-  the log panel. Scratch files land in `.local/clone_scratch/` so
-  nothing you feed the app ends up in a diff or a PR
-- **1872 tests passing** -- up from 1598. The clone-voice flow,
-  drag-drop parser, Engine Manager Extras row, and Hugging Face
-  setup modal each have regression coverage
-
-**v3.9.1** -- Bug reporting, a voice pack builder, and small polish:
-
-- **Report a bug button** -- a new link in Settings opens a pre-filled
-  GitHub issue with your app version, OS, and engine info. So fixes
-  don't wait on you remembering which build you were running
-- **Engine Manager follows the Language toggle** -- flipping Language
-  between Finnish and English now also relocalises the Engine Manager
-  window, Back button included
-- **Voice pack builder pipeline** -- five command-line tools under
-  `scripts/voice_pack_*.py` turn a clean sample recording into an
-  installable voice pack. The stages are: analyze (ASR + diarization),
-  cluster characters, export per-speaker clips, train a LoRA adapter,
-  package for the app. Dev-only for now; the app still imports
-  finished packs through the **Import voice pack** button
-- **Inline audio sample player** -- the Listen and Make Sample
-  buttons now play through an in-app player instead of shelling out
-  to the OS default app. Faster, quieter, no orphaned windows
-- **Finnish acronym fallback** -- unknown uppercase acronyms now
-  fall back to a clean letter-by-letter read (`NSA` → "en-es-aa")
-  instead of getting mangled by the AI
-- **1598 tests passing** -- up from 1565
-
-**v3.9.0** -- Import voice packs, Cold Forge redesign, and a much
-bigger test suite keeping it all honest:
-
-- **Import voice pack button** -- a new button in Settings opens a
-  folder picker, copies the pack to `~/.audiobookmaker/voice_packs/`,
-  and the voice shows up next to Grandmom in the Voice dropdown. Picks
-  from a pack auto-wire the reference audio so Chatterbox clones from
-  it without you having to point at a file manually. Voice packs are a
-  bundle of a reference clip and metadata; the pipeline to build them
-  from source recordings lives under `scripts/voice_pack_*`
-- **Cold Forge design system** -- a new theme module (`gui_style.py`)
-  centralises fonts, spacing, colours, and icons so the whole window
-  follows one consistent visual language. Replaces the old mix of
-  hardcoded colour literals
-- **Chatterbox registered like every other engine** -- Chatterbox now
-  plugs into the shared engine registry via a subprocess-aware bridge
-  class (`tts_chatterbox_bridge.py`). The GUI picks Chatterbox the same
-  way it picks Edge-TTS or Piper; the subprocess split is an
-  implementation detail behind a `uses_subprocess = True` flag
-- **GUI builders split out of `gui_unified.py`** -- header bar, engine
-  bar, settings panel, and action row each live in their own module
-  under `src/gui_builders/`, so the main window file reads like
-  glue-code instead of a 3000-line god class
-- **Stress-tested Chatterbox long-run** -- the 500-call Tier 1 validator
-  exercises the same engine handle across hundreds of synthesis calls
-  and now holds memory flat through the whole run. Fixes an upstream
-  EOS-suppression bug that caused occasional swallowed sentences on
-  multi-hour books
-- **1565 tests passing** -- pre-commit hooks and CI enforce the full
-  suite before any commit. Test count grew from 618 → 1565 over the
-  recent audit pass
-
-**v3.7.0** -- Sample button, language picker up front, and English
-audiobooks that finally sound English:
-
-- **Make Sample button** -- a new button sits next to Convert. Click
-  it and the app generates a ~30-second sample from the start of your
-  book and saves it to `<book>_sample.mp3` next to the planned output.
-  Lets you A/B two engines or voices in seconds before committing to
-  a multi-hour full run
-- **Language picker moved to the main bar** -- "Language" now sits
-  next to Engine and Voice (was buried in Settings). Picking a
-  language filters the Engine and Voice dropdowns so you only see
-  what actually works in that language. The setting sticks across
-  restarts; first launch defaults to Finnish if Windows is in
-  Finnish, English otherwise
-- **English audiobooks read like English audiobooks** -- Chatterbox
-  in English mode no longer quietly applies Finnish rules (Roman
-  numerals as Finnish ordinals, Finnish case inflection on numbers,
-  and so on). The normalizer now dispatches by language
-- **English text normalizer** -- full rules for English currency,
-  units, time, dates, telephone numbers, URLs and emails, and
-  acronyms. Numbers, money, and dates in English books finally sound
-  natural
-- **41 Edge-TTS voices, 25 Piper voices** -- large voice catalogue
-  expansion across the supported languages
-- **Chatterbox Grandmom per language** -- one voice entry per
-  language (Grandmom (Finnish), Grandmom (English)) so the dropdown
-  matches what you actually get
-
-**v3.6** -- Live ETA and an auto-updater that can recover on its own:
-
-- **Sticky status strip with live ETA** -- a status line pinned under
-  the toolbar shows current progress and remaining time, and gives
-  you a pre-synthesis estimate so you know roughly how long a book
-  will take BEFORE you start
-- **Self-healing SHA-256 fallback** -- if the release notes are
-  missing the security hash, the app falls back to a sidecar
-  `.exe.sha256` file. No manual intervention needed
-- **Open in browser fallback** -- when an auto-update is blocked
-  (antivirus, permissions, network hiccup), the update banner now
-  includes an "Open in browser" button so you can always grab the
-  installer manually
-- **Foreground after update** -- the app now pops itself to the
-  front after a successful auto-install instead of silently opening
-  behind your browser
-- **Periodic re-check + real errors** -- the app re-checks for
-  updates every 4 hours, and download failures now show a proper
-  error message instead of failing silently
-- **Chatterbox subprocess hotfix** -- ffmpeg path is now correctly
-  wired into the Chatterbox subprocess, and the audio/chunking/
-  normalizer modules are bundled into the installer so Chatterbox
-  no longer crashes on first run
-
-**v3.5** -- Grandmom speaks English, plus a lot of quiet polish:
-
-- **Grandmom speaks English** -- the default Chatterbox voice now
-  works natively in English via voice-cloning, not just Finnish
-- **Open in browser for every update** -- the update banner always
-  includes a browser-download link as a safety net, no matter what
-  the auto-updater is doing
-- **Launcher help link works again** -- the in-app "Help" link from
-  the launcher now points at the README instead of a dead URL, and
-  stray old-branding references were scrubbed
-- **Hardened cleanup paths** -- Piper and Chatterbox setup no longer
-  leave half-downloaded files behind when something goes wrong
-  mid-download
-
-**v3.4** -- Read EPUB files too:
-
-- **EPUB and TXT input** -- the "Book" tab now accepts EPUB and plain
-  `.txt` files alongside PDF. Same flow: pick a file, pick a voice,
-  press Convert
-
-**v3.3** -- Naming, reliability, and a rescue when you reinstall:
-
-- **Default Chatterbox voice is "Grandmom"** -- the stock cloning
-  voice has a proper name instead of an opaque file id, so you can
-  tell voices apart in the dropdown
-- **Your MP3s survive a reinstall** -- uninstalling or updating no
-  longer wipes MP3s sitting in the install folder. The cleanup step
-  rescues user audio before removing old app files
-- **Piper setup actually finishes** -- the `espeakbridge` native
-  component is now bundled correctly, so Piper no longer fails to
-  load with a cryptic import error on first run
-- **Update button stops double-firing** -- the update banner's
-  click handler no longer runs twice on some clicks, which had
-  occasionally stalled the install
-
-**v3.2** -- Polish pass on the install and update experience:
-
-- **Goat splash on startup and during updates** -- the goat icon
-  appears the moment the app starts, and stays on screen through
-  the 10-15 second update gap so you never wonder if the app crashed
-- **Running version shown in the title bar** -- `AudiobookMaker v3.11.0`
-  so you can confirm which build is actually running after an update
-- **Progress bar reaches 100%** -- "Done!" no longer appears while
-  the bar is still at 85%. Every gain counts, visibly
-- **Chunk progress lines are green** -- successful `[chapter N/N]
-  chunk M/K` steps render green so you can watch progress at a glance
-- **Warning-free log panel** -- upstream cosmetic warnings from torch,
-  diffusers, transformers, and HuggingFace Hub are suppressed at the
-  source. Real warnings still show up yellow
-- **Chatterbox alignment fix shown as info** -- when our EOS loop-break
-  kicks in, the log shows one calm `[info] alignment fix applied...`
-  line instead of two scary red warnings
-- **Generated files save to the install folder root** -- no more
-  burrowing into an `audiobooks\` subdirectory. MP3s land next to the
-  app .exe and survive uninstall/reinstall
-- **Auto-bump output filenames** -- `Convert` never overwrites a
-  previous `texttospeech_N.mp3`; the next free number is picked
-  automatically
-- **Self-healing auto-updater** -- if the silent install fails for
-  any reason, the next launch detects it and offers a visible
-  installer fallback
-
-**v2.3** -- Major update. Modern UI, more voices, auto-updates, and
-a lot of fixes to make everything actually work reliably:
-
-- **Modern look** -- the app uses CustomTkinter with dark/light mode
-  that follows your Windows theme automatically
-- **Listen button** -- type text, click Listen, hear it spoken right
-  away. No need to save a file first. Great for trying out voices
-- **30+ voices in 6 languages** -- Finnish, English, German, Swedish,
-  French, and Spanish voices from Edge-TTS. Offline Piper voices for
-  Finnish, English, and German
-- **Auto-updates** -- the app checks for new versions every 5 minutes.
-  When one is found, a banner appears at the top. Click it and the app
-  downloads, installs, and restarts itself. No manual downloads needed
-  after the first install
-- **Voice recording** -- record your own voice directly from the app
-  and use it for voice cloning with Chatterbox
-- **Chatterbox works with text** -- you can type or paste text and
-  synthesize it with Chatterbox. Previously only PDF input was
-  supported
-- **Smart language detection** -- the app detects your Windows language
-  and picks Finnish or English UI automatically on first run
-- **Single-instance guard** -- prevents accidentally opening two copies
-  of the app, which could cause file conflicts or GPU crashes. If you
-  need two windows (e.g. different engines on different files), the app
-  asks you to confirm
-- **Automatic output paths** -- no more file-picker dialogs before you
-  start. Every generated MP3 lands next to the installed app (same
-  folder as the .exe), with auto-incrementing filenames so nothing is
-  overwritten
-- **500+ tests** -- pre-commit hooks and CI enforce that all tests pass
-  before any code ships
-
-**v2.0.0** -- Unified app:
-
-- One download replaces both old installers (Main and Launcher)
-- Finnish/English UI toggle
-- Plain text input alongside PDF
-- In-app engine installer for Chatterbox
+Older releases (v3.10.0 back to v2.0.0) live in
+[docs/RELEASES.md](docs/RELEASES.md) so this page stays focused on what
+just shipped.
 
 ---
 
@@ -387,7 +150,7 @@ a lot of fixes to make everything actually work reliably:
 **Download:** [AudiobookMaker v3.11.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.10.0.exe`
+1. Download `AudiobookMaker-Setup-3.11.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
@@ -398,39 +161,131 @@ automatically. When a new version is available, a banner appears at the
 top of the window -- click "Update now" and the app handles everything.
 No manual downloads, no installer prompts.
 
-**What you get right away:**
-- A window where you pick a PDF or type/paste text, choose a voice, and
-  click Convert -- or click Listen to hear it spoken immediately
-- Two voice engines:
-  - **Edge-TTS** (needs internet) -- Microsoft's cloud voices. 30+
-    voices across 6 languages. Fast, free, sounds good
-  - **Piper** (works offline) -- downloads a voice model once (~60 MB),
-    then works without internet forever
-- Modern dark/light mode UI that follows your Windows setting
-- The app detects your system language and starts in Finnish or English
-  automatically
-- No Python, no GPU, no command line needed
+---
 
-**Want the best Finnish voice quality?**
+## What you can do in the GUI
 
-If you have an NVIDIA graphics card (RTX 3060 or better, 8+ GB video
-memory), you can add Chatterbox right from inside the app:
+You installed the app. Now what? Here is the whole tour of what the
+main window does -- no code, no command line, no Python. Think of this
+as the "things you can actually click" section.
 
-1. Click **Install engines** in the app
-2. The app downloads and sets up Chatterbox (~15 GB). A progress
-   indicator shows what's happening
-3. When it's done, Chatterbox appears as a voice engine option
+### Turn a book into an MP3
 
-With Chatterbox you also get:
-- **Voice cloning** -- record a short clip of someone's voice, and the
-  audiobook will sound like that person
-- **Finnish text intelligence** -- the app understands Finnish grammar
-  and reads numbers, dates, abbreviations, legal references, and
-  loanwords the way a human would. For example:
-  - `1300-luvulla` is read as "tuhat kolmesataa luvulla"
-  - `esim.` is read as "esimerkiksi"
-  - `5 %` is read as "viisi prosenttia"
-  - `sivulta 42` inflects the number to match Finnish case grammar
+The main job. Drop a **PDF**, an **EPUB**, or a plain **.txt** file into
+the Book tab. Pick a **Language** (Finnish or English), pick an
+**Engine** (Edge-TTS, Piper, or Chatterbox), pick a **Voice**. Click
+**Convert**. Go make coffee. You come back to one MP3 saved next to the
+app (or split per chapter if you flipped the Output toggle).
+
+### Type text and listen instantly
+
+No file? Click the **Text** tab, paste in whatever you want spoken,
+click **Preview** -- the voice reads it back through the built-in audio
+player. No file save required. Good for testing a voice before
+committing a 10-hour book to it.
+
+### Make a 30-second sample before committing to a whole book
+
+Click **Make sample** and the app synthesizes only the first ~30 seconds
+of your book and saves it as `<book>_sample.mp3` next to where the full
+run would land. Takes a minute instead of an hour, so you can A/B two
+engines or voices in seconds. The button stays greyed out until you
+have picked both an input and a voice, so you can't accidentally make
+an empty sample.
+
+### Three engines, three personalities
+
+- **Edge-TTS** -- Microsoft's cloud voices. Needs internet, sounds
+  great, 30+ voices across six languages. The fastest way to hear
+  something.
+- **Piper** -- Lives on your computer. Downloads a voice model once
+  (about a phone photo in size), then works forever without internet.
+  Not quite as smooth as Edge-TTS but very close.
+- **Chatterbox** -- The quality champion for Finnish. Needs an NVIDIA
+  graphics card, and the first-time setup is big (~15 GB of AI model).
+  The default voice is called **Grandmom** -- a warm elderly narrator
+  that sounds like somebody reading to you in a cabin.
+
+The **Language** picker at the top of the window filters the Engine and
+Voice dropdowns so you only see things that actually speak your
+language.
+
+### Install Chatterbox (and the Voice Cloner) without leaving the app
+
+The **Install engines** button in Settings opens the Engine Manager.
+Each engine has its own row with an Install / Remove button, and there
+is an "Extras" row below the engines for **Voice Cloner** (the thing
+that listens to audio files and pulls voices out of them). Everything
+downloads in the background with a progress bar; you never touch a
+terminal.
+
+### Import a voice pack somebody else built
+
+Got a voice pack folder from a collaborator or a previous run? Click
+**Import voice pack** in Settings, point at the folder, and the voice
+shows up in the Voice dropdown next to Grandmom. The app auto-wires the
+reference audio so Chatterbox clones from it without you having to
+point at a file.
+
+### Clone a voice from any audio file, right inside the app (new in v3.10.0)
+
+This is the headline trick. Click **Clone voice from file** in Settings
+(or drop a `.wav` / `.mp3` / `.m4a` / `.flac` / `.ogg` / `.m4b` onto
+the main window). The app will:
+
+1. Ask you how many voices are in the recording (1, 2, 3-8, or
+   auto-detect) and which language.
+2. Listen to the audio and figure out who is speaking when.
+3. Show you each detected speaker with runtime minutes.
+4. Ask you to name each voice you want to keep.
+5. Save them, and the new voices appear in the Voice dropdown.
+
+About ten minutes from drop to voice-in-dropdown for a five-minute
+recording. Voice Cloner needs a one-time Hugging Face key setup on
+first install -- the app walks you through it in three clicks with
+browser buttons that take you to the right pages.
+
+### Finnish text intelligence
+
+When you use Chatterbox-Finnish, a text normalizer runs first and
+fixes how abbreviations, numbers, dates, and Finnish case endings get
+read aloud. For example:
+
+- `1300-luvulla` becomes "tuhat kolmesataa luvulla"
+- `esim.` becomes "esimerkiksi"
+- `5 %` becomes "viisi prosenttia"
+- `sivulta 42` inflects the number to match Finnish case grammar
+
+You don't click anything. It just happens before the AI speaks. The
+normalizer has 150+ unit tests behind it so the common cases don't
+regress.
+
+### Watch progress as it runs, and pick up where you left off
+
+A status strip under the toolbar shows live progress and an estimated
+finish time -- updated every chunk. If you Ctrl-C or Windows reboots,
+re-running the same command picks up from the last finished chunk. You
+don't re-synthesize what is already done.
+
+### Report a bug in two clicks
+
+The **Report a bug** link in Settings opens a pre-filled GitHub issue
+with your app version, OS, and engine info. Fixes don't wait on you
+remembering which build you were running.
+
+### Auto-updates that actually work
+
+The app polls GitHub every five minutes for a newer version. When one
+lands, a banner appears at the top. Click it, the app downloads the
+new installer, verifies its SHA-256 fingerprint, installs it silently,
+and pops itself to the front of your screen when the update is done.
+No manual downloads. No SmartScreen dance on every release.
+
+### Finnish or English UI, follows your system
+
+First launch picks Finnish if Windows is in Finnish, English
+otherwise. You can override it under Settings -> Language (the UI
+picker, separate from the book-language dropdown in the main bar).
 
 ---
 
@@ -512,6 +367,90 @@ project doesn't have yet.
 The installer is safe -- its entire build process is open source
 in this repository and runs automatically on GitHub's servers on every
 release. You can read every line of code that goes into it.
+
+---
+
+## What dev mode adds on top
+
+The installer gives you a polished app that makes audiobooks. Cloning
+the repo and running from source gives you **everything else** -- the
+stuff that either isn't ready for normal users, or that makes more
+sense from a terminal than from a button. Think of dev mode as the
+back room of the same building.
+
+### You can run the full voice-pack training pipeline
+
+The GUI can **use** a trained voice pack and can **clone** a voice from
+an audio file with no training at all. Dev mode can **train a new pack
+from scratch** -- five command-line tools under `scripts/voice_pack_*`:
+
+- `voice_pack_analyze.py` -- listens to a source recording, runs
+  diarization + ASR, and writes a per-chunk transcript tagged with
+  speaker labels
+- `voice_pack_characters.py` -- optional stage that subclusters one
+  speaker's chunks by voice so a narrator performing many characters
+  can be split into per-character training sets
+- `voice_pack_export.py` -- filters the transcript to a single speaker
+  (or character), slices per-clip WAVs, and writes the training manifest
+- `voice_pack_train.py` -- runs a LoRA fine-tune (this is the heavy,
+  hours-long step; needs a GPU)
+- `voice_pack_package.py` -- bundles the trained adapter + reference
+  audio + metadata into an installable pack
+
+The GUI clone-voice flow does the no-training version of this. The
+full pipeline gives you reduced-LoRA and full-LoRA tiers, which
+capture a voice's character much more faithfully at the cost of a
+long training run.
+
+### You get the experimental engines
+
+- **VoxCPM2** -- a research engine with natural-language voice design
+  ("warm baritone elderly male"). Works but hasn't been tested
+  thoroughly. `pip install voxcpm`.
+- The GUI dropdown **does not show** VoxCPM2 -- the engine registry
+  filters it out in frozen builds. From source it appears like any
+  other engine.
+
+### You can synthesize books from the command line
+
+`scripts/generate_chatterbox_audiobook.py` is the same synthesis path
+the GUI uses underneath, exposed directly. Run it with `--epub book.epub
+--out out/book.mp3 --language en --device cuda` and it will synthesize
+the whole thing, chunk by chunk, resumable on Ctrl-C. Good for batch
+runs across many books, or for scripting a custom workflow. The
+step-by-step walkthrough lives in
+[docs/QUICKSTART_DEV.md](docs/QUICKSTART_DEV.md).
+
+`scripts/generate_audiobook_parallel.py` does the same thing with
+Edge-TTS and is about 8× faster for large books (the cloud voice
+takes parallel requests well).
+
+### You can fix a mispronunciation yourself
+
+When the Finnish voice mispronounces something -- a loanword, an
+abbreviation, an odd number -- the fix is usually a two-line edit to
+a YAML file in `data/fi_*.yaml` (the lexicon) or a small change to one
+of the 16 passes in `src/tts_normalizer_fi.py`. Add a regression test
+in `tests/test_tts_normalizer_fi.py` so it stays fixed.
+
+The canonical guide to the passes and when to add one vs. edit the
+lexicon lives in
+[docs/CONVENTIONS.md](docs/CONVENTIONS.md#finnish-text-normalizer-lexicon-vs-new-pass).
+
+### You get the full test suite
+
+1884 tests and counting. The pre-commit hook runs them on every
+commit; CI runs them on every push. Breaking a test gets caught
+before it ever reaches master.
+
+```bash
+pytest tests/
+```
+
+### You can build the installer yourself
+
+Everything CI does you can do locally -- PyInstaller bundle + Inno
+Setup installer. See [BUILDING.md](BUILDING.md) for the exact steps.
 
 ---
 
@@ -643,6 +582,89 @@ bridge, auto-update flow, cleanup — see
 
 ---
 
+## Claude Code skills (measured)
+
+The [`.claude/skills/`](.claude/skills/) directory holds three
+custom skills for
+[Claude Code](https://www.anthropic.com/claude-code) that automate
+the repetitive, mistake-prone parts of maintaining this project. A
+skill is a single `SKILL.md` file that Claude Code loads into its
+context when a matching keyword is used, giving Claude a written
+playbook for a recurring task.
+
+These skills live in this repository for two reasons. First, they
+are all domain-specific — `release-cut` knows exactly which
+AudiobookMaker files to bump, `pronunciation-corpus-add` knows where
+the Finnish pronunciation corpus lives. Detaching them from the code
+they operate on would break them. Second, I wanted to know whether
+they actually pay off or just feel useful, so I measured them.
+
+### Measured impact
+
+I maintain this project with up to four Claude Code sessions running
+in parallel daily. Token deltas multiply quickly at that volume, so
+a skill that shaves 15k tokens off a recurring task is not a
+rounding error. At the same time, not every skill is about saving
+tokens — some deliberately spend extra tokens so the output is more
+correct. Both kinds are tracked below.
+
+| Skill | Tokens (with / without) | Δ tokens | Pass rate (with / without) | Δ quality |
+|---|---|---:|---|---:|
+| [`release-cut`](.claude/skills/release-cut/SKILL.md) | 28,834 / 46,853 | **−38.5%** | 100% / 100% | tie |
+| [`work-session`](.claude/skills/work-session/SKILL.md) | 26,762 / 33,098 | −19.1% | 94% / 80% | **+14 pp** |
+| [`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md) | 27,170 / 29,661 | −8.4% | 100% / 89% | +11 pp |
+| `fi-normalizer-pass` (prototype) | 48,496 / 43,941 | **+10.4%** | 100% / 83% | **+17 pp** |
+
+All numbers are means across `n = 3` runs per configuration. Full
+per-eval breakdown, the raw `benchmark.json`, and methodology notes
+live in
+[`benchmarks/skills-eval/`](benchmarks/skills-eval/).
+
+The `fi-normalizer-pass` row is the interesting one. The skill
+**costs** tokens, which would make it look bad if we only watched
+the token column — but it lifts pass rate from 83% to 100% on hard
+normalizer tasks. That is why both metrics are shown together:
+measuring only one of them paints a misleading picture, and the
+whole point is to decide honestly which skills to keep.
+
+### What each skill does
+
+- **[`release-cut`](.claude/skills/release-cut/SKILL.md)** — end-to-end
+  release ritual: bump `APP_VERSION`, sync the installer `.iss`
+  file, create the `vX.Y.Z` tag, watch CI, and verify the live
+  release ships both the SHA-256 in the release notes and the
+  sidecar `.exe.sha256` asset. Auto-update silently breaks if either
+  is missing, so the skill encodes every guard. Triggered by "cut a
+  release", "bump the version", "ship X.Y.Z".
+- **[`work-session`](.claude/skills/work-session/SKILL.md)** —
+  start, pause, or finish a task against the shared `TODO.md`
+  protocol that coordinates multiple Claude Code sessions running in
+  parallel. Without it, two sessions silently claim the same item
+  and clobber each other's work. Triggered by "claim X", "take Y",
+  "I'm done", "go idle".
+- **[`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md)** —
+  append a Finnish pronunciation-failure report to
+  [`docs/pronunciation_corpus_fi.md`](docs/pronunciation_corpus_fi.md).
+  Testers (and I) hit mispronunciations constantly; this skill makes
+  logging them cheap enough that they actually get logged, instead
+  of being lost in chat. Triggered by "Grandmom pronounced X as Y",
+  "add to the corpus".
+
+### A note on methodology
+
+Skill benchmarking is prone to cache luck — a single run's token
+count can swing 20% depending on what Claude had cached from earlier
+work. These numbers average across three runs per configuration,
+with the prompt, model, and effort level held constant. That is
+enough to separate real signal from noise; it is not enough to be a
+scientific result. The caveats, the raw `benchmark.json`, and every
+per-eval pass-rate breakdown are in
+[`benchmarks/skills-eval/`](benchmarks/skills-eval/) so anyone can
+see what the pass-rate rubrics actually checked and reach their own
+conclusion.
+
+---
+
 ## Project structure
 
 ```
@@ -683,6 +705,8 @@ AudiobookMaker/
 ├── docs/                          # Documentation and research notes
 ├── installer/                     # Inno Setup build scripts
 ├── assets/                        # Icons, design-system JSON, demo clips
+├── .claude/skills/                # Project-local Claude Code skills
+├── benchmarks/skills-eval/        # Measured token + quality impact of the skills
 ├── .github/workflows/             # CI: auto-build installer on release
 └── requirements.txt
 ```

@@ -12,6 +12,10 @@
 # re-included subpath.
 !.claude/skills/
 !.claude/skills/**
+# Kept local-only: copyright-scan uses concrete example strings
+# (book titles / author names) as detection patterns that are
+# forbidden in committed content. Skill stays functional locally.
+.claude/skills/copyright-scan/
 # Personal planning notes — kept locally, not part of the repo.
 docs/plans/
 # Local-only task list. Intentionally NOT tracked — keeps coordination
