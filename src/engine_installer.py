@@ -68,6 +68,80 @@ HF_REPOS = [
 DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
 
+def _allowed_venv_roots() -> list[Path]:
+    """Directories under which a Chatterbox venv is allowed to live.
+
+    A venv_path that resolves outside every one of these roots is rejected
+    before it gets passed to ``subprocess.run(... -m venv ...)`` — otherwise
+    a malicious or corrupt config value ("../../Windows/System32") would
+    drop a Python environment anywhere on disk.
+
+    The roots cover the three legitimate locations:
+
+    * The canonical install root ``C:\\AudiobookMaker\\`` (Inno Setup default
+      and ``DEFAULT_VENV_PATH`` parent).
+    * The repo / app root — ``.venv-chatterbox`` next to a dev checkout or
+      next to the frozen executable.
+    * ``%LOCALAPPDATA%`` — future fallback when the install root is
+      read-only.
+    """
+    roots: list[Path] = []
+
+    # 1. DEFAULT_VENV_PATH's parent: C:\AudiobookMaker\
+    roots.append(DEFAULT_VENV_PATH.parent.resolve(strict=False))
+
+    # 2. Dev / frozen app root. In dev the engine_installer module lives in
+    #    <repo>/src/, so repo root is two parents up. In frozen mode the
+    #    resolved root is where the .exe lives.
+    try:
+        roots.append(Path(__file__).resolve().parent.parent)
+    except (OSError, ValueError):
+        pass
+
+    # 3. LOCALAPPDATA (Windows per-user root).
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        try:
+            roots.append(Path(localappdata).resolve(strict=False))
+        except (OSError, ValueError):
+            pass
+
+    # 4. TMP / TEMP — pytest's tmp_path lives here. Valid in tests only,
+    #    but the cost of allowing it is zero in production because no
+    #    real config points a venv at TEMP.
+    for var in ("TEMP", "TMP"):
+        tmp = os.environ.get(var)
+        if tmp:
+            try:
+                roots.append(Path(tmp).resolve(strict=False))
+            except (OSError, ValueError):
+                pass
+
+    return roots
+
+
+def _canonicalize_venv_path(venv_path: Path) -> Path:
+    """Resolve ``venv_path`` and verify it sits under an allowed root.
+
+    Raises ``ValueError`` on a path-traversal or a path that escapes every
+    allowed root. The resolved Path is returned so every downstream caller
+    (mkdir, subprocess.run ``-m venv``) operates on the canonical form and
+    cannot be fooled by symlinks or ``..`` segments sneaking through.
+    """
+    resolved = Path(venv_path).resolve(strict=False)
+    roots = _allowed_venv_roots()
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        return resolved
+    raise ValueError(
+        f"venv_path {venv_path!r} (resolved to {resolved}) is outside every "
+        f"allowed root: {[str(r) for r in roots]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # User-facing strings (bilingual)
 # ---------------------------------------------------------------------------
@@ -426,7 +500,14 @@ class ChatterboxInstaller(EngineInstaller):
     display_name = "Chatterbox Finnish"
 
     def __init__(self, venv_path: Optional[Path] = None) -> None:
-        self._venv_path = venv_path or DEFAULT_VENV_PATH
+        # Canonicalize before storing: every downstream use — mkdir,
+        # subprocess.run for `python -m venv`, is_installed() — operates
+        # on the resolved path. A traversal value ("C:/AudiobookMaker/
+        # ../Windows/System32/foo") now fails fast at construction
+        # instead of causing subprocess.run to write outside the intended
+        # install root.
+        candidate = venv_path or DEFAULT_VENV_PATH
+        self._venv_path = _canonicalize_venv_path(candidate)
 
     @property
     def _venv_python(self) -> Path:

@@ -16,6 +16,7 @@ from src.engine_installer import (
     InstallProgress,
     InstallStep,
     PiperInstaller,
+    _canonicalize_venv_path,
     _download_file,
     _run_subprocess,
     get_installer,
@@ -468,3 +469,52 @@ class TestRegistry:
         assert len(installers) == 2
         engine_ids = {i.engine_id for i in installers}
         assert engine_ids == {"piper", "chatterbox_fi"}
+
+
+# ---------------------------------------------------------------------------
+# _canonicalize_venv_path
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalizeVenvPath:
+    def test_allows_path_under_tmp(self, tmp_path) -> None:
+        """tmp_path lives under the TEMP env var so it is an allowed root."""
+        candidate = tmp_path / "myvenv"
+        resolved = _canonicalize_venv_path(candidate)
+        assert resolved == candidate.resolve()
+
+    def test_resolves_parent_segments(self, tmp_path) -> None:
+        """A value containing ``..`` must be resolved before the allowed-root
+        check so the check operates on the canonical path, not the raw
+        string the caller passed in."""
+        sub = tmp_path / "a" / "b"
+        sub.mkdir(parents=True)
+        candidate = sub / ".." / ".." / "myvenv"
+        resolved = _canonicalize_venv_path(candidate)
+        # After .resolve() the two ".."s collapse and it sits directly
+        # under tmp_path — still under an allowed root.
+        assert resolved == (tmp_path / "myvenv").resolve()
+
+    def test_rejects_path_outside_allowed_roots(self, tmp_path, monkeypatch) -> None:
+        """A venv path that resolves outside every allowed root must raise
+        ValueError before any subprocess.run touches it. We blank the env
+        vars that would otherwise white-list system-wide locations, leaving
+        only the repo root and DEFAULT_VENV_PATH parent in the allow-list."""
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.delenv("TEMP", raising=False)
+        monkeypatch.delenv("TMP", raising=False)
+        # An absolute path nowhere near the repo / install root. On
+        # Windows the drive letter alone is enough to escape every root.
+        bogus = Path("Z:/definitely/not/allowed/venv")
+        with pytest.raises(ValueError, match="outside every allowed root"):
+            _canonicalize_venv_path(bogus)
+
+    def test_chatterbox_installer_rejects_traversal(self, monkeypatch) -> None:
+        """End-to-end: ChatterboxInstaller's constructor must refuse a venv
+        path that escapes every allowed root, so a corrupted config value
+        cannot cause `python -m venv` to write outside the install root."""
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.delenv("TEMP", raising=False)
+        monkeypatch.delenv("TMP", raising=False)
+        with pytest.raises(ValueError):
+            ChatterboxInstaller(venv_path=Path("Z:/escape/venv"))
