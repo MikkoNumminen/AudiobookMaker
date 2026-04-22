@@ -166,6 +166,13 @@ class UpdateMixin(_Base):
                     text=self._s("update_now"),
                 )
                 self._progress_bar.set(0)
+                # Clear the pending-update handle so the banner doesn't
+                # keep pointing at a release whose installer we couldn't
+                # fetch (bad SHA, 404, network blip). The next scheduled
+                # update check will re-populate if the release is still
+                # fine — this just prevents a stale "update available"
+                # handle from silently re-triggering a broken download.
+                self._pending_update = None
                 from tkinter import messagebox
                 messagebox.showerror(
                     self._s("error"),

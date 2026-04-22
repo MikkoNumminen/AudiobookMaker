@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import queue
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src.auto_updater import UpdateInfo
 from src.gui_update_mixin import UpdateMixin
@@ -103,4 +103,32 @@ class TestCheckUpdateWorker:
             "Update check failed" in rec.message for rec in caplog.records
         ), "Expected 'Update check failed' log record (exc_info=True)"
 
+
+class TestDownloadFailureClearsPending:
+    """If the download fails, _pending_update must be cleared so the
+    banner doesn't keep pointing at a broken release handle."""
+
+    def test_update_failed_event_clears_pending(self) -> None:
+        host = _FakeHost()
+        # Simulate a successful check that set the handle.
+        host._pending_update = _make_update_info()
+
+        # Worker surfaced a failure.
+        host._event_queue.put(
+            ProgressEvent(kind="update_failed", raw_line="Download failed: 404")
+        )
+
+        # Patch tkinter.messagebox so the error popup doesn't try to
+        # open a real window in the test process.
+        fake_messagebox = MagicMock()
+        with patch.dict(
+            "sys.modules", {"tkinter": MagicMock(messagebox=fake_messagebox)}
+        ):
+            host._pump_update_download()
+
+        assert host._pending_update is None, (
+            "Pending update handle must be cleared after download failure"
+        )
+        # User got the error dialog.
+        fake_messagebox.showerror.assert_called_once()
 
