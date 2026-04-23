@@ -61,25 +61,59 @@ def _acquire_windows_mutex() -> bool:
 
 
 def _acquire_lock_file() -> bool:
-    """Try to create a lock file. Returns True if no other instance holds it."""
+    """Try to create a lock file. Returns True if no other instance holds it.
+
+    Uses atomic exclusive-create (``open(..., "x")``) so two racing
+    instances cannot both believe they hold the lock. The dead-owner
+    takeover path unlinks the stale file and retries the exclusive
+    create once — if two processes race that takeover, the loser gets
+    a ``FileExistsError`` and fails cleanly.
+    """
     global _lock_file
     import os
     import tempfile
 
     _lock_file = Path(tempfile.gettempdir()) / "audiobookmaker.lock"
-    try:
-        if _lock_file.exists():
-            # Check if the PID in the lock file is still alive.
-            try:
-                pid = int(_lock_file.read_text().strip())
-                # os.kill(pid, 0) raises OSError if process doesn't exist.
-                os.kill(pid, 0)
-                return False  # Process is still running.
-            except (ValueError, OSError, PermissionError):
-                pass  # Stale lock file — process is gone.
 
-        _lock_file.write_text(str(os.getpid()))
-        return True
+    def _try_create_exclusive() -> bool:
+        """Atomically create the lock file with our PID. Returns True on success."""
+        try:
+            # "x" mode = O_CREAT | O_EXCL: fails atomically if the file exists.
+            with open(_lock_file, "x") as f:
+                f.write(str(os.getpid()))
+            return True
+        except FileExistsError:
+            return False
+        except OSError:
+            # Filesystem trouble (permissions, disk full, etc.). Fail open:
+            # allow the app to run rather than block on a broken temp dir.
+            return True
+
+    try:
+        if _try_create_exclusive():
+            return True
+
+        # Lock exists — check if the PID in it is still alive.
+        try:
+            pid = int(_lock_file.read_text().strip())
+            # os.kill(pid, 0) raises OSError if process doesn't exist.
+            os.kill(pid, 0)
+            return False  # Process is still running.
+        except (ValueError, OSError, PermissionError):
+            # Stale lock file — owner is gone. Remove it and retry the
+            # exclusive create. If another process beats us to the retry
+            # (unlinks + recreates between our unlink and our open), our
+            # open("x") fails with FileExistsError and we back off.
+            try:
+                _lock_file.unlink()
+            except OSError:
+                # Someone else already unlinked it; that's fine.
+                pass
+            if _try_create_exclusive():
+                return True
+            # Lost the takeover race to another instance. It holds the
+            # lock now; we are the second instance.
+            return False
     except OSError:
         return True  # If lock file fails, allow the app to run.
 
