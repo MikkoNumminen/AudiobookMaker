@@ -518,3 +518,133 @@ class TestDefaultHfVerify:
         monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
         out = mod._default_hf_verify("hf_x")
         assert out.reason == "network"
+
+
+# ---------------------------------------------------------------------------
+# _default_pip_runner — timeout and pipe-close behaviour
+# ---------------------------------------------------------------------------
+
+
+class _FakePipe:
+    """Mimics proc.stdout: iterable lines plus a close() the production
+    code's finally block invokes."""
+
+    def __init__(self, lines):
+        self._iter = iter(lines)
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._iter)
+
+    def close(self):
+        self.closed = True
+
+
+class TestDefaultPipRunner:
+    def test_wait_called_with_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """proc.wait() must be called with a finite timeout — the bug
+        that froze the voice-cloner install modal on a hung pip."""
+        from unittest.mock import MagicMock
+
+        import subprocess as _sp
+
+        from src import engine_installer_voice_cloner as mod
+
+        pipe = _FakePipe(["Installing faster-whisper...\n", "done\n"])
+        mock_proc = MagicMock()
+        mock_proc.stdout = pipe
+        mock_proc.wait.return_value = 0
+
+        monkeypatch.setattr(
+            mod.subprocess, "Popen", lambda *a, **kw: mock_proc
+        )
+
+        events: list[InstallProgress] = []
+        cancel = threading.Event()
+        rc = mod._default_pip_runner(
+            Path("venv/python"),
+            ("faster-whisper",),
+            events.append,
+            cancel,
+        )
+
+        assert rc == 0
+        assert pipe.closed is True
+        # The final wait() must have been called with a positive timeout.
+        _, kwargs = mock_proc.wait.call_args
+        assert kwargs.get("timeout") is not None
+        assert kwargs["timeout"] > 0
+        # Sanity: progress events were streamed.
+        assert any("faster-whisper" in e.message for e in events)
+        # Unused to silence import warning.
+        _ = _sp.TimeoutExpired
+
+    def test_timeout_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TimeoutExpired from proc.wait() bubbles up to the caller so
+        the install dialog can surface the stall instead of hanging."""
+        import subprocess as _sp
+        from unittest.mock import MagicMock
+
+        from src import engine_installer_voice_cloner as mod
+
+        pipe = _FakePipe(["progress\n"])
+        mock_proc = MagicMock()
+        mock_proc.stdout = pipe
+        mock_proc.wait.side_effect = _sp.TimeoutExpired(cmd="pip", timeout=1)
+
+        monkeypatch.setattr(
+            mod.subprocess, "Popen", lambda *a, **kw: mock_proc
+        )
+
+        events: list[InstallProgress] = []
+        cancel = threading.Event()
+        with pytest.raises(_sp.TimeoutExpired):
+            mod._default_pip_runner(
+                Path("venv/python"),
+                ("faster-whisper",),
+                events.append,
+                cancel,
+            )
+
+        # Even when wait() raises, the pipe must be closed.
+        assert pipe.closed is True
+
+    def test_cancel_terminates_and_closes_pipe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When cancel_event fires mid-stream, the child is terminated
+        and the stdout pipe is closed — no FD leak on user cancel."""
+        from unittest.mock import MagicMock
+
+        from src import engine_installer_voice_cloner as mod
+
+        cancel = threading.Event()
+
+        def lines():
+            yield "line 1\n"
+            cancel.set()
+            yield "line 2\n"
+
+        pipe = _FakePipe(lines())
+        mock_proc = MagicMock()
+        mock_proc.stdout = pipe
+        mock_proc.wait.return_value = 0
+
+        monkeypatch.setattr(
+            mod.subprocess, "Popen", lambda *a, **kw: mock_proc
+        )
+
+        events: list[InstallProgress] = []
+        rc = mod._default_pip_runner(
+            Path("venv/python"),
+            ("faster-whisper",),
+            events.append,
+            cancel,
+        )
+
+        assert rc == -1
+        mock_proc.terminate.assert_called_once()
+        assert pipe.closed is True

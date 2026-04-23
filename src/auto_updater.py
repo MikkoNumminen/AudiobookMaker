@@ -43,6 +43,10 @@ _LEGACY_PENDING_MARKER = Path(tempfile.gettempdir()) / "audiobookmaker_update_pe
 
 CHUNK_SIZE = 256 * 1024  # 256 KB
 API_TIMEOUT = 10  # seconds
+# Sidecar SHA-256 files are tiny (~80 bytes) but still go over GitHub's
+# releases CDN, which can stall. 30 s is generous enough for a slow mobile
+# network but bounded so the update flow never hangs indefinitely.
+SIDECAR_TIMEOUT = 30  # seconds
 
 # ---------------------------------------------------------------------------
 # Data
@@ -121,7 +125,7 @@ def _fetch_sidecar_sha256(
     try:
         req = Request(url)
         req.add_header("User-Agent", f"AudiobookMaker/{current_version}")
-        with urlopen(req, timeout=API_TIMEOUT) as resp:
+        with urlopen(req, timeout=SIDECAR_TIMEOUT) as resp:
             payload = resp.read(512).decode("ascii", errors="replace")
     except (URLError, OSError) as exc:
         logger.debug("Sidecar SHA-256 fetch failed: %s", exc)
@@ -141,6 +145,13 @@ def _fetch_sidecar_sha256(
 # in depth — but we want to fail loud if that assumption ever slips.
 _BAT_UNSAFE_CHARS = ('"', '%', '^', '&', '\r', '\n')
 
+# Characters that would break the PowerShell splash script if present in a
+# substituted path. `"` closes a double-quoted string (letting a path
+# smuggle in PowerShell code), `` ` `` is the PowerShell escape character,
+# `$` starts variable interpolation, and CR/LF terminate statements. Same
+# defense-in-depth model as _BAT_UNSAFE_CHARS above.
+_PS_UNSAFE_CHARS = ('"', '`', '$', '\r', '\n')
+
 
 def _assert_bat_safe_path(path: Path, label: str) -> None:
     """Raise ValueError if *path* contains characters that break a .bat script.
@@ -158,6 +169,23 @@ def _assert_bat_safe_path(path: Path, label: str) -> None:
             raise ValueError(
                 f"{label} contains batch-unsafe character {ch!r}: {s!r}. "
                 "Refusing to build relaunch .bat — would be malformed."
+            )
+
+
+def _assert_ps_safe_path(path: Path, label: str) -> None:
+    """Raise ValueError if *path* contains characters that break a PowerShell script.
+
+    The splash script built in :func:`apply_update` interpolates the icon
+    path into a ``[System.Drawing.Image]::FromFile("...")`` call. An
+    unescaped ``"`` or ``$`` would turn that literal into a code-execution
+    sink. Same fail-loud posture as :func:`_assert_bat_safe_path`.
+    """
+    s = str(path)
+    for ch in _PS_UNSAFE_CHARS:
+        if ch in s:
+            raise ValueError(
+                f"{label} contains PowerShell-unsafe character {ch!r}: {s!r}. "
+                "Refusing to build splash .ps1 — would be malformed."
             )
 
 
@@ -291,33 +319,48 @@ def download_update(
     req = Request(update.download_url)
     req.add_header("User-Agent", f"AudiobookMaker/{update.current_version}")
 
+    # Any exception in the body (network error, cancel, disk-full, even a
+    # KeyboardInterrupt or BaseException subclass from a thread cancel) must
+    # leave no partial .exe behind. A stale partial would look like a fully
+    # downloaded installer to a retry path and could get executed. The outer
+    # try/except/BaseException ensures cleanup happens before the exception
+    # propagates; the inner branch normalises common I/O failures to a
+    # RuntimeError for the caller.
     try:
-        with urlopen(req, timeout=60) as resp:
-            total = update.asset_size_bytes or int(resp.headers.get("Content-Length", 0))
-            done = 0
+        try:
+            with urlopen(req, timeout=60) as resp:
+                total = update.asset_size_bytes or int(
+                    resp.headers.get("Content-Length", 0)
+                )
+                done = 0
 
-            with open(dest, "wb") as fp:
-                while True:
-                    if cancel_event and cancel_event.is_set():
-                        fp.close()
-                        dest.unlink(missing_ok=True)
-                        raise RuntimeError("Download cancelled")
+                with open(dest, "wb") as fp:
+                    while True:
+                        if cancel_event and cancel_event.is_set():
+                            fp.close()
+                            dest.unlink(missing_ok=True)
+                            raise RuntimeError("Download cancelled")
 
-                    chunk = resp.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
+                        chunk = resp.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
 
-                    fp.write(chunk)
-                    done += len(chunk)
+                        fp.write(chunk)
+                        done += len(chunk)
 
-                    if progress_cb:
-                        progress_cb(done, total)
+                        if progress_cb:
+                            progress_cb(done, total)
 
-    except RuntimeError:
-        raise
-    except Exception as exc:
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"Download failed: {exc}") from exc
+    except BaseException:
+        # Includes RuntimeError, KeyboardInterrupt, SystemExit, and any
+        # thread-cancel exception. Delete the partial file before
+        # re-raising so we never leave a truncated .exe in UPDATE_DIR.
         dest.unlink(missing_ok=True)
-        raise RuntimeError(f"Download failed: {exc}") from exc
+        raise
 
     # Verify integrity — SHA-256 is mandatory (checked at function entry).
     file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()
@@ -506,6 +549,14 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     if not icon_png.is_file():
         # Fallback: try alongside the exe (legacy onefile layouts).
         icon_png = Path(current_install_dir) / "assets" / "icon.png"
+
+    # Guard the PowerShell interpolation below — a `"`, `` ` ``, or `$` in
+    # the icon path would let the path smuggle PowerShell code into the
+    # splash script. Today icon_png is always under sys.executable's parent
+    # (so this can't happen) but we fail loud the moment that assumption
+    # slips.
+    _assert_ps_safe_path(icon_png, "icon_png")
+
     splash_ps1.write_text(
         'Add-Type -AssemblyName System.Windows.Forms, System.Drawing\n'
         '$form = New-Object System.Windows.Forms.Form\n'
@@ -564,10 +615,20 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     ]
     relaunch_bat.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-8"))
 
-    subprocess.Popen(
-        ["cmd.exe", "/c", str(relaunch_bat)],
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+    # If Popen raises (e.g. cmd.exe missing, OSError, permission denied),
+    # the splash .ps1 and relaunch .bat we just wrote would leak into
+    # %TEMP% forever. Clean both up before re-raising — on success they
+    # self-delete via `del "%~f0"` in the .bat and the 25 s timer in the
+    # .ps1.
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(relaunch_bat)],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except BaseException:
+        splash_ps1.unlink(missing_ok=True)
+        relaunch_bat.unlink(missing_ok=True)
+        raise
 
     # Grant the next process (the relaunched app) the right to call
     # SetForegroundWindow. Without this Windows blocks the relaunched

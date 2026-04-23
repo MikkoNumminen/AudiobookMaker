@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from src.auto_updater import (
     UpdateInfo,
     _assert_bat_safe_path,
+    _assert_ps_safe_path,
     _extract_sha256,
     check_for_update,
     clear_pending_marker,
@@ -339,6 +340,48 @@ class TestSidecarSha256Fallback:
         assert info.available is True
         assert info.sha256 == ""
 
+    @patch("src.auto_updater.urlopen")
+    def test_sidecar_fetch_uses_bounded_timeout(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        """A hanging sidecar download must not stall the update flow.
+
+        We only assert that the second urlopen call (the sidecar fetch)
+        passes a ``timeout`` keyword — the exact value is a tuning knob.
+        """
+        sha = "e" * 64
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        sidecar_response = _mock_download_response(
+            f"{sha}  AudiobookMaker-Setup-3.0.0.exe\n".encode()
+        )
+        mock_urlopen.side_effect = [api_response, sidecar_response]
+
+        check_for_update("2.0.0")
+
+        # Both calls must have a timeout set; otherwise a slow endpoint
+        # could hang the whole update pipeline.
+        assert mock_urlopen.call_count == 2
+        for call in mock_urlopen.call_args_list:
+            timeout = call.kwargs.get("timeout")
+            assert timeout is not None and timeout > 0
+
 
 # ---------------------------------------------------------------------------
 # E2E: download_update
@@ -458,6 +501,82 @@ class TestDownloadUpdate:
             import pytest
 
             with pytest.raises(RuntimeError, match="Download failed"):
+                download_update(update)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists()
+
+    @patch("src.auto_updater.urlopen")
+    def test_keyboard_interrupt_cleans_up_partial_file(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """A KeyboardInterrupt mid-download must not leave a partial .exe.
+
+        If we left it behind, a subsequent retry path (or worse, a naive
+        launcher that sees the file) could execute a truncated installer.
+        """
+        import pytest
+
+        class _KeyboardKillingResp:
+            headers = {"Content-Length": "1000"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def __init__(self):
+                self._calls = 0
+
+            def read(self, _size):
+                self._calls += 1
+                if self._calls == 1:
+                    return b"x" * 256
+                raise KeyboardInterrupt()
+
+        mock_urlopen.return_value = _KeyboardKillingResp()
+        update = self._make_update_info(sha256="f" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(KeyboardInterrupt):
+                download_update(update)
+
+            expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
+            assert not expected_path.exists(), (
+                "Partial .exe leaked after KeyboardInterrupt"
+            )
+
+    @patch("src.auto_updater.urlopen")
+    def test_system_exit_cleans_up_partial_file(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """SystemExit (e.g. thread abort) must still delete the partial file."""
+        import pytest
+
+        class _SystemExitResp:
+            headers = {"Content-Length": "1000"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def __init__(self):
+                self._calls = 0
+
+            def read(self, _size):
+                self._calls += 1
+                if self._calls == 1:
+                    return b"y" * 256
+                raise SystemExit(1)
+
+        mock_urlopen.return_value = _SystemExitResp()
+        update = self._make_update_info(sha256="a" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(SystemExit):
                 download_update(update)
 
             expected_path = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
@@ -664,3 +783,125 @@ class TestAssertBatSafePath:
             _assert_bat_safe_path(
                 Path('C:/bad"path.exe'), "installer_path"
             )
+
+
+class TestAssertPsSafePath:
+    """_assert_ps_safe_path refuses paths that would corrupt the splash .ps1."""
+
+    def test_safe_windows_path_does_not_raise(self) -> None:
+        from pathlib import Path
+        _assert_ps_safe_path(
+            Path("C:/Program Files/AudiobookMaker/_internal/assets/icon.png"),
+            "icon_png",
+        )
+
+    def test_safe_path_with_spaces_does_not_raise(self) -> None:
+        from pathlib import Path
+        # Spaces are fine — the .ps1 wraps the path in double-quotes.
+        _assert_ps_safe_path(
+            Path("C:/Users/Alice Smith/AppData/Local/AudiobookMaker/assets/icon.png"),
+            "icon_png",
+        )
+
+    def test_double_quote_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path('C:/evil"path/icon.png'), "icon_png"
+            )
+
+    def test_backtick_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path("C:/weird`path/icon.png"), "icon_png"
+            )
+
+    def test_dollar_raises(self) -> None:
+        """`$` starts PowerShell variable interpolation — must be rejected."""
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path("C:/$env:TEMP/icon.png"), "icon_png"
+            )
+
+    def test_newline_raises(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="PowerShell-unsafe"):
+            _assert_ps_safe_path(
+                Path("C:/a\nb/icon.png"), "icon_png"
+            )
+
+    def test_error_message_includes_label(self) -> None:
+        import pytest
+        from pathlib import Path
+        with pytest.raises(ValueError, match="icon_png"):
+            _assert_ps_safe_path(
+                Path('C:/bad"path.png'), "icon_png"
+            )
+
+
+# ---------------------------------------------------------------------------
+# apply_update: orphan-file cleanup when Popen fails
+# ---------------------------------------------------------------------------
+
+
+class TestApplyUpdatePopenCleanup:
+    """If subprocess.Popen raises inside apply_update, the splash .ps1 and
+    relaunch .bat we just wrote to %TEMP% must be cleaned up. Otherwise
+    every failed update run leaks two scripts into the user's temp dir."""
+
+    def test_popen_failure_removes_both_script_files(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        import pytest
+        from unittest.mock import patch
+        from pathlib import Path
+        from src import auto_updater
+
+        # Route %TEMP% to tmp_path so the scripts are easy to find.
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+
+        # Installer path must live under tmp_path so _assert_bat_safe_path
+        # accepts it and we can inspect the tmp dir cleanly.
+        fake_installer = tmp_path / "installer.exe"
+        fake_installer.write_bytes(b"fake")
+
+        # Icon path must exist and pass _assert_ps_safe_path.
+        icon_dir = tmp_path / "app" / "_internal" / "assets"
+        icon_dir.mkdir(parents=True)
+        (icon_dir / "icon.png").write_bytes(b"\x89PNG")
+
+        # Popen raises -> cleanup branch must remove both script files.
+        def boom(*args, **kwargs):
+            raise OSError("cmd.exe missing")
+
+        # Neutralise the single-instance release + sys.executable lookup.
+        monkeypatch.setattr(
+            "src.auto_updater.sys.executable", str(tmp_path / "app" / "app.exe")
+        )
+        (tmp_path / "app" / "app.exe").write_bytes(b"fake")
+
+        fake_single_instance = type(
+            "M", (), {"release": staticmethod(lambda: None)}
+        )()
+        monkeypatch.setitem(
+            __import__("sys").modules, "src.single_instance", fake_single_instance
+        )
+
+        with patch("src.auto_updater.subprocess.Popen", side_effect=boom), \
+             patch("src.auto_updater._write_pending_marker", lambda *a, **k: None):
+            with pytest.raises(OSError, match="cmd.exe missing"):
+                auto_updater.apply_update(fake_installer)
+
+        # Neither leftover should survive.
+        assert not (tmp_path / "audiobookmaker_splash.ps1").exists(), (
+            "splash .ps1 leaked after Popen failure"
+        )
+        assert not (tmp_path / "audiobookmaker_relaunch.bat").exists(), (
+            "relaunch .bat leaked after Popen failure"
+        )

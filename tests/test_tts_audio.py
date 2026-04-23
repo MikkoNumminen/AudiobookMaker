@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from src.tts_audio import (
+    AudioFormatMismatch,
     _load_audio_with_retry,
     _trim_chunk_silence,
     combine_audio_files,
@@ -205,6 +206,72 @@ class TestCombineAudioFiles:
         # Should just run without error; we mostly care that the code path
         # that skips the gap WAV does not crash.
         combine_audio_files([str(src_mp3), str(b_mp3)], str(out), inter_chunk_pause_ms=0)
+        assert out.exists()
+
+    @requires_ffmpeg
+    def test_sample_rate_mismatch_raises(self, tmp_path) -> None:
+        """If chunk N has a different sample rate than chunk 0 we must
+        raise AudioFormatMismatch, not silently force-resample. The old
+        behaviour dragged the whole audiobook to chunk 0's format when
+        chunk 0 was the outlier."""
+        from pydub import AudioSegment
+
+        first = tmp_path / "a.wav"
+        second = tmp_path / "b.wav"
+        AudioSegment.silent(duration=100, frame_rate=24000).set_channels(1).export(
+            str(first), format="wav"
+        )
+        # Second chunk at a different sample rate — historically silently
+        # resampled. We now reject it.
+        AudioSegment.silent(duration=100, frame_rate=16000).set_channels(1).export(
+            str(second), format="wav"
+        )
+        out = tmp_path / "out.mp3"
+
+        with pytest.raises(AudioFormatMismatch) as exc:
+            combine_audio_files([str(first), str(second)], str(out))
+        msg = str(exc.value)
+        assert "Chunk 1" in msg
+        assert "16000" in msg
+        assert "24000" in msg
+
+    @requires_ffmpeg
+    def test_channel_count_mismatch_raises(self, tmp_path) -> None:
+        """Mono vs stereo drift must also raise."""
+        from pydub import AudioSegment
+
+        first = tmp_path / "a.wav"
+        second = tmp_path / "b.wav"
+        # Identical rate + sample width, only the channel count differs.
+        AudioSegment.silent(duration=100, frame_rate=24000).set_channels(1).export(
+            str(first), format="wav"
+        )
+        AudioSegment.silent(duration=100, frame_rate=24000).set_channels(2).export(
+            str(second), format="wav"
+        )
+        out = tmp_path / "out.mp3"
+
+        with pytest.raises(AudioFormatMismatch) as exc:
+            combine_audio_files([str(first), str(second)], str(out))
+        assert "Chunk 1" in str(exc.value)
+
+    @requires_ffmpeg
+    def test_matching_formats_succeed(self, tmp_path) -> None:
+        """Control: three chunks with identical stream params still
+        concatenate successfully — the drift check must not false-flag
+        normal inputs."""
+        from pydub import AudioSegment
+
+        paths: list[str] = []
+        for i in range(3):
+            p = tmp_path / f"c{i}.wav"
+            AudioSegment.silent(duration=100, frame_rate=24000).set_channels(
+                1
+            ).export(str(p), format="wav")
+            paths.append(str(p))
+        out = tmp_path / "out.mp3"
+
+        combine_audio_files(paths, str(out))
         assert out.exists()
 
 

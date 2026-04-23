@@ -16,6 +16,7 @@ from src.engine_installer import (
     InstallProgress,
     InstallStep,
     PiperInstaller,
+    _canonicalize_venv_path,
     _download_file,
     _run_subprocess,
     get_installer,
@@ -212,8 +213,11 @@ class TestDownloadFile:
         dest = tmp_path / "downloaded.bin"
         content = b"A" * 1024
 
-        # Mock urlopen to return a response-like object
+        # Mock urlopen to return a response-like object usable as a context
+        # manager: __enter__ must return the same response object.
         mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
         mock_response.headers.get.return_value = str(len(content))
         mock_response.read.side_effect = [content, b""]
 
@@ -234,12 +238,17 @@ class TestDownloadFile:
         assert len(progress_events) >= 1
         assert progress_events[0].step == 1
         assert progress_events[0].total_steps == 3
+        # __exit__ on the context manager must have fired so the socket is
+        # released even on the happy path.
+        mock_response.__exit__.assert_called()
 
     def test_cancel_during_download(self, tmp_path) -> None:
         dest = tmp_path / "cancelled.bin"
         cancel = threading.Event()
 
         mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
         mock_response.headers.get.return_value = "10000"
 
         def read_and_cancel(size):
@@ -258,6 +267,30 @@ class TestDownloadFile:
 
         # Temp file should have been cleaned up
         assert not dest.with_suffix(".bin.tmp").exists()
+        # The urlopen response must have been closed via __exit__ so the
+        # socket does not leak when the download is cancelled.
+        mock_response.__exit__.assert_called()
+
+    def test_urlopen_called_with_timeout(self, tmp_path) -> None:
+        """Regression test: urlopen must be invoked with a finite timeout so a
+        stalled Python 3.11 download does not freeze the installer modal."""
+        dest = tmp_path / "file.bin"
+
+        mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
+        mock_response.headers.get.return_value = "4"
+        mock_response.read.side_effect = [b"data", b""]
+
+        with patch(
+            "src.engine_installer.urllib.request.urlopen",
+            return_value=mock_response,
+        ) as mock_urlopen:
+            _download_file(url="https://example.com/file.bin", dest=dest)
+
+        _, kwargs = mock_urlopen.call_args
+        assert "timeout" in kwargs
+        assert 0 < kwargs["timeout"] <= 60
 
     def test_cleans_up_temp_on_error(self, tmp_path) -> None:
         dest = tmp_path / "error.bin"
@@ -276,6 +309,8 @@ class TestDownloadFile:
         dest = tmp_path / "sub" / "dir" / "file.bin"
 
         mock_response = MagicMock()
+        mock_response.__enter__.return_value = mock_response
+        mock_response.__exit__.return_value = False
         mock_response.headers.get.return_value = "4"
         mock_response.read.side_effect = [b"data", b""]
 
@@ -291,12 +326,32 @@ class TestDownloadFile:
 # ---------------------------------------------------------------------------
 
 
+class _FakePipe:
+    """Test helper: an iterable with a close() the production code can
+    call. MagicMock's default ``iter(...)`` replacement loses the
+    .close() attribute that the finally-close now depends on."""
+
+    def __init__(self, lines):
+        self._iter = iter(lines)
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._iter)
+
+    def close(self):
+        self.closed = True
+
+
 class TestRunSubprocess:
     def test_streams_output_to_callback(self) -> None:
         events: list[InstallProgress] = []
 
         mock_proc = MagicMock()
-        mock_proc.stdout = iter(["line 1\n", "line 2\n"])
+        pipe = _FakePipe(["line 1\n", "line 2\n"])
+        mock_proc.stdout = pipe
         mock_proc.returncode = 0
         mock_proc.wait.return_value = None
 
@@ -313,6 +368,8 @@ class TestRunSubprocess:
         assert len(events) == 2
         assert events[0].message == "line 1"
         assert events[1].message == "line 2"
+        # finally-close must run on the happy path too.
+        assert pipe.closed is True
 
     def test_cancel_terminates_process(self) -> None:
         cancel = threading.Event()
@@ -324,7 +381,8 @@ class TestRunSubprocess:
             cancel.set()
             yield "line 2\n"
 
-        mock_proc.stdout = lines()
+        pipe = _FakePipe(lines())
+        mock_proc.stdout = pipe
         mock_proc.returncode = -1
         mock_proc.wait.return_value = None
 
@@ -333,6 +391,60 @@ class TestRunSubprocess:
                 _run_subprocess(["cmd"], cancel_event=cancel)
 
         mock_proc.terminate.assert_called_once()
+        # Pipe must be closed even when cancel raises mid-stream.
+        assert pipe.closed is True
+
+    def test_wait_timeout_is_passed_through(self) -> None:
+        """_run_subprocess must call proc.wait(timeout=...) with a finite,
+        positive timeout. A missing timeout is the exact bug that froze the
+        install modal on a hung pip."""
+        mock_proc = MagicMock()
+        pipe = _FakePipe([])
+        mock_proc.stdout = pipe
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = None
+
+        with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc):
+            _run_subprocess(["cmd"], timeout=42.0)
+
+        # The only wait() call in the happy path is the final one.
+        mock_proc.wait.assert_called_once()
+        _, kwargs = mock_proc.wait.call_args
+        assert kwargs.get("timeout") == 42.0
+
+    def test_wait_timeout_propagates(self) -> None:
+        """If proc.wait() raises TimeoutExpired, the caller sees it so the
+        install dialog can surface the hang instead of spinning forever."""
+        mock_proc = MagicMock()
+        pipe = _FakePipe([])
+        mock_proc.stdout = pipe
+        mock_proc.returncode = None
+        mock_proc.wait.side_effect = subprocess.TimeoutExpired(cmd="pip", timeout=1.0)
+
+        with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc):
+            with pytest.raises(subprocess.TimeoutExpired):
+                _run_subprocess(["cmd"], timeout=1.0)
+
+        # Even on timeout, the pipe must be closed.
+        assert pipe.closed is True
+
+    def test_pipe_closed_when_progress_cb_raises(self) -> None:
+        """If the progress callback itself raises, the finally must still
+        close the stdout pipe so the child can exit cleanly."""
+        mock_proc = MagicMock()
+        pipe = _FakePipe(["boom\n"])
+        mock_proc.stdout = pipe
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = None
+
+        def angry_cb(_evt):
+            raise RuntimeError("ui exploded")
+
+        with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="ui exploded"):
+                _run_subprocess(["cmd"], progress_cb=angry_cb)
+
+        assert pipe.closed is True
 
 
 # ---------------------------------------------------------------------------
@@ -357,3 +469,52 @@ class TestRegistry:
         assert len(installers) == 2
         engine_ids = {i.engine_id for i in installers}
         assert engine_ids == {"piper", "chatterbox_fi"}
+
+
+# ---------------------------------------------------------------------------
+# _canonicalize_venv_path
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalizeVenvPath:
+    def test_allows_path_under_tmp(self, tmp_path) -> None:
+        """tmp_path lives under the TEMP env var so it is an allowed root."""
+        candidate = tmp_path / "myvenv"
+        resolved = _canonicalize_venv_path(candidate)
+        assert resolved == candidate.resolve()
+
+    def test_resolves_parent_segments(self, tmp_path) -> None:
+        """A value containing ``..`` must be resolved before the allowed-root
+        check so the check operates on the canonical path, not the raw
+        string the caller passed in."""
+        sub = tmp_path / "a" / "b"
+        sub.mkdir(parents=True)
+        candidate = sub / ".." / ".." / "myvenv"
+        resolved = _canonicalize_venv_path(candidate)
+        # After .resolve() the two ".."s collapse and it sits directly
+        # under tmp_path — still under an allowed root.
+        assert resolved == (tmp_path / "myvenv").resolve()
+
+    def test_rejects_path_outside_allowed_roots(self, tmp_path, monkeypatch) -> None:
+        """A venv path that resolves outside every allowed root must raise
+        ValueError before any subprocess.run touches it. We blank the env
+        vars that would otherwise white-list system-wide locations, leaving
+        only the repo root and DEFAULT_VENV_PATH parent in the allow-list."""
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.delenv("TEMP", raising=False)
+        monkeypatch.delenv("TMP", raising=False)
+        # An absolute path nowhere near the repo / install root. On
+        # Windows the drive letter alone is enough to escape every root.
+        bogus = Path("Z:/definitely/not/allowed/venv")
+        with pytest.raises(ValueError, match="outside every allowed root"):
+            _canonicalize_venv_path(bogus)
+
+    def test_chatterbox_installer_rejects_traversal(self, monkeypatch) -> None:
+        """End-to-end: ChatterboxInstaller's constructor must refuse a venv
+        path that escapes every allowed root, so a corrupted config value
+        cannot cause `python -m venv` to write outside the install root."""
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.delenv("TEMP", raising=False)
+        monkeypatch.delenv("TMP", raising=False)
+        with pytest.raises(ValueError):
+            ChatterboxInstaller(venv_path=Path("Z:/escape/venv"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from src.auto_updater import UpdateInfo, check_for_update, download_update, apply_update, APP_VERSION
 from src.launcher_bridge import ProgressEvent
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     class _UpdateHost(Protocol):
@@ -57,7 +60,11 @@ class UpdateMixin(_Base):
             info = check_for_update(APP_VERSION)
             self._update_queue.put(info)
         except Exception:
-            pass  # Silently ignore — no banner shown.
+            # Keep the no-banner behaviour — we don't want to scare the
+            # user with a popup just because GitHub was unreachable — but
+            # log the traceback so flaky auto-update checks show up in
+            # diagnostics instead of disappearing silently.
+            logger.debug("Update check failed", exc_info=True)
 
     def _poll_update_check(self) -> None:
         """Tk main-thread poller: pick up the update-check result."""
@@ -159,6 +166,13 @@ class UpdateMixin(_Base):
                     text=self._s("update_now"),
                 )
                 self._progress_bar.set(0)
+                # Clear the pending-update handle so the banner doesn't
+                # keep pointing at a release whose installer we couldn't
+                # fetch (bad SHA, 404, network blip). The next scheduled
+                # update check will re-populate if the release is still
+                # fine — this just prevents a stale "update available"
+                # handle from silently re-triggering a broken download.
+                self._pending_update = None
                 from tkinter import messagebox
                 messagebox.showerror(
                     self._s("error"),

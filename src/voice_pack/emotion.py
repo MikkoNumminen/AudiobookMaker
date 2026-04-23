@@ -16,10 +16,13 @@ weights.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
 from src.voice_pack.types import TaggedChunk, VoiceChunk
+
+logger = logging.getLogger(__name__)
 
 # SpeechBrain's IEMOCAP classifier uses 16 kHz mono input.
 _TARGET_SR: int = 16000
@@ -188,10 +191,12 @@ def _classify_slice(model: object, slice_samples: Any) -> Tuple[str, float]:
 
     try:
         confidence = float(score[0].item() if hasattr(score[0], "item") else score[0])
-    except Exception:
+    except Exception as exc:
+        logger.warning("Emotion confidence scoring failed: %s", exc)
         try:
             confidence = float(score)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Emotion confidence scoring failed: %s", exc)
             confidence = 0.0
 
     if canonical == "unknown":

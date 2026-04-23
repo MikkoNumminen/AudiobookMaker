@@ -359,7 +359,11 @@ def _download_file(
     """
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "AudiobookMaker/1.0"})
-        with urllib.request.urlopen(req) as response:  # nosec B310 (https only)
+        # Voice files are ~60 MB over HuggingFace — 60 s is long enough for
+        # a slow DSL line to establish the connection and start streaming,
+        # but short enough that a dead CDN endpoint fails loud instead of
+        # hanging the synthesis thread forever.
+        with urllib.request.urlopen(req, timeout=60) as response:  # nosec B310 (https only)
             total = int(response.headers.get("Content-Length") or 0)
             tmp_fd, tmp_path = tempfile.mkstemp(
                 prefix=destination.name, suffix=".part", dir=str(destination.parent)

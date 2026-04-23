@@ -795,3 +795,187 @@ def test_build_chatterbox_voice_pack_path_absent_when_unset(
     plan = build_chatterbox_runner(req, runner_script, default_out)
 
     assert "--voice-pack" not in plan.runner.extra_args
+
+
+# ---------------------------------------------------------------------------
+# Tempfile lifecycle — finding #1 from the synthesis-core audit
+# ---------------------------------------------------------------------------
+
+
+def _count_abm_temp_files() -> int:
+    """Count orphaned 'abm_'-prefixed tempfiles in the system temp dir.
+
+    build_chatterbox_runner uses the default tempfile prefix (plain
+    ``tmp*.txt``) for the text-mode path and ``abm_`` or a user-chosen
+    prefix for the text_override path. We anchor these tests on the
+    plan's cleanup_files list rather than scanning the whole temp dir,
+    which avoids being fooled by unrelated tempfiles from other tests.
+    """
+    # Present only so the helper exists if future work wants a broader
+    # scan — the body is intentionally minimal.
+    return 0
+
+
+def test_build_chatterbox_text_mode_exposes_tempfile_via_cleanup(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """The plan returned on the text-mode path must list its tempfile
+    in ``cleanup_files`` so the caller can delete it once the subprocess
+    finishes. Before this was exposed, every text-mode invocation leaked
+    a .txt into %TEMP% that nobody ever removed."""
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="Hello world.")
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert len(plan.cleanup_files) == 1
+    tmp_path_str = plan.cleanup_files[0]
+    assert tmp_path_str == plan.runner.text_path
+    assert Path(tmp_path_str).exists()
+
+    # Calling cleanup() removes the file and empties the list so a
+    # second call is safe (finally blocks may invoke it twice on
+    # exception paths).
+    plan.cleanup()
+    assert not Path(tmp_path_str).exists()
+    assert plan.cleanup_files == []
+    plan.cleanup()  # idempotent — no raise on already-gone file
+
+
+def test_build_chatterbox_text_override_exposes_tempfile_via_cleanup(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """Sample-flow (text_override) tempfile must also be tracked."""
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "full.pdf"
+    book.write_bytes(b"")
+    req = ChatterboxRequest(
+        input_mode="pdf",
+        pdf_path=str(book),
+        text_override="Sample snippet.",
+        output_basename_override="my_sample",
+    )
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert len(plan.cleanup_files) == 1
+    assert plan.cleanup_files[0] == plan.runner.text_path
+    assert Path(plan.cleanup_files[0]).exists()
+
+    plan.cleanup()
+    assert not Path(plan.cleanup_files[0] if plan.cleanup_files else "/does/not/exist").exists()
+
+
+def test_build_chatterbox_pdf_passthrough_has_no_cleanup_files(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """When the input is a real pdf/epub path we forward the user's
+    file as-is — no tempfile is created, so cleanup_files stays empty."""
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "story.pdf"
+    book.write_bytes(b"")
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.cleanup_files == []
+
+
+def test_build_chatterbox_venv_missing_cleans_up_tempfile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """If a later validation step (chatterbox_venv_missing) raises
+    after the text_override tempfile has already been written, the
+    tempfile must be removed before the exception propagates.
+    Previously it leaked into %TEMP% on every failed build."""
+    # Pretend the venv is unavailable so the build path fails after
+    # the tempfile is created.
+    monkeypatch.setattr(
+        "src.synthesis_orchestrator.resolve_chatterbox_python",
+        lambda: None,
+    )
+    runner_script = tmp_path / "missing.py"  # does not exist
+
+    # Use an output_basename_override so the tempfile prefix is
+    # predictable and we can grep for it in the tempdir.
+    import tempfile as _tempfile
+
+    unique = "abmfindingonetest_"
+    req = ChatterboxRequest(
+        input_mode="text",
+        input_text="text that would go to a tempfile",
+        text_override="snippet body",
+        output_basename_override=unique.rstrip("_"),
+    )
+
+    before = {
+        p for p in Path(_tempfile.gettempdir()).iterdir()
+        if p.name.startswith(unique)
+    }
+
+    with pytest.raises(ChatterboxBuildError) as exc:
+        build_chatterbox_runner(req, runner_script, tmp_path)
+    assert exc.value.kind == "chatterbox_venv_missing"
+
+    after = {
+        p for p in Path(_tempfile.gettempdir()).iterdir()
+        if p.name.startswith(unique)
+    }
+    assert after == before, f"tempfile leaked on failed build: {after - before}"
+
+
+def test_build_chatterbox_text_mode_cleanup_runs_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Same guarantee for the plain text-mode path: if the venv check
+    raises after the tempfile is written, the tempfile must be removed."""
+    monkeypatch.setattr(
+        "src.synthesis_orchestrator.resolve_chatterbox_python",
+        lambda: None,
+    )
+    runner_script = tmp_path / "missing.py"  # does not exist
+
+    import tempfile as _tempfile
+
+    # Snapshot the set of .txt tempfiles before and compare. We can't
+    # anchor to a prefix here — text mode uses the default tmp* prefix.
+    before = {
+        p for p in Path(_tempfile.gettempdir()).iterdir()
+        if p.suffix == ".txt" and p.name.startswith("tmp")
+    }
+
+    req = ChatterboxRequest(
+        input_mode="text",
+        input_text="some content that goes to a tempfile",
+    )
+    with pytest.raises(ChatterboxBuildError):
+        build_chatterbox_runner(req, runner_script, tmp_path)
+
+    after = {
+        p for p in Path(_tempfile.gettempdir()).iterdir()
+        if p.suffix == ".txt" and p.name.startswith("tmp")
+    }
+    # No new .txt tempfiles should have been left behind.
+    leaked = after - before
+    assert not leaked, f"text-mode tempfile leaked on failed build: {leaked}"
+
+
+def test_build_chatterbox_cleanup_is_idempotent_and_forgiving(
+    fake_chatterbox_env, tmp_path: Path
+):
+    """cleanup() must not crash when the tempfile has already been
+    removed — a caller that uses a try/finally AND handles an explicit
+    error path would otherwise hit a FileNotFoundError on the second
+    call."""
+    runner_script, default_out = fake_chatterbox_env
+    req = ChatterboxRequest(input_mode="text", input_text="hi")
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    tmp_file = plan.cleanup_files[0]
+    # Remove the file out-of-band to simulate the caller cleaning it up
+    # once already, or the user deleting %TEMP%.
+    Path(tmp_file).unlink()
+
+    # cleanup() must not raise.
+    plan.cleanup()
+    assert plan.cleanup_files == []

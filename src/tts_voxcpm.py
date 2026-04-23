@@ -201,7 +201,16 @@ class VoxCPM2Engine(TTSEngine):
         if progress_cb:
             progress_cb(0, 0, "Ladataan VoxCPM2-mallia (~8 GB VRAM)…")
         model = self._load_model()
-        sample_rate = self._sample_rate or 24000
+        # ``_load_model`` is contractually responsible for populating
+        # ``_sample_rate`` from ``model.tts_model.sample_rate``. If it is
+        # still None we would silently write chunks at a made-up 24 kHz,
+        # producing audio with the wrong playback speed. Fail loud.
+        if self._sample_rate is None:
+            raise RuntimeError(
+                "VoxCPM model sample rate not loaded — engine "
+                "initialization failed"
+            )
+        sample_rate = self._sample_rate
 
         # VoxCPM2's voice-description feature is implemented by prepending
         # the description in parentheses to the text itself, e.g.:

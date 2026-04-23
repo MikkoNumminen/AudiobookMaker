@@ -19,10 +19,11 @@ Later phases will extend the module to own in-process engine dispatch
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -346,11 +347,37 @@ class ChatterboxPlan:
 
     The runner is ready to ``start()``. ``out_dir`` and ``input_label``
     are exposed so the GUI can log them before launching.
+
+    ``cleanup_files`` lists temp files created during build (e.g. the
+    ``--text-file`` tempfile materialised from a ``text_override`` or
+    raw ``input_text`` request). The subprocess reads those files
+    asynchronously, so they must outlive ``build_chatterbox_runner``
+    — delete them only after the runner has finished (either via
+    ``cleanup()`` in a ``finally`` block around the runner lifecycle,
+    or by calling ``cleanup()`` on the ``failed`` event path).
     """
 
     runner: ChatterboxRunner
     out_dir: Path
     input_label: str
+    cleanup_files: list[str] = field(default_factory=list)
+
+    def cleanup(self) -> None:
+        """Delete every path in :attr:`cleanup_files`, swallowing errors.
+
+        Safe to call more than once — on the second call the list is
+        already empty and the unlink loop is a no-op. Missing files and
+        permission errors are ignored because the goal is "don't leak"
+        not "verify deletion": a user who deleted the tempfile by hand
+        should not trigger a second failure on top of whatever brought
+        the runner down.
+        """
+        while self.cleanup_files:
+            path = self.cleanup_files.pop()
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
 
 def build_chatterbox_runner(
@@ -373,74 +400,99 @@ def build_chatterbox_runner(
     text_path: Optional[str] = None
     epub_path: Optional[str] = None
 
-    if request.text_override is not None:
-        # Sample path: always route the snippet through a temp .txt.
-        prefix = (
-            f"{request.output_basename_override}_"
-            if request.output_basename_override
-            else "abm_"
-        )
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", prefix=prefix, suffix=".txt",
-            delete=False, encoding="utf-8",
-        )
-        tmp.write(request.text_override)
-        tmp.close()
-        text_path = tmp.name
-    elif request.input_mode == "pdf":
-        if not request.pdf_path:
-            raise ChatterboxBuildError("no_pdf")
-        ext = Path(request.pdf_path).suffix.lower()
-        if ext == ".epub":
-            epub_path = request.pdf_path
-        elif ext == ".txt":
-            text_path = request.pdf_path
+    # Every tempfile we materialise below gets tracked here so the
+    # except-branch can remove them if a later validation step (e.g.
+    # "chatterbox_venv_missing") raises. The tempfiles use
+    # ``delete=False`` because the subprocess — not this Python process
+    # — reads them later; anything that leaves this function successfully
+    # is the caller's responsibility to clean up via
+    # :meth:`ChatterboxPlan.cleanup`.
+    tmp_files: list[str] = []
+
+    try:
+        if request.text_override is not None:
+            # Sample path: always route the snippet through a temp .txt.
+            prefix = (
+                f"{request.output_basename_override}_"
+                if request.output_basename_override
+                else "abm_"
+            )
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", prefix=prefix, suffix=".txt",
+                delete=False, encoding="utf-8",
+            )
+            tmp.write(request.text_override)
+            tmp.close()
+            text_path = tmp.name
+            tmp_files.append(text_path)
+        elif request.input_mode == "pdf":
+            if not request.pdf_path:
+                raise ChatterboxBuildError("no_pdf")
+            ext = Path(request.pdf_path).suffix.lower()
+            if ext == ".epub":
+                epub_path = request.pdf_path
+            elif ext == ".txt":
+                text_path = request.pdf_path
+            else:
+                pdf_path = request.pdf_path
         else:
-            pdf_path = request.pdf_path
-    else:
-        content = (request.input_text or "").strip()
-        if not content:
-            raise ChatterboxBuildError("no_text")
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, encoding="utf-8",
+            content = (request.input_text or "").strip()
+            if not content:
+                raise ChatterboxBuildError("no_text")
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8",
+            )
+            tmp.write(content)
+            tmp.close()
+            text_path = tmp.name
+            tmp_files.append(text_path)
+
+        python_exe = resolve_chatterbox_python()
+        if python_exe is None or not runner_script.exists():
+            raise ChatterboxBuildError("chatterbox_venv_missing")
+
+        if request.output_path_hint:
+            out_dir = Path(request.output_path_hint).parent
+        else:
+            out_dir = default_out_dir
+        out_dir = out_dir.resolve()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        extra_args: list[str] = []
+        if request.reference_audio:
+            extra_args.extend(["--ref-audio", request.reference_audio])
+        # Only pass --chunk-chars when it diverges from the runner's default so
+        # default runs keep clean logs.
+        if request.chunk_chars != 300:
+            extra_args.extend(["--chunk-chars", str(request.chunk_chars)])
+        if request.voice_pack_path:
+            extra_args.extend(["--voice-pack", request.voice_pack_path])
+
+        runner = ChatterboxRunner(
+            python_exe=str(python_exe),
+            script_path=str(runner_script),
+            pdf_path=pdf_path,
+            text_path=text_path,
+            epub_path=epub_path,
+            out_dir=str(out_dir),
+            extra_args=extra_args,
+            language=request.language,
         )
-        tmp.write(content)
-        tmp.close()
-        text_path = tmp.name
-
-    python_exe = resolve_chatterbox_python()
-    if python_exe is None or not runner_script.exists():
-        raise ChatterboxBuildError("chatterbox_venv_missing")
-
-    if request.output_path_hint:
-        out_dir = Path(request.output_path_hint).parent
-    else:
-        out_dir = default_out_dir
-    out_dir = out_dir.resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    extra_args: list[str] = []
-    if request.reference_audio:
-        extra_args.extend(["--ref-audio", request.reference_audio])
-    # Only pass --chunk-chars when it diverges from the runner's default so
-    # default runs keep clean logs.
-    if request.chunk_chars != 300:
-        extra_args.extend(["--chunk-chars", str(request.chunk_chars)])
-    if request.voice_pack_path:
-        extra_args.extend(["--voice-pack", request.voice_pack_path])
-
-    runner = ChatterboxRunner(
-        python_exe=str(python_exe),
-        script_path=str(runner_script),
-        pdf_path=pdf_path,
-        text_path=text_path,
-        epub_path=epub_path,
-        out_dir=str(out_dir),
-        extra_args=extra_args,
-        language=request.language,
-    )
+    except BaseException:
+        # Any failure along the build path (ChatterboxBuildError, OSError
+        # from mkdir, etc.) must not leak tempfiles — the caller never
+        # receives a ChatterboxPlan so no one else will clean them up.
+        for path in tmp_files:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        raise
 
     input_label = pdf_path or epub_path or text_path or "text"
     return ChatterboxPlan(
-        runner=runner, out_dir=out_dir, input_label=input_label,
+        runner=runner,
+        out_dir=out_dir,
+        input_label=input_label,
+        cleanup_files=list(tmp_files),
     )

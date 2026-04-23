@@ -7,6 +7,7 @@ available in the test env via Chatterbox deps.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -16,7 +17,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from src.voice_pack.emotion import _resample_linear, tag_emotions  # noqa: E402
+from src.voice_pack.emotion import _classify_slice, _resample_linear, tag_emotions  # noqa: E402
 from src.voice_pack.types import VoiceChunk  # noqa: E402
 
 
@@ -202,3 +203,45 @@ def test_resample_linear_halves() -> None:
     out = _resample_linear(samples, 16000, 8000)
     # Allow a one-sample rounding tolerance.
     assert abs(out.shape[0] - 8000) <= 1
+
+
+# ---------------------------------------------------------------------------
+# _classify_slice confidence-scoring fallbacks
+# ---------------------------------------------------------------------------
+
+
+class _BrokenScoreClassifier:
+    """Classifier whose ``score`` shape breaks the normal extraction path.
+
+    ``score[0]`` raises on indexing, and ``float(score)`` also raises —
+    which drives the inner fallback branch that ultimately sets
+    confidence to 0.0. Both branches must now emit a warning log.
+    """
+
+    class _Score:
+        def __getitem__(self, _idx):
+            raise TypeError("no indexing")
+
+        def __float__(self):
+            raise TypeError("no float conversion")
+
+    def classify_batch(self, _batch):
+        score = self._Score()
+        return (None, score, None, ["neu"])
+
+
+def test_classify_slice_logs_when_confidence_extraction_fails(caplog) -> None:
+    """Both the outer and inner exception branches in ``_classify_slice``
+    must log a warning before falling back to 0.0 confidence."""
+    model = _BrokenScoreClassifier()
+    samples = np.zeros(16000, dtype=np.float32)
+
+    with caplog.at_level(logging.WARNING, logger="src.voice_pack.emotion"):
+        label, confidence = _classify_slice(model, samples)
+
+    assert label == "neutral"
+    assert confidence == 0.0
+
+    warn_records = [r for r in caplog.records if "Emotion confidence scoring failed" in r.getMessage()]
+    # We expect two warnings: one from the outer except, one from the inner.
+    assert len(warn_records) == 2

@@ -38,6 +38,12 @@ MAX_RMS_DBFS = -10.0
 MAX_CLIP_RATIO = 0.0005  # 0.05 %
 
 RECORD_DURATION_S = 15.0
+# 22 050 Hz matches the Chatterbox training target after its internal
+# resample, so asking ffmpeg for this rate up front avoids an extra
+# conversion step in the preflight pipeline.  If the OS audio driver
+# can't deliver exactly this rate, ffmpeg resamples transparently —
+# we don't probe device capabilities because the cost would outweigh
+# any user-visible benefit.
 RECORD_SAMPLE_RATE = 22_050
 VOICE_SAMPLES_DIR = Path("voice_samples")
 
@@ -120,13 +126,21 @@ class RecordingResult:
 def _read_wav_samples(path: Path) -> tuple[int, int, list[int]]:
     """Read a 16-bit PCM WAV and return (sample_rate, n_channels, samples).
 
-    Returns raw int16 sample values as a flat list.
+    Returns raw int16 sample values as a flat list.  Raises ``ValueError``
+    if the file is not 16-bit PCM — silently re-interpreting 24/32-bit
+    samples as int16 produces nonsense loudness/clipping numbers, so we
+    fail loud rather than convert.
     """
     with wave.open(str(path), "rb") as wf:
         rate = wf.getframerate()
         n_ch = wf.getnchannels()
+        sw = wf.getsampwidth()
         n_frames = wf.getnframes()
         raw = wf.readframes(n_frames)
+    if sw != 2:
+        raise ValueError(
+            f"Unsupported WAV sample width: {sw * 8} bits — expected 16-bit PCM"
+        )
     # 16-bit signed PCM
     count = len(raw) // 2
     samples = list(struct.unpack(f"<{count}h", raw))
@@ -509,17 +523,25 @@ class VoiceRecorderDialog:
         ]
 
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        # Order matters: Popen first, store handle, THEN flip _recording.
+        # If Popen raises we must leave _recording False and _rec_process
+        # None, otherwise _tick_progress will loop forever thinking we're
+        # still capturing audio.
         try:
-            self._rec_process = subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 creationflags=creationflags,
             )
         except Exception as exc:
+            self._rec_process = None
+            self._wav_path = None
+            self._recording = False
             messagebox.showerror(self._s("rec_failed"), str(exc),
                                  parent=self._dlg)
             return
 
+        self._rec_process = proc
         self._recording = True
         self._rec_start = time.time()
         self._rec_btn.configure(text=self._s("stop"), bg="#991111")
@@ -568,18 +590,42 @@ class VoiceRecorderDialog:
         self._dlg.after(0, self._on_record_done)
 
     def _on_record_done(self) -> None:
-        """Handle end-of-recording: restore buttons and kick off preflight checks."""
-        self._recording = False
-        self._rec_btn.configure(text=self._s("record"), bg="#cc3333")
-        self._dev_combo.configure(state="readonly")
+        """Handle end-of-recording: restore buttons and kick off preflight checks.
 
-        if self._wav_path and self._wav_path.exists() and self._wav_path.stat().st_size > 44:
-            self._status_var.set(self._s("processing"))
-            self._dlg.update_idletasks()
-            # Run checks in a thread to keep UI responsive
-            threading.Thread(target=self._run_checks, daemon=True).start()
-        else:
-            self._status_var.set(self._s("rec_failed"))
+        The ffmpeg handle on ``self._rec_process`` must always be released
+        by the time this returns, even if a widget call raises partway
+        through — holding a dead handle leaks a file descriptor and
+        confuses later state checks.
+        """
+        try:
+            self._recording = False
+            self._rec_btn.configure(text=self._s("record"), bg="#cc3333")
+            self._dev_combo.configure(state="readonly")
+
+            if self._wav_path and self._wav_path.exists() and self._wav_path.stat().st_size > 44:
+                self._status_var.set(self._s("processing"))
+                self._dlg.update_idletasks()
+                # Run checks in a thread to keep UI responsive
+                threading.Thread(target=self._run_checks, daemon=True).start()
+            else:
+                self._status_var.set(self._s("rec_failed"))
+        finally:
+            self._release_rec_process()
+
+    def _release_rec_process(self) -> None:
+        """Terminate the ffmpeg record process if still alive and drop the handle."""
+        proc = self._rec_process
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except Exception:
+                pass
+            self._rec_process = None
 
     def _run_checks(self) -> None:
         """Background worker that runs preflight analysis on the recorded WAV."""
@@ -652,7 +698,50 @@ class VoiceRecorderDialog:
             self._play_process = subprocess.Popen(
                 cmd, creationflags=creationflags)
         except Exception as exc:
+            self._play_process = None
             messagebox.showwarning("Playback", str(exc), parent=self._dlg)
+            return
+        # Background waiter releases the ffplay handle the moment it exits
+        # so the next Play click does not see a stale "still playing" handle.
+        threading.Thread(target=self._wait_play, daemon=True).start()
+
+    def _wait_play(self) -> None:
+        """Background thread that waits for ffplay to exit then signals the UI."""
+        proc = self._play_process
+        if proc is not None:
+            try:
+                proc.wait()
+            except Exception:
+                pass
+        self._dlg.after(0, self._on_play_done)
+
+    def _on_play_done(self) -> None:
+        """Release the ffplay handle when playback finishes.
+
+        Wrapped in try/finally so a widget callback blowing up here does
+        not leak the subprocess handle.
+        """
+        try:
+            # Hook for future UI updates (e.g. flipping a Play button back
+            # to its idle state).  Kept intentionally small for now.
+            pass
+        finally:
+            self._release_play_process()
+
+    def _release_play_process(self) -> None:
+        """Terminate the ffplay process if still alive and drop the handle."""
+        proc = self._play_process
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except Exception:
+                pass
+            self._play_process = None
 
     # -- re-record / use / cancel -------------------------------------------
 

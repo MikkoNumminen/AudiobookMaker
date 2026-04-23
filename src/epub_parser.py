@@ -21,6 +21,7 @@ Strategy:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,8 @@ from src.pdf_parser import (
     ParsedBook,
     clean_text,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -177,14 +180,22 @@ def parse_epub(file_path: str | Path) -> ParsedBook:
     document_items: list[epub.EpubItem] = []
     seen_ids: set[str] = set()
     try:
-        for entry in book.spine:
+        spine_entries = list(book.spine)
+    except Exception as exc:
+        logger.warning("EPUB spine iteration failed: %s", exc)
+        spine_entries = []
+
+    for i, entry in enumerate(spine_entries):
+        try:
             item_id = entry[0] if isinstance(entry, tuple) else entry
             item = book.get_item_with_id(item_id)
             if item is not None and item.get_type() == ITEM_DOCUMENT:
                 document_items.append(item)
                 seen_ids.add(item.id)
-    except Exception:
-        pass
+        except Exception as exc:
+            logger.warning(
+                "EPUB spine iteration failed at chapter %d: %s", i, exc
+            )
 
     # Append any documents not in the spine so we don't silently drop
     # valid content (rare, but happens in hand-crafted EPUBs).

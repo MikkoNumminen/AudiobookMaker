@@ -14,12 +14,16 @@ import below.
 
 from __future__ import annotations
 
+import logging
+import os
 import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Optional
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from src import app_config
 from src.ffmpeg_path import setup_ffmpeg_path
@@ -91,12 +95,47 @@ class App(tk.Tk):
         self._output_path: Optional[str] = None
         self._converting = False
         self._testing_voice = False
+        # Track temp MP3 paths produced by the "Test voice" flow. The
+        # external audio player reads them asynchronously, so we can't
+        # unlink immediately after Popen/startfile returns — the file
+        # would vanish before the player opened it. Instead we keep the
+        # paths here and sweep them on window close.
+        self._temp_sample_paths: List[str] = []
 
         # Load user preferences; defaults kick in on first launch.
         self._user_cfg = app_config.load()
 
         self._build_ui()
         self._apply_loaded_config()
+
+        # Wire up close handler so temp sample MP3s get cleaned up when
+        # the user closes the window. Tk's destroy path fires WM_DELETE
+        # before the interpreter tears down, giving us a single place to
+        # unlink files without racing the subprocess audio player.
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self) -> None:
+        """Sweep temp sample files produced by Test voice, then destroy."""
+        self._cleanup_temp_samples()
+        self.destroy()
+
+    def _cleanup_temp_samples(self) -> None:
+        """Remove every temp MP3 we wrote for the Test voice button."""
+        for path in self._temp_sample_paths:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                # Already gone — user may have moved/deleted it, or a
+                # previous sweep removed it. Nothing to do.
+                pass
+            except OSError as exc:
+                # Windows can hold the file if the external player still
+                # has a handle; log for diagnostics but don't block
+                # shutdown over a stray 200 KB MP3.
+                logger.warning(
+                    "Could not delete temp sample %s: %s", path, exc
+                )
+        self._temp_sample_paths.clear()
 
     # ------------------------------------------------------------------
     # Window helpers
@@ -563,6 +602,10 @@ class App(tk.Tk):
                 prefix="sample_", suffix=".mp3", delete=False
             )
             tmp.close()
+            # Register the path so _on_close unlinks it; the external
+            # audio player may still be reading it after this worker
+            # thread finishes, so we can't delete it here.
+            self._temp_sample_paths.append(tmp.name)
 
             def progress(current: int, total: int, msg: str) -> None:
                 self._safe_update_status(msg)

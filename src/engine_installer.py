@@ -68,6 +68,80 @@ HF_REPOS = [
 DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
 
+def _allowed_venv_roots() -> list[Path]:
+    """Directories under which a Chatterbox venv is allowed to live.
+
+    A venv_path that resolves outside every one of these roots is rejected
+    before it gets passed to ``subprocess.run(... -m venv ...)`` — otherwise
+    a malicious or corrupt config value ("../../Windows/System32") would
+    drop a Python environment anywhere on disk.
+
+    The roots cover the three legitimate locations:
+
+    * The canonical install root ``C:\\AudiobookMaker\\`` (Inno Setup default
+      and ``DEFAULT_VENV_PATH`` parent).
+    * The repo / app root — ``.venv-chatterbox`` next to a dev checkout or
+      next to the frozen executable.
+    * ``%LOCALAPPDATA%`` — future fallback when the install root is
+      read-only.
+    """
+    roots: list[Path] = []
+
+    # 1. DEFAULT_VENV_PATH's parent: C:\AudiobookMaker\
+    roots.append(DEFAULT_VENV_PATH.parent.resolve(strict=False))
+
+    # 2. Dev / frozen app root. In dev the engine_installer module lives in
+    #    <repo>/src/, so repo root is two parents up. In frozen mode the
+    #    resolved root is where the .exe lives.
+    try:
+        roots.append(Path(__file__).resolve().parent.parent)
+    except (OSError, ValueError):
+        pass
+
+    # 3. LOCALAPPDATA (Windows per-user root).
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        try:
+            roots.append(Path(localappdata).resolve(strict=False))
+        except (OSError, ValueError):
+            pass
+
+    # 4. TMP / TEMP — pytest's tmp_path lives here. Valid in tests only,
+    #    but the cost of allowing it is zero in production because no
+    #    real config points a venv at TEMP.
+    for var in ("TEMP", "TMP"):
+        tmp = os.environ.get(var)
+        if tmp:
+            try:
+                roots.append(Path(tmp).resolve(strict=False))
+            except (OSError, ValueError):
+                pass
+
+    return roots
+
+
+def _canonicalize_venv_path(venv_path: Path) -> Path:
+    """Resolve ``venv_path`` and verify it sits under an allowed root.
+
+    Raises ``ValueError`` on a path-traversal or a path that escapes every
+    allowed root. The resolved Path is returned so every downstream caller
+    (mkdir, subprocess.run ``-m venv``) operates on the canonical form and
+    cannot be fooled by symlinks or ``..`` segments sneaking through.
+    """
+    resolved = Path(venv_path).resolve(strict=False)
+    roots = _allowed_venv_roots()
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        return resolved
+    raise ValueError(
+        f"venv_path {venv_path!r} (resolved to {resolved}) is outside every "
+        f"allowed root: {[str(r) for r in roots]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # User-facing strings (bilingual)
 # ---------------------------------------------------------------------------
@@ -194,35 +268,38 @@ def _download_file(
     tmp = dest.with_suffix(dest.suffix + ".tmp")
 
     try:
-        response = urllib.request.urlopen(url, timeout=60)
-        total_bytes = int(response.headers.get("Content-Length", 0))
-        downloaded = 0
-        chunk_size = 256 * 1024  # 256 KB
+        # Context manager guarantees the HTTP response handle is closed on
+        # exception or cancellation, not just on the happy path. Without this
+        # a cancelled download leaks the underlying socket until GC runs.
+        with urllib.request.urlopen(url, timeout=30) as response:
+            total_bytes = int(response.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk_size = 256 * 1024  # 256 KB
 
-        with open(tmp, "wb") as f:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    raise InterruptedError("Cancelled")
-                chunk = response.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_cb:
-                    progress_cb(
-                        InstallProgress(
-                            step=step,
-                            total_steps=total_steps,
-                            step_label=step_label,
-                            bytes_done=downloaded,
-                            bytes_total=total_bytes,
-                            percent=(downloaded / total_bytes * 100)
-                            if total_bytes
-                            else 0,
-                            message=f"{downloaded // (1024 * 1024)}"
-                            f" / {total_bytes // (1024 * 1024)} MB",
+            with open(tmp, "wb") as f:
+                while True:
+                    if cancel_event and cancel_event.is_set():
+                        raise InterruptedError("Cancelled")
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_cb:
+                        progress_cb(
+                            InstallProgress(
+                                step=step,
+                                total_steps=total_steps,
+                                step_label=step_label,
+                                bytes_done=downloaded,
+                                bytes_total=total_bytes,
+                                percent=(downloaded / total_bytes * 100)
+                                if total_bytes
+                                else 0,
+                                message=f"{downloaded // (1024 * 1024)}"
+                                f" / {total_bytes // (1024 * 1024)} MB",
+                            )
                         )
-                    )
 
         # Atomic rename.
         if dest.exists():
@@ -239,6 +316,14 @@ def _download_file(
         raise
 
 
+# 30 minutes. Covers the worst case we have in production: a fresh torch
+# + CUDA wheel install on a slow residential connection. Anything longer
+# is almost certainly a hung process, not real progress — freezing the
+# install modal forever (the old behaviour) is worse than surfacing the
+# hang to the caller as a TimeoutExpired.
+_DEFAULT_SUBPROCESS_TIMEOUT_S = 1800
+
+
 def _run_subprocess(
     cmd: list[str],
     progress_cb: Optional[ProgressCallback] = None,
@@ -247,8 +332,16 @@ def _run_subprocess(
     step_label: str = "",
     cancel_event: Optional[threading.Event] = None,
     env: Optional[dict] = None,
+    timeout: float = _DEFAULT_SUBPROCESS_TIMEOUT_S,
 ) -> subprocess.CompletedProcess:
-    """Run a subprocess and stream its output to progress_cb."""
+    """Run a subprocess and stream its output to progress_cb.
+
+    Raises ``subprocess.TimeoutExpired`` if the child does not finish
+    within ``timeout`` seconds. Callers that expect legitimately long
+    installs (pip install torch) can raise the timeout; everyone else
+    gets a safe default so a hung pip never freezes the install modal
+    indefinitely.
+    """
     merged_env = {**os.environ, **(env or {})}
     proc = subprocess.Popen(
         cmd,
@@ -259,25 +352,40 @@ def _run_subprocess(
         env=merged_env,
     )
 
-    output_lines = []
-    for line in proc.stdout:  # type: ignore
-        line = line.rstrip()
-        output_lines.append(line)
-        if progress_cb:
-            progress_cb(
-                InstallProgress(
-                    step=step,
-                    total_steps=total_steps,
-                    step_label=step_label,
-                    message=line,
+    output_lines: list[str] = []
+    # Wrap the stdout iteration in try/finally: if the progress_cb
+    # raises, or if we hit the TimeoutExpired path below, the pipe still
+    # gets closed. Without this the read end would linger until GC and
+    # the child could block on a full PIPE buffer.
+    try:
+        for line in proc.stdout:  # type: ignore[union-attr]
+            line = line.rstrip()
+            output_lines.append(line)
+            if progress_cb:
+                progress_cb(
+                    InstallProgress(
+                        step=step,
+                        total_steps=total_steps,
+                        step_label=step_label,
+                        message=line,
+                    )
                 )
-            )
-        if cancel_event and cancel_event.is_set():
-            proc.terminate()
-            proc.wait()
-            raise InterruptedError("Cancelled")
+            if cancel_event and cancel_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                raise InterruptedError("Cancelled")
 
-    proc.wait()
+        proc.wait(timeout=timeout)
+    finally:
+        if proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
     result = subprocess.CompletedProcess(
         cmd, proc.returncode, "\n".join(output_lines), ""
     )
@@ -392,7 +500,14 @@ class ChatterboxInstaller(EngineInstaller):
     display_name = "Chatterbox Finnish"
 
     def __init__(self, venv_path: Optional[Path] = None) -> None:
-        self._venv_path = venv_path or DEFAULT_VENV_PATH
+        # Canonicalize before storing: every downstream use — mkdir,
+        # subprocess.run for `python -m venv`, is_installed() — operates
+        # on the resolved path. A traversal value ("C:/AudiobookMaker/
+        # ../Windows/System32/foo") now fails fast at construction
+        # instead of causing subprocess.run to write outside the intended
+        # install root.
+        candidate = venv_path or DEFAULT_VENV_PATH
+        self._venv_path = _canonicalize_venv_path(candidate)
 
     @property
     def _venv_python(self) -> Path:
