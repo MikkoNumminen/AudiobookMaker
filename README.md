@@ -584,7 +584,7 @@ bridge, auto-update flow, cleanup — see
 
 ## Claude Code skills (measured)
 
-The [`.claude/skills/`](.claude/skills/) directory holds three
+The [`.claude/skills/`](.claude/skills/) directory holds four
 custom skills for
 [Claude Code](https://www.anthropic.com/claude-code) that automate
 the repetitive, mistake-prone parts of maintaining this project. A
@@ -592,12 +592,13 @@ skill is a single `SKILL.md` file that Claude Code loads into its
 context when a matching keyword is used, giving Claude a written
 playbook for a recurring task.
 
-These skills live in this repository for two reasons. First, they
-are all domain-specific — `release-cut` knows exactly which
-AudiobookMaker files to bump, `pronunciation-corpus-add` knows where
-the Finnish pronunciation corpus lives. Detaching them from the code
-they operate on would break them. Second, I wanted to know whether
-they actually pay off or just feel useful, so I measured them.
+Three of the four are domain-specific — `release-cut` knows exactly
+which AudiobookMaker files to bump, `pronunciation-corpus-add` knows
+where the Finnish pronunciation corpus lives — so they live in this
+repository because detaching them would break them. The fourth,
+`audit`, is universal by design: it ran first on this codebase and
+is being promoted into its own standalone repo. Both places are
+wired from the same idea: measure the benefit, don't guess.
 
 ### Measured impact
 
@@ -649,6 +650,15 @@ whole point is to decide honestly which skills to keep.
   logging them cheap enough that they actually get logged, instead
   of being lost in chat. Triggered by "Grandmom pronounced X as Y",
   "add to the corpus".
+- **[`audit`](.claude/skills/audit/SKILL.md)** — comprehensive
+  robustness audit: Phase 1 runs language-appropriate static analysis
+  (Python / JS-TS / Rust / Go), Phase 2 spawns five parallel subagents
+  across resource lifecycle, data integrity, concurrency, error
+  paths, and external boundaries, Phase 3 writes
+  `docs/audits/audit-YYYY-MM-DD.md` with a severity tally. First run
+  on this repo produced 66 findings and 26 `fix(*)` commits. Universal
+  by design — not AudiobookMaker-specific. Triggered by "audit this
+  codebase", "find bugs", "robustness review". Not benchmarked yet.
 
 ### A note on methodology
 

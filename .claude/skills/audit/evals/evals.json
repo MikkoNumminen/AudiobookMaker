@@ -1,0 +1,54 @@
+{
+  "skill_name": "audit",
+  "evals": [
+    {
+      "id": 1,
+      "name": "generic-audit-invocation",
+      "prompt": "audit this codebase",
+      "expected_output": "Assistant runs Phase 1 (static analysis, skipping missing tools), spawns five parallel subagents in Phase 2 with the canonical scopes (resource lifecycle, data integrity, concurrency, error paths, external boundaries), and writes docs/audits/audit-YYYY-MM-DD.md with the required sections. Summary line includes a severity tally that matches the findings list exactly.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "pre-release-robustness-check",
+      "prompt": "before we cut the next release I want a robustness review — races, leaks, swallowed exceptions, the lot",
+      "expected_output": "Assistant recognises this as an audit trigger, runs the full three-phase workflow, and the output report emphasises error paths + concurrency findings. Suggested next-steps section orders branches by severity (critical first). Does not suggest fixes inline — the report is a defect list.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "refuses-to-fabricate-when-tools-missing",
+      "prompt": "audit the codebase. assume bandit etc aren't installed.",
+      "expected_output": "Phase 1 reports all four tools as skipped in the 'Skipped' section with honest reason ('not on PATH / not importable'). Does NOT fabricate static-analysis findings. Phase 2 still runs all five subagents. Phase 3 report's Summary line says 'Phase 1 skipped (tools missing); Phase 2 ran all five subagents'.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "date-collision-does-not-overwrite",
+      "prompt": "audit again — yes I know we audited this morning.",
+      "expected_output": "Assistant notices docs/audits/audit-YYYY-MM-DD.md already exists and writes audit-YYYY-MM-DD-v2.md instead of overwriting. First run's findings remain on disk as a historical record.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "style-review-not-this-skill",
+      "prompt": "can you clean up the code style and make it more readable?",
+      "expected_output": "Assistant does NOT invoke audit — recognises this as a style / readability request and either declines the audit skill or proposes a simpler review pass. The skill description's 'When NOT to invoke' section kicks in.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "non-python-repo-phase-1-degrades-gracefully",
+      "prompt": "audit this codebase",
+      "expected_output": "On a repo containing only Cargo.toml and .rs files (Rust), Phase 1 detects Rust, tries `cargo clippy` and `cargo audit` (and `cargo-audit` alias variants), skips tools not installed with honest reasons, and does NOT run Python tools. Phase 2 still spawns all five subagents with the same scopes. Phase 3 report records the detected language in the Summary section.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "severity-tally-matches-findings",
+      "prompt": "audit this codebase",
+      "expected_output": "The Summary line 'Total findings: N (critical: N · high: N · medium: N · low: N)' must sum correctly to N, and each severity count must equal the number of findings tagged [critical], [high], etc. in the body. Assistant recounts before writing the summary. If a later edit strikes out a false positive, the tally re-counts strikethrough lines as audit-trail but does NOT include them in the headline count.",
+      "files": []
+    }
+  ]
+}
