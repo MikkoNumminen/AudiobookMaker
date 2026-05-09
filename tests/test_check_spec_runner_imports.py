@@ -150,6 +150,29 @@ def test_init_py_recognized(tmp_path: Path) -> None:
     assert "__init__" in _collect_spec_bundled(spec)
 
 
+def test_commented_spec_entry_is_still_counted_as_bundled(tmp_path: Path) -> None:
+    """A commented-out spec entry still registers as bundled — this is intentional.
+
+    The guard's spec parser runs a regex over raw file text without stripping
+    Python comments first.  That design is deliberate: a commented-out entry
+    represents an *in-progress* removal by a developer, not a finished one.
+    The guard should keep firing until the literal text pattern disappears
+    entirely (i.e. the line is deleted, not just commented out), because that
+    is the state that actually breaks the frozen PyInstaller build.
+
+    If you are tempted to "fix" the parser so it skips comment lines, read
+    this test first — you would be removing a safety net, not cleaning up
+    dead code.
+    """
+    spec = _write(
+        tmp_path,
+        "app.spec",
+        "# (os.path.join('src', 'old.py'), 'src'),\n"
+        "(os.path.join('src', 'foo.py'), 'src'),\n",
+    )
+    assert _collect_spec_bundled(spec) == {"old", "foo"}
+
+
 # ===========================================================================
 # End-to-end cross-check (clean / missing / multiple-missing)
 # ===========================================================================
