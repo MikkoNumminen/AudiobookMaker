@@ -78,10 +78,28 @@ def test_empty_runner_returns_empty_set(tmp_path: Path) -> None:
     assert _collect_runner_imports(runner) == set()
 
 
-def test_from_src_import_foo_without_dotmodule(tmp_path: Path) -> None:
-    """'from src import foo' (no dot-submodule) is NOT caught — locks in existing behavior."""
+def test_from_src_import_foo_without_dotmodule_is_caught(tmp_path: Path) -> None:
+    """'from src import foo' (no dot-submodule) is detected as importing src/foo.py."""
     runner = _write(tmp_path, "runner.py", "from src import foo\n")
-    assert _collect_runner_imports(runner) == set()
+    assert _collect_runner_imports(runner) == {"foo"}
+
+
+def test_from_src_import_multiple_names(tmp_path: Path) -> None:
+    """'from src import foo, bar, baz' adds each name individually."""
+    runner = _write(tmp_path, "runner.py", "from src import foo, bar, baz\n")
+    assert _collect_runner_imports(runner) == {"foo", "bar", "baz"}
+
+
+def test_from_src_import_with_alias(tmp_path: Path) -> None:
+    """'from src import foo as f' adds the real module name, not the alias."""
+    runner = _write(tmp_path, "runner.py", "from src import foo as f\n")
+    assert _collect_runner_imports(runner) == {"foo"}
+
+
+def test_from_src_import_with_trailing_comment(tmp_path: Path) -> None:
+    """A trailing '# comment' on the import line is ignored."""
+    runner = _write(tmp_path, "runner.py", "from src import foo  # bundled separately\n")
+    assert _collect_runner_imports(runner) == {"foo"}
 
 
 # ===========================================================================

@@ -51,6 +51,20 @@ def _collect_runner_imports(path: Path) -> set[str]:
     for m in re.finditer(r"^\s*import\s+src\.(\w+)\b", text, re.MULTILINE):
         modules.add(m.group(1))
 
+    # Match: from src import name1[, name2[ as alias[, …]]]
+    # Each name maps to src/<name>.py (or to a re-export from src/__init__.py,
+    # which is bundled separately and intentionally does not trigger the
+    # guard — see _collect_spec_bundled). The simple single-line form covers
+    # everything the runner uses today; multi-line parenthesised import
+    # blocks aren't currently used and aren't worth the regex complexity.
+    for m in re.finditer(r"^\s*from\s+src\s+import\s+(.+)$", text, re.MULTILINE):
+        names_text = m.group(1).split("#", 1)[0]  # strip trailing comment
+        for chunk in names_text.split(","):
+            # Take the imported name itself, before any "as alias" rename.
+            name = chunk.strip().split(" as ", 1)[0].strip()
+            if name and name.replace("_", "").isalnum():
+                modules.add(name)
+
     return modules
 
 
