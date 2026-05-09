@@ -52,7 +52,7 @@ PIP_PACKAGES_MAIN = [
     # CUDA torch is installed separately via --index-url below so that
     # chatterbox-tts's dep resolver treats torch as already satisfied and
     # does not pull in the CPU wheel.
-    "chatterbox-tts",
+    "chatterbox-tts==0.1.7",
     "safetensors",
     "num2words",
     "silero-vad",
