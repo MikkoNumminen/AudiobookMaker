@@ -181,8 +181,8 @@ VAD_FALLBACK_HEAD_KEEP_MS = 40
 VAD_FALLBACK_TRAIL_KEEP_MS = 100
 
 SETUP_INSTRUCTIONS = (
-    "chatterbox-tts is not installed in this venv. Open AudiobookMaker, "
-    "go to Settings → Install engines, and run the Chatterbox install."
+    "chatterbox-tts is not installed in this venv. Open AudiobookMaker and "
+    "click the Install engines button in the top-right of the main window."
 )
 
 
