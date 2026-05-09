@@ -47,6 +47,12 @@ class TestHandleProgressClipboardPreLoad:
         error_text = "ImportError: DLL load failed: ..."
         p = InstallProgress(error=error_text)
 
+        # Attach before the call so mock_calls captures the order.
+        manager = MagicMock()
+        manager.attach_mock(dialog.clipboard_clear, "clear")
+        manager.attach_mock(dialog.clipboard_append, "append")
+        manager.attach_mock(dialog.update_idletasks, "update")
+
         with patch("src.gui_engine_dialog.messagebox.showerror") as showerror:
             dialog._handle_progress(p)
 
@@ -56,19 +62,7 @@ class TestHandleProgressClipboardPreLoad:
         dialog.update_idletasks.assert_called_once()
 
         # Order: clear before append before update_idletasks.
-        manager = MagicMock()
-        manager.attach_mock(dialog.clipboard_clear, "clear")
-        manager.attach_mock(dialog.clipboard_append, "append")
-        manager.attach_mock(dialog.update_idletasks, "update")
-        # Re-run on a fresh dialog to capture ordered calls.
-        dialog2 = _make_dialog()
-        mgr2 = MagicMock()
-        mgr2.attach_mock(dialog2.clipboard_clear, "clear")
-        mgr2.attach_mock(dialog2.clipboard_append, "append")
-        mgr2.attach_mock(dialog2.update_idletasks, "update")
-        with patch("src.gui_engine_dialog.messagebox.showerror"):
-            dialog2._handle_progress(p)
-        assert mgr2.mock_calls == [
+        assert manager.mock_calls == [
             call.clear(),
             call.append(error_text),
             call.update(),
@@ -86,7 +80,6 @@ class TestHandleProgressClipboardPreLoad:
         with patch("src.gui_engine_dialog.messagebox.showerror") as showerror:
             dialog._handle_progress(p)
 
-        _, kwargs = showerror.call_args[0], showerror.call_args[1] if showerror.call_args[1] else {}
         # body is the second positional argument
         body = showerror.call_args[0][1]
         assert _ENGINE_MGR_STRINGS["fi"]["error_on_clipboard"] in body
