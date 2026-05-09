@@ -553,7 +553,7 @@ class ChatterboxInstaller(EngineInstaller):
         progress_cb: ProgressCallback,
         cancel_event: threading.Event,
     ) -> None:
-        total = 5
+        total = 6
 
         # Step 1: Python 3.11
         progress_cb(
@@ -609,13 +609,77 @@ class ChatterboxInstaller(EngineInstaller):
         )
         self._apply_patch(progress_cb)
 
+        if cancel_event.is_set():
+            return
+
+        # Step 6: Smoke test — actually load torch + Chatterbox so any
+        # broken-venv failure surfaces here, while the user is still
+        # watching the install dialog, instead of much later mid-Convert.
         progress_cb(
             InstallProgress(
-                5, total, "Valmis",
-                done=True,
-                message="Chatterbox Finnish asennettu.",
+                6, total, "Tarkistetaan asennus",
+                message="Yritetään ladata torch ja Chatterbox...",
             )
         )
+        smoke_error = self._smoke_test(venv_py, cancel_event)
+        if smoke_error is not None:
+            progress_cb(
+                InstallProgress(
+                    6, total, "Asennus ei toimi",
+                    error=smoke_error,
+                    message=(
+                        "Asennus valmistui mutta tarkistus epäonnistui. "
+                        "Lähetä alla oleva virhe kehittäjälle."
+                    ),
+                )
+            )
+            return
+
+        progress_cb(
+            InstallProgress(
+                6, total, "Valmis",
+                done=True,
+                message="Chatterbox Finnish asennettu ja toimii.",
+            )
+        )
+
+    def _smoke_test(
+        self,
+        venv_python: Path,
+        cancel_event: threading.Event,
+    ) -> Optional[str]:
+        """Verify the freshly-installed venv can actually load Chatterbox.
+
+        Returns ``None`` on success, or the captured stderr/stdout on
+        failure. The probe imports torch, checks CUDA, and imports
+        ``chatterbox.mtl_tts.ChatterboxMultilingualTTS``. Any failure
+        path (missing CUDA DLL, transformers lazy-import gate, etc.)
+        surfaces here instead of at first synthesis.
+        """
+        if cancel_event.is_set():
+            return None
+        probe = (
+            "import sys\n"
+            "import torch\n"
+            "assert torch.cuda.is_available(), "
+            "'CUDA not available in this venv'\n"
+            "from chatterbox.mtl_tts import ChatterboxMultilingualTTS\n"
+            "print('OK')\n"
+        )
+        try:
+            result = subprocess.run(
+                [str(venv_python), "-c", probe],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except Exception as exc:
+            return f"Smoke test could not run: {exc}"
+        if result.returncode != 0:
+            return (result.stderr.strip()
+                    or result.stdout.strip()
+                    or f"Smoke test exited with code {result.returncode}")
+        return None
 
     def _ensure_python311(
         self,

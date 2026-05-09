@@ -202,6 +202,79 @@ class TestChatterboxInstaller:
         # Should not reach step 2 because cancel is set after step 1
         assert not any(e.done for e in progress_events)
 
+    def test_smoke_test_returns_none_on_success(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        result = subprocess.CompletedProcess(args=[], returncode=0, stdout="OK\n", stderr="")
+        with patch("src.engine_installer.subprocess.run", return_value=result) as mock_run:
+            err = inst._smoke_test(Path("/fake/python"), threading.Event())
+        assert err is None
+        # Confirm the probe contains the load it's meant to verify.
+        probe_arg = mock_run.call_args.args[0][-1]
+        assert "torch.cuda.is_available" in probe_arg
+        assert "from chatterbox.mtl_tts" in probe_arg
+
+    def test_smoke_test_returns_real_error_on_failure(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="ImportError: DLL load failed while importing _C: ...",
+        )
+        with patch("src.engine_installer.subprocess.run", return_value=result):
+            err = inst._smoke_test(Path("/fake/python"), threading.Event())
+        assert err is not None
+        assert "DLL load failed" in err
+
+    def test_smoke_test_returns_message_when_subprocess_raises(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        with patch(
+            "src.engine_installer.subprocess.run",
+            side_effect=OSError("python.exe not found"),
+        ):
+            err = inst._smoke_test(Path("/fake/python"), threading.Event())
+        assert err is not None
+        assert "Smoke test could not run" in err
+
+    def test_smoke_test_skips_when_cancelled(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        cancel = threading.Event()
+        cancel.set()
+        with patch("src.engine_installer.subprocess.run") as mock_run:
+            err = inst._smoke_test(Path("/fake/python"), cancel)
+        assert err is None
+        mock_run.assert_not_called()
+
+    def test_install_marks_done_only_if_smoke_test_passes(self, tmp_path) -> None:
+        """Successful install ends with ``done=True`` only after the smoke
+        test confirms the venv can actually load Chatterbox. A failing
+        smoke test produces an ``error`` event and no ``done=True``.
+        """
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+
+        with patch.object(inst, "_ensure_python311", return_value=Path("/fake/py")), \
+             patch.object(inst, "_create_venv", return_value=Path("/fake/venv-py")), \
+             patch.object(inst, "_pip_install"), \
+             patch.object(inst, "_prefetch_models"), \
+             patch.object(inst, "_apply_patch"):
+
+            # Happy path: smoke test returns None.
+            with patch.object(inst, "_smoke_test", return_value=None):
+                events_ok: list[InstallProgress] = []
+                inst.install(events_ok.append, threading.Event())
+            assert any(e.done for e in events_ok)
+            assert not any(e.error for e in events_ok)
+
+            # Sad path: smoke test returns an error string.
+            with patch.object(
+                inst, "_smoke_test",
+                return_value="ImportError: DLL load failed",
+            ):
+                events_fail: list[InstallProgress] = []
+                inst.install(events_fail.append, threading.Event())
+            assert not any(e.done for e in events_fail)
+            assert any("DLL load failed" in (e.error or "") for e in events_fail)
+
 
 # ---------------------------------------------------------------------------
 # _download_file
