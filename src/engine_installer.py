@@ -67,6 +67,11 @@ HF_REPOS = [
 
 DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
+# Upper bound on the smoke-test subprocess. Long enough to cover a cold
+# torch import on a slow machine; short enough that a hung process does
+# not freeze the install dialog indefinitely.
+_SMOKE_TEST_TIMEOUT_S = 120
+
 
 def _allowed_venv_roots() -> list[Path]:
     """Directories under which a Chatterbox venv is allowed to live.
@@ -635,6 +640,13 @@ class ChatterboxInstaller(EngineInstaller):
             )
             return
 
+        # Re-check cancel: if the user cancelled during the smoke test,
+        # _smoke_test may have returned None (the early-return sentinel)
+        # rather than a real error, which would cause us to declare
+        # "installed and working" on a cancelled run.
+        if cancel_event.is_set():
+            return
+
         progress_cb(
             InstallProgress(
                 6, total, "Valmis",
@@ -650,35 +662,90 @@ class ChatterboxInstaller(EngineInstaller):
     ) -> Optional[str]:
         """Verify the freshly-installed venv can actually load Chatterbox.
 
-        Returns ``None`` on success, or the captured stderr/stdout on
-        failure. The probe imports torch, checks CUDA, and imports
-        ``chatterbox.mtl_tts.ChatterboxMultilingualTTS``. Any failure
-        path (missing CUDA DLL, transformers lazy-import gate, etc.)
-        surfaces here instead of at first synthesis.
+        Returns ``None`` on success, or a captured error string on
+        failure. The probe:
+          1. Imports torch and exercises CUDA (allocates a real tensor so
+             a broken CUDA DLL surfaces now, not at first synthesis).
+          2. Imports every package installed by PIP_PACKAGES_MAIN that the
+             runner depends on, so a partial pip install is caught here.
+
+        Cancellation is honoured mid-execution: the subprocess is
+        terminated when ``cancel_event`` fires, matching the pattern used
+        by ``_pip_install`` / ``_run_subprocess``. The caller is
+        responsible for checking ``cancel_event`` after this returns to
+        avoid treating a cancelled run as a success (see ``install()``).
         """
         if cancel_event.is_set():
             return None
+
         probe = (
-            "import sys\n"
             "import torch\n"
-            "assert torch.cuda.is_available(), "
-            "'CUDA not available in this venv'\n"
+            # Exercise CUDA: allocate a real tensor on the device so a
+            # broken cu124 wheel fails here rather than silently continuing.
+            "_ = torch.zeros(1).cuda()\n"
             "from chatterbox.mtl_tts import ChatterboxMultilingualTTS\n"
+            "import silero_vad\n"
+            "import pydub\n"
+            "import huggingface_hub\n"
+            "import safetensors\n"
+            "import peft\n"
+            "import accelerate\n"
             "print('OK')\n"
         )
+
+        output_lines: list[str] = []
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 [str(venv_python), "-c", probe],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                timeout=120,
+                bufsize=1,
             )
         except Exception as exc:
             return f"Smoke test could not run: {exc}"
-        if result.returncode != 0:
-            return (result.stderr.strip()
-                    or result.stdout.strip()
-                    or f"Smoke test exited with code {result.returncode}")
+
+        try:
+            deadline = _SMOKE_TEST_TIMEOUT_S
+            import time
+            start = time.monotonic()
+            for line in proc.stdout:  # type: ignore[union-attr]
+                output_lines.append(line.rstrip())
+                if cancel_event.is_set():
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    return None  # caller re-checks cancel_event
+                elapsed = time.monotonic() - start
+                if elapsed >= deadline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    return f"Smoke test timed out after {_SMOKE_TEST_TIMEOUT_S}s"
+            proc.wait(timeout=10)
+        except Exception as exc:
+            try:
+                proc.kill()
+                proc.wait()
+            except Exception:
+                pass
+            return f"Smoke test could not run: {exc}"
+        finally:
+            if proc.stdout is not None:
+                try:
+                    proc.stdout.close()
+                except OSError:
+                    pass
+
+        if proc.returncode != 0:
+            captured = "\n".join(output_lines).strip()
+            return captured or f"Smoke test exited with code {proc.returncode}"
         return None
 
     def _ensure_python311(
