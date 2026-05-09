@@ -400,11 +400,22 @@ class EngineManagerDialog(ctk.CTkToplevel):
             # a native messagebox's text-selection. The smoke-test failure
             # path is the main consumer here — its stderr is the real error
             # we triage from.
+            #
+            # update_idletasks() flushes pending Tk operations without
+            # processing the full event loop, so we avoid re-entrance from
+            # inside _poll_progress' after-callback. On Windows that is
+            # enough for the clipboard contents to survive after the dialog
+            # closes; if Linux ever ships, retest because X11 selection
+            # ownership sometimes needs the full update() to commit.
             try:
                 self.clipboard_clear()
                 self.clipboard_append(p.error)
-                self.update()
+                self.update_idletasks()
             except Exception:
+                # Clipboard ownership can fail under remote-X / locked-down
+                # corporate setups. Silently fall through — the messagebox
+                # below still surfaces the error text, which is the actual
+                # critical path; the clipboard pre-load is just convenience.
                 pass
             messagebox.showerror(
                 self._s("title"),
