@@ -180,15 +180,10 @@ VAD_FALLBACK_TRAIL_DB = -52.0
 VAD_FALLBACK_HEAD_KEEP_MS = 40
 VAD_FALLBACK_TRAIL_KEEP_MS = 100
 
-SETUP_INSTRUCTIONS = """\
-chatterbox-tts is not installed. To set it up:
-
-  1. python -m venv .venv-chatterbox
-  2. .venv-chatterbox/bin/pip install --upgrade pip
-  3. .venv-chatterbox/bin/pip install torch torchaudio chatterbox-tts safetensors
-  4. .venv-chatterbox/bin/pip install silero-vad pydub num2words huggingface_hub PyMuPDF
-  5. On Windows install ffmpeg and add it to PATH (pydub needs it).
-"""
+SETUP_INSTRUCTIONS = (
+    "chatterbox-tts is not installed in this venv. Open AudiobookMaker, "
+    "go to Settings → Install engines, and run the Chatterbox install."
+)
 
 
 # ---------------------------------------------------------------------------
