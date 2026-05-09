@@ -69,6 +69,9 @@ jobs:
           (Get-Content src/auto_updater.py) -replace 'APP_VERSION = ".*"', "APP_VERSION = `"$version`"" | Set-Content src/auto_updater.py
         shell: pwsh
 
+      - name: Verify runner imports match spec datas
+        run: python scripts/check_spec_runner_imports.py
+
       - name: Build exe with PyInstaller
         run: pyinstaller audiobookmaker.spec
 
