@@ -36,8 +36,8 @@ Base model:         https://huggingface.co/ResembleAI/chatterbox
 Upstream package:   pip install chatterbox-tts
 
 INSTALLATION:
-    # Reuse the existing .venv-chatterbox (Python 3.11, already has torch).
-    .venv-chatterbox/bin/pip install chatterbox-tts safetensors
+    Use the in-app "Install engines" button — it builds the venv and
+    pins all deps correctly. Do not pip-install manually into the venv.
 """
 
 from __future__ import annotations
