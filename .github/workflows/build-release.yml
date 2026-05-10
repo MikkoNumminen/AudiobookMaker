@@ -28,29 +28,25 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        # The following test files are skipped in CI because they create
-        # real CTk / UnifiedApp Tk windows. CustomTkinter's Tk machinery
-        # spawns non-daemon threads on the headless Windows runner; those
-        # threads block Python's natural exit and cause pytest-timeout to
-        # fire late with AssertionError in read_global_capture() (see
-        # release v3.11.1 build runs 25615367406 / 25615715187 /
-        # 25615954113 / 25616475945 / 25616723346 / 25617272185 /
-        # 25617874202 / 25618023649 / 25618160013 / 25618286918 — all
-        # failed this way). The pre-commit hook still runs these files
-        # locally on every commit where Tk works, so GUI smoke coverage
+        # All test_gui_*.py files are skipped in CI. They either create
+        # real CTk / UnifiedApp Tk windows directly, or they import
+        # customtkinter at collection time via pytest.importorskip() —
+        # which triggers Tk's non-daemon thread spawn on the headless
+        # Windows runner. Those threads block Python's natural exit and
+        # cause pytest-timeout to fire late with AssertionError in
+        # read_global_capture() (confirmed across runs 25615367406 /
+        # 25615715187 / 25615954113 / 25616475945 / 25616723346 /
+        # 25617272185 / 25617874202 / 25618023649 / 25618160013 /
+        # 25618286918 / 25618428201). The pre-commit hook still runs all
+        # of these files locally where Tk works, so GUI smoke coverage
         # is preserved for the dev loop.
-        #   test_gui_clone_voice.py — ctk_root fixture creates ctk.CTk()
-        #   test_gui_e2e.py         — module-scoped _shared_app UnifiedApp()
-        #   test_gui_style.py       — module-scoped fixture UnifiedApp()
-        #   test_gui_synth_mixin.py — module-scoped fixture UnifiedApp()
-        #   test_gui_unified.py     — module-scoped _shared_app UnifiedApp()
         # tests/test_record_voice_sample.py is skipped because it
         # records from the real microphone and CI has no audio device.
         #
         # --cov is omitted: coverage finalisation keeps Python alive long
         # enough for a stale pytest-timeout thread to fire. Coverage is
         # measured locally by the pre-commit hook on every commit.
-        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_gui_clone_voice.py --ignore=tests/test_gui_e2e.py --ignore=tests/test_gui_style.py --ignore=tests/test_gui_synth_mixin.py --ignore=tests/test_gui_unified.py -x -q --tb=short
+        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_gui_clone_voice.py --ignore=tests/test_gui_clone_voice_hygiene.py --ignore=tests/test_gui_drag_drop.py --ignore=tests/test_gui_e2e.py --ignore=tests/test_gui_engine_dialog.py --ignore=tests/test_gui_settings_frame_report_bug.py --ignore=tests/test_gui_style.py --ignore=tests/test_gui_synth_mixin.py --ignore=tests/test_gui_temp_sample_cleanup.py --ignore=tests/test_gui_unified.py --ignore=tests/test_gui_update_mixin.py -x -q --tb=short
 
       - name: Download ffmpeg
         env:
