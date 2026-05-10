@@ -26,14 +26,13 @@ your own `HF_TOKEN`.
 | Feature | What it does | What you need | License link |
 |---|---|---|---|
 | pyannote speaker diarization | Tells "who spoke when" across a long audio source; default backend for `scripts/voice_pack_analyze.py` and the GUI "Clone voice from file…" flow. | `HF_TOKEN` env var + accepted license on the gated repo. | [huggingface.co/pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) |
-| VoxCPM2 engine | Experimental multilingual TTS with voice cloning. Hidden from the frozen GUI; available from source only. | Manual `pip install voxcpm` (not in `requirements.txt`); `HF_TOKEN` raises rate limits on the ~8 GB model download. | `<verify-link>` huggingface.co/openbmb/VoxCPM2 |
+| VoxCPM2 engine | Experimental multilingual TTS with voice cloning. Hidden from the frozen GUI; available from source only. | Manual `pip install voxcpm` (not in `requirements.txt`); `HF_TOKEN` raises rate limits on the ~8 GB model download. | [huggingface.co/openbmb/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2) |
 | Chatterbox voice-clone reference picker | Lets you point at a `.wav`/`.mp3` and use it as the cloned voice. Dev mode only — hidden in frozen builds. | NVIDIA GPU with ≥ 8 GB VRAM, `.venv-chatterbox` with `torch` + `chatterbox` + `peft`, and a Finnish or English reference WAV. | n/a — uses public `Finnish-NLP/Chatterbox-Finnish` model. |
 | voice-pack pipeline | End-to-end clones a speaker into a LoRA adapter from a source audio file: `voice_pack_analyze` → `voice_pack_export` → `voice_pack_train` → `voice_pack_package`. | Everything above, plus `HF_TOKEN` for the pyannote step. Falls back to ECAPA-TDNN with `--diarizer ecapa` when no token is available. | same as pyannote row |
+| ECAPA-TDNN diarization (fallback) | Same role as pyannote — diarises long audio for the voice-pack analyse step — without the gated-license dance. | Nothing extra. Pass `--diarizer ecapa` to `voice_pack_analyze`; speechbrain weights auto-download on first use. | n/a — `speechbrain/spkrec-ecapa-voxceleb` is public. |
 
-ECAPA-TDNN (speechbrain) is the only diarization backend that needs no
-license — pass `--diarizer ecapa` to `voice_pack_analyze` to skip the
-HF gate entirely. Quality is slightly worse on similar-timbre speakers
-but the setup is much simpler.
+Quality on ECAPA is slightly worse than pyannote on similar-timbre
+speakers, but the setup is much simpler — no HF account needed at all.
 
 ## Setting up HF_TOKEN
 
@@ -60,7 +59,11 @@ The same token works for both pyannote (gated) and VoxCPM2 / Chatterbox
 
    Expected output: `True`. If you get `False`, double-check that the
    file is named exactly `.env` (no extension) and lives at the repo
-   root.
+   root. Note: if `HF_TOKEN` is also set in your OS environment
+   (e.g. via shell rc or system env vars), the command prints `True`
+   even when `.env` is missing — `load_dotenv()` is silently a no-op
+   if there's no file to read, and `os.getenv` then falls back to the
+   process environment.
 
 Frozen `.exe` builds do **not** read `.env` — they rely on
 `os.environ` only. End-user installs therefore can't accidentally
@@ -96,6 +99,8 @@ Gitignored at the repo root, deliberately absent from a fresh clone:
 A fresh clone of this repo runs Edge-TTS and Piper out of the box and
 errors out cleanly on any feature that needs a credential, with a
 message pointing at this document. The maintainer's keys do not live
-in CI either — release builds run against a CI-only token granted only
-to GitHub Actions for the gated downloads that matter for build smoke
-tests.
+in CI either — the release workflow only uses GitHub's default
+`GITHUB_TOKEN` for publishing the release; it does **not** carry an
+`HF_TOKEN` of its own. Gated features (pyannote, VoxCPM2's rate-
+limited fetch) are exercised only on developer machines that have
+their own token; CI test runs use mocks or skip the gated paths.
