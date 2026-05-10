@@ -370,6 +370,16 @@ stuff that either isn't ready for normal users, or that makes more
 sense from a terminal than from a button. Think of dev mode as the
 back room of the same building.
 
+### Gated features
+
+A fresh clone runs Edge-TTS and Piper out of the box and errors out
+cleanly on anything that needs a Hugging Face token or a gated-license
+acceptance. See [docs/DEVELOPER_SETUP.md](docs/DEVELOPER_SETUP.md) for
+the full list of features that need your own credentials, the exact
+steps for setting up `HF_TOKEN`, and the gitignored files that don't
+ship in this repo. The maintainer's keys are not bundled — a clean
+checkout enables only the public features until you provide your own.
+
 ### You can run the full voice-pack training pipeline
 
 The GUI can **use** a trained voice pack and can **clone** a voice from
