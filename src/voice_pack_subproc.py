@@ -21,6 +21,13 @@ This module is the thin wrapper the GUI owns. It knows:
   when run with ``-v``,
 * how to surface cancel requests.
 
+Long-source routing — :func:`run_analyze_auto` inspects the source
+duration up front and routes through :mod:`src.voice_pack_chunked_subproc`
+when the audio exceeds the empirical safe threshold for the native
+faster-whisper / pyannote crash. The GUI is encouraged to call
+``run_analyze_auto`` rather than ``run_analyze`` directly so users
+never hit the crash on a long file.
+
 Everything I/O is injectable so tests drive the runner with a fake
 subprocess factory instead of spawning a real Python.
 """
@@ -145,11 +152,17 @@ def build_analyze_argv(
     min_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
     diarizer: str = "pyannote",
+    extra_argv: Optional[list[str]] = None,
 ) -> list[str]:
     """Build argv for the analyze subprocess.
 
     Kept public so tests can assert on the argv without launching
     anything, and so the GUI can show the command it's about to run.
+
+    ``extra_argv`` is appended verbatim after the always-on flags so
+    callers (notably the chunked orchestrator's CPU-fallback retry)
+    can inject ``--asr-device cpu`` without the runner having to grow
+    a dedicated parameter for every CLI flag.
     """
     argv: list[str] = [
         str(python_exe),
@@ -169,6 +182,8 @@ def build_analyze_argv(
             argv += ["--min-speakers", str(min_speakers)]
         if max_speakers is not None:
             argv += ["--max-speakers", str(max_speakers)]
+    if extra_argv:
+        argv += list(extra_argv)
     return argv
 
 
@@ -198,6 +213,8 @@ def run_analyze(
     script_path: Optional[Path] = None,
     subprocess_factory: Optional[SubprocessFactory] = None,
     env_overrides: Optional[dict] = None,
+    extra_argv: Optional[list[str]] = None,
+    asr_device: Optional[str] = None,
 ) -> AnalyzeJobResult:
     """Run ``voice_pack_analyze`` as a subprocess and stream progress.
 
@@ -231,6 +248,13 @@ def run_analyze(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ``asr_device`` is convenience sugar for the most common extra arg
+    # the chunked-analyze orchestrator wants to inject (CPU fallback).
+    # Append it to the user-supplied extra_argv if both are present.
+    merged_extra: list[str] = list(extra_argv or [])
+    if asr_device and "--asr-device" not in merged_extra:
+        merged_extra += ["--asr-device", asr_device]
+
     argv = build_analyze_argv(
         python_exe=python_exe,
         script_path=script_path,
@@ -240,6 +264,7 @@ def run_analyze(
         min_speakers=min_speakers,
         max_speakers=max_speakers,
         diarizer=diarizer,
+        extra_argv=merged_extra or None,
     )
 
     # Env: inherit, then add HF_TOKEN if provided. We do NOT pass the
@@ -345,3 +370,137 @@ def _pump_stdout(
             continue
         if progress_cb and line:
             progress_cb(AnalyzeProgress(stage=STAGE_LINE, message=line))
+
+
+# ---------------------------------------------------------------------------
+# Auto-routing wrapper for long sources
+# ---------------------------------------------------------------------------
+
+
+# Audio longer than this routes through the chunked orchestrator.
+# Tracks the safe-zone threshold in
+# :data:`src.voice_pack.chunked.DEFAULT_CHUNK_SECONDS` plus a small
+# margin: anything that would itself become a single chunk goes
+# through the cheaper single-shot path.
+LONG_AUDIO_THRESHOLD_SECONDS: float = 300.0
+
+
+def run_analyze_auto(
+    wav: Path,
+    out_dir: Path,
+    *,
+    num_speakers: Optional[int] = None,
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
+    diarizer: str = "pyannote",
+    hf_token: Optional[str] = None,
+    progress_cb: Optional[Callable[[AnalyzeProgress], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    long_threshold_seconds: float = LONG_AUDIO_THRESHOLD_SECONDS,
+    # injected I/O — defaults shell out, tests pass fakes
+    probe_duration_fn: Optional[Callable[[Path], float]] = None,
+    chunked_run_fn: Optional[Callable[..., object]] = None,
+    single_shot_fn: Optional[Callable[..., AnalyzeJobResult]] = None,
+) -> AnalyzeJobResult:
+    """Run analyze, automatically routing long inputs through the
+    chunked orchestrator.
+
+    Short inputs (≤ ``long_threshold_seconds``) take the existing
+    single-shot path — chunking has overhead we don't want to pay on
+    a 3-minute reference clip.
+
+    Long inputs route through
+    :func:`src.voice_pack_chunked_subproc.run_chunked_analyze`,
+    which slices the source and stitches the per-chunk results back
+    into one canonical artefact set. The return value still adheres
+    to :class:`AnalyzeJobResult` so the GUI doesn't have to branch on
+    which path ran.
+
+    Failure to probe the duration (corrupt file, missing ffprobe)
+    falls back to the single-shot path — we'd rather try once than
+    refuse outright. The single-shot will surface the real error.
+    """
+    if probe_duration_fn is None:
+        from src.voice_pack.ffmpeg_slice import probe_duration as _probe
+
+        probe_duration_fn = _probe
+
+    try:
+        duration = probe_duration_fn(Path(wav))
+    except Exception as exc:  # noqa: BLE001 - log + fall through
+        if progress_cb:
+            progress_cb(AnalyzeProgress(
+                stage=STAGE_LINE,
+                message=f"Could not probe source duration ({exc}); "
+                        f"trying single-shot anyway.",
+            ))
+        duration = None
+
+    if duration is not None and duration > long_threshold_seconds:
+        if chunked_run_fn is None:
+            from src.voice_pack_chunked_subproc import (  # noqa: WPS433
+                run_chunked_analyze,
+            )
+
+            chunked_run_fn = run_chunked_analyze
+
+        # The chunked orchestrator has its own progress event type;
+        # adapt its events into AnalyzeProgress so the GUI doesn't
+        # have to learn two stage vocabularies. Every chunked event
+        # forwards as a STAGE_LINE so the log box still sees it.
+        def _chunked_progress(event: object) -> None:
+            if progress_cb is None:
+                return
+            text = getattr(event, "message", str(event))
+            progress_cb(AnalyzeProgress(stage=STAGE_LINE, message=text))
+
+        chunked_result = chunked_run_fn(
+            wav=Path(wav),
+            out_dir=Path(out_dir),
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+            diarizer=diarizer,
+            hf_token=hf_token,
+            progress_cb=_chunked_progress,
+            cancel_event=cancel_event,
+        )
+
+        # Map ChunkedAnalyzeResult onto the AnalyzeJobResult shape the
+        # caller expects.
+        result = AnalyzeJobResult(
+            ok=bool(getattr(chunked_result, "ok", False)),
+            return_code=int(getattr(chunked_result, "return_code", -1)),
+            transcripts_path=getattr(
+                chunked_result, "transcripts_path", Path(out_dir) / "transcripts.jsonl",
+            ),
+            speakers_yaml_path=getattr(
+                chunked_result, "speakers_yaml_path", Path(out_dir) / "speakers.yaml",
+            ),
+            report_path=getattr(
+                chunked_result, "report_path", Path(out_dir) / "report.md",
+            ),
+            log_lines=list(getattr(chunked_result, "log_lines", [])),
+            error=getattr(chunked_result, "error", None),
+        )
+        if progress_cb:
+            progress_cb(AnalyzeProgress(
+                stage=STAGE_DONE if result.ok else STAGE_ERROR,
+                message=("Chunked analyze finished." if result.ok
+                         else (result.error or "Chunked analyze failed.")),
+            ))
+        return result
+
+    # Short input — single-shot.
+    runner = single_shot_fn or run_analyze
+    return runner(
+        wav=Path(wav),
+        out_dir=Path(out_dir),
+        num_speakers=num_speakers,
+        min_speakers=min_speakers,
+        max_speakers=max_speakers,
+        diarizer=diarizer,
+        hf_token=hf_token,
+        progress_cb=progress_cb,
+        cancel_event=cancel_event,
+    )

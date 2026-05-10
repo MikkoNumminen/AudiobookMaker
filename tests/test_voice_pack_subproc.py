@@ -13,6 +13,7 @@ from typing import Iterable, Optional
 import pytest
 
 from src.voice_pack_subproc import (
+    LONG_AUDIO_THRESHOLD_SECONDS,
     STAGE_ASR,
     STAGE_BUCKET,
     STAGE_DIARIZE,
@@ -21,9 +22,11 @@ from src.voice_pack_subproc import (
     STAGE_LINE,
     STAGE_STARTING,
     STAGE_WRITE,
+    AnalyzeJobResult,
     AnalyzeProgress,
     build_analyze_argv,
     run_analyze,
+    run_analyze_auto,
     _parse_stamp,
 )
 
@@ -357,3 +360,169 @@ class TestRunAnalyze:
         assert result.transcripts_path == out_dir / "transcripts.jsonl"
         assert result.speakers_yaml_path == out_dir / "speakers.yaml"
         assert result.report_path == out_dir / "report.md"
+
+
+# ---------------------------------------------------------------------------
+# extra_argv / asr_device passthrough
+# ---------------------------------------------------------------------------
+
+
+class TestExtraArgv:
+    def test_extra_argv_appended_to_command(self, tmp_path: Path) -> None:
+        proc = _FakeProc(lines=[], returncode=0)
+        run_analyze(
+            wav=tmp_path / "in.wav",
+            out_dir=tmp_path / "out",
+            python_exe=Path("fake_python"),
+            script_path=Path("fake.py"),
+            subprocess_factory=_factory(proc),
+            extra_argv=["--asr-device", "cpu"],
+        )
+        cmd = proc.received_cmd  # type: ignore[attr-defined]
+        assert "--asr-device" in cmd
+        assert cmd[cmd.index("--asr-device") + 1] == "cpu"
+
+    def test_asr_device_kwarg_routed_through_extra_argv(
+        self, tmp_path: Path
+    ) -> None:
+        proc = _FakeProc(lines=[], returncode=0)
+        run_analyze(
+            wav=tmp_path / "in.wav",
+            out_dir=tmp_path / "out",
+            python_exe=Path("fake_python"),
+            script_path=Path("fake.py"),
+            subprocess_factory=_factory(proc),
+            asr_device="cpu",
+        )
+        cmd = proc.received_cmd  # type: ignore[attr-defined]
+        assert "--asr-device" in cmd
+        assert cmd[cmd.index("--asr-device") + 1] == "cpu"
+
+
+# ---------------------------------------------------------------------------
+# run_analyze_auto — single-shot vs chunked routing
+# ---------------------------------------------------------------------------
+
+
+class TestRunAnalyzeAuto:
+    def test_short_audio_routes_to_single_shot(self, tmp_path: Path) -> None:
+        captured: dict = {}
+
+        def fake_single_shot(**kwargs):
+            captured.update(kwargs)
+            return AnalyzeJobResult(
+                ok=True, return_code=0,
+                transcripts_path=Path(kwargs["out_dir"]) / "transcripts.jsonl",
+                speakers_yaml_path=Path(kwargs["out_dir"]) / "speakers.yaml",
+                report_path=Path(kwargs["out_dir"]) / "report.md",
+            )
+
+        def fake_chunked(**kwargs):  # pragma: no cover - must not be called
+            raise AssertionError("chunked path called for short audio")
+
+        result = run_analyze_auto(
+            wav=tmp_path / "in.wav",
+            out_dir=tmp_path / "out",
+            probe_duration_fn=lambda _p: 60.0,
+            single_shot_fn=fake_single_shot,
+            chunked_run_fn=fake_chunked,
+        )
+        assert result.ok is True
+        assert captured["wav"] == tmp_path / "in.wav"
+
+    def test_long_audio_routes_to_chunked(self, tmp_path: Path) -> None:
+        captured: dict = {}
+
+        class _ChunkedResult:
+            ok = True
+            return_code = 0
+            transcripts_path = tmp_path / "out" / "transcripts.jsonl"
+            speakers_yaml_path = tmp_path / "out" / "speakers.yaml"
+            report_path = tmp_path / "out" / "report.md"
+            log_lines: list[str] = []
+            error = None
+
+        def fake_chunked(**kwargs):
+            captured.update(kwargs)
+            return _ChunkedResult()
+
+        def fake_single_shot(**kwargs):  # pragma: no cover - must not be called
+            raise AssertionError("single-shot called for long audio")
+
+        events: list[AnalyzeProgress] = []
+        result = run_analyze_auto(
+            wav=tmp_path / "in.wav",
+            out_dir=tmp_path / "out",
+            probe_duration_fn=lambda _p: 1800.0,  # 30 min
+            single_shot_fn=fake_single_shot,
+            chunked_run_fn=fake_chunked,
+            progress_cb=events.append,
+        )
+        assert result.ok is True
+        assert captured["wav"] == tmp_path / "in.wav"
+        # The wrapper emits a final DONE event.
+        assert events[-1].stage == STAGE_DONE
+
+    def test_probe_failure_falls_back_to_single_shot(
+        self, tmp_path: Path
+    ) -> None:
+        # If ffprobe can't read the duration, we don't want to refuse
+        # outright — let the single-shot path try and surface the
+        # real error.
+        single_shot_called = []
+
+        def fake_single_shot(**kwargs):
+            single_shot_called.append(True)
+            return AnalyzeJobResult(
+                ok=True, return_code=0,
+                transcripts_path=Path(kwargs["out_dir"]) / "transcripts.jsonl",
+                speakers_yaml_path=Path(kwargs["out_dir"]) / "speakers.yaml",
+                report_path=Path(kwargs["out_dir"]) / "report.md",
+            )
+
+        def bad_probe(_p):
+            raise RuntimeError("ffprobe missing")
+
+        run_analyze_auto(
+            wav=tmp_path / "in.wav",
+            out_dir=tmp_path / "out",
+            probe_duration_fn=bad_probe,
+            single_shot_fn=fake_single_shot,
+            chunked_run_fn=lambda **_kw: AnalyzeJobResult(
+                ok=False, return_code=1,
+                transcripts_path=tmp_path / "out" / "transcripts.jsonl",
+                speakers_yaml_path=tmp_path / "out" / "speakers.yaml",
+                report_path=tmp_path / "out" / "report.md",
+            ),
+        )
+        assert single_shot_called == [True]
+
+    def test_threshold_default_matches_safe_zone(self) -> None:
+        # The threshold should match the empirical chunk size — both
+        # numbers are the same "safe upper bound for one whisper run".
+        assert LONG_AUDIO_THRESHOLD_SECONDS == 300.0
+
+    def test_chunked_failure_propagates_error(self, tmp_path: Path) -> None:
+        class _ChunkedResult:
+            ok = False
+            return_code = 1
+            transcripts_path = tmp_path / "out" / "transcripts.jsonl"
+            speakers_yaml_path = tmp_path / "out" / "speakers.yaml"
+            report_path = tmp_path / "out" / "report.md"
+            log_lines: list[str] = []
+            error = "all chunks failed"
+
+        result = run_analyze_auto(
+            wav=tmp_path / "in.wav",
+            out_dir=tmp_path / "out",
+            probe_duration_fn=lambda _p: 1800.0,
+            chunked_run_fn=lambda **_kw: _ChunkedResult(),
+            single_shot_fn=lambda **_kw: AnalyzeJobResult(
+                ok=True, return_code=0,
+                transcripts_path=tmp_path / "out" / "transcripts.jsonl",
+                speakers_yaml_path=tmp_path / "out" / "speakers.yaml",
+                report_path=tmp_path / "out" / "report.md",
+            ),
+        )
+        assert result.ok is False
+        assert result.error == "all chunks failed"

@@ -129,6 +129,48 @@ update path is P0 — same severity as data loss. Fix the user's immediate
 pain first, then build structural prevention. See `docs/CONVENTIONS.md`
 "Auto-update is critical" section for the full policy.
 
+## Resource discipline — never run two heavy ML pipelines at once
+
+The voice-pack pipeline subprocesses (analyze, clone-voice, train,
+synthesize) each load a stack of native models — faster-whisper-large-v3
++ pyannote-3.1 + Chatterbox = ~6 GB VRAM and ~2 GB RAM **per process**.
+A 12 GB GPU has room for exactly one. Two concurrent runs swap-thrash
+the GPU allocator into system RAM, peg the page file, and freeze the OS
+(observed 2026-05-10 — multiple parallel Claude agents triggered
+bisection probes simultaneously and brought the box down).
+
+Hard rules for any session in this repo:
+
+- **Only one** voice-pack analyze / synthesize / clone-voice subprocess
+  per machine at a time. The chunked-analyze orchestrator
+  (`src/voice_pack_chunked_subproc.py`) defaults to one CUDA worker for
+  exactly this reason; do not raise the default without a CUDA semaphore.
+- When spawning parallel Claude `Agent`s on this project, only one may
+  run a voice-pack subprocess at a time. Either serialise the work
+  inside one agent, or restrict GPU-using work to a single agent and
+  give the others read-only / non-GPU tasks.
+- Bisection / probe runs across multiple slice lengths MUST be
+  sequential, not parallel — even if it takes longer.
+- If a session starts and the GPU shows residual VRAM from a prior run
+  that's stuck, surface the PIDs to the user and wait for the
+  user's call before killing anything (per
+  `feedback_never_kill_processes.md` in memory).
+
+## Worktree isolation is a hint, not a guarantee
+
+`Agent({isolation: "worktree"})` is supposed to give the agent its own
+working tree. Observed 2026-05-10: a worktree-isolated agent's edits
+showed up unstaged in the **main** checkout's `git status`, including a
+revert of CI fixes another session had pushed. Always verify after the
+agent runs (or is stopped):
+
+1. `git status` in main MUST be clean of files the agent touched.
+2. If it isn't, the isolation leaked. Inspect the diff before
+   the next session does anything that might commit those changes.
+3. Targeted `git checkout HEAD -- <leaked-file>` is safer than a blanket
+   stash when other sessions are working in parallel — surgical reverts
+   don't disturb their unrelated WIP.
+
 ## Commit style
 
 - Small commits — one logical change each
