@@ -23,6 +23,7 @@ from src.voice_pack.reference_picker import (
     ReferenceClipReport,
     _derive_fallback_reason,
     _duration_penalty,
+    _estimate_median_f0_hz,
     _position_penalty,
     _rms_std,
     _text_penalties,
@@ -158,6 +159,66 @@ class TestRmsStd:
 
 
 # ---------------------------------------------------------------------------
+# _estimate_median_f0_hz
+# ---------------------------------------------------------------------------
+
+# F0 estimator needs numpy. Skip cleanly in environments where numpy
+# isn't installed — the picker itself returns None in that case, so the
+# function is still callable from those environments (it just always
+# returns None).
+np = pytest.importorskip("numpy")
+
+
+def _sine(sample_rate: int, freq_hz: float, seconds: float, amp: float = 0.3) -> list[float]:
+    """Return a mono sine-wave sample list at the given frequency."""
+    n = int(seconds * sample_rate)
+    return [amp * math.sin(2 * math.pi * freq_hz * i / sample_rate) for i in range(n)]
+
+
+class TestEstimateMedianF0:
+    def test_empty_returns_none(self) -> None:
+        assert _estimate_median_f0_hz([], 24000) is None
+
+    def test_too_short_returns_none(self) -> None:
+        # 0.1 s at 24 kHz = 2400 samples — below the 0.5 s minimum.
+        sr = 24000
+        samples = _sine(sr, 200.0, 0.1)
+        assert _estimate_median_f0_hz(samples, sr) is None
+
+    def test_silent_clip_returns_none(self) -> None:
+        # All zero → overall RMS below the 1e-6 floor → None.
+        sr = 24000
+        assert _estimate_median_f0_hz([0.0] * sr, sr) is None
+
+    def test_recovers_known_female_pitch(self) -> None:
+        # 200 Hz is comfortably inside adult female F0 range (170–250 Hz).
+        sr = 24000
+        samples = _sine(sr, 200.0, 1.5)
+        f0 = _estimate_median_f0_hz(samples, sr)
+        assert f0 is not None
+        # Autocorrelation lag is integer-quantised, so allow ±5 Hz at
+        # 200 Hz (24000/121=198.3, 24000/120=200.0, 24000/119=201.7).
+        assert abs(f0 - 200.0) < 5.0
+
+    def test_recovers_known_male_pitch(self) -> None:
+        # 110 Hz is comfortably inside adult male F0 range (85–155 Hz).
+        sr = 24000
+        samples = _sine(sr, 110.0, 1.5)
+        f0 = _estimate_median_f0_hz(samples, sr)
+        assert f0 is not None
+        assert abs(f0 - 110.0) < 5.0
+
+    def test_distinguishes_pitches_clearly(self) -> None:
+        sr = 24000
+        female = _estimate_median_f0_hz(_sine(sr, 220.0, 1.5), sr)
+        male = _estimate_median_f0_hz(_sine(sr, 100.0, 1.5), sr)
+        assert female is not None and male is not None
+        # The gap should be much larger than the autocorrelation
+        # quantisation error.
+        assert female - male > 80.0
+
+
+# ---------------------------------------------------------------------------
 # score_candidate
 # ---------------------------------------------------------------------------
 
@@ -194,6 +255,42 @@ class TestScoreCandidate:
             c, 600.0, min_seconds=12.0, max_seconds=18.0, rms_std=0.5
         )
         assert with_ > without
+
+    def test_pitch_deviation_adds_penalty(self) -> None:
+        c = _chunk(100.0, 115.0)
+        baseline_score, _ = score_candidate(
+            c, 600.0, min_seconds=12.0, max_seconds=18.0, pitch_deviation_hz=0.0
+        )
+        deviated_score, tags = score_candidate(
+            c, 600.0, min_seconds=12.0, max_seconds=18.0, pitch_deviation_hz=25.0
+        )
+        # 25 Hz deviation × _W_PITCH (0.02) = 0.5 added.
+        assert deviated_score > baseline_score
+        assert deviated_score - baseline_score == pytest.approx(0.5)
+        # Below the 80 Hz outlier threshold, no tag should fire.
+        assert "pitch_outlier" not in tags
+
+    def test_large_pitch_deviation_flagged_as_outlier(self) -> None:
+        c = _chunk(100.0, 115.0)
+        _, tags = score_candidate(
+            c, 600.0, min_seconds=12.0, max_seconds=18.0, pitch_deviation_hz=120.0
+        )
+        # 120 Hz is roughly the gap between adult male and adult female
+        # F0 medians — treat as a hard outlier worth flagging.
+        assert "pitch_outlier" in tags
+
+    def test_pitch_default_is_zero(self) -> None:
+        c = _chunk(100.0, 115.0)
+        # Old call sites that don't pass pitch_deviation_hz must continue
+        # to score identically to before.
+        new_default, _ = score_candidate(
+            c, 600.0, min_seconds=12.0, max_seconds=18.0, rms_std=0.3
+        )
+        explicit_zero, _ = score_candidate(
+            c, 600.0, min_seconds=12.0, max_seconds=18.0,
+            rms_std=0.3, pitch_deviation_hz=0.0,
+        )
+        assert new_default == explicit_zero
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +480,80 @@ class TestPickReferenceClip:
             source_duration=600.0,
         )
         assert report.selected_start == 200.0
+
+    def test_pitch_outlier_candidate_demoted(self, tmp_path: Path) -> None:
+        """Three otherwise-equal candidates; one has an outlier F0.
+
+        Reproduces the 2026-05-10 failure mode: the picker would land on
+        a 12 s clip that scored well on every metadata heuristic but
+        happened to catch the speaker in a deep / emphatic moment, and
+        the resulting voice clone came out gendered wrong. With the
+        pitch-deviation term, the outlier should be demoted below the
+        two near-baseline candidates.
+        """
+        chunks = [
+            _chunk(100.0, 115.0),  # baseline pitch (220 Hz)
+            _chunk(200.0, 215.0),  # baseline pitch (220 Hz)
+            _chunk(300.0, 315.0),  # OUTLIER (100 Hz — emphatic / deep)
+        ]
+        p = _write_transcripts(tmp_path, chunks)
+        _, writer = _recording_writer()
+
+        sr = 24000
+        female_samples = _sine(sr, 220.0, 15.0)
+        male_samples = _sine(sr, 100.0, 15.0)
+
+        def _reader(src: Path, start_s: float, end_s: float) -> list[float]:
+            if abs(start_s - 300.0) < 0.01:
+                return male_samples  # outlier
+            return female_samples
+
+        report = pick_reference_clip(
+            transcripts=p,
+            speaker_id="SPEAKER_00",
+            wav_source=tmp_path / "fake.wav",
+            out_path=tmp_path / "ref.wav",
+            audio_reader=_reader,
+            audio_writer=writer,
+            source_duration=600.0,
+            top_k=5,
+        )
+
+        # The pick should NOT be the 300.0 s outlier.
+        assert report.selected_start in (100.0, 200.0)
+
+        # The candidate at 300.0 should appear in the report with both a
+        # populated median_f0_hz and a positive deviation cost reflected
+        # in its score being highest.
+        outlier = next(c for c in report.candidates if abs(c.start - 300.0) < 0.01)
+        baseline = next(c for c in report.candidates if abs(c.start - 100.0) < 0.01)
+        assert outlier.median_f0_hz is not None
+        assert baseline.median_f0_hz is not None
+        assert abs(outlier.median_f0_hz - 100.0) < 5.0
+        assert abs(baseline.median_f0_hz - 220.0) < 5.0
+        assert outlier.score > baseline.score
+        # The 120 Hz gap (220 → 100) should trip the outlier tag.
+        assert "pitch_outlier" in outlier.penalties
+
+    def test_pitch_term_skipped_when_audio_reader_absent(
+        self, tmp_path: Path
+    ) -> None:
+        """Metadata-only path produces candidates with median_f0_hz=None."""
+        chunks = [_chunk(100.0, 115.0), _chunk(200.0, 215.0)]
+        p = _write_transcripts(tmp_path, chunks)
+        _, writer = _recording_writer()
+
+        report = pick_reference_clip(
+            transcripts=p,
+            speaker_id="SPEAKER_00",
+            wav_source=tmp_path / "fake.wav",
+            out_path=tmp_path / "ref.wav",
+            audio_reader=None,
+            audio_writer=writer,
+            source_duration=600.0,
+        )
+        for c in report.candidates:
+            assert c.median_f0_hz is None
 
     def test_source_duration_inferred_from_last_chunk(
         self, tmp_path: Path
