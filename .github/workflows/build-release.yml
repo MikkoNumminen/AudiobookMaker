@@ -28,7 +28,18 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short --cov=src --cov-report=term-missing
+        # -p no:timeout disables pytest-timeout for CI runs only. Its
+        # thread-method timer cannot be cleanly cancelled on Windows;
+        # accumulated timer threads from fast-passing tests outlive the
+        # suite and fire late, sometimes during pytest's shutdown /
+        # coverage finalisation. The fallout is a spurious
+        # AssertionError in pytest_timeout.read_global_capture() that
+        # fails the build with no real test failure (observed on
+        # release v3.11.1, runs 25615367406 / 25615715187). The
+        # GitHub Actions job timeout (~6 h default) is the real
+        # runaway guard in CI; the per-test pytest-timeout safety net
+        # still applies locally via pytest.ini.
+        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short --cov=src --cov-report=term-missing -p no:timeout
 
       - name: Download ffmpeg
         env:
