@@ -80,6 +80,11 @@ class _UnavailableEngine(TTSEngine):
             reason="Install required: pip install some-engine",
         )
 
+    def supported_languages(self) -> set[str]:
+        # Advertise both languages so this engine survives the
+        # _populate_engine_list language-filter on any CI locale (fi or en).
+        return {"fi", "en"}
+
     def list_voices(self, language: str) -> list[Voice]:
         return []
 
