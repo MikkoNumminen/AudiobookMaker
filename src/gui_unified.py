@@ -422,7 +422,31 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     POLL_INTERVAL_MS = 100
 
+    def after(self, ms, func=None, *args):  # type: ignore[override]
+        """Override to track every after-ID we schedule in ``_scheduled_afters``.
+
+        CTk's ``__init__`` may call ``self.after()`` before our ``__init__``
+        body runs, so we use a ``getattr`` defensive read instead of relying
+        on the attribute being set first.
+        """
+        after_id = super().after(ms, func, *args)
+        if after_id:
+            self.__dict__.setdefault("_scheduled_afters", set()).add(str(after_id))
+        return after_id
+
+    def after_idle(self, func, *args):  # type: ignore[override]
+        """Override to track every after_idle ID we schedule in ``_scheduled_afters``."""
+        after_id = super().after_idle(func, *args)
+        if after_id:
+            self.__dict__.setdefault("_scheduled_afters", set()).add(str(after_id))
+        return after_id
+
     def __init__(self) -> None:
+        # Initialise the tracking set BEFORE super().__init__() so that any
+        # after() calls made by CTk during its own __init__ are captured even
+        # before our body runs.  (The overridden after() also does a defensive
+        # setdefault() for the same reason, but setting it here is cleaner.)
+        self._scheduled_afters: set[str] = set()
         super().__init__()
         self.title(WINDOW_TITLE)
         self.minsize(WINDOW_MIN_W, WINDOW_MIN_H)
@@ -2612,25 +2636,26 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         Each step is wrapped individually so a single failure cannot abort the
         rest of teardown.
         """
-        # Step 1 — cancel the AppearanceModeTracker's pending ``after`` callback.
-        # We target only the rescheduling ``update`` callback (identified by the
-        # presence of "update" in the after-info script name) so that we don't
-        # accidentally cancel CTk-internal callbacks (e.g. _windows_set_titlebar_icon)
-        # that CTk tracks and tries to deletecommand() in super().destroy().
-        # Cancelling those CTk-internal IDs first causes a
-        # "_tkinter.TclError: can't delete Tcl command" during widget teardown.
+        # Step 1 — cancel every after-callback WE scheduled.
+        # We use our own tracking set (_scheduled_afters, populated by the
+        # overridden after() / after_idle() methods) instead of the previous
+        # approach of asking Tcl for all pending IDs and filtering by script
+        # name substring.  That substring heuristic was fragile: it relied on
+        # "update" appearing in the Tcl script name, which is an implementation
+        # detail of AppearanceModeTracker that could change without notice.
+        #
+        # We deliberately do NOT touch CTk-internal after-IDs (e.g.
+        # _windows_set_titlebar_icon).  Those are scheduled directly by CTk
+        # internals, not via our overridden after(), so they are absent from
+        # _scheduled_afters.  Cancelling them would cause a
+        # "_tkinter.TclError: can't delete Tcl command" in super().destroy().
         try:
-            after_ids = self.tk.call("after", "info") or ()
-            if isinstance(after_ids, str):
-                after_ids = after_ids.split()
-            for after_id in after_ids:
+            for after_id in list(self._scheduled_afters):
                 try:
-                    info = self.tk.call("after", "info", after_id)
-                    script_name = info[0] if info else ""
-                    if "update" in str(script_name):
-                        self.after_cancel(after_id)
+                    self.after_cancel(after_id)
                 except Exception:  # noqa: BLE001 — already fired or invalid
                     pass
+            self._scheduled_afters.clear()
         except Exception as exc:  # noqa: BLE001 — Tcl may already be torn down
             logger.debug("after-cancel sweep failed: %s", exc)
 
