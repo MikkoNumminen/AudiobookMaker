@@ -28,25 +28,18 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        # -p no:timeout disables pytest-timeout for CI runs only. Its
-        # thread-method timer cannot be cleanly cancelled on Windows;
-        # accumulated timer threads from fast-passing tests outlive the
-        # suite and fire late during pytest shutdown, raising a spurious
-        # AssertionError in pytest_timeout.read_global_capture() (see
-        # release v3.11.1 runs 25615367406 / 25615715187). The GitHub
-        # Actions job timeout is the real runaway guard in CI; the
-        # per-test pytest-timeout safety net still applies locally via
-        # pytest.ini.
-        #
-        # Coverage was dropped here too: GUI test files transitively
-        # import customtkinter, whose import-time Tk machinery leaves
-        # non-daemon threads alive on the headless Windows runner. With
-        # --cov, coverage finalisation triggers a long shutdown phase
-        # in which Python tries to join those threads, hanging until the
-        # runner kills the step (release v3.11.1 run 25615954113). No
-        # coverage in CI; the pre-commit hook already runs coverage
-        # locally on every commit.
-        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short -p no:timeout
+        # tests/test_gui_e2e.py is skipped in CI: its module-scoped
+        # _shared_app fixture creates a real UnifiedApp() Tk window,
+        # and CustomTkinter's Tk machinery spawns non-daemon threads on
+        # the headless Windows runner that block Python's natural exit
+        # (see release v3.11.1 build runs 25615367406 / 25615715187 /
+        # 25615954113 / 25616475945 / 25616723346 / 25617272185 — all
+        # failed in this exact way). The pre-commit hook still runs
+        # this test file locally on every commit where Tk works, so
+        # GUI smoke coverage is preserved for the dev loop.
+        # tests/test_record_voice_sample.py is skipped because it
+        # records from the real microphone and CI has no audio device.
+        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_gui_e2e.py -x -q --tb=short --cov=src --cov-report=term-missing
 
       - name: Download ffmpeg
         env:

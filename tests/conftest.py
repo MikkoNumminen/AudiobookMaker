@@ -14,55 +14,10 @@ http.server-based fixtures, and similar infrastructure rely on it.
 
 from __future__ import annotations
 
-import os
 import socket
-import sys
 import urllib.request
 
 import pytest
-
-
-# ---------------------------------------------------------------------------
-# CI-only force-exit after pytest finishes printing
-# ---------------------------------------------------------------------------
-#
-# Many GUI test files transitively import customtkinter, whose import-
-# time Tk machinery leaves non-daemon threads alive on headless Windows
-# CI runners. After all tests pass and pytest prints its summary, Python
-# hangs indefinitely waiting for those Tk threads to die — until the
-# CI runner kills the step. Symptoms: release v3.11.1 builds 25615367406
-# / 25615715187 / 25615954113 / 25616723346 all printed N passed and
-# then either crashed on a late pytest-timeout firing or hung until
-# cancelled.
-#
-# pytest_unconfigure fires AFTER terminal_summary, so by the time we
-# os._exit, all stdout/stderr is already flushed and any F/E from a
-# real failure is visible in the build log. We only force-exit on a
-# zero exit status — a real failure should still be allowed to exit
-# normally so its full traceback prints before pytest hands back to
-# the shell.
-#
-# The hook is gated on CI=true (set automatically on every GitHub
-# Actions runner) so local dev keeps the natural exit path and the
-# pytest-timeout safety net in pytest.ini.
-def pytest_unconfigure(config):
-    if os.environ.get("CI", "").lower() not in ("true", "1"):
-        return
-    exit_status = getattr(config, "_test_exit_status", 0)
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(int(exit_status))
-
-
-def pytest_sessionfinish(session, exitstatus):
-    """Capture the final exit status for pytest_unconfigure to use.
-
-    pytest_unconfigure does not receive the exit status directly, but
-    it fires later in the lifecycle (after terminal summary). Stash
-    the status on config here so the unconfigure hook can read it.
-    """
-    if os.environ.get("CI", "").lower() in ("true", "1"):
-        session.config._test_exit_status = int(exitstatus)
 
 # Eagerly populate the engine registry so every test sees the full
 # engine set. Without this import, ``get_engine("chatterbox_fi")`` etc.
