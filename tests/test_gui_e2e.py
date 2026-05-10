@@ -49,6 +49,10 @@ def _shared_app():
     instance = UnifiedApp()
     instance.update_idletasks()
     yield instance
+    # quit() is required on Windows Python 3.11 + customtkinter even though the
+    # fixture never starts a mainloop — without it CTk's deletecommand path raises
+    # _tkinter.TclError: can't delete Tcl command during widget teardown. The
+    # call is idempotent when no mainloop is running.
     instance.quit()
     instance.destroy()
 
