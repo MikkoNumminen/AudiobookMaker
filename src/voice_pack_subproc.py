@@ -34,6 +34,7 @@ subprocess factory instead of spawning a real Python.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -42,6 +43,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -353,8 +356,10 @@ def _pump_stdout(
         if cancel_event is not None and cancel_event.is_set():
             try:
                 proc.terminate()
-            except Exception:  # pragma: no cover - best-effort cancel
-                pass
+            except Exception as exc:  # pragma: no cover - best-effort cancel
+                # Don't swallow silently — a failed terminate may leave a
+                # zombie subprocess pinning GPU/CPU after the cancel.
+                logger.warning("subprocess terminate() failed on cancel: %s", exc)
             raise _CancelledError()
 
         line = raw.rstrip()
