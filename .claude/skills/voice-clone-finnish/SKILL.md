@@ -45,18 +45,58 @@ Before starting, check:
 
 - `.venv-chatterbox/Scripts/python.exe` exists (not `.venv` — the
   voice-pack pipeline needs the chatterbox venv).
+- `ffmpeg` and `ffprobe` are on PATH (used in Step 1 for re-encoding and
+  internally in Step 2 for source duration). The repo's
+  `src/ffmpeg_path.setup_ffmpeg_path()` puts the bundled ffmpeg on PATH
+  for the chatterbox venv automatically — but the Step 1 shell command
+  uses whatever ffmpeg the operator has.
 - `~/.cache/huggingface/token` exists with a token that has accepted
   the `pyannote/speaker-diarization-3.1` license — even when using
   ECAPA, some chunked-analyze paths may still load pyannote modules
   during embedding.
-- `nvidia-smi` shows ~10+ GB free VRAM. If anything else is consuming
-  the GPU, surface the PIDs to the user and wait for their call (per
-  the `feedback_never_kill_processes.md` memory).
+- `nvidia-smi` shows ~10+ GB free VRAM. If `nvidia-smi` is missing or
+  shows 0 CUDA devices, the pipeline still works on CPU but is ~10×
+  slower — every analyze chunk will hit the CPU fallback path, and
+  LoRA training will be impractical (multi-hour). If anything else is
+  consuming the GPU, surface the PIDs to the user and wait for their
+  call (per the `feedback_never_kill_processes.md` memory).
 - `.local/` directory exists at the repo root (it's gitignored at line
-  80 of `.gitignore`).
+  80 of `.gitignore`). `.local/voice_runs/` may not exist yet — create
+  it explicitly when the runbook below tells you to.
 - The user has handed you a path to a local audio file — never download
   from URLs (that triggers the auto-mode classifier and is generally
   the wrong workflow for copyrighted material).
+
+## Step 0 — Ask the operator before any analyze run
+
+Diarization quality depends massively on a correct speaker-count hint.
+Two adult voices in similar register get split into "ghost" speakers
+or merged into one when pyannote/ECAPA has to guess; passing the true
+cast size avoids both failure modes. **Always ask the operator before
+starting Step 1**, never assume:
+
+1. **"How many distinct voices do you hear in this clip?"** Their
+   answer becomes the `num_speakers=N` argument to
+   `run_chunked_analyze` in Step 2. Common answers:
+   - 1 → solo audiobook narrator, monologue, voicemail.
+   - 2 → interview, two-host podcast, audiobook with M+F readers.
+   - 3-4 → podcast with guest, panel, conversation with moderator.
+   - 5+ → full-cast production; let pyannote estimate via
+     `min_speakers=4, max_speakers=8` and validate by ear.
+2. **"What's the gender mix?"** (e.g. *"1 female + 1 male"*, *"2
+   male"*, *"3 male + 1 female"*). Use this as a post-pick sanity
+   check in Step 7: if the operator said "1 female ref expected" but
+   the synth comes out male, fall back to alt candidates immediately
+   without re-running training.
+3. **"Anything you want me to skip?"** Some sources start with music
+   intros, ad reads, or off-mic chatter. The operator may want you to
+   `--ss N` past the first 30-60 s when re-encoding in Step 1.
+
+If the operator answers "I don't know" to (1), default to 2 for
+podcast-shaped sources and 1 for audiobook-shaped sources. Do NOT
+proceed without an answer to (1) — diarization without a count hint
+will produce dirty labels on similar-timbre Finnish speakers and
+the rest of the pipeline will inherit the dirt.
 
 ## Hard rules — read before every step
 
@@ -86,7 +126,18 @@ The chunked analyzer wants a clean WAV. Re-encode if the source is MP3
 or stereo or non-16 kHz. Skip this step only when the source is
 already 16 kHz mono WAV.
 
+Inspect first to know whether re-encode is needed:
+
 ```bash
+ffprobe -v error -show_entries stream=codec_name,channels,sample_rate \
+  -show_entries format=duration -of default=noprint_wrappers=1 "<source>"
+```
+
+Then create the run dir and re-encode (ffmpeg does NOT auto-create
+parent directories):
+
+```bash
+mkdir -p .local/voice_runs
 ffmpeg -y -i "<source>" -ac 1 -ar 16000 .local/voice_runs/source.wav
 ```
 
@@ -322,6 +373,28 @@ copyrighted, defamatory, hate-speech, or sexual content** in the
 cloned person's voice without their explicit consent for that exact
 content; this is a hard line that doesn't move regardless of how the
 user frames the request.
+
+The test text must be **plain Finnish**:
+
+- **No digits** — the picker's text-quality heuristic penalizes them
+  and the T3 finetune mispronounces them ("12" might come out as
+  "yy-kaks" or "twelve"). Spell numbers out: "kaksitoista".
+- **No URLs / email addresses** — same reason.
+- **No non-Latin scripts** — the T3 finetune wasn't trained on them.
+- **Avoid English loanwords** when possible — they trigger the
+  English phoneme path on a Finnish model.
+
+Write it to a file inside the run dir:
+
+```bash
+mkdir -p .local/voice_runs
+cat > .local/voice_runs/test_text.txt <<'EOF'
+Talttahampaan viuhunta kävi lakukahvilassa kun taiteilija astui sisään.
+Asiakas tilasi kaakaon vegevaahdolla.
+EOF
+```
+
+Then synthesize:
 
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/generate_chatterbox_audiobook.py \
