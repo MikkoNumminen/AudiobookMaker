@@ -49,9 +49,6 @@ def _shared_app():
     instance = UnifiedApp()
     instance.update_idletasks()
     yield instance
-    # quit() tells any running mainloop to exit cleanly, giving the Tcl event
-    # loop a chance to finalize before destroy() tears down the window.  It is
-    # idempotent when no mainloop is running, so safe to call unconditionally.
     instance.quit()
     instance.destroy()
 

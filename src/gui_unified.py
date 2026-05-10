@@ -2612,15 +2612,25 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         Each step is wrapped individually so a single failure cannot abort the
         rest of teardown.
         """
-        # Step 1 — cancel all pending ``after`` callbacks on this window.
+        # Step 1 — cancel the AppearanceModeTracker's pending ``after`` callback.
+        # We target only the rescheduling ``update`` callback (identified by the
+        # presence of "update" in the after-info script name) so that we don't
+        # accidentally cancel CTk-internal callbacks (e.g. _windows_set_titlebar_icon)
+        # that CTk tracks and tries to deletecommand() in super().destroy().
+        # Cancelling those CTk-internal IDs first causes a
+        # "_tkinter.TclError: can't delete Tcl command" during widget teardown.
         try:
-            after_ids = self.tk.call("after", "info")
-            if after_ids:
-                for after_id in str(after_ids).split():
-                    try:
+            after_ids = self.tk.call("after", "info") or ()
+            if isinstance(after_ids, str):
+                after_ids = after_ids.split()
+            for after_id in after_ids:
+                try:
+                    info = self.tk.call("after", "info", after_id)
+                    script_name = info[0] if info else ""
+                    if "update" in str(script_name):
                         self.after_cancel(after_id)
-                    except Exception:  # noqa: BLE001 — already fired or invalid
-                        pass
+                except Exception:  # noqa: BLE001 — already fired or invalid
+                    pass
         except Exception as exc:  # noqa: BLE001 — Tcl may already be torn down
             logger.debug("after-cancel sweep failed: %s", exc)
 
@@ -2634,7 +2644,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             AppearanceModeTracker.app_list.clear()
             AppearanceModeTracker.update_loop_running = False
         except Exception as exc:  # noqa: BLE001 — future customtkinter version change
-            logger.debug("AppearanceModeTracker cleanup failed: %s", exc)
+            logger.warning(
+                "AppearanceModeTracker cleanup failed; check for customtkinter "
+                "version change: %s", exc,
+            )
 
         # Step 3 — stop in-process audio so the mixer thread releases resources.
         try:

@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+    branches: [master]
 
 permissions:
   contents: write
@@ -33,6 +35,7 @@ jobs:
         run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short --cov=src --cov-report=term-missing
 
       - name: Download ffmpeg
+        if: github.event_name == 'push'
         env:
           FFMPEG_RELEASE: autobuild-2026-05-09-13-18
           FFMPEG_ZIP: ffmpeg-n7.1.4-win64-gpl-7.1.zip
@@ -49,6 +52,7 @@ jobs:
         shell: bash
 
       - name: Create placeholder icon if missing
+        if: github.event_name == 'push'
         run: |
           if [ ! -f assets/icon.ico ]; then
             pip install Pillow
@@ -61,23 +65,28 @@ jobs:
         shell: bash
 
       - name: Extract version from tag
+        if: github.event_name == 'push'
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Stamp version into source
+        if: github.event_name == 'push'
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           (Get-Content src/auto_updater.py) -replace 'APP_VERSION = ".*"', "APP_VERSION = `"$version`"" | Set-Content src/auto_updater.py
         shell: pwsh
 
       - name: Verify runner imports match spec datas
+        if: github.event_name == 'push'
         run: python scripts/check_spec_runner_imports.py
 
       - name: Build exe with PyInstaller
+        if: github.event_name == 'push'
         run: pyinstaller audiobookmaker.spec
 
       - name: Install Inno Setup
+        if: github.event_name == 'push'
         run: choco install innosetup --yes --no-progress
 
       # Guard: the Inno Setup `#define MyAppVersion` MUST match Python's
@@ -85,6 +94,7 @@ jobs:
       # a developer-local off-CI build would ship a mis-branded installer and
       # corrupt the auto-update upgrade graph. Fail the job loudly instead.
       - name: Verify Inno Setup version matches APP_VERSION
+        if: github.event_name == 'push'
         run: |
           $pyVersion = (python -c "from src.auto_updater import APP_VERSION; print(APP_VERSION)").Trim()
           $issLine = Select-String -Path installer/setup.iss -Pattern '^#define\s+MyAppVersion\s+"([^"]+)"' | Select-Object -First 1
@@ -103,15 +113,18 @@ jobs:
         shell: pwsh
 
       - name: Update Inno Setup version from tag
+        if: github.event_name == 'push'
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           (Get-Content installer/setup.iss) -replace '#define\s+MyAppVersion\s+"[^"]+"', "#define MyAppVersion `"$version`"" | Set-Content installer/setup.iss
         shell: pwsh
 
       - name: Build installer
+        if: github.event_name == 'push'
         run: iscc installer/setup.iss
 
       - name: Upload installer artifact
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: installer
@@ -124,6 +137,7 @@ jobs:
       # auto-update for every existing user; this step exists so that can
       # never happen again. See CONVENTIONS.md "Auto-update is critical".
       - name: Compute installer SHA-256 and write release notes
+        if: github.event_name == 'push'
         id: sha
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
@@ -173,6 +187,7 @@ jobs:
       # contain a 64-hex SHA-256 line. The auto-updater requires this; without
       # it every existing user is locked out of updates.
       - name: Guard — release notes must contain SHA-256
+        if: github.event_name == 'push'
         run: |
           if (-not (Select-String -Path release_notes.md -Pattern '(?i)sha-?256:\s*[0-9a-f]{64}' -Quiet)) {
             Write-Error "release_notes.md is missing a SHA-256 line — refusing to publish. Auto-update would break for every existing user."
@@ -182,6 +197,7 @@ jobs:
         shell: pwsh
 
       - name: Create GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           name: AudiobookMaker ${{ steps.version.outputs.VERSION }}
@@ -196,6 +212,7 @@ jobs:
       # body via the GitHub API and verify the SHA line survived. Catches the
       # rare case of a release-process bug that strips the body before publish.
       - name: Verify published release notes contain SHA-256
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -209,6 +226,7 @@ jobs:
         shell: pwsh
 
       - name: Update README version links
+        if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
