@@ -293,10 +293,12 @@ class TestPickReferenceClip:
         assert report.selected_start == 200.0
 
     def test_raises_when_no_chunks_for_speaker(self, tmp_path: Path) -> None:
+        # Kept for backwards-compat coverage; now delegates to the
+        # unknown-speaker branch so the message changed.
         chunks = [_chunk(100.0, 115.0, speaker="SPEAKER_00")]
         p = _write_transcripts(tmp_path, chunks)
         _, writer = _recording_writer()
-        with pytest.raises(ValueError, match="no chunks for speaker"):
+        with pytest.raises(ValueError, match="not found"):
             pick_reference_clip(
                 transcripts=p,
                 speaker_id="SPEAKER_09",
@@ -304,6 +306,54 @@ class TestPickReferenceClip:
                 out_path=tmp_path / "ref.wav",
                 audio_writer=writer,
             )
+
+    def test_pick_reference_clip_unknown_speaker_id(self, tmp_path: Path) -> None:
+        # Transcripts contain SPEAKER_00 and SPEAKER_01.  Asking for
+        # SPEAKER_99 must raise ValueError with a message that names the
+        # missing speaker and lists the ones that *are* present so a
+        # debugger can immediately see the discrepancy.
+        chunks = [
+            _chunk(100.0, 115.0, speaker="SPEAKER_00"),
+            _chunk(200.0, 215.0, speaker="SPEAKER_01"),
+        ]
+        p = _write_transcripts(tmp_path, chunks)
+        _, writer = _recording_writer()
+
+        with pytest.raises(ValueError) as exc_info:
+            pick_reference_clip(
+                transcripts=p,
+                speaker_id="SPEAKER_99",
+                wav_source=tmp_path / "fake.wav",
+                out_path=tmp_path / "ref.wav",
+                audio_writer=writer,
+            )
+
+        msg = str(exc_info.value)
+        assert "not found" in msg, f"expected 'not found' in message: {msg!r}"
+        assert "SPEAKER_00" in msg, f"expected available speaker in message: {msg!r}"
+        assert "SPEAKER_01" in msg, f"expected available speaker in message: {msg!r}"
+
+    def test_pick_reference_clip_speaker_present_but_no_chunks(
+        self, tmp_path: Path
+    ) -> None:
+        # NOTE: In the current implementation the speaker_chunks list
+        # comprehension at pick_reference_clip() only filters by
+        # c.speaker == speaker_id.  There is no upstream quality or
+        # duration filter inside pick_reference_clip() itself — those
+        # filters run as soft scoring, not hard exclusions.  Therefore
+        # the "speaker present but all chunks filtered" branch
+        # (the second ValueError inside the `if not speaker_chunks` block)
+        # cannot be reached through pick_reference_clip() today: any
+        # speaker that appears in the transcripts will always have at
+        # least one chunk pass the speaker-match step.
+        #
+        # The branch exists to guard future refactors that might add hard
+        # exclusion filters (e.g. min-confidence gating) upstream of the
+        # list comprehension.  If such a filter is added, add a test here
+        # that constructs a transcripts file where SPEAKER_01 chunks fail
+        # the new filter and assert ValueError with "no usable chunks" in
+        # the message.
+        pass
 
     def test_fallback_reason_when_nothing_in_window(
         self, tmp_path: Path
