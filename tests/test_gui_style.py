@@ -9,6 +9,7 @@ Split into two sections:
 """
 from __future__ import annotations
 
+import _tkinter
 import re
 
 import pytest
@@ -97,7 +98,7 @@ def _shared_app():
 
     try:
         instance = UnifiedApp()
-    except Exception as exc:
+    except _tkinter.TclError as exc:
         pytest.skip(f"No display / Tk init failed: {exc}")
         return
     instance.update_idletasks()

@@ -423,31 +423,72 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     POLL_INTERVAL_MS = 100
 
     def after(self, ms, func=None, *args):  # type: ignore[override]
-        """Override to track every after-ID we schedule in ``_scheduled_afters``.
+        """Override CTk.after so destroy() can cancel exactly our own callbacks.
 
-        CTk's ``__init__`` may call ``self.after()`` before our ``__init__``
-        body runs, so we use a ``getattr`` defensive read instead of relying
-        on the attribute being set first.
+        Wraps the user's callback to discard the after-ID from the tracking
+        set when it fires naturally, preventing unbounded growth across a
+        long-running app session.
         """
-        after_id = super().after(ms, func, *args)
+        if func is None:
+            # ``after(ms)`` with no callback is a Tk poll; nothing to wrap.
+            return super().after(ms)
+
+        scheduled = self.__dict__.setdefault("_scheduled_afters", set())
+        after_id_box: list[str | None] = [None]
+
+        def _wrapped():
+            if after_id_box[0] is not None:
+                scheduled.discard(after_id_box[0])
+            return func(*args)
+
+        after_id = super().after(ms, _wrapped)
         if after_id:
-            self.__dict__.setdefault("_scheduled_afters", set()).add(str(after_id))
+            after_id_box[0] = str(after_id)
+            scheduled.add(after_id_box[0])
         return after_id
 
     def after_idle(self, func, *args):  # type: ignore[override]
-        """Override to track every after_idle ID we schedule in ``_scheduled_afters``."""
-        after_id = super().after_idle(func, *args)
+        """Override CTk.after_idle so destroy() can cancel exactly our own callbacks.
+
+        Wraps the callback to discard the after-ID from the tracking set
+        when it fires naturally.
+        """
+        scheduled = self.__dict__.setdefault("_scheduled_afters", set())
+        after_id_box: list[str | None] = [None]
+
+        def _wrapped():
+            if after_id_box[0] is not None:
+                scheduled.discard(after_id_box[0])
+            return func(*args)
+
+        after_id = super().after_idle(_wrapped)
         if after_id:
-            self.__dict__.setdefault("_scheduled_afters", set()).add(str(after_id))
+            after_id_box[0] = str(after_id)
+            scheduled.add(after_id_box[0])
         return after_id
 
+    def after_cancel(self, id_):  # type: ignore[override]
+        """Override CTk.after_cancel to keep ``_scheduled_afters`` consistent
+        when callbacks are cancelled outside of ``destroy()``."""
+        super().after_cancel(id_)
+        scheduled = self.__dict__.get("_scheduled_afters")
+        if scheduled is not None and id_ is not None:
+            scheduled.discard(str(id_))
+
     def __init__(self) -> None:
-        # Initialise the tracking set BEFORE super().__init__() so that any
-        # after() calls made by CTk during its own __init__ are captured even
-        # before our body runs.  (The overridden after() also does a defensive
-        # setdefault() for the same reason, but setting it here is cleaner.)
-        self._scheduled_afters: set[str] = set()
         super().__init__()
+        # Tracking set is populated by overridden after() / after_idle().
+        # An explicit setdefault() in those overrides covers the bootstrap
+        # case where CTk's own __init__ calls self.after() before this body
+        # runs, so this assignment is the conventional convergence point
+        # rather than a hard requirement.
+        # Note: this wipes any IDs CTk scheduled during super().__init__() that
+        # are still pending.  Those are CTk-internal callbacks (e.g.
+        # _windows_set_titlebar_icon) that we must NOT cancel in destroy() —
+        # doing so would TclError on CTk's deletecommand path.  The wipe is
+        # therefore correct: after this point _scheduled_afters tracks only
+        # our own callbacks.
+        self._scheduled_afters: set[str] = set()
         self.title(WINDOW_TITLE)
         self.minsize(WINDOW_MIN_W, WINDOW_MIN_H)
         self._center_window()
@@ -2650,12 +2691,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # _scheduled_afters.  Cancelling them would cause a
         # "_tkinter.TclError: can't delete Tcl command" in super().destroy().
         try:
-            for after_id in list(self._scheduled_afters):
+            # pop() one at a time: the set shrinks with each iteration so no
+            # separate .clear() is needed.  after_cancel() (overridden above)
+            # also discards from the set, but set.discard is idempotent so
+            # the double-discard is harmless.
+            while self._scheduled_afters:
+                after_id = self._scheduled_afters.pop()
                 try:
                     self.after_cancel(after_id)
                 except Exception:  # noqa: BLE001 — already fired or invalid
                     pass
-            self._scheduled_afters.clear()
         except Exception as exc:  # noqa: BLE001 — Tcl may already be torn down
             logger.debug("after-cancel sweep failed: %s", exc)
 
