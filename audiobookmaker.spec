@@ -141,7 +141,9 @@ datas += [
     (os.path.join('src', 'tts_chunking.py'), 'src'),
     (os.path.join('src', 'tts_audio.py'), 'src'),
     (os.path.join('src', 'pdf_parser.py'), 'src'),
+    (os.path.join('src', 'epub_parser.py'), 'src'),
     (os.path.join('src', 'fi_loanwords.py'), 'src'),
+    (os.path.join('src', 'ffmpeg_path.py'), 'src'),
     (os.path.join('src', '_yaml_data.py'), 'src'),
 ]
 # Goat icon for the window title bar and taskbar

@@ -56,6 +56,7 @@ _ENGINE_MGR_STRINGS = {
         "uninstall_done": "Poistettu.",
         "install_done": "Asennus valmis.",
         "install_failed": "Asennus epäonnistui:",
+        "error_on_clipboard": "Virhe on kopioitu leikepöydälle. Liitä se kehittäjälle.",
     },
     "en": {
         "title": "Engine manager",
@@ -84,6 +85,7 @@ _ENGINE_MGR_STRINGS = {
         "uninstall_done": "Uninstalled.",
         "install_done": "Install complete.",
         "install_failed": "Install failed:",
+        "error_on_clipboard": "Error copied to clipboard. Paste it to your developer.",
     },
 }
 
@@ -393,9 +395,33 @@ class EngineManagerDialog(ctk.CTkToplevel):
 
     def _handle_progress(self, p) -> None:
         if p.error:
+            # Pre-copy the captured stderr to the clipboard so a non-technical
+            # user can paste it straight to the developer instead of fighting
+            # a native messagebox's text-selection. The smoke-test failure
+            # path is the main consumer here — its stderr is the real error
+            # we triage from.
+            #
+            # update_idletasks() flushes pending Tk operations without
+            # processing the full event loop, so we avoid re-entrance from
+            # inside _poll_progress' after-callback. On Windows that is
+            # enough for the clipboard contents to survive after the dialog
+            # closes; if Linux ever ships, retest because X11 selection
+            # ownership sometimes needs the full update() to commit.
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(p.error)
+                self.update_idletasks()
+            except Exception:
+                # Clipboard ownership can fail under remote-X / locked-down
+                # corporate setups. Silently fall through — the messagebox
+                # below still surfaces the error text, which is the actual
+                # critical path; the clipboard pre-load is just convenience.
+                pass
             messagebox.showerror(
                 self._s("title"),
-                f"{self._s('install_failed')}\n\n{p.error}",
+                f"{self._s('install_failed')}\n\n"
+                f"{self._s('error_on_clipboard')}\n\n"
+                f"{p.error}",
                 parent=self,
             )
             self._install_finished()
