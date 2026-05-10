@@ -14,34 +14,10 @@ http.server-based fixtures, and similar infrastructure rely on it.
 
 from __future__ import annotations
 
-import os
 import socket
-import sys
 import urllib.request
 
 import pytest
-
-
-# ---------------------------------------------------------------------------
-# Force-exit on session finish (CI-only)
-# ---------------------------------------------------------------------------
-#
-# Many GUI test files import src.gui_* modules that transitively import
-# customtkinter. CTk's import-time machinery can leave non-daemon Tk
-# threads alive on Windows GitHub-Actions runners (no display), which
-# blocks Python's natural exit while it waits for those threads to die.
-# The visible symptom is pytest printing "N passed" + the coverage
-# summary, then hanging indefinitely until the runner kills the step.
-#
-# Locally this almost never reproduces because dev workstations have a
-# real display and the Tk threads exit cleanly. To stop the CI hang
-# without losing the runaway-hang safety net locally, we only force-exit
-# when ``CI=true`` is set in the environment (every CI runner sets this).
-def pytest_sessionfinish(session, exitstatus):
-    if os.environ.get("CI", "").lower() in ("true", "1"):
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(int(exitstatus))
 
 # Eagerly populate the engine registry so every test sees the full
 # engine set. Without this import, ``get_engine("chatterbox_fi")`` etc.
