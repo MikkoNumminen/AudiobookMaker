@@ -2592,12 +2592,70 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self.after(250, self._refresh_listen_btn_label)
 
     def destroy(self) -> None:  # type: ignore[override]
-        """Tear down the window. Stop in-process playback so the mixer
-        thread doesn't keep audio resources after the GUI closes."""
+        """Tear down the window cleanly to prevent the Tcl notifier thread hang.
+
+        Background: when any tkinter.Tk / CTk window is created, the C extension
+        _tkinter.pyd spawns a Win32 Tcl notifier thread.  That thread is invisible
+        to Python's threading.enumerate() and is NOT stopped by Tk.destroy().
+        On headless Windows (GitHub Actions), Python's shutdown waits for it before
+        reaching Py_Finalize() — and the thread never exits because pending Tcl
+        ``after`` callbacks (from customtkinter's AppearanceModeTracker.update)
+        keep rescheduling themselves on the destroyed window.
+
+        Fix:
+        1. Cancel every pending ``after`` callback so the rescheduling loop stops.
+        2. Clear AppearanceModeTracker.app_list so update() finds nothing to
+           reschedule against and sets update_loop_running = False.
+        3. Stop the audio player (existing behaviour).
+        4. Call super().destroy() as normal.
+
+        Each step is wrapped individually so a single failure cannot abort the
+        rest of teardown.
+        """
+        # Step 1 — cancel the AppearanceModeTracker's pending ``after`` callback.
+        # We target only the rescheduling ``update`` callback (identified by the
+        # presence of "update" in the after-info script name) so that we don't
+        # accidentally cancel CTk-internal callbacks (e.g. _windows_set_titlebar_icon)
+        # that CTk tracks and tries to deletecommand() in super().destroy().
+        # Cancelling those CTk-internal IDs first causes a
+        # "_tkinter.TclError: can't delete Tcl command" during widget teardown.
+        try:
+            after_ids = self.tk.call("after", "info") or ()
+            if isinstance(after_ids, str):
+                after_ids = after_ids.split()
+            for after_id in after_ids:
+                try:
+                    info = self.tk.call("after", "info", after_id)
+                    script_name = info[0] if info else ""
+                    if "update" in str(script_name):
+                        self.after_cancel(after_id)
+                except Exception:  # noqa: BLE001 — already fired or invalid
+                    pass
+        except Exception as exc:  # noqa: BLE001 — Tcl may already be torn down
+            logger.debug("after-cancel sweep failed: %s", exc)
+
+        # Step 2 — clear AppearanceModeTracker.app_list so the 30 ms rescheduling
+        # loop in customtkinter stops immediately rather than spinning forever on
+        # a destroyed window (the root cause of the Tcl notifier thread hang).
+        try:
+            from customtkinter.windows.widgets.appearance_mode.appearance_mode_tracker import (
+                AppearanceModeTracker,
+            )
+            AppearanceModeTracker.app_list.clear()
+            AppearanceModeTracker.update_loop_running = False
+        except Exception as exc:  # noqa: BLE001 — future customtkinter version change
+            logger.warning(
+                "AppearanceModeTracker cleanup failed; check for customtkinter "
+                "version change: %s", exc,
+            )
+
+        # Step 3 — stop in-process audio so the mixer thread releases resources.
         try:
             _audio_player.get_player().stop()
         except Exception as exc:  # noqa: BLE001 — best-effort cleanup
             logger.debug("audio player stop on destroy failed: %s", exc)
+
+        # Step 4 — hand off to CTk / Tk for the rest of widget teardown.
         super().destroy()
 
     # ------------------------------------------------------------------
