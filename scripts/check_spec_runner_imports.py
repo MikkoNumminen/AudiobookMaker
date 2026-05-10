@@ -61,7 +61,7 @@ def _collect_runner_imports(path: Path) -> set[str]:
         names_text = m.group(1).split("#", 1)[0]  # strip trailing comment
         for chunk in names_text.split(","):
             # Take the imported name itself, before any "as alias" rename.
-            name = chunk.strip().split(" as ", 1)[0].strip()
+            name = chunk.strip().split(" as ", 1)[0]
             if name and name.replace("_", "").isalnum():
                 modules.add(name)
 
