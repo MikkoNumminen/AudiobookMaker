@@ -39,7 +39,12 @@ jobs:
         # GUI smoke coverage is preserved for the dev loop.
         # tests/test_record_voice_sample.py is skipped because it
         # records from the real microphone and CI has no audio device.
-        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_gui_e2e.py -x -q --tb=short --cov=src --cov-report=term-missing
+        #
+        # --cov is omitted here: coverage finalisation takes ~60 s on
+        # the Windows runner, and during that window a pytest-timeout
+        # thread fires (AssertionError in read_global_capture). Coverage
+        # is measured locally by the pre-commit hook on every commit.
+        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_gui_e2e.py -x -q --tb=short
 
       - name: Download ffmpeg
         env:
