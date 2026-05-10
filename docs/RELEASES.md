@@ -9,6 +9,32 @@ Anything older than the top-of-list entry lives here.
 
 ---
 
+**v3.11.1** -- Chatterbox install hardening:
+
+- **Install fail-fast** -- the Chatterbox installer now smoke-tests the
+  freshly-built venv before declaring success. Any first-failure (CUDA
+  driver too old, antivirus quarantine, missing native lib) shows up in
+  the install dialog with the real Python traceback, instead of 30
+  minutes later mid-Convert
+- **Real error on the clipboard** -- if the smoke test catches a
+  problem, the captured stderr is auto-copied to the clipboard so you
+  can paste it straight to a developer instead of fighting a native
+  messagebox's text-selection
+- **Bundled missing files** -- the Chatterbox runner subprocess no
+  longer fails with "No module named 'src.ffmpeg_path'" or
+  "src.epub_parser" on fresh installs
+- **Cancel works during install** -- pressing Cancel mid-install no
+  longer leaves the dialog declaring "completed" on a partially
+  installed venv
+- **Right button location** -- the Chatterbox-missing toast now points
+  at the actual Install engines button (top-right of the main window)
+  instead of a non-existent Settings panel
+- **CI guard against the next miss** -- the "runner imports a src/
+  file that isn't in the PyInstaller spec" mistake that caused the
+  v3.11.0 install bug is now caught in CI before any release goes out
+
+---
+
 **v3.11.0** -- GUI polish for the main workflow and voice-pack plumbing:
 
 - **Buttons light up when they are ready** -- Convert and Make sample

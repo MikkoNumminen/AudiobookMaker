@@ -92,39 +92,31 @@ right now.
 
 ## What's new
 
-**v3.11.0** -- GUI polish for the main workflow and voice-pack plumbing:
+**v3.11.1** -- Chatterbox install hardening:
 
-- **Buttons light up when they are ready** -- Convert and Make sample
-  stay greyed out until you pick both an input and a voice. Preview
-  and Open folder stay greyed out until there is actually a finished
-  audiobook to open. Fewer buttons you can click that do nothing
-- **Progress bar only when something is happening** -- the thin blue
-  bar at the bottom now hides itself when nothing is running. No more
-  static zero-percent bar staring back at you from an idle app
-- **Chatterbox chunk-size dial hides when you are not using Chatterbox**
-  -- the "chunk size" spinbox only matters for the Finnish Chatterbox
-  engine. Pick Edge-TTS or Piper and the control disappears, so the
-  Settings panel shows just the knobs that actually affect your run
-- **Workflow grouping in the action row** -- a thin vertical divider
-  splits the action buttons into two honest halves: on the left, the
-  things that *produce* output (Convert, Make sample); on the right,
-  the things that let you *review* output (Preview, Open folder).
-  Convert stays visually dominant
-- **Voice packs now load their LoRA adapter at synthesis time** -- if
-  you imported or cloned a voice pack that was trained on more data
-  (reduced or full LoRA tier), the synthesis subprocess now actually
-  wires the adapter into the Chatterbox model instead of falling
-  back to the bare reference clip. Few-shot packs keep working the
-  same as before
-- **Voice Cloner survives the PyTorch 2.6 upgrade** -- the diarizer
-  (the part that figures out who is speaking in your audio file) was
-  crashing on checkpoint load after PyTorch's security defaults
-  changed. Two compatibility shims now make pyannote load cleanly
-  again and sidestep a separate speechbrain stack-walk bug that was
-  aborting mid-pipeline on some machines
-- **1884 tests passing** -- up from 1878
+- **Install fail-fast** -- the Chatterbox installer now smoke-tests the
+  freshly-built venv before declaring success. Any first-failure (CUDA
+  driver too old, antivirus quarantine, missing native lib) shows up in
+  the install dialog with the real Python traceback, instead of 30
+  minutes later mid-Convert
+- **Real error on the clipboard** -- if the smoke test catches a
+  problem, the captured stderr is auto-copied to the clipboard so you
+  can paste it straight to a developer instead of fighting a native
+  messagebox's text-selection
+- **Bundled missing files** -- the Chatterbox runner subprocess no
+  longer fails with "No module named 'src.ffmpeg_path'" or
+  "src.epub_parser" on fresh installs
+- **Cancel works during install** -- pressing Cancel mid-install no
+  longer leaves the dialog declaring "completed" on a partially
+  installed venv
+- **Right button location** -- the Chatterbox-missing toast now points
+  at the actual Install engines button (top-right of the main window)
+  instead of a non-existent Settings panel
+- **CI guard against the next miss** -- the "runner imports a src/
+  file that isn't in the PyInstaller spec" mistake that caused the
+  v3.11.0 install bug is now caught in CI before any release goes out
 
-Older releases (v3.10.0 back to v2.0.0) live in
+Older releases (v3.11.0 back to v2.0.0) live in
 [docs/RELEASES.md](docs/RELEASES.md) so this page stays focused on what
 just shipped.
 
@@ -147,10 +139,10 @@ just shipped.
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.11.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.0)
+**Download:** [AudiobookMaker v3.11.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.1)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.11.0.exe`
+1. Download `AudiobookMaker-Setup-3.11.1.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
