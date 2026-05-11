@@ -103,26 +103,29 @@ right now.
 
 ## What's new
 
-**v3.11.2** -- Cleaner shutdown and a wider safety net in CI:
+**v3.12.0** -- Slimmer installer, faster engine manager, no more
+voice-cloning surface in the GUI:
 
-- **Clean teardown of Tk timers** -- the app now tracks every Tk
-  `after` callback it schedules and cancels exactly those at window
-  close, instead of guessing by Tcl script-name substring. Long-running
-  sessions no longer leak timer IDs, and the production teardown path
-  is markedly less brittle to future customtkinter changes
-- **+29 GUI tests in CI** -- the visual-tokens test file
-  (`tests/test_gui_style.py`) is now split into 29 headless constant
-  tests (always run on CI) and 13 Tk-gated tests that skip cleanly on
-  machines without a display
-- **CI for pull requests** -- the release workflow now also triggers
-  on pull-request pushes, so future PRs get test feedback without
-  needing a release tag. Release/build steps stay gated to push-tag
-  triggers
-- **16 new mocked-Tk unit tests** lock in the destroy() contract in
-  `tests/test_gui_unified_destroy.py` — future refactors can't quietly
-  break clean-exit behaviour
+- **−27% installer footprint** -- removed unused subtrees from the
+  PyInstaller bundle (ffplay.exe, AVIF support, ONNX training tools,
+  Arabic phonemizer model) and added defense-in-depth excludes that
+  keep the heavy ML stack (torch / transformers / pyannote /
+  chatterbox) out of the frozen build for good. Uncompressed bundle
+  dropped from 786 MB to 568 MB
+- **Engine manager opens fast** -- the dialog used to spawn a
+  torch + pyannote import probe twice per open (5-15 s × 2 of GPU
+  model load); now it does a filesystem stat instead. Sub-second
+  cold open
+- **Voice creation moved out of the GUI** -- the in-app voice
+  importer, the Hugging Face token modal, and the pyannote-gated-
+  model walkthrough are gone. Voice packs are still created in the
+  dev environment via `scripts/voice_pack_analyze.py`; the GUI
+  just consumes finished packs through `Import voice pack`
+- **Engine list reads better** -- Chatterbox row now says
+  "Chatterbox (Isoäiti + Grandmom)" so users stop looking for a
+  separate English engine
 
-Older releases (v3.11.1 back to v2.0.0) live in
+Older releases (v3.11.2 back to v2.0.0) live in
 [docs/RELEASES.md](docs/RELEASES.md) so this page stays focused on what
 just shipped.
 
@@ -137,7 +140,7 @@ just shipped.
 | **Voice engines** | Edge-TTS + Piper out of the box; Chatterbox via in-app install | Everything, including experimental engines |
 | **Works offline?** | With Piper or Chatterbox | Yes, after first setup |
 | **Needs a GPU?** | No (Chatterbox needs NVIDIA 8+ GB) | Depends on which engine you pick |
-| **Voice cloning?** | Yes, with Chatterbox | Yes |
+| **Voice cloning?** | Consumes pre-made voice packs | Yes (dev-only scripts) |
 | **Languages** | Finnish, English, German, Swedish, French, Spanish | Same |
 | **Download size** | ~200 MB (Chatterbox adds ~15 GB) | Varies |
 
@@ -145,10 +148,10 @@ just shipped.
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.11.2](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.2)
+**Download:** [AudiobookMaker v3.12.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.12.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.11.2.exe`
+1. Download `AudiobookMaker-Setup-3.12.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
