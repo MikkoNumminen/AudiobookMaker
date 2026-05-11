@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-1884%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-2172%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 [![Stars](https://img.shields.io/github/stars/MikkoNumminen/AudiobookMaker?style=social)](https://github.com/MikkoNumminen/AudiobookMaker/stargazers)
@@ -244,7 +244,7 @@ read aloud. For example:
 - `sivulta 42` inflects the number to match Finnish case grammar
 
 You don't click anything. It just happens before the AI speaks. The
-normalizer has 150+ unit tests behind it so the common cases don't
+normalizer has 300+ unit tests behind it so the common cases don't
 regress.
 
 ### Watch progress as it runs, and pick up where you left off
@@ -412,7 +412,7 @@ long training run.
 
 `scripts/generate_chatterbox_audiobook.py` is the same synthesis path
 the GUI uses underneath, exposed directly. Run it with `--epub book.epub
---out out/book.mp3 --language en --device cuda` and it will synthesize
+--out .local/audiobooks --language en --device cuda` and it will synthesize
 the whole thing, chunk by chunk, resumable on Ctrl-C. Good for batch
 runs across many books, or for scripting a custom workflow. The
 step-by-step walkthrough lives in
@@ -427,7 +427,7 @@ takes parallel requests well).
 When the Finnish voice mispronounces something -- a loanword, an
 abbreviation, an odd number -- the fix is usually a two-line edit to
 a YAML file in `data/fi_*.yaml` (the lexicon) or a small change to one
-of the 16 passes in `src/tts_normalizer_fi.py`. Add a regression test
+of the 18 passes in `src/tts_normalizer_fi.py`. Add a regression test
 in `tests/test_tts_normalizer_fi.py` so it stays fixed.
 
 The canonical guide to the passes and when to add one vs. edit the
@@ -436,7 +436,7 @@ lexicon lives in
 
 ### You get the full test suite
 
-1884 tests and counting. The pre-commit hook runs them on every
+2172 tests and counting. The pre-commit hook runs them on every
 commit; CI runs them on every push. Breaking a test gets caught
 before it ever reaches master.
 
@@ -541,7 +541,7 @@ It works as a series of 18 text transformation passes covering:
 - Loanword respelling for words the AI mispronounces
 - Various cleanup (ISBN stripping, TOC dot-leaders, metadata)
 
-The normalizer has 400+ unit tests. See
+The normalizer has 300+ unit tests. See
 [`docs/tts_text_normalization_cases.md`](docs/tts_text_normalization_cases.md)
 for the full inventory.
 
@@ -707,7 +707,7 @@ AudiobookMaker/
 │   └── voice_pack/                # Voice pack artefact format + import
 ├── data/
 │   └── fi_loanwords.yaml          # Loanword lexicon
-├── tests/                         # Unit tests (1884)
+├── tests/                         # Unit tests (2172)
 ├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
 ├── docs/                          # Documentation and research notes
 ├── installer/                     # Inno Setup build scripts
