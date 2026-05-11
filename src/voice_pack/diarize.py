@@ -260,7 +260,9 @@ def load_pipeline(
 
     Raises:
         ImportError: If ``pyannote.audio`` is not installed.
-        RuntimeError: If no HF token can be found.
+        RuntimeError: If no HF token can be found, or if the token is valid
+            but the pyannote model license has not been accepted at
+            https://huggingface.co/pyannote/speaker-diarization-3.1
     """
     token = resolve_token(hf_token)
 
@@ -281,7 +283,21 @@ def load_pipeline(
     _apply_torch_load_shim()
     _apply_speechbrain_lazy_shim()
 
-    pipeline = Pipeline.from_pretrained(_PYANNOTE_MODEL_ID, use_auth_token=token)
+    try:
+        pipeline = Pipeline.from_pretrained(_PYANNOTE_MODEL_ID, use_auth_token=token)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if any(k in msg for k in ("401", "403", "gated", "unauthorized", "forbidden")):
+            raise RuntimeError(
+                "pyannote model license not accepted on Hugging Face.\n"
+                "To fix this:\n"
+                "  1. Open https://huggingface.co/pyannote/speaker-diarization-3.1\n"
+                "  2. Click 'Agree and access repository'.\n"
+                "  3. Re-run this command.\n"
+                "(Your HF token is valid, but the model gate requires an explicit"
+                " license acceptance before the token is granted access.)"
+            ) from exc
+        raise
 
     chosen_device = _resolve_device(device)
     if chosen_device == "cuda":
