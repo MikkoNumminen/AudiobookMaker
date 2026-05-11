@@ -229,6 +229,28 @@ datas = [
     (os.path.join('dist', 'ffmpeg', 'ffmpeg.exe'), '.'),
     (os.path.join('dist', 'ffmpeg', 'ffprobe.exe'), '.'),
 ]
+# OCR fallback toolchain: tesseract.exe + DLLs + eng/fin language packs +
+# Ghostscript (needed by ocrmypdf for some image preprocessing paths).
+# CI populates dist/ocr/ before invoking PyInstaller (see
+# .github/workflows/build-release.yml). When the directory is missing
+# — typical for local dev PyInstaller runs without the OCR download
+# step — the spec silently skips bundling and the frozen build degrades
+# to no-OCR mode (the runtime resolver returns is_ocr_available() ==
+# False and parse_pdf raises the existing EmptyPDFError on scanned input
+# rather than crashing). See src/ocr_path.py.
+_OCR_SRC = os.path.join('dist', 'ocr')
+if os.path.isdir(_OCR_SRC):
+    # tesseract.exe / gswin64c.exe / accompanying DLLs at the install root.
+    for _f in glob.glob(os.path.join(_OCR_SRC, '*.exe')):
+        datas.append((_f, '.'))
+    for _f in glob.glob(os.path.join(_OCR_SRC, '*.dll')):
+        datas.append((_f, '.'))
+    # Trained data lives in tessdata/ next to the exe; Tesseract honors
+    # TESSDATA_PREFIX which src.ocr_path.setup_ocr_path exports.
+    _tessdata = os.path.join(_OCR_SRC, 'tessdata')
+    if os.path.isdir(_tessdata):
+        for _td in glob.glob(os.path.join(_tessdata, '*.traineddata')):
+            datas.append((_td, 'tessdata'))
 # Pull piper/onnxruntime/pathvalidate data (includes espeak-ng-data/,
 # onnxruntime config files, etc.) from collect_all().
 datas += _all_onnx[0]

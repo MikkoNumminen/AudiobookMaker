@@ -96,6 +96,43 @@ jobs:
           cp "ffmpeg_tmp/${FFMPEG_DIR}/bin/ffprobe.exe" dist/ffmpeg/ffprobe.exe
         shell: bash
 
+      - name: Bundle Tesseract + Ghostscript for OCR fallback
+        # Stages dist/ocr/ before PyInstaller runs. audiobookmaker.spec
+        # picks up the files conditionally — when this step is skipped
+        # (e.g. for a PR-only build) PyInstaller produces a no-OCR build
+        # that degrades gracefully on scanned PDFs (EmptyPDFError instead
+        # of crash). See src/ocr_path.py and src/pdf_parser.py.
+        if: github.event_name == 'push'
+        run: |
+          set -e
+          mkdir -p dist/ocr/tessdata
+          # Tesseract: Chocolatey is preinstalled on GHA Windows runners.
+          # The choco package installs to "C:\Program Files\Tesseract-OCR".
+          choco install tesseract -y --no-progress
+          TESS_DIR="/c/Program Files/Tesseract-OCR"
+          cp "$TESS_DIR/tesseract.exe" dist/ocr/
+          cp "$TESS_DIR"/*.dll dist/ocr/ 2>/dev/null || true
+          # Chocolatey's Tesseract ships eng + osd by default; pull Finnish
+          # from tessdata_fast (smaller LSTM model, identical API to
+          # tessdata_best for the OCR-fallback use case).
+          cp "$TESS_DIR/tessdata/eng.traineddata" dist/ocr/tessdata/
+          curl -L -o dist/ocr/tessdata/fin.traineddata \
+            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/fin.traineddata"
+          # Ghostscript: ocrmypdf calls gswin64c.exe for image preprocessing
+          # of certain scanned PDF layouts. Glob the version-prefixed install
+          # dir so a Ghostscript point release doesn't break this step.
+          choco install ghostscript -y --no-progress
+          GS_BIN=$(ls -d /c/Program\ Files/gs/gs*/bin 2>/dev/null | head -1)
+          if [ -n "$GS_BIN" ]; then
+            cp "$GS_BIN/gswin64c.exe" dist/ocr/
+            cp "$GS_BIN/gsdll64.dll" dist/ocr/
+          else
+            echo "Ghostscript install dir not found — OCR will skip layouts that need GS preprocessing"
+          fi
+          echo "---"
+          ls -la dist/ocr/ dist/ocr/tessdata/
+        shell: bash
+
       - name: Create placeholder icon if missing
         if: github.event_name == 'push'
         run: |
