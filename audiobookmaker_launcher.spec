@@ -91,13 +91,38 @@ hidden_imports += collect_submodules("num2words")
 # Torch + chatterbox-tts + transformers live ONLY in the .venv-chatterbox
 # venv that post_install_chatterbox.py creates at install time. Keeping
 # them out here is what keeps the launcher .exe under ~150 MB.
+#
+# Defense-in-depth: most of these aren't installed by the launcher's CI
+# build env, so they wouldn't reach the bundle today. The exclude list
+# documents the contract — "this launcher never carries an ML stack" —
+# so a future contributor who pip-installs torch on the build machine
+# can't silently double the installer.
 excludes = [
     "torch",
     "torchaudio",
+    "torchvision",
     "transformers",
     "chatterbox",
+    "chatterbox_tts",
+    "voxcpm",
+    "pyannote",
+    "pyannote.audio",
+    "pyannote.core",
+    "pyannote.metrics",
     "silero_vad",
     "safetensors",
+    "accelerate",
+    "bitsandbytes",
+    "peft",
+    "ctranslate2",
+    "faster_whisper",
+    "whisper",
+    "speechbrain",
+    "soundfile",
+    "librosa",
+    "sklearn",
+    "scikit_learn",
+    "huggingface_hub",
     # Standard heavy deps the main spec already excludes.
     "matplotlib",
     "scipy",
@@ -108,6 +133,41 @@ excludes = [
     "notebook",
     "sphinx",
     "docutils",
+    # Test machinery — never reached at runtime.
+    "pytest",
+    "pytest_asyncio",
+    "pytest_cov",
+    "pytest_timeout",
+    "_pytest",
+    "coverage",
+    # System-Python pollution from dev tooling (pip_audit / cyclonedx /
+    # rich / markdown_it / etc.). Not reachable from the launcher.
+    "cyclonedx",
+    "cyclonedx_python_lib",
+    "pip_audit",
+    "pip_api",
+    "pip_requirements_parser",
+    "CacheControl",
+    "msgpack",
+    "rich",
+    "markdown_it",
+    "mdurl",
+    "Pygments",
+    "boolean",
+    "docopt",
+    "license_expression",
+    "tabulate",
+    "imageio_ffmpeg",
+    "psutil",
+    # Jupyter / notebook stack (transitive risk via dev tooling).
+    "jupyter",
+    "jupyter_client",
+    "jupyter_core",
+    "jupyterlab",
+    "ipykernel",
+    "ipywidgets",
+    "tornado",
+    "zmq",
 ]
 
 binaries = collect_dynamic_libs("onnxruntime")
@@ -150,6 +210,40 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# ── Bundle trimming: drop subtrees we don't use ──────────────────────────
+# piper ships a 4.6 MB Arabic diacritization model and training tools;
+# onnxruntime ships transformer/quantization toolchains. The launcher uses
+# only piper.voice.PiperVoice + onnxruntime.InferenceSession at runtime.
+def _drop_path(item, *needles):
+    """True if any needle matches the item's dest path (case-insensitive).
+
+    Handles both path-style entries (``a.datas`` / ``a.binaries``) and
+    module-name entries (``a.pure``) by checking the raw form and the
+    dot-to-slash normalized form against path-style needles.
+    """
+    raw = item[0].lower().replace("\\", "/")
+    as_path = raw.replace(".", "/")
+    return any(n.lower() in raw or n.lower() in as_path for n in needles)
+
+
+_unused_path_needles = (
+    "piper/tashkeel/",          # Arabic diacritizer ONNX + scaler
+    "piper/train/",             # training utilities
+    "piper/phonemize_chinese",  # CN phonemizer (we ship en/fi voices)
+    "piper/http_server",        # CLI HTTP server entry point
+    "piper/__main__",           # python -m piper CLI dispatcher
+    "piper/download_voices",    # voice-pack downloader
+    "onnxruntime/transformers/",
+    "onnxruntime/quantization/",
+    "onnxruntime/tools/",
+    "onnxruntime/backend/",
+    "onnxruntime/datasets/",
+)
+
+a.datas = [d for d in a.datas if not _drop_path(d, *_unused_path_needles)]
+a.pure = [p for p in a.pure if not _drop_path(p, *_unused_path_needles)]
+a.binaries = [b for b in a.binaries if not _drop_path(b, *_unused_path_needles)]
 
 pyz = PYZ(
     a.pure,
