@@ -9,6 +9,27 @@ Anything older than the top-of-list entry lives here.
 
 ---
 
+**v3.11.2** -- Cleaner shutdown and a wider safety net in CI:
+
+- **Clean teardown of Tk timers** -- the app now tracks every Tk
+  `after` callback it schedules and cancels exactly those at window
+  close, instead of guessing by Tcl script-name substring. Long-running
+  sessions no longer leak timer IDs, and the production teardown path
+  is markedly less brittle to future customtkinter changes
+- **+29 GUI tests in CI** -- the visual-tokens test file
+  (`tests/test_gui_style.py`) is now split into 29 headless constant
+  tests (always run on CI) and 13 Tk-gated tests that skip cleanly on
+  machines without a display
+- **CI for pull requests** -- the release workflow now also triggers
+  on pull-request pushes, so future PRs get test feedback without
+  needing a release tag. Release/build steps stay gated to push-tag
+  triggers
+- **16 new mocked-Tk unit tests** lock in the destroy() contract in
+  `tests/test_gui_unified_destroy.py` — future refactors can't quietly
+  break clean-exit behaviour
+
+---
+
 **v3.11.1** -- Chatterbox install hardening:
 
 - **Install fail-fast** -- the Chatterbox installer now smoke-tests the

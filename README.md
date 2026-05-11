@@ -92,31 +92,26 @@ right now.
 
 ## What's new
 
-**v3.11.1** -- Chatterbox install hardening:
+**v3.11.2** -- Cleaner shutdown and a wider safety net in CI:
 
-- **Install fail-fast** -- the Chatterbox installer now smoke-tests the
-  freshly-built venv before declaring success. Any first-failure (CUDA
-  driver too old, antivirus quarantine, missing native lib) shows up in
-  the install dialog with the real Python traceback, instead of 30
-  minutes later mid-Convert
-- **Real error on the clipboard** -- if the smoke test catches a
-  problem, the captured stderr is auto-copied to the clipboard so you
-  can paste it straight to a developer instead of fighting a native
-  messagebox's text-selection
-- **Bundled missing files** -- the Chatterbox runner subprocess no
-  longer fails with "No module named 'src.ffmpeg_path'" or
-  "src.epub_parser" on fresh installs
-- **Cancel works during install** -- pressing Cancel mid-install no
-  longer leaves the dialog declaring "completed" on a partially
-  installed venv
-- **Right button location** -- the Chatterbox-missing toast now points
-  at the actual Install engines button (top-right of the main window)
-  instead of a non-existent Settings panel
-- **CI guard against the next miss** -- the "runner imports a src/
-  file that isn't in the PyInstaller spec" mistake that caused the
-  v3.11.0 install bug is now caught in CI before any release goes out
+- **Clean teardown of Tk timers** -- the app now tracks every Tk
+  `after` callback it schedules and cancels exactly those at window
+  close, instead of guessing by Tcl script-name substring. Long-running
+  sessions no longer leak timer IDs, and the production teardown path
+  is markedly less brittle to future customtkinter changes
+- **+29 GUI tests in CI** -- the visual-tokens test file
+  (`tests/test_gui_style.py`) is now split into 29 headless constant
+  tests (always run on CI) and 13 Tk-gated tests that skip cleanly on
+  machines without a display
+- **CI for pull requests** -- the release workflow now also triggers
+  on pull-request pushes, so future PRs get test feedback without
+  needing a release tag. Release/build steps stay gated to push-tag
+  triggers
+- **16 new mocked-Tk unit tests** lock in the destroy() contract in
+  `tests/test_gui_unified_destroy.py` — future refactors can't quietly
+  break clean-exit behaviour
 
-Older releases (v3.11.0 back to v2.0.0) live in
+Older releases (v3.11.1 back to v2.0.0) live in
 [docs/RELEASES.md](docs/RELEASES.md) so this page stays focused on what
 just shipped.
 
@@ -139,10 +134,10 @@ just shipped.
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.11.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.1)
+**Download:** [AudiobookMaker v3.11.2](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.11.2)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.11.1.exe`
+1. Download `AudiobookMaker-Setup-3.11.2.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
