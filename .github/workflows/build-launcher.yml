@@ -23,6 +23,15 @@ on:
       - 'src/launcher.py'
       - 'src/launcher_bridge.py'
       - '.github/workflows/build-launcher.yml'
+      # A dependency bump is the most likely silent regression source —
+      # the launcher imports many of the same wheels as the main app and
+      # a piper-tts / onnxruntime / customtkinter / pydub bump could
+      # break the frozen launcher build even when no launcher-specific
+      # file changed. Other shared src/ modules don't need their own
+      # entry here: build-release.yml runs on every PR to master and
+      # imports the same code, so a pure-Python regression surfaces
+      # there. We only need to cover what build-release.yml does NOT.
+      - 'requirements.txt'
   # Manual trigger button on the Actions tab (and `gh workflow run`)
   # so we can test-build the installer without creating a real release.
   workflow_dispatch:
@@ -51,6 +60,11 @@ jobs:
         shell: bash
 
       - name: Run tests
+        # On PR events build-release.yml already runs the full pytest
+        # suite, so re-running it here would cost ~3 minutes for no
+        # additional signal. Tag builds (launcher-v*) keep the test
+        # gate as a belt-and-suspenders check before publishing.
+        if: github.event_name != 'pull_request'
         run: |
           python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short
         shell: bash
