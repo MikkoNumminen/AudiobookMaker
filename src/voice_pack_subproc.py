@@ -241,7 +241,7 @@ def run_analyze(
         if resolved is None:
             raise RuntimeError(
                 "Chatterbox Python not found. Install Chatterbox first, "
-                "then the Voice Cloner capability."
+                "then the Voice Pack Maker capability."
             )
         python_exe = resolved
     if script_path is None:

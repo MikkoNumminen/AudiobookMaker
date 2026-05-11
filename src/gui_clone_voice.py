@@ -559,8 +559,8 @@ def run_clone_voice_job(
 
 CLONE_VOICE_STRINGS: dict[str, dict[str, str]] = {
     "fi": {
-        "clone_voice_btn": "Kloonaa \u00e4\u00e4ni tiedostosta\u2026",
-        "clone_voice_title": "Kloonaa \u00e4\u00e4ni tiedostosta",
+        "clone_voice_btn": "Tuo \u00e4\u00e4net tiedostosta\u2026",
+        "clone_voice_title": "Tuo \u00e4\u00e4net tiedostosta",
         "clone_voice_intro": (
             "Valitse \u00e4\u00e4nitiedosto, niin kuuntelemme sen ja teemme "
             "jokaisesta puhujasta oman \u00e4\u00e4nen. Annat jokaiselle "
@@ -590,14 +590,14 @@ CLONE_VOICE_STRINGS: dict[str, dict[str, str]] = {
         "clone_voice_naming_col_include": "Tallenna",
         "clone_voice_naming_save": "Tallenna \u00e4\u00e4net",
         "clone_voice_minutes_fmt": "{min:.1f} min",
-        "clone_voice_not_installed_title": "Kloonaustoiminto puuttuu",
+        "clone_voice_not_installed_title": "Voice Pack Maker puuttuu",
         "clone_voice_not_installed_body": (
-            "Voice Cloner ei ole asennettu. Avaa Moottoreiden hallinta ja "
-            "asenna Voice Cloner sielt\u00e4."
+            "Voice Pack Maker -ty\u00f6kalua ei ole asennettu. Avaa Moottoreiden "
+            "hallinta ja asenna Voice Pack Maker sielt\u00e4."
         ),
         "hf_token_title": "Melkein valmis \u2014 yksi pika-askel Hugging Facessa",
         "hf_token_barney_intro": (
-            "Pyannote \u2014 se osa Voice Cloneria, joka tunnistaa kuka puhuu "
+            "Pyannote \u2014 joka tunnistaa kuka puhuu Voice Pack Makerin sis\u00e4ll\u00e4 "
             "\u2014 on tutkijoiden ty\u00f6t\u00e4, ja he haluavat tiet\u00e4\u00e4 "
             "kuka sit\u00e4 k\u00e4ytt\u00e4\u00e4. Tarvitset siis ilmaisen "
             "Hugging Face -tilin ja yhden kertak\u00e4ytt\u00f6isen avaimen. "
@@ -627,8 +627,8 @@ CLONE_VOICE_STRINGS: dict[str, dict[str, str]] = {
         "hf_token_cancel": "Peruuta",
     },
     "en": {
-        "clone_voice_btn": "Clone voice from file\u2026",
-        "clone_voice_title": "Clone voice from file",
+        "clone_voice_btn": "Import voices from file\u2026",
+        "clone_voice_title": "Import voices from file",
         "clone_voice_intro": (
             "Pick an audio file and we'll listen to it and make a voice "
             "for each person speaking. You'll name each voice before we "
@@ -658,14 +658,14 @@ CLONE_VOICE_STRINGS: dict[str, dict[str, str]] = {
         "clone_voice_naming_col_include": "Save",
         "clone_voice_naming_save": "Save voices",
         "clone_voice_minutes_fmt": "{min:.1f} min",
-        "clone_voice_not_installed_title": "Voice Cloner missing",
+        "clone_voice_not_installed_title": "Voice Pack Maker missing",
         "clone_voice_not_installed_body": (
-            "Voice Cloner is not installed. Open the Engine Manager and "
-            "install Voice Cloner from there."
+            "Voice Pack Maker is not installed. Open the Engine Manager "
+            "and install Voice Pack Maker from there."
         ),
         "hf_token_title": "Almost there \u2014 one quick Hugging Face step",
         "hf_token_barney_intro": (
-            "Pyannote \u2014 the part of Voice Cloner that figures out who's "
+            "Pyannote \u2014 the part of Voice Pack Maker that figures out who's "
             "speaking \u2014 is made by researchers who give it away for free, "
             "but they want to know who's using it. That means you need a free "
             "Hugging Face account and a one-time access key. It's a "

@@ -45,7 +45,7 @@ class ChatterboxFiEngine(TTSEngine):
     """Metadata-only Chatterbox engine; real work runs via the bridge."""
 
     id = "chatterbox_fi"
-    display_name = "Chatterbox Finnish (paras laatu, NVIDIA)"
+    display_name = "Chatterbox — Isoäiti + Grandmom (paras laatu, NVIDIA)"
     description = (
         "Offline, paras laatu. Kesto ~1–2 h NVIDIA-koneella."
     )

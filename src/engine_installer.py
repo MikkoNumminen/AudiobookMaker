@@ -502,7 +502,13 @@ class ChatterboxInstaller(EngineInstaller):
     """Installs Chatterbox-Finnish: Python 3.11 + venv + torch + models + patch."""
 
     engine_id = "chatterbox_fi"
-    display_name = "Chatterbox Finnish"
+    # Single Chatterbox install handles BOTH the Finnish Isoäiti voice
+    # (T3 finetune) and the English Grandmom voice (base multilingual
+    # model + bundled reference clip). Same persona, two pipelines —
+    # see memory/project_isoaiti_finnish_grandmom.md. Label reflects
+    # that the install covers both languages so users do not look for
+    # a separate "Chatterbox English" entry.
+    display_name = "Chatterbox (Isoäiti + Grandmom)"
 
     def __init__(self, venv_path: Optional[Path] = None) -> None:
         # Canonicalize before storing: every downstream use — mkdir,
@@ -651,7 +657,7 @@ class ChatterboxInstaller(EngineInstaller):
             InstallProgress(
                 6, total, "Valmis",
                 done=True,
-                message="Chatterbox Finnish asennettu ja toimii.",
+                message="Chatterbox (Isoäiti + Grandmom) asennettu ja toimii.",
             )
         )
 

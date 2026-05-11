@@ -1,4 +1,4 @@
-"""Voice Cloner — installable capability.
+"""Voice Pack Maker — installable capability.
 
 Not a TTS engine. A sibling installer that lives next to the engine
 installers and adds voice-cloning analysis (ASR + diarization) to the
@@ -49,7 +49,13 @@ from src.system_checks import check_disk_space
 # ---------------------------------------------------------------------------
 
 VOICE_CLONER_ID: str = "voice_cloner"
-VOICE_CLONER_DISPLAY_NAME: str = "Voice Cloner"
+# UI-visible label. We deliberately frame this as a "voice pack" tool
+# rather than a "cloner" — the canonical capability vocabulary in this
+# project is "voice pack" (import voice pack, multi-speaker detection)
+# and surfacing "cloner" in the GUI was confusing users. Keep the
+# internal id ``voice_cloner`` for backwards compatibility with stored
+# settings and on-disk state markers.
+VOICE_CLONER_DISPLAY_NAME: str = "Voice Pack Maker"
 
 # ~500 MB pyannote model + ~500 MB Whisper small + ~100 MB wheels.
 VOICE_CLONER_DISK_REQ_GB: int = 2
@@ -238,7 +244,7 @@ def _default_smoke_test(
 
 
 class VoiceClonerInstaller(EngineInstaller):
-    """Installs the Voice Cloner capability into ``.venv-chatterbox/``.
+    """Installs the Voice Pack Maker capability into ``.venv-chatterbox/``.
 
     Not a :class:`TTSEngine` — no entry in the engine registry. The
     Engine Manager renders this below the TTS engines under an "Extras"
@@ -291,13 +297,13 @@ class VoiceClonerInstaller(EngineInstaller):
         if venv_python is None or not venv_python.exists():
             issues.append(
                 "Chatterbox is not installed. Install Chatterbox first; "
-                "Voice Cloner lives in the same Python environment."
+                "Voice Pack Maker lives in the same Python environment."
             )
         else:
             disk = check_disk_space(str(venv_python.parent.parent))
             if disk.free_gb < VOICE_CLONER_DISK_REQ_GB:
                 issues.append(
-                    f"Only {disk.free_gb} GB free (Voice Cloner needs "
+                    f"Only {disk.free_gb} GB free (Voice Pack Maker needs "
                     f"{VOICE_CLONER_DISK_REQ_GB} GB for libraries + models)."
                 )
         return issues
@@ -370,7 +376,7 @@ class VoiceClonerInstaller(EngineInstaller):
                     step_label="error",
                     error="Chatterbox venv not found.",
                     message=(
-                        "Voice Cloner installs into the Chatterbox venv. "
+                        "Voice Pack Maker installs into the Chatterbox venv. "
                         "Install Chatterbox from the engine list first, "
                         "then come back here."
                     ),
@@ -500,7 +506,7 @@ class VoiceClonerInstaller(EngineInstaller):
                 step=5,
                 total_steps=total,
                 step_label="Ready",
-                message="Voice Cloner is installed. You can close this dialog.",
+                message="Voice Pack Maker is installed. You can close this dialog.",
                 done=True,
             )
         )
@@ -590,7 +596,7 @@ class VoiceClonerInstaller(EngineInstaller):
                         total_steps=total_steps,
                         step_label="Hugging Face key",
                         error=(
-                            "Setup was cancelled. Voice Cloner needs a "
+                            "Setup was cancelled. Voice Pack Maker needs a "
                             "Hugging Face key to run."
                         ),
                     )
@@ -605,7 +611,7 @@ class VoiceClonerInstaller(EngineInstaller):
                         total_steps=total_steps,
                         step_label="Hugging Face key",
                         message=(
-                            "Hugging Face says hi back. Voice Cloner is "
+                            "Hugging Face says hi back. Voice Pack Maker is "
                             "ready. You only have to do that once."
                         ),
                     )
