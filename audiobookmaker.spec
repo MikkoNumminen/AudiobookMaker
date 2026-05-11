@@ -106,10 +106,7 @@ excludes = [
     'chatterbox',
     'chatterbox_tts',
     'voxcpm',
-    'pyannote',
-    'pyannote.audio',
-    'pyannote.core',
-    'pyannote.metrics',
+    'pyannote',  # prefix-matches pyannote.audio / pyannote.core / pyannote.metrics
     'silero_vad',
     'safetensors',
     'accelerate',
@@ -121,8 +118,7 @@ excludes = [
     'speechbrain',
     'soundfile',
     'librosa',
-    'sklearn',
-    'scikit_learn',
+    'sklearn',  # also the PyPI 'scikit-learn' wheel — same package
     'huggingface_hub',
     # Test machinery — never reached at runtime.
     'pytest',
@@ -149,6 +145,11 @@ excludes = [
     'license_expression',
     'tabulate',
     'imageio_ffmpeg',
+    # psutil arrives transitively from pip_audit / cyclonedx in the dev
+    # site-packages and is not imported by any reachable code under
+    # src/ today. If a future GUI feature actually wants psutil (e.g. a
+    # chatterbox-venv health check), remove this entry — there's no
+    # other reason to keep it excluded.
     'psutil',
     # Jupyter / notebook stack (transitive risk via dev tooling).
     'jupyter',
