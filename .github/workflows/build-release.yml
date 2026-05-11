@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+    branches: [master]
 
 permissions:
   contents: write
@@ -28,41 +30,57 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        # The following test files are skipped in CI because they import
-        # tkinter or customtkinter at module-collection time, which spawns
-        # non-daemon Tk threads on Windows that block Python from exiting
-        # naturally. Without this guard the process either hangs forever
-        # or (with pytest-timeout enabled) the timer fires late during
-        # shutdown with AssertionError in read_global_capture(). Confirmed
-        # across runs 25615367406 / 25615715187 / 25615954113 /
-        # 25616475945 / 25616723346 / 25617272185 / 25617874202 /
-        # 25618023649 / 25618160013 / 25618286918 / 25618428201 /
-        # 25618607137 / 25618788138. The pre-commit hook still runs all
-        # of these files locally where Tk works; GUI smoke coverage is
-        # preserved for the dev loop.
+        # Most test_gui_*.py files are STILL skipped in CI even though their
+        # tests use object.__new__ stubs / importorskip guards. The reason
+        # is transitive: many of them import src.* modules that do
+        # `from tkinter import messagebox` or `import tkinter as tk` at
+        # module top (e.g. src/single_instance.py, src/voice_recorder.py).
+        # On headless GHA Windows that module-level import initialises the
+        # Tcl notifier thread, which the UnifiedApp.destroy() teardown in
+        # this PR cannot reach (it only cancels OUR _scheduled_afters; it
+        # cannot reach the Tcl notifier owned by _tkinter.pyd).
         #
-        # Excluded because they import customtkinter / create CTk windows:
-        #   test_gui_clone_voice.py, test_gui_clone_voice_hygiene.py,
-        #   test_gui_drag_drop.py, test_gui_e2e.py, test_gui_engine_dialog.py,
-        #   test_gui_settings_frame_report_bug.py, test_gui_style.py,
-        #   test_gui_synth_mixin.py, test_gui_temp_sample_cleanup.py,
-        #   test_gui_unified.py, test_gui_update_mixin.py
+        # The only newly-re-enabled file we KNOW is safe is
+        # tests/test_gui_style.py, because it was specifically refactored
+        # in this PR (pytest.importorskip + split into headless constant
+        # tests + Tk-gated tests with TclError skip in the fixture).
         #
-        # Excluded because their src modules import tkinter at module top:
-        #   test_single_instance.py (src/single_instance.py: from tkinter import messagebox)
-        #   test_voice_recorder.py (src/voice_recorder.py: import tkinter as tk)
+        # The destroy() refactor in this PR is still genuinely useful:
+        # production-app teardown is now cleaner (no brittle "update"
+        # substring heuristic), and the contract is locked in by 16
+        # mocked unit tests in test_gui_unified_destroy.py.
         #
-        # Excluded for hardware reasons:
-        #   test_record_voice_sample.py (needs real microphone)
+        # Re-enabling the other GUI test files is a v3.12+ followup that
+        # needs investigation of the module-level tkinter import side
+        # effects on headless GHA Windows.
         #
-        # -p no:timeout: pytest-timeout's threading.Timer is not a daemon
-        # and would keep Python alive during shutdown even with all Tk
-        # test files excluded; disabling the plugin avoids that. The
-        # GitHub Actions job-level timeout is the real runaway guard.
-        # Per-test timeouts still apply locally via pytest.ini.
-        run: python -m pytest tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_single_instance.py --ignore=tests/test_voice_recorder.py --ignore=tests/test_gui_clone_voice.py --ignore=tests/test_gui_clone_voice_hygiene.py --ignore=tests/test_gui_drag_drop.py --ignore=tests/test_gui_e2e.py --ignore=tests/test_gui_engine_dialog.py --ignore=tests/test_gui_settings_frame_report_bug.py --ignore=tests/test_gui_style.py --ignore=tests/test_gui_synth_mixin.py --ignore=tests/test_gui_temp_sample_cleanup.py --ignore=tests/test_gui_unified.py --ignore=tests/test_gui_update_mixin.py -x -q --tb=short -p no:timeout
+        # -p no:timeout: pytest-timeout's thread method cannot cleanly cancel
+        # its timer on Windows; if any real-Tk test slips through and the
+        # post-summary hang fires, the late-firing timer would crash the
+        # build via AssertionError in read_global_capture(). Disabling the
+        # plugin in CI sidesteps that. The GHA job timeout is the runaway
+        # guard; per-test timeouts still apply locally via pytest.ini.
+        # --cov is also dropped: coverage finalisation extends the shutdown
+        # phase enough to widen the Tk-thread join window.
+        run: >-
+          python -m pytest tests/
+          --ignore=tests/test_record_voice_sample.py
+          --ignore=tests/test_single_instance.py
+          --ignore=tests/test_voice_recorder.py
+          --ignore=tests/test_gui_clone_voice.py
+          --ignore=tests/test_gui_clone_voice_hygiene.py
+          --ignore=tests/test_gui_drag_drop.py
+          --ignore=tests/test_gui_e2e.py
+          --ignore=tests/test_gui_engine_dialog.py
+          --ignore=tests/test_gui_settings_frame_report_bug.py
+          --ignore=tests/test_gui_synth_mixin.py
+          --ignore=tests/test_gui_temp_sample_cleanup.py
+          --ignore=tests/test_gui_unified.py
+          --ignore=tests/test_gui_update_mixin.py
+          -x -q --tb=short -p no:timeout
 
       - name: Download ffmpeg
+        if: github.event_name == 'push'
         env:
           FFMPEG_RELEASE: autobuild-2026-05-09-13-18
           FFMPEG_ZIP: ffmpeg-n7.1.4-win64-gpl-7.1.zip
@@ -79,6 +97,7 @@ jobs:
         shell: bash
 
       - name: Create placeholder icon if missing
+        if: github.event_name == 'push'
         run: |
           if [ ! -f assets/icon.ico ]; then
             pip install Pillow
@@ -91,23 +110,28 @@ jobs:
         shell: bash
 
       - name: Extract version from tag
+        if: github.event_name == 'push'
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Stamp version into source
+        if: github.event_name == 'push'
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           (Get-Content src/auto_updater.py) -replace 'APP_VERSION = ".*"', "APP_VERSION = `"$version`"" | Set-Content src/auto_updater.py
         shell: pwsh
 
       - name: Verify runner imports match spec datas
+        if: github.event_name == 'push'
         run: python scripts/check_spec_runner_imports.py
 
       - name: Build exe with PyInstaller
+        if: github.event_name == 'push'
         run: pyinstaller audiobookmaker.spec
 
       - name: Install Inno Setup
+        if: github.event_name == 'push'
         run: choco install innosetup --yes --no-progress
 
       # Guard: the Inno Setup `#define MyAppVersion` MUST match Python's
@@ -115,6 +139,7 @@ jobs:
       # a developer-local off-CI build would ship a mis-branded installer and
       # corrupt the auto-update upgrade graph. Fail the job loudly instead.
       - name: Verify Inno Setup version matches APP_VERSION
+        if: github.event_name == 'push'
         run: |
           $pyVersion = (python -c "from src.auto_updater import APP_VERSION; print(APP_VERSION)").Trim()
           $issLine = Select-String -Path installer/setup.iss -Pattern '^#define\s+MyAppVersion\s+"([^"]+)"' | Select-Object -First 1
@@ -133,15 +158,18 @@ jobs:
         shell: pwsh
 
       - name: Update Inno Setup version from tag
+        if: github.event_name == 'push'
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           (Get-Content installer/setup.iss) -replace '#define\s+MyAppVersion\s+"[^"]+"', "#define MyAppVersion `"$version`"" | Set-Content installer/setup.iss
         shell: pwsh
 
       - name: Build installer
+        if: github.event_name == 'push'
         run: iscc installer/setup.iss
 
       - name: Upload installer artifact
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: installer
@@ -154,6 +182,7 @@ jobs:
       # auto-update for every existing user; this step exists so that can
       # never happen again. See CONVENTIONS.md "Auto-update is critical".
       - name: Compute installer SHA-256 and write release notes
+        if: github.event_name == 'push'
         id: sha
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
@@ -203,6 +232,7 @@ jobs:
       # contain a 64-hex SHA-256 line. The auto-updater requires this; without
       # it every existing user is locked out of updates.
       - name: Guard — release notes must contain SHA-256
+        if: github.event_name == 'push'
         run: |
           if (-not (Select-String -Path release_notes.md -Pattern '(?i)sha-?256:\s*[0-9a-f]{64}' -Quiet)) {
             Write-Error "release_notes.md is missing a SHA-256 line — refusing to publish. Auto-update would break for every existing user."
@@ -212,6 +242,7 @@ jobs:
         shell: pwsh
 
       - name: Create GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           name: AudiobookMaker ${{ steps.version.outputs.VERSION }}
@@ -226,6 +257,7 @@ jobs:
       # body via the GitHub API and verify the SHA line survived. Catches the
       # rare case of a release-process bug that strips the body before publish.
       - name: Verify published release notes contain SHA-256
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -239,6 +271,7 @@ jobs:
         shell: pwsh
 
       - name: Update README version links
+        if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
