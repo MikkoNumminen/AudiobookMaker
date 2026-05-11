@@ -6,9 +6,9 @@ that this module sidesteps by slicing the source into ≤ 5-min pieces
 analysed independently.
 
 Everything in this module is **pure** (no audio I/O, no ffmpeg). It
-turns numbers into a chunk plan; the orchestrator (see
-:mod:`src.voice_pack_chunked_subproc`) is responsible for actually
-slicing and analysing.
+turns numbers into a chunk plan; the dev-tool orchestrator (run via
+``scripts/voice_pack_analyze.py``) is responsible for actually slicing
+and analysing.
 
 Two kinds of chunks:
 
