@@ -197,40 +197,20 @@ The **Language** picker at the top of the window filters the Engine and
 Voice dropdowns so you only see things that actually speak your
 language.
 
-### Install Chatterbox (and the Voice Cloner) without leaving the app
+### Install Chatterbox without leaving the app
 
 The **Install engines** button in Settings opens the Engine Manager.
-Each engine has its own row with an Install / Remove button, and there
-is an "Extras" row below the engines for **Voice Cloner** (the thing
-that listens to audio files and pulls voices out of them). Everything
-downloads in the background with a progress bar; you never touch a
-terminal.
+Each engine has its own row with an Install / Remove button.
+Everything downloads in the background with a progress bar; you never
+touch a terminal.
 
 ### Import a voice pack somebody else built
 
 Got a voice pack folder from a collaborator or a previous run? Click
 **Import voice pack** in Settings, point at the folder, and the voice
 shows up in the Voice dropdown next to Grandmom. The app auto-wires the
-reference audio so Chatterbox clones from it without you having to
-point at a file.
-
-### Clone a voice from any audio file, right inside the app (new in v3.10.0)
-
-This is the headline trick. Click **Clone voice from file** in Settings
-(or drop a `.wav` / `.mp3` / `.m4a` / `.flac` / `.ogg` / `.m4b` onto
-the main window). The app will:
-
-1. Ask you how many voices are in the recording (1, 2, 3-8, or
-   auto-detect) and which language.
-2. Listen to the audio and figure out who is speaking when.
-3. Show you each detected speaker with runtime minutes.
-4. Ask you to name each voice you want to keep.
-5. Save them, and the new voices appear in the Voice dropdown.
-
-About ten minutes from drop to voice-in-dropdown for a five-minute
-recording. Voice Cloner needs a one-time Hugging Face key setup on
-first install -- the app walks you through it in three clicks with
-browser buttons that take you to the right pages.
+reference audio so Chatterbox uses it as the synthesis reference
+without you having to point at a file.
 
 ### Finnish text intelligence
 
@@ -377,9 +357,9 @@ checkout enables only the public features until you provide your own.
 
 ### You can run the full voice-pack training pipeline
 
-The GUI can **use** a trained voice pack and can **clone** a voice from
-an audio file with no training at all. Dev mode can **train a new pack
-from scratch** -- five command-line tools under `scripts/voice_pack_*`:
+The GUI can **use** a trained voice pack. Dev mode can **train a new
+pack from scratch** or build one from any audio file -- a set of
+command-line tools under `scripts/voice_pack_*`:
 
 - `voice_pack_analyze.py` -- listens to a source recording, runs
   diarization + ASR, and writes a per-chunk transcript tagged with
@@ -394,10 +374,11 @@ from scratch** -- five command-line tools under `scripts/voice_pack_*`:
 - `voice_pack_package.py` -- bundles the trained adapter + reference
   audio + metadata into an installable pack
 
-The GUI clone-voice flow does the no-training version of this. The
-full pipeline gives you reduced-LoRA and full-LoRA tiers, which
-capture a voice's character much more faithfully at the cost of a
-long training run.
+The no-training shortcut is `scripts/voice_pack_analyze.py` run by
+hand in `.venv-chatterbox` — it produces a voice pack from any audio
+file using diarization + ASR. The full LoRA pipeline (the training
+scripts above) captures a voice's character much more faithfully at
+the cost of a long training run.
 
 ### You get the experimental engines
 
@@ -512,13 +493,14 @@ are not part of the shipped installer.
 - **`scripts/generate_audiobook_parallel.py`** -- parallel Edge-TTS
   generator, about 8x faster than the GUI for large books
 - **`scripts/record_voice_sample.py`** -- record a voice clip, validate
-  its quality, and synthesize text in the cloned voice.
+  its quality, and synthesize text using it as the Chatterbox reference.
   **Input-volume gotcha:** Zoom, Teams, and Discord silently lower the
   system mic level to roughly 5-10 % so you don't blow out calls. That
-  level is too quiet for voice cloning -- the preflight SNR check will
-  fail or the clone will sound whispery. Before recording, open the OS
-  sound settings and raise the input volume to about 85 %, then speak
-  at a normal conversational distance (~20 cm from the mic)
+  level is too quiet for a usable reference -- the preflight SNR check
+  will fail or the resulting synthesis will sound whispery. Before
+  recording, open the OS sound settings and raise the input volume to
+  about 85 %, then speak at a normal conversational distance (~20 cm
+  from the mic)
 - **`dev_qwen_tts.py`** -- Qwen3-TTS experiment. **Abandoned** --
   Finnish isn't supported, MPS is broken, CPU is too slow. Kept so
   nobody re-investigates the same dead end
