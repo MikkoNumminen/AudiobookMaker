@@ -39,7 +39,6 @@ _ENGINE_MGR_STRINGS = {
         "py_found": "Asennettu",
         "py_missing": "Ei asennettu (asentuu Chatterboxin yhteydessä)",
         "engines": "Moottorit",
-        "extras": "Lisäosat",
         "installed": "Asennettu",
         "not_installed": "Ei asennettu",
         "available": "Käytettävissä",
@@ -68,7 +67,6 @@ _ENGINE_MGR_STRINGS = {
         "py_found": "Installed",
         "py_missing": "Not installed (installed with Chatterbox)",
         "engines": "Engines",
-        "extras": "Extras",
         "installed": "Installed",
         "not_installed": "Not installed",
         "available": "Available",
@@ -203,14 +201,24 @@ class EngineManagerDialog(ctk.CTkToplevel):
                 text_color="gray",
             )
 
-    def _engine_size_text(self, installer) -> str:
+    def _engine_size_text(self, installer, installed: Optional[bool] = None) -> str:
         """Return a human-readable size for an installer.
 
         Installed: actual disk usage of the voice/model directory.
         Not installed: sum of estimated_size_mb across planned steps.
+
+        ``installed`` lets the caller pass through the value it already
+        computed for the row's status badge so we do not re-invoke
+        ``installer.is_installed()`` here. For the Voice Pack Maker
+        installer in particular that call was historically a 5–15 s
+        ``subprocess.run`` of a torch+pyannote import probe; running it
+        twice per dialog open was the dominant component of the
+        "engine manager takes forever to open" complaint.
         """
         try:
-            if installer.is_installed():
+            if installed is None:
+                installed = installer.is_installed()
+            if installed:
                 # Known install locations by engine id.
                 root: Optional[Path] = None
                 if getattr(installer, "_voice_dir", None) is not None:
@@ -251,34 +259,12 @@ class EngineManagerDialog(ctk.CTkToplevel):
             child.destroy()
         self._engine_rows.clear()
 
-        from src.engine_installer import (
-            list_capability_installers,
-            list_installable,
-        )
+        from src.engine_installer import list_installable
 
         grid_row = 0
         for installer in list_installable():
             self._build_installer_row(installer, grid_row)
             grid_row += 1
-
-        # "Extras" header + capability installers (Voice Cloner, etc.).
-        # Rendered only when at least one capability is registered so a
-        # future removal of capabilities doesn't leave an empty header.
-        capabilities = list_capability_installers()
-        if capabilities:
-            header = ctk.CTkLabel(
-                self._engines_container, text=self._s("extras"),
-                font=ctk.CTkFont(weight="bold", size=13),
-                anchor="w",
-            )
-            header.grid(
-                row=grid_row, column=0, sticky="w", padx=8, pady=(12, 4),
-            )
-            grid_row += 1
-            for installer in capabilities:
-                self._prepare_capability_installer(installer)
-                self._build_installer_row(installer, grid_row)
-                grid_row += 1
 
     def _build_installer_row(self, installer, grid_row: int) -> None:
         """Render one Install/Uninstall row for ``installer`` at ``grid_row``."""
@@ -301,7 +287,10 @@ class EngineManagerDialog(ctk.CTkToplevel):
         status_lbl.grid(row=0, column=1, sticky="w", padx=4, pady=4)
 
         # Size (installed: actual on disk; not installed: estimate).
-        size_text = self._engine_size_text(installer)
+        # Reuse the ``installed`` flag we just computed instead of
+        # letting the size helper call ``is_installed()`` again — see
+        # the docstring on _engine_size_text for why that mattered.
+        size_text = self._engine_size_text(installer, installed=installed)
         size_lbl = ctk.CTkLabel(
             row, text=size_text, text_color=("gray40", "gray70"),
             anchor="e",
@@ -325,16 +314,6 @@ class EngineManagerDialog(ctk.CTkToplevel):
         self._engine_rows[installer.engine_id] = {
             "row": row, "status": status_lbl, "size": size_lbl, "btn": btn,
         }
-
-    def _prepare_capability_installer(self, installer) -> None:
-        """Subclass hook for injecting GUI-owned callbacks into a capability.
-
-        Base implementation is a no-op. The in-place view overrides this
-        to attach the real HF token prompt modal to ``VoiceClonerInstaller``
-        so that a clean install can surface the modal instead of failing
-        with "no prompt fn attached".
-        """
-        return None
 
     def _on_install(self, installer) -> None:
         # Check prerequisites
@@ -637,32 +616,3 @@ class EngineManagerView(ctk.CTkFrame):
     _handle_progress = EngineManagerDialog._handle_progress
     _install_finished = EngineManagerDialog._install_finished
     _on_uninstall = EngineManagerDialog._on_uninstall
-
-    def _prepare_capability_installer(self, installer) -> None:
-        """Attach the real HF-token prompt modal to the Voice Cloner.
-
-        Overrides the base no-op hook. The modal is constructed lazily
-        inside the closure so it runs on the Tk thread when the installer
-        asks for a token (installers run on a worker thread — the modal
-        marshals its :func:`wait_window` call back via the existing
-        :class:`CTkToplevel` parent relationship).
-        """
-        from src.engine_installer_voice_cloner import VoiceClonerInstaller
-
-        if not isinstance(installer, VoiceClonerInstaller):
-            return
-        # Avoid double-wrap if the same installer is refreshed into a new row.
-        if getattr(installer, "_hf_token_prompt_fn", None) is not None:
-            return
-
-        parent = self
-
-        def _prompt() -> Optional[str]:
-            # Import at call-time so engine-manager users without the
-            # voice-cloner dep chain never pay for this module on load.
-            from src.gui_clone_voice import HfTokenPromptModal
-
-            modal = HfTokenPromptModal(parent, ui_lang=self._ui_lang)
-            return modal.ask()
-
-        installer._hf_token_prompt_fn = _prompt

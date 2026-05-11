@@ -502,7 +502,13 @@ class ChatterboxInstaller(EngineInstaller):
     """Installs Chatterbox-Finnish: Python 3.11 + venv + torch + models + patch."""
 
     engine_id = "chatterbox_fi"
-    display_name = "Chatterbox Finnish"
+    # Single Chatterbox install handles BOTH the Finnish Isoäiti voice
+    # (T3 finetune) and the English Grandmom voice (base multilingual
+    # model + bundled reference clip). Same persona, two pipelines —
+    # see memory/project_isoaiti_finnish_grandmom.md. Label reflects
+    # that the install covers both languages so users do not look for
+    # a separate "Chatterbox English" entry.
+    display_name = "Chatterbox (Isoäiti + Grandmom)"
 
     def __init__(self, venv_path: Optional[Path] = None) -> None:
         # Canonicalize before storing: every downstream use — mkdir,
@@ -651,7 +657,7 @@ class ChatterboxInstaller(EngineInstaller):
             InstallProgress(
                 6, total, "Valmis",
                 done=True,
-                message="Chatterbox Finnish asennettu ja toimii.",
+                message="Chatterbox (Isoäiti + Grandmom) asennettu ja toimii.",
             )
         )
 
@@ -1042,40 +1048,3 @@ def get_installer(engine_id: str) -> Optional[EngineInstaller]:
 def list_installable() -> list[EngineInstaller]:
     """Return all available engine installers."""
     return [PiperInstaller(), ChatterboxInstaller()]
-
-
-# ---------------------------------------------------------------------------
-# Capability installers — sibling to engine installers
-# ---------------------------------------------------------------------------
-#
-# Capability installers are things that add an ability to the app but are
-# NOT a TTSEngine (no entry in the engine registry, no synthesis endpoint).
-# Voice Cloner is the first one: it lives inside the Chatterbox venv and
-# adds ASR + diarization so users can clone voices from an audio file.
-#
-# Exposed through a separate list so the Engine Manager GUI can render
-# them under a distinct "Extras" header. Importing here, not at module
-# top, to avoid a circular import (the voice-cloner module imports
-# ``InstallProgress`` from this file).
-
-
-def list_capability_installers() -> list[EngineInstaller]:
-    """Return the list of non-engine capability installers.
-
-    Thin re-export of :func:`src.engine_installer_voice_cloner.list_capability_installers`
-    so GUI code can import the two registry functions from the same module.
-    """
-    from src.engine_installer_voice_cloner import (
-        list_capability_installers as _list,
-    )
-
-    return _list()
-
-
-def get_capability_installer(capability_id: str) -> Optional[EngineInstaller]:
-    """Return an installer for the given capability id, or None."""
-    from src.engine_installer_voice_cloner import (
-        get_capability_installer as _get,
-    )
-
-    return _get(capability_id)

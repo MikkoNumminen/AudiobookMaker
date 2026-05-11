@@ -104,7 +104,7 @@ ENGINE_INFO = {
         "näytönohjainta."
     ),
     "voxcpm2": (
-        "Voice cloning (kehittäjäkäyttö). Vaatii NVIDIA-näytönohjaimen."
+        "Voice pack -tuonti (kehittäjäkäyttö). Vaatii NVIDIA-näytönohjaimen."
     ),
 }
 

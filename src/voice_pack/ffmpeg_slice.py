@@ -49,8 +49,7 @@ class SliceRequest:
 
 
 # ---------------------------------------------------------------------------
-# Subprocess factory shape — kept identical to voice_pack_subproc so
-# both modules can share the test pattern.
+# Subprocess factory shape — injectable so tests never exec a real ffmpeg.
 # ---------------------------------------------------------------------------
 
 #: ``(argv, env) -> CompletedProcess`` factory. Default uses

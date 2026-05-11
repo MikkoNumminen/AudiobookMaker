@@ -112,7 +112,7 @@ class TestChatterboxInstaller:
     def test_engine_metadata(self) -> None:
         inst = ChatterboxInstaller()
         assert inst.engine_id == "chatterbox_fi"
-        assert inst.display_name == "Chatterbox Finnish"
+        assert inst.display_name == "Chatterbox (Isoäiti + Grandmom)"
 
     def test_get_steps_returns_five(self) -> None:
         steps = ChatterboxInstaller().get_steps()
