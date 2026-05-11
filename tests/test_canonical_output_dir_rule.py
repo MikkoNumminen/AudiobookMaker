@@ -4,7 +4,8 @@ The rule (CLAUDE.md "One canonical output directory"): every piece of
 generated material — MP3s, synthesis logs, diagnostic CSVs, stress-test
 outputs, scratch files from scripts — lands in exactly one place:
 
-- Dev mode: ``./out/`` under the current working directory (gitignored).
+- Dev mode: ``./.local/audiobooks/`` under the current working directory
+  (gitignored, sits inside the broader ``./.local/`` dev-only tree).
 - Frozen mode: next to the running ``.exe`` (install root).
 
 The rule has been broken before: ``default_output_dir()`` used to
@@ -103,8 +104,8 @@ def test_no_documents_audiobookmaker_write_defaults() -> None:
     )
 
 
-def test_default_output_dir_dev_mode_is_cwd_out() -> None:
-    """The canonical dev-mode output dir is ``<cwd>/out`` — nothing else.
+def test_default_output_dir_dev_mode_is_local_audiobooks() -> None:
+    """The canonical dev-mode output dir is ``<cwd>/.local/audiobooks`` — nothing else.
 
     This is the behavioral anchor for the whole rule. If someone
     changes it, this test forces them to read the CLAUDE.md policy
@@ -124,4 +125,4 @@ def test_default_output_dir_dev_mode_is_cwd_out() -> None:
         if was_frozen:
             sys.frozen = True  # type: ignore[attr-defined]
 
-    assert result == Path.cwd() / "out"
+    assert result == Path.cwd() / ".local" / "audiobooks"

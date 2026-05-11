@@ -201,7 +201,8 @@ class SynthMixin(_Base):
         )
 
         runner_script = _REPO_ROOT / "scripts" / "generate_chatterbox_audiobook.py"
-        default_out_dir = Path.home() / "Documents" / "AudiobookMaker"
+        from src.synthesis_orchestrator import default_output_dir
+        default_out_dir = default_output_dir()
 
         try:
             plan = build_chatterbox_runner(
