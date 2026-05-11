@@ -8,6 +8,30 @@ on:
   push:
     tags:
       - "launcher-v*"
+  # Run on PRs that touch launcher-relevant files so spec / installer
+  # changes get verified by an actual build before they land on master.
+  # The release step at the bottom is gated by a `startsWith(...launcher-v)`
+  # check, so this trigger only exercises the build + smoke-test path
+  # and never publishes a release. `paths` filter keeps unrelated PRs
+  # (e.g. main-app spec changes) from spending 5-10 minutes on a build
+  # they don't need.
+  pull_request:
+    branches: [master]
+    paths:
+      - 'audiobookmaker_launcher.spec'
+      - 'installer/launcher.iss'
+      - 'src/launcher.py'
+      - 'src/launcher_bridge.py'
+      - '.github/workflows/build-launcher.yml'
+      # A dependency bump is the most likely silent regression source —
+      # the launcher imports many of the same wheels as the main app and
+      # a piper-tts / onnxruntime / customtkinter / pydub bump could
+      # break the frozen launcher build even when no launcher-specific
+      # file changed. Other shared src/ modules don't need their own
+      # entry here: build-release.yml runs on every PR to master and
+      # imports the same code, so a pure-Python regression surfaces
+      # there. We only need to cover what build-release.yml does NOT.
+      - 'requirements.txt'
   # Manual trigger button on the Actions tab (and `gh workflow run`)
   # so we can test-build the installer without creating a real release.
   workflow_dispatch:
@@ -36,16 +60,21 @@ jobs:
         shell: bash
 
       - name: Run tests
+        # On PR events build-release.yml already runs the full pytest
+        # suite, so re-running it here would cost ~3 minutes for no
+        # additional signal. Tag builds (launcher-v*) keep the test
+        # gate as a belt-and-suspenders check before publishing.
+        if: github.event_name != 'pull_request'
         run: |
-          py -3 -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short
+          python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short
         shell: bash
 
       - name: Download ffmpeg
         env:
-          FFMPEG_RELEASE: autobuild-2026-04-12-13-04
-          FFMPEG_ZIP: ffmpeg-n7.1.3-43-g5a1f107b4c-win64-gpl-7.1.zip
-          FFMPEG_SHA256: e46e9075779735c2f0f83d6ffb6bfb7f908dafaf8ac4b7338849e2313a649934
-          FFMPEG_DIR: ffmpeg-n7.1.3-43-g5a1f107b4c-win64-gpl-7.1
+          FFMPEG_RELEASE: autobuild-2026-05-09-13-18
+          FFMPEG_ZIP: ffmpeg-n7.1.4-win64-gpl-7.1.zip
+          FFMPEG_SHA256: ede52efc5f25536f2db428ed407d9e8020367858d50536e100f6e497282a9a4b
+          FFMPEG_DIR: ffmpeg-n7.1.4-win64-gpl-7.1
         run: |
           curl -L -o ffmpeg.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_ZIP}"
           echo "${FFMPEG_SHA256}  ffmpeg.zip" | sha256sum -c -
