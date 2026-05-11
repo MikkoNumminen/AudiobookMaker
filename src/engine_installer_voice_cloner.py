@@ -29,6 +29,7 @@ network, the pip cache, or the user's token file.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -239,6 +240,41 @@ def _default_smoke_test(
 
 
 # ---------------------------------------------------------------------------
+# Site-packages resolver
+# ---------------------------------------------------------------------------
+
+
+def _resolve_venv_site_packages(venv_python: Path) -> Optional[Path]:
+    """Return the venv's site-packages directory, or None if not found.
+
+    Walks up from ``<venv>/Scripts/python.exe`` (Windows) or
+    ``<venv>/bin/python`` (POSIX) to the venv root, then probes the
+    layouts PyInstaller and stock Python use:
+
+      * Windows: ``<venv>/Lib/site-packages``
+      * POSIX:   ``<venv>/lib/pythonX.Y/site-packages``
+
+    On POSIX a venv could in theory contain multiple ``pythonX.Y``
+    directories (mixed-version venvs are rare but possible after a
+    Python upgrade). Sort by name and pick the LAST entry so a
+    ``python3.12`` site-packages is preferred over a stale
+    ``python3.11``.
+    """
+    venv_root = venv_python.parent.parent
+    # Windows layouts (case-insensitive FS, but check both spellings
+    # so a case-sensitive filesystem doesn't trip us up).
+    for candidate in (venv_root / "Lib" / "site-packages",
+                      venv_root / "lib" / "site-packages"):
+        if candidate.exists():
+            return candidate
+    # POSIX: pick the highest pythonX.Y/site-packages directory.
+    posix_candidates = sorted(venv_root.glob("lib/python*/site-packages"))
+    if posix_candidates:
+        return posix_candidates[-1]
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Installer
 # ---------------------------------------------------------------------------
 
@@ -340,25 +376,23 @@ class VoiceClonerInstaller(EngineInstaller):
         venv_python = self.venv_python
         if venv_python is None or not venv_python.exists():
             return False
-        # Walk up to the venv root from python.exe:
-        #   <venv>/Scripts/python.exe   (Windows)
-        #   <venv>/bin/python           (POSIX)
-        venv_root = venv_python.parent.parent
-        site_pkgs_candidates = (
-            venv_root / "Lib" / "site-packages",       # Windows
-            venv_root / "lib" / "site-packages",       # Windows lowercase
-        )
-        site_pkgs = next((p for p in site_pkgs_candidates if p.exists()), None)
+        site_pkgs = _resolve_venv_site_packages(venv_python)
         if site_pkgs is None:
-            # POSIX: lib/python3.X/site-packages — globbed.
-            for candidate in venv_root.glob("lib/python*/site-packages"):
-                site_pkgs = candidate
-                break
-        if site_pkgs is None or not site_pkgs.exists():
             return False
-        has_fw = any(site_pkgs.glob("faster_whisper-*.dist-info"))
-        has_pyan = any(site_pkgs.glob("pyannote.audio-*.dist-info"))
-        return has_fw and has_pyan and self._token_path.exists()
+        # Derive expected dist-info prefixes from the canonical pip-package
+        # list so adding a third package to VOICE_CLONER_PIP_PACKAGES
+        # automatically requires it for the installed badge. PEP 503
+        # normalisation: pip writes ``faster-whisper-1.x.dist-info`` (with
+        # an underscore) for a wheel whose distribution name is
+        # ``faster-whisper``; the rule is "replace runs of [-_.] with one
+        # underscore". Apply the same rule here.
+        for pkg in VOICE_CLONER_PIP_PACKAGES:
+            normalised = re.sub(r"[-_.]+", "_", pkg)
+            if not any(site_pkgs.glob(f"{normalised}-*.dist-info")):
+                return False
+        # Diarization fails at load time without a Hugging Face token,
+        # so the badge has to wait for it too.
+        return self._token_path.exists()
 
     def install(
         self,

@@ -174,6 +174,84 @@ class TestGetSteps:
 
 
 # ---------------------------------------------------------------------------
+# is_installed() — cheap status check used by the engine-manager dialog
+# ---------------------------------------------------------------------------
+
+
+def _seed_dist_info(site_pkgs: Path, *packages: str) -> None:
+    """Create empty <pkg>-1.0.dist-info directories under ``site_pkgs``.
+
+    Pip normalises distribution names to underscored form when writing
+    .dist-info dirs (PEP 503). Mirror that here so the glob lookups in
+    the production code match the way pip actually writes things.
+    """
+    import re as _re
+    site_pkgs.mkdir(parents=True, exist_ok=True)
+    for pkg in packages:
+        normalised = _re.sub(r"[-_.]+", "_", pkg)
+        (site_pkgs / f"{normalised}-1.0.0.dist-info").mkdir()
+
+
+class TestIsInstalled:
+    def test_no_venv_python_returns_false(self, tmp_path: Path) -> None:
+        inst = _build_installer(tmp_path, venv_exists=False)
+        assert inst.is_installed() is False
+
+    def test_missing_site_packages_returns_false(self, tmp_path: Path) -> None:
+        # venv python exists but the Lib/site-packages tree doesn't.
+        inst = _build_installer(tmp_path, venv_exists=True)
+        # Token exists so we know the failure point is site-packages, not token.
+        (tmp_path / "hf_cache").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "hf_cache" / "token").write_text("hf_x", encoding="utf-8")
+        assert inst.is_installed() is False
+
+    def test_missing_dist_info_returns_false(self, tmp_path: Path) -> None:
+        inst = _build_installer(tmp_path, venv_exists=True, existing_token="hf_x")
+        # site-packages exists but only ONE of the two required dist-infos
+        # is present — installer should still report not-installed.
+        site_pkgs = tmp_path / "venv" / "Lib" / "site-packages"
+        _seed_dist_info(site_pkgs, "faster-whisper")
+        assert inst.is_installed() is False
+
+    def test_missing_token_returns_false(self, tmp_path: Path) -> None:
+        inst = _build_installer(tmp_path, venv_exists=True)  # NO existing_token
+        site_pkgs = tmp_path / "venv" / "Lib" / "site-packages"
+        _seed_dist_info(site_pkgs, "faster-whisper", "pyannote.audio")
+        # Packages present, token absent — diarization would fail at load
+        # time, so the badge must NOT show installed.
+        assert inst.is_installed() is False
+
+    def test_all_present_returns_true(self, tmp_path: Path) -> None:
+        inst = _build_installer(tmp_path, venv_exists=True, existing_token="hf_x")
+        site_pkgs = tmp_path / "venv" / "Lib" / "site-packages"
+        _seed_dist_info(site_pkgs, "faster-whisper", "pyannote.audio")
+        assert inst.is_installed() is True
+
+    def test_does_not_spawn_subprocess(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Regression guard for the perf fix: the cheap path must NOT
+        # shell out, otherwise we are back to the 10-30 s dialog freeze.
+        called: list[tuple] = []
+        real_run = __import__("subprocess").run
+
+        def _trap(*a, **kw):
+            called.append((a, kw))
+            return real_run(*a, **kw)
+
+        monkeypatch.setattr("subprocess.run", _trap)
+
+        inst = _build_installer(tmp_path, venv_exists=True, existing_token="hf_x")
+        site_pkgs = tmp_path / "venv" / "Lib" / "site-packages"
+        _seed_dist_info(site_pkgs, "faster-whisper", "pyannote.audio")
+        inst.is_installed()
+        assert called == [], (
+            f"is_installed() spawned a subprocess: {called!r}. The whole "
+            f"point of the perf fix was to keep this off the Tk main thread."
+        )
+
+
+# ---------------------------------------------------------------------------
 # install() happy path and failure modes
 # ---------------------------------------------------------------------------
 
