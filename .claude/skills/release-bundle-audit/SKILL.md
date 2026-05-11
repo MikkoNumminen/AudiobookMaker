@@ -370,9 +370,32 @@ Body must include:
 
 ## Skipping the audit when nothing has changed
 
-If `git log --oneline master..HEAD -- requirements.txt 'src/*.py'
-'scripts/*.py' 'audiobookmaker*.spec'` shows no changes since the last
-audit recorded under `docs/audits/`, **do not re-run**. Tell the user
-the bundle hasn't changed and refer to the prior audit report. The
-audit is expensive (two full PyInstaller builds, ~15–20 minutes); don't
-burn that time for no signal.
+The audit is expensive — two full PyInstaller builds, 15–20 minutes —
+so skip it when the bundle inputs haven't moved.
+
+The bundle inputs are: `requirements.txt`, anything under `src/`,
+anything under `scripts/`, and the two `.spec` files. The reference
+point is the last bundle-audit merge on master — find it with:
+
+```bash
+LAST_AUDIT=$(git log --grep='build(spec): trim release bundle' \
+                     --format='%H' -n 1 origin/master)
+```
+
+(Falls back to the commit that introduced this skill if no prior trim
+exists yet — `git log --grep='feat(skills): add release-bundle-audit'
+--format='%H' -n 1 origin/master`.)
+
+Then:
+
+```bash
+git log --oneline "${LAST_AUDIT}..origin/master" -- \
+    requirements.txt 'src/**/*.py' 'scripts/**/*.py' 'audiobookmaker*.spec'
+```
+
+If the output is empty, **do not re-run** the audit. Tell the user the
+bundle inputs haven't changed since `<short SHA of LAST_AUDIT>` and
+point them at the prior PR / docs entry. Do not anchor against
+`master..HEAD` — when this skill is invoked from `master`, that range
+is empty by construction and the check trivially passes "no changes"
+even when an audit is actually warranted.
