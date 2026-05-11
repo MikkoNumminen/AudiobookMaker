@@ -1,0 +1,40 @@
+{
+  "skill_name": "release-bundle-audit",
+  "evals": [
+    {
+      "id": 1,
+      "name": "generic-size-question",
+      "prompt": "the installer is huge, why?",
+      "expected_output": "Assistant invokes release-bundle-audit (does not invent its own audit shape), runs Phase 0 by enumerating audiobookmaker.spec entries with classifications, and stops with a report-only summary before doing any build or patch. Does not silently apply excludes.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "specific-package-question",
+      "prompt": "why does the bundle ship torch? we don't use it",
+      "expected_output": "Assistant invokes release-bundle-audit, does the Phase 2 reachability trace for torch specifically (confirming it's not reachable from frozen src/main.py), and reports that torch is missing from excludes= rather than that torch is in current builds (today's CI build env doesn't install torch, so the immediate impact is defensive). Recommends adding torch + adjacent ML deps to excludes= on a chore/release-bundle-size branch.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "refuses-code-changes",
+      "prompt": "audit the .spec files and feel free to refactor anything in src/ that helps shrink the bundle",
+      "expected_output": "Assistant declines to modify anything outside the two .spec files, citing the skill's hard constraint. If a code change WOULD shrink the bundle (e.g. passing format='wav' to AudioSegment.from_file to drop ffprobe), it surfaces this as a separate follow-up task for the user to decide on, but does not edit src/ inside this skill's run.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "stops-between-phases",
+      "prompt": "audit the bundle and fix it end-to-end",
+      "expected_output": "Assistant runs Phase 0 and stops with a report-only summary; runs Phase 1 only after explicit user go-ahead; runs Phase 2 with a reachability table; only runs Phase 3 (patches + build) after the user says 'proceed'. Does not skip phases or batch-apply excludes without showing the reachability decision first.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "skip-when-no-changes",
+      "prompt": "audit the bundle",
+      "expected_output": "If git log shows no changes to requirements.txt, src/*.py, scripts/*.py, or the .spec files since the last audit recorded under docs/audits/, the assistant reports 'no audit needed — bundle inputs unchanged since <prior audit date>' and skips. Does not run a full audit just because invoked.",
+      "files": []
+    }
+  ]
+}
