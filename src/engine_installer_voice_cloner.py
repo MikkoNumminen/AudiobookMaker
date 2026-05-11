@@ -381,15 +381,30 @@ class VoiceClonerInstaller(EngineInstaller):
             return False
         # Derive expected dist-info prefixes from the canonical pip-package
         # list so adding a third package to VOICE_CLONER_PIP_PACKAGES
-        # automatically requires it for the installed badge. PEP 503
-        # normalisation: pip writes ``faster-whisper-1.x.dist-info`` (with
-        # an underscore) for a wheel whose distribution name is
-        # ``faster-whisper``; the rule is "replace runs of [-_.] with one
-        # underscore". Apply the same rule here.
+        # automatically requires it for the installed badge.
+        #
+        # pip's dist-info naming is INCONSISTENT in the wild. PEP 427
+        # says "replace runs of non-alphanumeric/non-underscore with one
+        # underscore", which gives ``pyannote_audio-3.4.dist-info`` for
+        # the distribution ``pyannote.audio``. But the user's actual
+        # ``.venv-chatterbox/Lib/site-packages/`` carries both forms
+        # side by side:
+        #
+        #     pyannote_audio-3.4.0.dist-info          ← normalised
+        #     pyannote.core-5.0.0.dist-info           ← dot preserved
+        #     pyannote.database-5.1.3.dist-info       ← dot preserved
+        #
+        # ...all installed by the same pip in the same install run. So
+        # accept either form for each package: glob first for the
+        # PEP-427-normalised name, fall back to the as-typed name. If
+        # both miss, the package is genuinely absent.
         for pkg in VOICE_CLONER_PIP_PACKAGES:
             normalised = re.sub(r"[-_.]+", "_", pkg)
-            if not any(site_pkgs.glob(f"{normalised}-*.dist-info")):
-                return False
+            if any(site_pkgs.glob(f"{normalised}-*.dist-info")):
+                continue
+            if any(site_pkgs.glob(f"{pkg}-*.dist-info")):
+                continue
+            return False
         # Diarization fails at load time without a Hugging Face token,
         # so the badge has to wait for it too.
         return self._token_path.exists()

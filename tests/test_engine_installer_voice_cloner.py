@@ -227,6 +227,24 @@ class TestIsInstalled:
         _seed_dist_info(site_pkgs, "faster-whisper", "pyannote.audio")
         assert inst.is_installed() is True
 
+    def test_accepts_dot_preserving_dist_info_name(self, tmp_path: Path) -> None:
+        """pip's dist-info naming is inconsistent across installs.
+
+        Real-world example from a chatterbox venv on 2026-05-11: pip
+        wrote ``pyannote.core-5.0.0.dist-info`` (dot preserved) and
+        ``pyannote_audio-3.4.0.dist-info`` (normalised) in the SAME
+        site-packages tree. ``is_installed()`` must accept either
+        spelling — otherwise the badge silently flips to "not
+        installed" on a future pip version that preserves the dot.
+        """
+        inst = _build_installer(tmp_path, venv_exists=True, existing_token="hf_x")
+        site_pkgs = tmp_path / "venv" / "Lib" / "site-packages"
+        site_pkgs.mkdir(parents=True, exist_ok=True)
+        # faster_whisper in normalised form, pyannote.audio in DOT form.
+        (site_pkgs / "faster_whisper-1.2.1.dist-info").mkdir()
+        (site_pkgs / "pyannote.audio-3.4.0.dist-info").mkdir()
+        assert inst.is_installed() is True
+
     def test_does_not_spawn_subprocess(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
