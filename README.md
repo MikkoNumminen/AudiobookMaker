@@ -93,9 +93,9 @@ Chatterbox in particular has been validated on a real 10-hour Finnish
 audiobook that came out sounding great. Installer works. Auto-updates
 work.
 
-**What's still getting rough edges sanded off:** Chatterbox voice
-cloning, VoxCPM2 engine, the in-app engine installer, and some UI
-corners. These work but you might hit a snag.
+**What's still getting rough edges sanded off:** the VoxCPM2 engine
+(dev mode only), the in-app engine installer, and some UI corners.
+These work but you might hit a snag.
 
 If you hit a bug, open an issue -- they get fixed fast. The
 `Build and Release` badge at the top tells you whether CI is green
