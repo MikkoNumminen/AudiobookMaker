@@ -1,5 +1,12 @@
 # Voice-pack analyze: long-source crash and chunked workaround
 
+> File paths and constants below were last verified against master at
+> commit `bc3bc23` on 2026-05-11 (after PR #8
+> `feat(voice-pack): chunked analyze for long sources + hardening`
+> merged). If `git ls-files src/voice_pack/` no longer shows
+> `chunked.py`, `ffmpeg_slice.py`, and `reconcile.py`, this record is
+> out of date.
+
 ## TL;DR
 
 Running `scripts/voice_pack_analyze.py` against an audio source longer
