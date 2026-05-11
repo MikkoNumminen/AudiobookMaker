@@ -203,14 +203,24 @@ class EngineManagerDialog(ctk.CTkToplevel):
                 text_color="gray",
             )
 
-    def _engine_size_text(self, installer) -> str:
+    def _engine_size_text(self, installer, installed: Optional[bool] = None) -> str:
         """Return a human-readable size for an installer.
 
         Installed: actual disk usage of the voice/model directory.
         Not installed: sum of estimated_size_mb across planned steps.
+
+        ``installed`` lets the caller pass through the value it already
+        computed for the row's status badge so we do not re-invoke
+        ``installer.is_installed()`` here. For the Voice Pack Maker
+        installer in particular that call was historically a 5–15 s
+        ``subprocess.run`` of a torch+pyannote import probe; running it
+        twice per dialog open was the dominant component of the
+        "engine manager takes forever to open" complaint.
         """
         try:
-            if installer.is_installed():
+            if installed is None:
+                installed = installer.is_installed()
+            if installed:
                 # Known install locations by engine id.
                 root: Optional[Path] = None
                 if getattr(installer, "_voice_dir", None) is not None:
@@ -301,7 +311,10 @@ class EngineManagerDialog(ctk.CTkToplevel):
         status_lbl.grid(row=0, column=1, sticky="w", padx=4, pady=4)
 
         # Size (installed: actual on disk; not installed: estimate).
-        size_text = self._engine_size_text(installer)
+        # Reuse the ``installed`` flag we just computed instead of
+        # letting the size helper call ``is_installed()`` again — see
+        # the docstring on _engine_size_text for why that mattered.
+        size_text = self._engine_size_text(installer, installed=installed)
         size_lbl = ctk.CTkLabel(
             row, text=size_text, text_color=("gray40", "gray70"),
             anchor="e",

@@ -312,25 +312,47 @@ class VoiceClonerInstaller(EngineInstaller):
         ]
 
     def is_installed(self) -> bool:
-        """True if the smoke test would currently pass."""
+        """True if the required packages are present in the chatterbox venv.
+
+        Used by the engine-manager dialog to render an "Installed" badge,
+        so it MUST stay cheap — it runs on the Tk main thread every
+        time the dialog opens. Previous implementation spawned a
+        ``subprocess.run`` that imported ``faster_whisper`` and
+        ``pyannote.audio`` (5-15 s of torch load) and ran TWICE per
+        dialog open (once for the status badge, once for the size
+        helper), which was the dominant component of the "engine
+        manager takes forever to open" complaint.
+
+        The cheap check below globs each package's ``.dist-info``
+        directory under the venv's site-packages. An ABI mismatch
+        wouldn't be caught here, but an ABI failure surfaces clearly
+        at synthesis time anyway, and is far rarer than the common
+        case (packages are installed and they work). The token file
+        is still required because diarization fails at load time
+        without it.
+        """
         venv_python = self.venv_python
         if venv_python is None or not venv_python.exists():
             return False
-        probe = "import faster_whisper, pyannote.audio; print('OK')"
-        try:
-            result = subprocess.run(
-                [str(venv_python), "-c", probe],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except Exception:
+        # Walk up to the venv root from python.exe:
+        #   <venv>/Scripts/python.exe   (Windows)
+        #   <venv>/bin/python           (POSIX)
+        venv_root = venv_python.parent.parent
+        site_pkgs_candidates = (
+            venv_root / "Lib" / "site-packages",       # Windows
+            venv_root / "lib" / "site-packages",       # Windows lowercase
+        )
+        site_pkgs = next((p for p in site_pkgs_candidates if p.exists()), None)
+        if site_pkgs is None:
+            # POSIX: lib/python3.X/site-packages — globbed.
+            for candidate in venv_root.glob("lib/python*/site-packages"):
+                site_pkgs = candidate
+                break
+        if site_pkgs is None or not site_pkgs.exists():
             return False
-        if result.returncode != 0:
-            return False
-        # Token file must exist too — without it diarization fails at
-        # load time.
-        return self._token_path.exists()
+        has_fw = any(site_pkgs.glob("faster_whisper-*.dist-info"))
+        has_pyan = any(site_pkgs.glob("pyannote.audio-*.dist-info"))
+        return has_fw and has_pyan and self._token_path.exists()
 
     def install(
         self,
