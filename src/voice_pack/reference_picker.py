@@ -32,6 +32,16 @@ noted):
   the standard deviation of per-200 ms RMS across each candidate clip
   and prefer low-variance clips (consistent volume). Without a reader
   this term is zero and the other heuristics decide on their own.
+* **Pitch consistency.** When an ``audio_reader`` is supplied AND
+  numpy is importable, the picker estimates each top-K candidate's
+  median fundamental frequency (F0) via windowed autocorrelation in
+  the 75–400 Hz speech range. The baseline is the median of the
+  top-K candidates' F0s; each candidate is penalised by its
+  deviation from that baseline. Catches the case where one candidate
+  caught the speaker in an emphatic / deep-voiced moment and would
+  otherwise be picked because its other heuristics scored well —
+  voice cloning then maps that outlier prosody to the wrong basin.
+  Without numpy this term is silently zero (graceful degradation).
 
 The picker returns a :class:`ReferenceClipReport` with the selected
 start/end, a score, and — when relevant — a fallback-reason string the
@@ -77,6 +87,18 @@ MAX_WORDS: int = 80
 # enough to catch volume swings within a sentence.
 _RMS_WINDOW_S: float = 0.2
 
+# Pitch analysis (F0) parameters. Speech F0 is roughly 75–400 Hz across
+# adult voices (lower for adult male, higher for adult female / child).
+# Windowed autocorrelation; energy-gated to skip silence and unvoiced
+# (consonant-only) frames.
+_F0_MIN_HZ: int = 75
+_F0_MAX_HZ: int = 400
+_F0_WINDOW_S: float = 0.04   # 40 ms — a few pitch periods at the low end
+_F0_HOP_S: float = 0.02      # 20 ms — 50% overlap, smooths estimates
+_F0_ENERGY_GATE: float = 0.3  # window RMS < 30% of overall RMS → skip
+_F0_PEAK_THRESH: float = 0.3  # ac peak / ac[0] threshold for "voiced"
+_F0_MIN_VOICED_WINDOWS: int = 5  # below this, return None (unreliable)
+
 
 # ---------------------------------------------------------------------------
 # Public types
@@ -99,6 +121,7 @@ class ReferenceClipCandidate:
     rms_std: float
     text_preview: str
     penalties: tuple[str, ...] = field(default_factory=tuple)
+    median_f0_hz: Optional[float] = None  # None when F0 estimate failed/skipped
 
 
 @dataclass(frozen=True)
@@ -252,6 +275,85 @@ def _position_penalty(
     return penalty, tuple(penalties)
 
 
+def _estimate_median_f0_hz(
+    samples: "list[float]", sample_rate_hz: int
+) -> Optional[float]:
+    """Estimate median fundamental frequency (F0) of a clip in Hz.
+
+    Windowed autocorrelation in the 75–400 Hz speech range, energy-gated
+    to skip silent / unvoiced windows, returns the median F0 across the
+    voiced windows.
+
+    Returns ``None`` when:
+
+    * NumPy is not importable (we don't add it as a hard dep — graceful
+      degradation),
+    * the clip is shorter than ~0.5 s,
+    * fewer than ``_F0_MIN_VOICED_WINDOWS`` windows passed the energy +
+      peak-strength gates (estimate is unreliable on whispers / silence).
+
+    Callers treat ``None`` as "skip the pitch-consistency scoring term."
+
+    The pure-Python autocorrelation cost is ~O(W·L) per window for L
+    lags and W windows; on a 12–18 s clip at 24 kHz with 40 ms windows
+    and 50% overlap that's ~600 windows × ~260 lags. NumPy's vectorised
+    ``correlate`` brings the per-clip cost to <1 s; without NumPy a
+    pure-Python fallback would be ~30 s per clip, which is why we just
+    return ``None`` instead.
+    """
+    if not samples:
+        return None
+
+    try:
+        import numpy as np  # noqa: WPS433 - lazy import (no hard dep)
+    except ImportError:
+        return None
+
+    arr = np.asarray(samples, dtype=np.float32)
+    if arr.size < sample_rate_hz // 2:  # need at least ~0.5 s
+        return None
+
+    overall_rms = float(np.sqrt(np.mean(arr * arr)))
+    if overall_rms < 1e-6:
+        return None
+
+    window_size = max(1, int(_F0_WINDOW_S * sample_rate_hz))
+    hop = max(1, int(_F0_HOP_S * sample_rate_hz))
+    min_lag = max(1, sample_rate_hz // _F0_MAX_HZ)
+    max_lag = min(window_size - 1, sample_rate_hz // _F0_MIN_HZ)
+    if min_lag >= max_lag:
+        return None
+
+    energy_thresh = _F0_ENERGY_GATE * overall_rms
+    f0_estimates: list[float] = []
+
+    for i in range(0, arr.size - window_size + 1, hop):
+        window = arr[i : i + window_size]
+        win_rms = float(np.sqrt(np.mean(window * window)))
+        if win_rms < energy_thresh:
+            continue
+        # DC-remove and autocorrelate. ``mode='full'`` gives lags from
+        # -(N-1) to +(N-1); we only need non-negative lags.
+        normed = window - window.mean()
+        ac = np.correlate(normed, normed, mode="full")
+        ac = ac[ac.size // 2 :]
+        if ac[0] <= 0:
+            continue
+        ac_normed = ac / ac[0]
+        # Find the strongest peak in the speech-range lag window.
+        sub = ac_normed[min_lag : max_lag + 1]
+        peak_idx_local = int(np.argmax(sub))
+        peak_strength = float(sub[peak_idx_local])
+        if peak_strength < _F0_PEAK_THRESH:
+            continue
+        peak_lag = peak_idx_local + min_lag
+        f0_estimates.append(sample_rate_hz / peak_lag)
+
+    if len(f0_estimates) < _F0_MIN_VOICED_WINDOWS:
+        return None
+    return float(np.median(np.asarray(f0_estimates)))
+
+
 def _rms_std(samples: "list[float]", sample_rate_hz: int) -> float:
     """Standard deviation of per-window RMS. Zero samples ⇒ returns 0.0.
 
@@ -283,14 +385,21 @@ def _rms_std(samples: "list[float]", sample_rate_hz: int) -> float:
 # Scoring
 # ---------------------------------------------------------------------------
 
-# Weights balance the three soft-penalty terms. Tuned so that a chunk
-# missing the duration window by a couple seconds is still preferable to
-# a chunk with digits in the text. If this turns out to need retuning in
-# practice, the three numbers are the only knobs.
+# Weights balance the soft-penalty terms. Tuned so that a chunk missing
+# the duration window by a couple seconds is still preferable to a chunk
+# with digits in the text. If this turns out to need retuning in
+# practice, these numbers are the only knobs.
 _W_DURATION: float = 1.0
 _W_POSITION: float = 0.5
 _W_TEXT: float = 3.0  # per penalty tag
 _W_RMS: float = 2.0
+# Pitch term: penalty per Hz of deviation from the candidate baseline.
+# Calibrated so that a 25 Hz outlier (the gap between a normal-speech F0
+# and an emphatic / deep-voiced moment for the same speaker) costs ~0.5,
+# the same order as a one-second duration miss — significant enough to
+# flip the pick, small enough to be overridden by harder penalties (text
+# quality, intro/outro position).
+_W_PITCH: float = 0.02
 
 
 def score_candidate(
@@ -300,11 +409,17 @@ def score_candidate(
     min_seconds: float,
     max_seconds: float,
     rms_std: float = 0.0,
+    pitch_deviation_hz: float = 0.0,
 ) -> tuple[float, tuple[str, ...]]:
     """Score one chunk. Lower is better. Returns (score, penalty_tags).
 
     Pulled out of :func:`pick_reference_clip` so tests can validate the
     heuristics without setting up audio I/O.
+
+    ``pitch_deviation_hz`` is the absolute distance (in Hz) between this
+    candidate's median F0 and the baseline F0 the picker computed across
+    the top-K candidates. Defaults to 0 so older callers (and the
+    metadata-only first pass) are unchanged.
     """
     dp, d_tags = _duration_penalty(chunk.duration, min_seconds, max_seconds)
     pp, p_tags = _position_penalty(
@@ -317,8 +432,14 @@ def score_candidate(
         + _W_POSITION * pp
         + _W_TEXT * len(t_tags)
         + _W_RMS * rms_std
+        + _W_PITCH * pitch_deviation_hz
     )
-    return score, d_tags + p_tags + t_tags
+    pitch_tags: tuple[str, ...] = ()
+    # 80 Hz is the rough difference between adult male and adult female
+    # F0; treating that as a hard outlier gives the GUI a flag to show.
+    if pitch_deviation_hz >= 80.0:
+        pitch_tags = ("pitch_outlier",)
+    return score, d_tags + p_tags + t_tags + pitch_tags
 
 
 # ---------------------------------------------------------------------------
@@ -398,21 +519,49 @@ def pick_reference_clip(
 
     metadata_scored.sort(key=lambda c: c.score)
 
-    # Optional RMS refinement — only on the top-K by metadata so we do
-    # not decode 500 clips on a 10-minute source.
+    # Optional RMS + pitch refinement — only on the top-K by metadata so
+    # we do not decode 500 clips on a 10-minute source. Two passes: first
+    # decode each clip and compute RMS-std + median F0 (one decode per
+    # candidate); then derive a baseline F0 from the K medians and
+    # rescore with the pitch-deviation term included.
     refined: list[ReferenceClipCandidate] = []
     if audio_reader is not None:
+        # Pass 1 — decode and compute RMS + F0.
+        intermediate: list[tuple[ReferenceClipCandidate, float, Optional[float]]] = []
         for cand in metadata_scored[:top_k]:
             samples = audio_reader(wav_source, cand.start, cand.end)
             rms = _rms_std(samples, REFERENCE_SAMPLE_RATE_HZ)
-            # Rescore with RMS term included.
+            f0 = _estimate_median_f0_hz(samples, REFERENCE_SAMPLE_RATE_HZ)
+            intermediate.append((cand, rms, f0))
+
+        # Pitch baseline = median across the candidates with a valid F0.
+        # Falls back to None when too few candidates voiced cleanly.
+        valid_f0s = [f0 for _, _, f0 in intermediate if f0 is not None]
+        baseline_f0: Optional[float]
+        if len(valid_f0s) >= 2:
+            sorted_f0s = sorted(valid_f0s)
+            mid = len(sorted_f0s) // 2
+            if len(sorted_f0s) % 2 == 0:
+                baseline_f0 = (sorted_f0s[mid - 1] + sorted_f0s[mid]) / 2.0
+            else:
+                baseline_f0 = sorted_f0s[mid]
+        else:
+            baseline_f0 = None
+
+        # Pass 2 — rescore each candidate with RMS + pitch deviation.
+        for cand, rms, f0 in intermediate:
             chunk = all_chunks[cand.chunk_index]
+            if baseline_f0 is not None and f0 is not None:
+                pitch_dev = abs(f0 - baseline_f0)
+            else:
+                pitch_dev = 0.0
             new_score, tags = score_candidate(
                 chunk,
                 source_duration,
                 min_seconds=min_seconds,
                 max_seconds=max_seconds,
                 rms_std=rms,
+                pitch_deviation_hz=pitch_dev,
             )
             refined.append(
                 ReferenceClipCandidate(
@@ -424,6 +573,7 @@ def pick_reference_clip(
                     rms_std=rms,
                     text_preview=cand.text_preview,
                     penalties=tags,
+                    median_f0_hz=f0,
                 )
             )
         refined.sort(key=lambda c: c.score)
