@@ -419,7 +419,11 @@ class LauncherApp(tk.Tk):
             self._event_queue.put(
                 ProgressEvent(kind="log", raw_line=MSG_PARSING)
             )
-            book = parse_pdf(str(self._pdf_path))
+            # Launcher only ships the Finnish path today (see voice_id below),
+            # so the OCR fallback is hard-coded to Tesseract's Finnish language
+            # pack. When/if the launcher gains a language picker, route through
+            # ocr_path.tesseract_lang_for instead.
+            book = parse_pdf(str(self._pdf_path), ocr_language="fin")
             if not book.full_text.strip():
                 raise ValueError("PDF ei sisällä tekstiä (tiedosto voi olla skannattu).")
 
