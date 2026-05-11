@@ -1,7 +1,9 @@
 """Unit tests for :mod:`src.voice_pack.diarize`.
 
 These tests never import pyannote, never touch a real HF token, and never
-require a GPU. A fake pipeline is injected through the ``pipeline=`` kwarg.
+require a GPU. A fake pipeline is injected through the ``pipeline=`` kwarg
+(for diarize tests) or via sys.modules patching of ``pyannote.audio``
+(for load_pipeline tests).
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import types
 
 import pytest
 
-from src.voice_pack.diarize import _merge_adjacent, diarize, resolve_token
+from src.voice_pack.diarize import _merge_adjacent, diarize, load_pipeline, resolve_token
 from src.voice_pack.types import DiarTurn
 
 
@@ -146,3 +148,132 @@ def test_hf_token_shim_logs_when_module_patch_fails(monkeypatch, caplog):
         and "fake.broken.module" in record.getMessage()
         for record in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# load_pipeline: gated-repo error surfacing tests
+# ---------------------------------------------------------------------------
+
+def _make_fake_pyannote_audio(exc_to_raise: Exception) -> types.ModuleType:
+    """Build a minimal fake ``pyannote.audio`` module whose ``Pipeline``
+    raises *exc_to_raise* when ``from_pretrained`` is called."""
+    class _FailPipeline:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            raise exc_to_raise
+
+    fake_audio = types.ModuleType("pyannote.audio")
+    fake_audio.Pipeline = _FailPipeline  # type: ignore[attr-defined]
+    return fake_audio
+
+
+def _install_fake_pyannote(monkeypatch, exc: Exception) -> None:
+    """Inject a fake pyannote.audio (and its parent) into sys.modules.
+
+    Also skips the HF-token and torch shims (they need real optional deps)
+    by marking them as already applied, and supplies a stub huggingface_hub
+    so the shim import guard doesn't fail when the flag is reset.
+    """
+    from src.voice_pack import diarize as diarize_mod
+
+    fake_audio = _make_fake_pyannote_audio(exc)
+    # The parent package must also be present so Python's import machinery
+    # doesn't complain when ``from pyannote.audio import Pipeline`` runs.
+    fake_pyannote = types.ModuleType("pyannote")
+    fake_pyannote.audio = fake_audio  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pyannote", fake_pyannote)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio)
+
+    # Mark the optional-dependency shims as already applied so they are
+    # no-ops during the test. These shims import huggingface_hub / torch /
+    # speechbrain which are not installed in the unit-test environment.
+    monkeypatch.setattr(diarize_mod, "_HF_TOKEN_SHIM_APPLIED", True)
+    monkeypatch.setattr(diarize_mod, "_TORCH_LOAD_SHIM_APPLIED", True)
+    monkeypatch.setattr(diarize_mod, "_SPEECHBRAIN_LAZY_SHIM_APPLIED", True)
+
+
+def test_load_pipeline_403_raises_clear_runtime_error(monkeypatch):
+    """A 403 Forbidden from HF must surface as a clear RuntimeError with
+    the license-accept URL, not a raw traceback."""
+    original_exc = Exception("403 Forbidden: Access denied to gated model")
+    _install_fake_pyannote(monkeypatch, original_exc)
+    monkeypatch.setenv("HF_TOKEN", "fake-token")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        load_pipeline()
+
+    msg = str(exc_info.value)
+    assert "pyannote/speaker-diarization-3.1" in msg
+    assert "Agree and access repository" in msg
+    # Original exception must be chained
+    assert exc_info.value.__cause__ is original_exc
+
+
+def test_load_pipeline_gated_repo_error_raises_clear_runtime_error(monkeypatch):
+    """A GatedRepoError-style message must also produce the friendly error."""
+    original_exc = Exception("GatedRepoError: This repository is gated")
+    _install_fake_pyannote(monkeypatch, original_exc)
+    monkeypatch.setenv("HF_TOKEN", "fake-token")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        load_pipeline()
+
+    msg = str(exc_info.value)
+    assert "pyannote/speaker-diarization-3.1" in msg
+    assert "Agree and access repository" in msg
+    assert exc_info.value.__cause__ is original_exc
+
+
+def test_load_pipeline_401_raises_clear_runtime_error(monkeypatch):
+    """A 401 Unauthorized must also trigger the friendly error."""
+    original_exc = Exception("401 Unauthorized")
+    _install_fake_pyannote(monkeypatch, original_exc)
+    monkeypatch.setenv("HF_TOKEN", "fake-token")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        load_pipeline()
+
+    msg = str(exc_info.value)
+    assert "pyannote/speaker-diarization-3.1" in msg
+    assert "Agree and access repository" in msg
+    assert exc_info.value.__cause__ is original_exc
+
+
+def test_load_pipeline_gated_lowercase_raises_clear_runtime_error(monkeypatch):
+    """The keyword match must be case-insensitive (e.g. 'gated repo')."""
+    original_exc = Exception("access to this gated repo is restricted")
+    _install_fake_pyannote(monkeypatch, original_exc)
+    monkeypatch.setenv("HF_TOKEN", "fake-token")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        load_pipeline()
+
+    msg = str(exc_info.value)
+    assert "pyannote/speaker-diarization-3.1" in msg
+    assert exc_info.value.__cause__ is original_exc
+
+
+def test_load_pipeline_network_error_passes_through_unchanged(monkeypatch):
+    """A generic network error must NOT be wrapped — it should propagate as-is
+    so real failures aren't hidden behind the license-accept message."""
+    original_exc = RuntimeError("network down: connection refused")
+    _install_fake_pyannote(monkeypatch, original_exc)
+    monkeypatch.setenv("HF_TOKEN", "fake-token")
+
+    with pytest.raises(RuntimeError, match="network down") as exc_info:
+        load_pipeline()
+
+    # Must be the original exception, not a re-wrapped one
+    assert exc_info.value is original_exc
+
+
+def test_load_pipeline_error_message_contains_url(monkeypatch):
+    """The friendly error must include the full model URL so the user can
+    navigate there directly."""
+    _install_fake_pyannote(monkeypatch, Exception("403 Forbidden"))
+    monkeypatch.setenv("HF_TOKEN", "fake-token")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        load_pipeline()
+
+    assert "https://huggingface.co/pyannote/speaker-diarization-3.1" in str(exc_info.value)

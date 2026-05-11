@@ -422,8 +422,73 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
     POLL_INTERVAL_MS = 100
 
+    def after(self, ms, func=None, *args):  # type: ignore[override]
+        """Override CTk.after so destroy() can cancel exactly our own callbacks.
+
+        Wraps the user's callback to discard the after-ID from the tracking
+        set when it fires naturally, preventing unbounded growth across a
+        long-running app session.
+        """
+        if func is None:
+            # ``after(ms)`` with no callback is a Tk poll; nothing to wrap.
+            return super().after(ms)
+
+        scheduled = self.__dict__.setdefault("_scheduled_afters", set())
+        after_id_box: list[str | None] = [None]
+
+        def _wrapped():
+            if after_id_box[0] is not None:
+                scheduled.discard(after_id_box[0])
+            return func(*args)
+
+        after_id = super().after(ms, _wrapped)
+        if after_id:
+            after_id_box[0] = str(after_id)
+            scheduled.add(after_id_box[0])
+        return after_id
+
+    def after_idle(self, func, *args):  # type: ignore[override]
+        """Override CTk.after_idle so destroy() can cancel exactly our own callbacks.
+
+        Wraps the callback to discard the after-ID from the tracking set
+        when it fires naturally.
+        """
+        scheduled = self.__dict__.setdefault("_scheduled_afters", set())
+        after_id_box: list[str | None] = [None]
+
+        def _wrapped():
+            if after_id_box[0] is not None:
+                scheduled.discard(after_id_box[0])
+            return func(*args)
+
+        after_id = super().after_idle(_wrapped)
+        if after_id:
+            after_id_box[0] = str(after_id)
+            scheduled.add(after_id_box[0])
+        return after_id
+
+    def after_cancel(self, id_):  # type: ignore[override]
+        """Override CTk.after_cancel to keep ``_scheduled_afters`` consistent
+        when callbacks are cancelled outside of ``destroy()``."""
+        super().after_cancel(id_)
+        scheduled = self.__dict__.get("_scheduled_afters")
+        if scheduled is not None and id_ is not None:
+            scheduled.discard(str(id_))
+
     def __init__(self) -> None:
         super().__init__()
+        # Tracking set is populated by overridden after() / after_idle().
+        # An explicit setdefault() in those overrides covers the bootstrap
+        # case where CTk's own __init__ calls self.after() before this body
+        # runs, so this assignment is the conventional convergence point
+        # rather than a hard requirement.
+        # Note: this wipes any IDs CTk scheduled during super().__init__() that
+        # are still pending.  Those are CTk-internal callbacks (e.g.
+        # _windows_set_titlebar_icon) that we must NOT cancel in destroy() —
+        # doing so would TclError on CTk's deletecommand path.  The wipe is
+        # therefore correct: after this point _scheduled_afters tracks only
+        # our own callbacks.
+        self._scheduled_afters: set[str] = set()
         self.title(WINDOW_TITLE)
         self.minsize(WINDOW_MIN_W, WINDOW_MIN_H)
         self._center_window()
@@ -2592,12 +2657,75 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self.after(250, self._refresh_listen_btn_label)
 
     def destroy(self) -> None:  # type: ignore[override]
-        """Tear down the window. Stop in-process playback so the mixer
-        thread doesn't keep audio resources after the GUI closes."""
+        """Tear down the window cleanly to prevent the Tcl notifier thread hang.
+
+        Background: when any tkinter.Tk / CTk window is created, the C extension
+        _tkinter.pyd spawns a Win32 Tcl notifier thread.  That thread is invisible
+        to Python's threading.enumerate() and is NOT stopped by Tk.destroy().
+        On headless Windows (GitHub Actions), Python's shutdown waits for it before
+        reaching Py_Finalize() — and the thread never exits because pending Tcl
+        ``after`` callbacks (from customtkinter's AppearanceModeTracker.update)
+        keep rescheduling themselves on the destroyed window.
+
+        Fix:
+        1. Cancel every pending ``after`` callback so the rescheduling loop stops.
+        2. Clear AppearanceModeTracker.app_list so update() finds nothing to
+           reschedule against and sets update_loop_running = False.
+        3. Stop the audio player (existing behaviour).
+        4. Call super().destroy() as normal.
+
+        Each step is wrapped individually so a single failure cannot abort the
+        rest of teardown.
+        """
+        # Step 1 — cancel every after-callback WE scheduled.
+        # We use our own tracking set (_scheduled_afters, populated by the
+        # overridden after() / after_idle() methods) instead of the previous
+        # approach of asking Tcl for all pending IDs and filtering by script
+        # name substring.  That substring heuristic was fragile: it relied on
+        # "update" appearing in the Tcl script name, which is an implementation
+        # detail of AppearanceModeTracker that could change without notice.
+        #
+        # We deliberately do NOT touch CTk-internal after-IDs (e.g.
+        # _windows_set_titlebar_icon).  Those are scheduled directly by CTk
+        # internals, not via our overridden after(), so they are absent from
+        # _scheduled_afters.  Cancelling them would cause a
+        # "_tkinter.TclError: can't delete Tcl command" in super().destroy().
+        try:
+            # pop() one at a time: the set shrinks with each iteration so no
+            # separate .clear() is needed.  after_cancel() (overridden above)
+            # also discards from the set, but set.discard is idempotent so
+            # the double-discard is harmless.
+            while self._scheduled_afters:
+                after_id = self._scheduled_afters.pop()
+                try:
+                    self.after_cancel(after_id)
+                except Exception:  # noqa: BLE001 — already fired or invalid
+                    pass
+        except Exception as exc:  # noqa: BLE001 — Tcl may already be torn down
+            logger.debug("after-cancel sweep failed: %s", exc)
+
+        # Step 2 — clear AppearanceModeTracker.app_list so the 30 ms rescheduling
+        # loop in customtkinter stops immediately rather than spinning forever on
+        # a destroyed window (the root cause of the Tcl notifier thread hang).
+        try:
+            from customtkinter.windows.widgets.appearance_mode.appearance_mode_tracker import (
+                AppearanceModeTracker,
+            )
+            AppearanceModeTracker.app_list.clear()
+            AppearanceModeTracker.update_loop_running = False
+        except Exception as exc:  # noqa: BLE001 — future customtkinter version change
+            logger.warning(
+                "AppearanceModeTracker cleanup failed; check for customtkinter "
+                "version change: %s", exc,
+            )
+
+        # Step 3 — stop in-process audio so the mixer thread releases resources.
         try:
             _audio_player.get_player().stop()
         except Exception as exc:  # noqa: BLE001 — best-effort cleanup
             logger.debug("audio player stop on destroy failed: %s", exc)
+
+        # Step 4 — hand off to CTk / Tk for the rest of widget teardown.
         super().destroy()
 
     # ------------------------------------------------------------------
