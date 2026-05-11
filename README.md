@@ -30,25 +30,35 @@ you get with each Engine:
 | Finnish  | Yes (Noora)       | Yes   | Yes (Grandmom)                | Yes |
 | English  | Yes (Jenny etc.)  | Yes   | Yes (Route B, Grandmom voice) | Yes |
 
-Which Engine should you pick? Short answer: try Edge-TTS first, it's
-the quickest to hear something. Longer answer:
+Which Engine should you pick? Short answer for Finnish: use
+Chatterbox if you have an NVIDIA GPU, Edge-TTS otherwise. For
+English: Edge-TTS is excellent and Chatterbox's Grandmom is at
+least as good, maybe better. Longer answer:
 
 - **Edge-TTS** uses Microsoft's cloud voices. You need an internet
   connection because the voice lives on their servers, not your
-  computer. It's fast, free, and sounds very good. The trade-off is
-  that you can't use it on a plane or in a cabin with no Wi-Fi.
+  computer. It's fast and free. **English is really good** — one
+  of the best free options out there. **Finnish is okay but not
+  great** — the cloud voices are usable but read with a flat,
+  generic delivery that doesn't quite sound like a person reading
+  to you. The trade-off either way: you can't use it on a plane
+  or in a cabin with no Wi-Fi.
 - **Piper** runs entirely on your own computer. The first time you
   pick a voice it downloads a small voice file (about the size of a
   phone photo), and after that it works forever without internet.
-  Not quite as smooth as Edge-TTS but very close, and it's yours.
-- **Chatterbox** is the quality champion for Finnish. It uses a voice
-  called Grandmom that sounds like, well, a grandma reading to you.
-  English also works: we take the same Grandmom voice and have her
-  read English text (this is what "Route B" means — think of it as
-  Grandmom wearing a second hat). Downside: it needs an NVIDIA
-  graphics card with 8 GB or more of video memory, and the first-time
-  setup downloads about 15 GB. Other languages beyond Finnish and
-  English don't work here.
+  We haven't graded its Finnish or English carefully enough to claim
+  a quality tier — give it a Make-sample run and compare for
+  yourself.
+- **Chatterbox** is the quality champion for **Finnish** — the
+  Grandmom voice (Isoäiti in the app) reads like an actual elderly
+  person sitting across from you, not a synthesizer. **English
+  works too** and the same Grandmom voice reads English at a level
+  that's at least on par with Edge-TTS English, probably better
+  (this is what "Route B" means — think of it as Grandmom wearing
+  a second hat). Downside: it needs an NVIDIA graphics card with
+  8 GB or more of video memory, and the first-time setup downloads
+  about 15 GB. Other languages beyond Finnish and English don't
+  work here.
 - **VoxCPM2** is a science-experiment engine. It's powerful but not
   ready for normal users, so it's hidden unless you're working from
   the source code. The installer leaves it out on purpose. If you
@@ -77,8 +87,9 @@ https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/english_
 Active development. Things are moving fast and a few releases per
 week is normal right now.
 
-**What's stable:** the core PDF-to-MP3 flow with Edge-TTS (online) and
-Piper (offline). Tested end-to-end with a real 10-hour Finnish
+**What's stable:** the core PDF-to-MP3 flow with all three engines —
+Edge-TTS (online), Piper (offline), and Chatterbox (offline, GPU).
+Chatterbox in particular has been validated on a real 10-hour Finnish
 audiobook that came out sounding great. Installer works. Auto-updates
 work.
 
@@ -182,16 +193,21 @@ an empty sample.
 
 ### Three engines, three personalities
 
-- **Edge-TTS** -- Microsoft's cloud voices. Needs internet, sounds
-  great, 30+ voices across six languages. The fastest way to hear
-  something.
+- **Edge-TTS** -- Microsoft's cloud voices. Needs internet, 30+
+  voices across six languages. Excellent in English. Okay in
+  Finnish (usable, but the delivery is flat — fine for short reads,
+  not first choice for a multi-hour audiobook).
 - **Piper** -- Lives on your computer. Downloads a voice model once
   (about a phone photo in size), then works forever without internet.
-  Not quite as smooth as Edge-TTS but very close.
-- **Chatterbox** -- The quality champion for Finnish. Needs an NVIDIA
-  graphics card, and the first-time setup is big (~15 GB of AI model).
-  The default voice is called **Grandmom** -- a warm elderly narrator
-  that sounds like somebody reading to you in a cabin.
+  Quality varies by voice and language; try a Make-sample run before
+  committing to a long book.
+- **Chatterbox** -- The quality champion for **Finnish** and a strong
+  contender for **English**. Needs an NVIDIA graphics card, and the
+  first-time setup is big (~15 GB of AI model). The default voice is
+  called **Grandmom** (Isoäiti in the app) -- a warm elderly narrator
+  that sounds like somebody reading to you in a cabin. For English,
+  the same Grandmom voice is at least on par with Edge-TTS English,
+  probably better.
 
 The **Language** picker at the top of the window filters the Engine and
 Voice dropdowns so you only see things that actually speak your
