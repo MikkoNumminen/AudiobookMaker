@@ -159,9 +159,14 @@ job. The GUI wires this to a threading.Event."""
 
 
 def _default_analyze_fn(**kwargs: Any) -> Any:  # pragma: no cover - thin shim
-    from src.voice_pack_subproc import run_analyze
+    # ``run_analyze_auto`` inspects the source duration up front and
+    # routes long inputs (> 5 min) through the chunked orchestrator.
+    # Short inputs take the existing single-shot path. Either way the
+    # return shape is :class:`AnalyzeJobResult` so the controller
+    # doesn't have to branch on which path ran.
+    from src.voice_pack_subproc import run_analyze_auto
 
-    return run_analyze(**kwargs)
+    return run_analyze_auto(**kwargs)
 
 
 def _default_read_speakers_yaml(path: Path) -> list[dict]:  # pragma: no cover
