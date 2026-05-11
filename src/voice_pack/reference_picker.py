@@ -355,12 +355,19 @@ def pick_reference_clip(
     audio_writer = audio_writer or _default_audio_writer
 
     all_chunks = load_transcripts(transcripts)
+    available_speakers = sorted({c.speaker for c in all_chunks})
     speaker_chunks = [
         (i, c) for i, c in enumerate(all_chunks) if c.speaker == speaker_id
     ]
     if not speaker_chunks:
+        if speaker_id not in available_speakers:
+            raise ValueError(
+                f"speaker {speaker_id!r} not found in transcripts {transcripts}; "
+                f"transcripts contain speakers: {available_speakers}"
+            )
         raise ValueError(
-            f"no chunks for speaker {speaker_id!r} in {transcripts}"
+            f"speaker {speaker_id!r} has no usable chunks in transcripts {transcripts} "
+            f"(all filtered out by quality / duration thresholds upstream)"
         )
 
     if source_duration is None:
