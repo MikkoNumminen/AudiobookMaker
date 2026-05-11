@@ -1,16 +1,23 @@
 """PDF parsing module for AudiobookMaker.
 
 Extracts text from PDF files, cleans it up, and detects chapters/sections.
-Uses PyMuPDF (fitz) for reliable text extraction.
+Uses PyMuPDF (fitz) for reliable text extraction. Falls back to OCR via
+ocrmypdf + Tesseract for image-only pages when those tools are available
+(see src/ocr_path.py).
 """
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import fitz  # PyMuPDF
+
+logger = logging.getLogger(__name__)
 
 
 class EmptyPDFError(ValueError):
@@ -272,11 +279,122 @@ def _extract_metadata(doc: fitz.Document, file_path: str) -> BookMetadata:
     )
 
 
-def parse_pdf(file_path: str | Path) -> ParsedBook:
+def _extract_pages(doc) -> tuple[list[tuple[int, str]], int]:
+    """Extract text from every page. Returns (pages_text, empty_page_count).
+
+    Pages with no extractable text (typical for scanned / image-only PDFs)
+    are not added to ``pages_text`` but are counted so the OCR-fallback
+    decision in ``parse_pdf`` knows when to retry.
+    """
+    pages_text: list[tuple[int, str]] = []
+    empty = 0
+    for page_num in range(len(doc)):
+        text = doc[page_num].get_text("text")
+        if text.strip():
+            pages_text.append((page_num + 1, text))
+        else:
+            empty += 1
+    return pages_text, empty
+
+
+def _sha256_file(path: str) -> str:
+    """sha256 hex digest of a file's bytes. Used as a cache key for OCR
+    output — identical source PDF means identical OCR'd PDF, so two runs
+    over the same input skip re-running Tesseract."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _ocr_cache_path(source_path: str, cache_dir: Path | None) -> Path:
+    """Resolve where the OCR'd PDF for ``source_path`` should live.
+
+    With ``cache_dir`` given, the file lives there permanently. Without,
+    it lands in the OS temp dir — still benefits from per-content
+    de-dupe within a session, less aggressive across reboots.
+    """
+    digest = _sha256_file(source_path)
+    if cache_dir is not None:
+        return cache_dir / f"{digest}.pdf"
+    return Path(tempfile.gettempdir()) / f"audiobookmaker_ocr_{digest[:16]}.pdf"
+
+
+def _run_ocr_fallback(
+    source_path: str,
+    ocr_language: str,
+    cache_dir: Path | None,
+) -> Path | None:
+    """Run ocrmypdf in --skip-text mode. Return the OCR'd PDF path, or None
+    if OCR is unavailable / failed.
+
+    Cached results are returned without re-running. ``ocr_language`` is the
+    Tesseract code (e.g. "fin", "eng"); callers map TTS codes via
+    ``ocr_path.tesseract_lang_for``.
+    """
+    from src.ocr_path import is_ocr_available
+
+    if not is_ocr_available():
+        logger.info(
+            "OCR fallback skipped — ocrmypdf / Tesseract / Ghostscript "
+            "not reachable. Install them, or rely on extracted text only."
+        )
+        return None
+
+    output_path = _ocr_cache_path(source_path, cache_dir)
+    if output_path.exists():
+        logger.info("Using cached OCR'd PDF: %s", output_path)
+        return output_path
+
+    # Lazy import — the module-level import of pdf_parser must stay light
+    # so callers without ocrmypdf in their env don't crash at import time.
+    import ocrmypdf
+
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+    kwargs: dict = {"skip_text": True}
+    if ocr_language:
+        kwargs["language"] = ocr_language
+
+    try:
+        logger.info(
+            "Running OCR on %s -> %s (lang=%s)",
+            source_path, output_path, ocr_language or "auto",
+        )
+        ocrmypdf.ocr(source_path, str(output_path), **kwargs)
+        return output_path
+    except Exception as exc:
+        logger.warning("OCR fallback failed: %s", exc)
+        if output_path.exists():
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+        return None
+
+
+def parse_pdf(
+    file_path: str | Path,
+    *,
+    ocr_language: str = "",
+    ocr_cache_dir: Path | None = None,
+) -> ParsedBook:
     """Parse a PDF file into a ParsedBook.
+
+    If any page yields no extractable text (image-only / scanned pages),
+    and OCR tooling is available, automatically re-run extraction against
+    an ocrmypdf-produced version that has a searchable text layer added
+    where the source lacked one.
 
     Args:
         file_path: Path to the PDF file.
+        ocr_language: Tesseract language code (e.g. "fin", "eng"). When
+            empty, ocrmypdf picks its own default. Callers should pass
+            the active TTS language via ``ocr_path.tesseract_lang_for``.
+        ocr_cache_dir: When given, OCR'd PDFs are persisted here keyed
+            by source-content hash. When None, the OS temp dir is used.
 
     Returns:
         ParsedBook with metadata and chapters.
@@ -284,6 +402,8 @@ def parse_pdf(file_path: str | Path) -> ParsedBook:
     Raises:
         FileNotFoundError: If the file does not exist.
         ValueError: If the file cannot be opened as a PDF.
+        EmptyPDFError: If even after the OCR fallback the document
+            contains no extractable text.
     """
     file_path = str(file_path)
 
@@ -296,15 +416,14 @@ def parse_pdf(file_path: str | Path) -> ParsedBook:
         raise ValueError(f"Cannot open PDF: {file_path}") from exc
 
     metadata = _extract_metadata(doc, file_path)
-
-    pages_text: list[tuple[int, str]] = []
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        text = page.get_text("text")  # plain text extraction
-        if text.strip():
-            pages_text.append((page_num + 1, text))
-
+    pages_text, empty_pages = _extract_pages(doc)
     doc.close()
+
+    if empty_pages:
+        ocr_pdf = _run_ocr_fallback(file_path, ocr_language, ocr_cache_dir)
+        if ocr_pdf is not None:
+            with fitz.open(str(ocr_pdf)) as ocr_doc:
+                pages_text, _ = _extract_pages(ocr_doc)
 
     chapters = _split_into_chapters(pages_text)
 

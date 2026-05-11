@@ -88,6 +88,23 @@ def get_tessdata_dir() -> str | None:
     return None
 
 
+# Map AudiobookMaker's TTS language codes ("fi", "en") to Tesseract's
+# three-letter codes ("fin", "eng"). Keep in sync with the language packs
+# bundled by audiobookmaker.spec. Unknown / empty / other languages fall
+# back to English — Tesseract is more forgiving of an English-on-Finnish
+# OCR pass than the other way around (English letterforms are a superset
+# of the diacriticless Latin alphabet).
+_TTS_TO_TESSERACT = {
+    "fi": "fin",
+    "en": "eng",
+}
+
+
+def tesseract_lang_for(tts_lang: str) -> str:
+    """Return the Tesseract --language code matching a TTS book-language."""
+    return _TTS_TO_TESSERACT.get(tts_lang, "eng")
+
+
 def is_ocr_available() -> bool:
     """True only when every piece OCR needs is reachable.
 
