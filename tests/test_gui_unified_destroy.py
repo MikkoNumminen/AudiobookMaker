@@ -3,11 +3,10 @@
 These tests run on headless CI without a real Tk window — they bypass
 ``__init__`` entirely and stub only the attributes that ``destroy()`` reads.
 
-The after-cancel sweep (step 1) only cancels callbacks whose info script name
-contains "update" (the AppearanceModeTracker rescheduling loop).  It skips
-CTk-internal callbacks (e.g. _windows_set_titlebar_icon) because cancelling
-those causes a _tkinter.TclError: can't delete Tcl command during
-super().destroy() widget teardown.
+The after-cancel sweep (step 1) cancels exactly the IDs recorded in
+``_scheduled_afters`` — the set populated by UnifiedApp's overridden
+``after()`` / ``after_idle()`` methods.  It never consults ``tk.call``
+for pending IDs, and it never guesses by script-name substring.
 """
 from __future__ import annotations
 
@@ -29,104 +28,155 @@ _AUDIO_PLAYER_PATH = "src.gui_unified._audio_player"
 _SUPER_DESTROY_PATH = "customtkinter.CTk.destroy"
 
 
-def _make_stub():
+def _make_stub(scheduled_afters=None):
     """Return a UnifiedApp instance with __init__ bypassed and all Tk
     attributes replaced by MagicMock objects.
 
     Only the attributes that ``destroy()`` actually reads are set here;
     everything else is irrelevant to these tests.
+
+    *scheduled_afters* seeds ``_scheduled_afters``; defaults to an empty set.
     """
     from src.gui_unified import UnifiedApp
 
     obj = object.__new__(UnifiedApp)
     obj.tk = MagicMock()
     obj.after_cancel = MagicMock()
+    obj._scheduled_afters = set(scheduled_afters) if scheduled_afters else set()
     return obj
 
 
-def _make_tk_call(ids, infos):
-    """Build a tk.call side_effect that handles both:
+# ---------------------------------------------------------------------------
+# Tests — after() / after_idle() tracking
+# ---------------------------------------------------------------------------
 
-    - ``("after", "info")`` → returns *ids* (str, tuple, or empty)
-    - ``("after", "info", id)`` → returns the matching entry from *infos*
 
-    *ids* may be a str (space-separated), tuple, or empty str/tuple.
-    *infos* is a dict mapping each id to its info tuple, e.g.
-    ``{"after#0": ("12345update", "timer")}``.
-    """
-    def side_effect(*args):
-        if args == ("after", "info"):
-            return ids
-        if len(args) == 3 and args[0] == "after" and args[1] == "info":
-            return infos.get(args[2], ())
-        return MagicMock()
-    return side_effect
+class TestAfterTracking:
+    def test_after_method_records_id(self):
+        """after() must record the returned ID in ``_scheduled_afters``."""
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        obj._scheduled_afters = set()
+
+        fake_id = "after#42"
+        with patch("customtkinter.CTk.after", return_value=fake_id):
+            result = obj.after(0, lambda: None)
+
+        assert result == fake_id
+        assert fake_id in obj._scheduled_afters
+
+    def test_after_method_handles_missing_set(self):
+        """after() must work defensively even if __init__ has not yet set
+        ``_scheduled_afters`` (CTk calls after() during its own __init__)."""
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        # Deliberately do NOT set _scheduled_afters.
+
+        fake_id = "after#99"
+        with patch("customtkinter.CTk.after", return_value=fake_id):
+            result = obj.after(100, lambda: None)
+
+        assert result == fake_id
+        assert fake_id in obj._scheduled_afters
+
+    def test_after_idle_records_id(self):
+        """after_idle() must record the returned ID in ``_scheduled_afters``."""
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        obj._scheduled_afters = set()
+
+        fake_id = "after#idle1"
+        with patch("customtkinter.CTk.after_idle", return_value=fake_id):
+            result = obj.after_idle(lambda: None)
+
+        assert result == fake_id
+        assert fake_id in obj._scheduled_afters
+
+    def test_after_none_id_not_recorded(self):
+        """If super().after() returns None/empty, nothing is added to the set."""
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        obj._scheduled_afters = set()
+
+        with patch("customtkinter.CTk.after", return_value=None):
+            obj.after(0, lambda: None)
+
+        assert len(obj._scheduled_afters) == 0
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests — destroy() step 1: cancel from _scheduled_afters
 # ---------------------------------------------------------------------------
 
 
 class TestDestroyAfterCallbackCancellation:
-    def test_destroy_cancels_update_callback_string_form(self):
-        """When tk.call returns a space-separated string, the callback whose
-        info contains 'update' is cancelled; others are skipped."""
-        obj = _make_stub()
-        infos = {
-            "after#0": ("12345update", "timer"),
-            "after#1": ("67890_windows_set_titlebar_icon", "timer"),
-        }
-        obj.tk.call.side_effect = _make_tk_call("after#0 after#1", infos)
+    def test_destroy_cancels_all_scheduled_afters(self):
+        """Every ID in ``_scheduled_afters`` must be cancelled by destroy()."""
+        obj = _make_stub(scheduled_afters={"after#0", "after#1", "after#2"})
 
         with patch(_AUDIO_PLAYER_PATH), patch(_SUPER_DESTROY_PATH):
             obj.destroy()
 
-        obj.after_cancel.assert_called_once_with("after#0")
+        assert obj.after_cancel.call_count == 3
+        called_with = {c.args[0] for c in obj.after_cancel.call_args_list}
+        assert called_with == {"after#0", "after#1", "after#2"}
 
-    def test_destroy_cancels_pending_after_callbacks_tuple_form(self):
-        """Regression test for fix #1: a tuple return from tk.call must not
-        become garbage via str(tuple).split() — the IDs must be iterated
-        correctly regardless of whether they look like 'update' callbacks."""
-        obj = _make_stub()
-        infos = {
-            "after#1": ("12345update", "timer"),
-            "after#2": ("67890update", "timer"),
-        }
-        obj.tk.call.side_effect = _make_tk_call(("after#1", "after#2"), infos)
+    def test_destroy_clears_scheduled_afters_after_cancel(self):
+        """``_scheduled_afters`` must be empty after destroy() completes."""
+        obj = _make_stub(scheduled_afters={"after#0"})
 
         with patch(_AUDIO_PLAYER_PATH), patch(_SUPER_DESTROY_PATH):
             obj.destroy()
 
-        # Both IDs contain 'update' so both are cancelled.
-        obj.after_cancel.assert_any_call("after#1")
-        obj.after_cancel.assert_any_call("after#2")
-        assert obj.after_cancel.call_count == 2
+        assert obj._scheduled_afters == set()
 
-    def test_destroy_handles_empty_after_info(self):
-        """An empty string return must not trigger any after_cancel calls."""
-        obj = _make_stub()
-        obj.tk.call.side_effect = _make_tk_call("", {})
+    def test_destroy_handles_empty_scheduled_afters(self):
+        """If ``_scheduled_afters`` is empty, no after_cancel calls are made."""
+        obj = _make_stub(scheduled_afters=set())
 
         with patch(_AUDIO_PLAYER_PATH), patch(_SUPER_DESTROY_PATH):
             obj.destroy()
 
         obj.after_cancel.assert_not_called()
 
-    def test_destroy_skips_non_update_callbacks(self):
-        """CTk-internal callbacks (e.g. _windows_set_titlebar_icon) must NOT
-        be cancelled — cancelling them causes TclError during super().destroy()
-        because CTk tracks and tries to deletecommand() them itself."""
-        obj = _make_stub()
-        infos = {
-            "after#1": ("12345_windows_set_titlebar_icon", "timer"),
-        }
-        obj.tk.call.side_effect = _make_tk_call(("after#1",), infos)
+    def test_destroy_tolerates_already_fired_id(self):
+        """If after_cancel raises for an already-fired ID, destroy() must
+        continue and still call super().destroy()."""
+        obj = _make_stub(scheduled_afters={"after#expired", "after#live"})
+        obj.after_cancel.side_effect = lambda id_: (
+            (_ for _ in ()).throw(Exception("already fired"))
+            if id_ == "after#expired"
+            else None
+        )
+
+        with patch(_AUDIO_PLAYER_PATH), patch(_SUPER_DESTROY_PATH) as mock_super:
+            obj.destroy()  # must not raise
+
+        mock_super.assert_called_once()
+
+    def test_destroy_does_not_touch_tk_call_for_after_info(self):
+        """destroy() must NOT query tk.call('after', 'info') — that was the
+        old brittle heuristic; the new implementation only uses _scheduled_afters."""
+        obj = _make_stub(scheduled_afters=set())
 
         with patch(_AUDIO_PLAYER_PATH), patch(_SUPER_DESTROY_PATH):
             obj.destroy()
 
-        obj.after_cancel.assert_not_called()
+        # Ensure no "after", "info" introspection calls happened.
+        for c in obj.tk.call.call_args_list:
+            args = c.args
+            assert not (len(args) >= 2 and args[0] == "after" and args[1] == "info"), (
+                f"destroy() must not call tk.call('after', 'info', ...) — found: {c}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Tests — destroy() step 2: AppearanceModeTracker cleanup
+# ---------------------------------------------------------------------------
 
 
 class TestDestroyAppearanceModeTracker:
@@ -134,7 +184,6 @@ class TestDestroyAppearanceModeTracker:
         """destroy() must clear AppearanceModeTracker.app_list and set
         update_loop_running to False."""
         obj = _make_stub()
-        obj.tk.call.side_effect = _make_tk_call((), {})
 
         mock_tracker = MagicMock()
         mock_tracker.app_list = MagicMock()
@@ -155,7 +204,6 @@ class TestDestroyAppearanceModeTracker:
         after a customtkinter upgrade renames the class), destroy() must log at
         WARNING level, not DEBUG."""
         obj = _make_stub()
-        obj.tk.call.side_effect = _make_tk_call((), {})
 
         # Make the tracker's app_list.clear() blow up to trigger the except branch.
         mock_tracker = MagicMock()
@@ -180,12 +228,18 @@ class TestDestroyAppearanceModeTracker:
         )
 
 
+# ---------------------------------------------------------------------------
+# Tests — destroy() resilience
+# ---------------------------------------------------------------------------
+
+
 class TestDestroyContinuesAfterPartialFailure:
     def test_destroy_continues_after_partial_failure(self):
-        """If tk.call raises (Tcl already torn down), the audio player stop
-        and super().destroy() must still be called."""
-        obj = _make_stub()
-        obj.tk.call.side_effect = RuntimeError("tcl gone")
+        """If after_cancel raises for every ID in ``_scheduled_afters``
+        (simulating Tcl already torn down), the audio player stop and
+        super().destroy() must still be called."""
+        obj = _make_stub(scheduled_afters={"after#0"})
+        obj.after_cancel.side_effect = RuntimeError("tcl gone")
 
         mock_player = MagicMock()
         mock_audio = MagicMock()
@@ -197,3 +251,87 @@ class TestDestroyContinuesAfterPartialFailure:
 
         mock_player.stop.assert_called_once()
         mock_super.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests — Fix 1: after-ID auto-discarded when callback fires naturally
+# ---------------------------------------------------------------------------
+
+
+class TestAfterTrackingAutoDiscard:
+    """When a wrapped callback fires naturally, its ID must be discarded
+    from _scheduled_afters automatically (no destroy() needed)."""
+
+    def test_after_id_discarded_when_callback_fires(self):
+        """Calling the wrapped callback (simulating Tk firing it) must
+        remove the ID from _scheduled_afters."""
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        obj._scheduled_afters = set()
+
+        # Capture the wrapped callback that super().after() receives.
+        captured_wrapped = []
+        def fake_super_after(ms, wrapped=None):
+            if wrapped is not None:
+                captured_wrapped.append(wrapped)
+            return "after#1"
+
+        with patch("customtkinter.CTk.after", side_effect=fake_super_after):
+            user_callback = MagicMock()
+            obj.after(50, user_callback)
+
+        # ID is in the set before the wrapped callback fires.
+        assert "after#1" in obj._scheduled_afters
+
+        # Simulate Tk firing the wrapped callback.
+        assert len(captured_wrapped) == 1
+        captured_wrapped[0]()
+
+        # User callback ran, and the ID is gone from the set.
+        user_callback.assert_called_once()
+        assert "after#1" not in obj._scheduled_afters
+
+
+# ---------------------------------------------------------------------------
+# Tests — Fix 2: after_cancel() keeps _scheduled_afters in sync
+# ---------------------------------------------------------------------------
+
+
+class TestAfterCancelHygiene:
+    """after_cancel() must discard the ID from _scheduled_afters so
+    destroy() doesn't try to cancel an already-cancelled ID."""
+
+    def test_after_cancel_discards_id_from_set(self):
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        obj._scheduled_afters = {"after#5", "after#6"}
+
+        with patch("customtkinter.CTk.after_cancel") as super_cancel:
+            obj.after_cancel("after#5")
+
+        super_cancel.assert_called_once_with("after#5")
+        assert obj._scheduled_afters == {"after#6"}
+
+    def test_after_cancel_with_none_id_is_safe(self):
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        obj._scheduled_afters = {"after#7"}
+
+        with patch("customtkinter.CTk.after_cancel"):
+            obj.after_cancel(None)
+
+        # Set untouched on None.
+        assert obj._scheduled_afters == {"after#7"}
+
+    def test_after_cancel_without_tracking_set_is_safe(self):
+        """If __init__ hasn't run yet (somehow), after_cancel must not crash."""
+        from src.gui_unified import UnifiedApp
+
+        obj = object.__new__(UnifiedApp)
+        # Deliberately do NOT set _scheduled_afters.
+
+        with patch("customtkinter.CTk.after_cancel"):
+            obj.after_cancel("after#X")  # must not raise
