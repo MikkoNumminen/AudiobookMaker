@@ -105,10 +105,7 @@ excludes = [
     "chatterbox",
     "chatterbox_tts",
     "voxcpm",
-    "pyannote",
-    "pyannote.audio",
-    "pyannote.core",
-    "pyannote.metrics",
+    "pyannote",  # prefix-matches pyannote.audio / pyannote.core / pyannote.metrics
     "silero_vad",
     "safetensors",
     "accelerate",
@@ -120,8 +117,7 @@ excludes = [
     "speechbrain",
     "soundfile",
     "librosa",
-    "sklearn",
-    "scikit_learn",
+    "sklearn",  # also the PyPI 'scikit-learn' wheel — same package
     "huggingface_hub",
     # Standard heavy deps the main spec already excludes.
     "matplotlib",
@@ -158,6 +154,9 @@ excludes = [
     "license_expression",
     "tabulate",
     "imageio_ffmpeg",
+    # psutil is transitive from pip_audit / cyclonedx in dev site-packages
+    # and is not imported by any reachable code under src/ today. Remove
+    # this entry if a real use case lands.
     "psutil",
     # Jupyter / notebook stack (transitive risk via dev tooling).
     "jupyter",
