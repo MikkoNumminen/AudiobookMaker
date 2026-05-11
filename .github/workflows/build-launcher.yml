@@ -8,6 +8,21 @@ on:
   push:
     tags:
       - "launcher-v*"
+  # Run on PRs that touch launcher-relevant files so spec / installer
+  # changes get verified by an actual build before they land on master.
+  # The release step at the bottom is gated by a `startsWith(...launcher-v)`
+  # check, so this trigger only exercises the build + smoke-test path
+  # and never publishes a release. `paths` filter keeps unrelated PRs
+  # (e.g. main-app spec changes) from spending 5-10 minutes on a build
+  # they don't need.
+  pull_request:
+    branches: [master]
+    paths:
+      - 'audiobookmaker_launcher.spec'
+      - 'installer/launcher.iss'
+      - 'src/launcher.py'
+      - 'src/launcher_bridge.py'
+      - '.github/workflows/build-launcher.yml'
   # Manual trigger button on the Actions tab (and `gh workflow run`)
   # so we can test-build the installer without creating a real release.
   workflow_dispatch:
@@ -37,7 +52,7 @@ jobs:
 
       - name: Run tests
         run: |
-          py -3 -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short
+          python -m pytest tests/ --ignore=tests/test_record_voice_sample.py -x -q --tb=short
         shell: bash
 
       - name: Download ffmpeg
