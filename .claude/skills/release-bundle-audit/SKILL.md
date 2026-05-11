@@ -346,6 +346,12 @@ Body must include:
   drop is silent — `a.pure` keeps the modules, the .py files ship inside
   the PYZ, and the bundle size barely moves while you congratulate
   yourself.
+- **`_drop_path` is duplicated in both `audiobookmaker.spec` and
+  `audiobookmaker_launcher.spec`.** PyInstaller `.spec` files have no
+  clean way to share helpers (you would have to add a sibling
+  `spec_helpers.py` and play `pathex` tricks). When you fix a bug in
+  one copy or add a needle, mirror the change to the other spec in the
+  same audit — the two filters drift silently otherwise.
 - **pre-commit hook flake** on `test_gui_e2e.py::test_hero_tagline_…`:
   the test spawns a subprocess against `.venv-chatterbox` to probe
   installation status, and that subprocess can hang on Windows when the
@@ -378,7 +384,7 @@ anything under `scripts/`, and the two `.spec` files. The reference
 point is the last bundle-audit merge on master — find it with:
 
 ```bash
-LAST_AUDIT=$(git log --grep='build(spec): trim release bundle' \
+LAST_AUDIT=$(git log --grep='build(spec).*bundle' \
                      --format='%H' -n 1 origin/master)
 ```
 
