@@ -266,7 +266,7 @@ class ChatterboxRunner:
             python_exe="/path/to/.venv-chatterbox/bin/python",
             script_path="scripts/generate_chatterbox_audiobook.py",
             pdf_path="/path/to/book.pdf",
-            out_dir="/path/to/out/audiobook",
+            out_dir="/path/to/.local/audiobooks",
         )
         runner.start()
         while not runner.finished:

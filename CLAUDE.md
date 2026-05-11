@@ -92,35 +92,56 @@ leak the same severity as leaked secrets.
   Claude owns the main worktree — see `feedback_gh_api_merge_pattern.md`
   in memory), and ask the user before any history rewrite (destructive).
 
-## One canonical output directory — `out/` (dev) and next-to-exe (frozen)
+## One canonical local tree — `.local/` (dev) and next-to-exe (frozen)
 
-All generated material — audiobook MP3s, synthesis logs, diagnostic
-CSVs, stress-test outputs, scratch files from scripts — goes to **one
-place, always**:
+All dev-machine I/O lives under a single gitignored root: `./.local/`.
+Source material and generated output share that root but are split into
+clear subdirs so the layout stays readable:
 
-- **Dev mode:** `./out/` in the repo root. Gitignored.
-- **Frozen mode (installed .exe):** next to the running `.exe` (install
-  root). Users expect their files there.
+- **`.local/sources/`** — input source material (PDFs, EPUBs, audio
+  inputs, reference clips you brought in by hand). Never push.
+- **`.local/audiobooks/`** — synthesized MP3 output (the canonical dev
+  output dir; `synthesis_orchestrator.default_output_dir()` resolves
+  here in dev mode).
+- **`.local/voice_runs/`** — voice-clone analyze / diarize / pack runs.
+- **`.local/voice_packs/`** — trained LoRA voice packs.
+- **`.local/scratch/`** — one-off log files, intermediate `.txt`,
+  prompt files, anything ephemeral that doesn't fit above.
+- **`.local/clone_scratch/`** — voice-clone-from-file pipeline scratch
+  (path is fixed in `src/gui_clone_voice.py` and a hygiene test;
+  do not redirect).
+- **`.local/archive/`** — old run dirs from past sessions that don't
+  fit the canonical layout. Read-only by convention; new code never
+  writes here.
+
+Frozen mode (installed `.exe`) keeps writing output next to the running
+`.exe` (install root), not into a `.local/` folder — end users expect
+to find their audiobooks next to the application icon, not in a hidden
+folder. Same `synthesis_orchestrator.default_output_dir()` function
+handles both modes; do not bypass it.
 
 **Do not** write generated files to:
 - The repo root — no more `*.log`, `diagnostic_*.csv`, or ad-hoc
   `*_input.txt` scratch files scattered next to `README.md`.
+- `out/` — the old dev output dir is gone; everything moved into
+  `.local/audiobooks/`. Don't recreate it.
 - `dist/` — reserved for the PyInstaller build pipeline (ffmpeg.exe
   input + frozen-exe output consumed by the installer). Never a runtime
   target. If you find a leaked scratch dir under `dist/`, move it to
-  `out/` and fix the write site.
+  `.local/audiobooks/` and fix the write site.
 - Sibling-to-input paths — don't auto-name an MP3 next to the source
   PDF just because the PDF was at the repo root.
 - `~/Documents/AudiobookMaker/` — the old dev default. Replace with
-  `./out/` when you touch that code next.
+  `default_output_dir()` when you touch that code next.
 
-If code today writes somewhere else (e.g. `synthesis_orchestrator.default_output_dir`
-returning `~/Documents/AudiobookMaker`), that's a bug — fix it at the
-write site, don't add a second output root to work around it.
+If code today writes somewhere else (e.g.
+`synthesis_orchestrator.default_output_dir` returning
+`~/Documents/AudiobookMaker`), that's a bug — fix it at the write
+site, don't add a second output root to work around it.
 
-`out/` is for runtime and dev-work output. `.local/` is for local-only
-input source material. `dist/` is for the PyInstaller build pipeline.
-Never mix the three.
+`.local/` is the single dev-machine I/O root. `dist/` is for the
+PyInstaller build pipeline. Frozen-mode output is next-to-exe at
+runtime. Never blur the three.
 
 ## Auto-update is critical
 

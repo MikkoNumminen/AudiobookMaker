@@ -74,15 +74,15 @@ def test_parse_book_unknown_ext_falls_through_to_pdf(tmp_path: Path):
 def test_default_output_dir_dev_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    # Dev mode: not frozen. Should return ``<cwd>/out`` — the canonical
-    # dev-mode output directory. Never escapes into ~/Documents/… and
-    # never lands at the repo root.
+    # Dev mode: not frozen. Should return ``<cwd>/.local/audiobooks`` —
+    # the canonical dev-mode output directory. Never escapes into
+    # ~/Documents/… and never lands at the repo root.
     monkeypatch.setattr(sys, "frozen", False, raising=False)
     monkeypatch.chdir(tmp_path)
 
     result = default_output_dir()
 
-    assert result == tmp_path / "out"
+    assert result == tmp_path / ".local" / "audiobooks"
 
 
 def test_default_output_dir_frozen_mode(
@@ -132,7 +132,7 @@ def test_suggest_output_path_pdf_mode_uses_default_when_out_dir_none(
 
     result = suggest_output_path("pdf", str(pdf))
 
-    assert Path(result) == tmp_path / "out" / "title.mp3"
+    assert Path(result) == tmp_path / ".local" / "audiobooks" / "title.mp3"
 
 
 def test_suggest_output_path_text_mode_auto_increments(tmp_path: Path):

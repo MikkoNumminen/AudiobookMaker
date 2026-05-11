@@ -360,7 +360,8 @@ class LauncherApp(tk.Tk):
             )
             return
 
-        out_dir = (_REPO_ROOT / "dist" / "audiobook").resolve()
+        from src.synthesis_orchestrator import default_output_dir
+        out_dir = default_output_dir().resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
 
         self._chatterbox_runner = ChatterboxRunner(

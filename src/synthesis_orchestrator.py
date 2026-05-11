@@ -88,17 +88,17 @@ def default_output_dir() -> Path:
     """Return the default folder where generated MP3s go.
 
     Installed (frozen) mode: next to the running ``.exe`` (install root).
-    Dev mode: ``./out/`` under the current working directory.
+    Dev mode: ``./.local/audiobooks/`` under the current working directory.
 
     The two modes are kept deliberately different: frozen builds drop
     output next to the installed .exe so non-technical users find their
     audiobooks in the place they expect, while dev work stays inside the
-    repo's gitignored ``out/`` directory so nothing escapes into the
+    repo's gitignored ``.local/`` tree so nothing escapes into the
     developer's Documents folder or the repo root.
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path.cwd() / "out"
+    return Path.cwd() / ".local" / "audiobooks"
 
 
 def suggest_output_path(

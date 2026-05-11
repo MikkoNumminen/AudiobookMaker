@@ -32,9 +32,10 @@ __pycache__/
 # consumed by installer/setup.iss. Nothing runtime-generated goes here.
 dist/
 build/
-# Runtime and dev-work output — audiobook MP3s, synthesis logs, diagnostic
-# CSVs, stress-test outputs, scratch files from scripts. Anything the app
-# or a dev script generates locally goes under out/.
+# Legacy dev output dir. Replaced by .local/audiobooks/ — kept in
+# .gitignore so a stale ./out/ on a contributor's checkout never lands
+# in git. Code defaults route everything through default_output_dir()
+# which resolves to .local/audiobooks/ in dev.
 out/
 # Ignore auto-generated specs but not our handcrafted ones
 *.spec
