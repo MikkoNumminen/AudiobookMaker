@@ -25,10 +25,10 @@ aren't in the menu yet — the voices exist underneath, but nobody has
 tested them carefully enough to put them in front of you. Here's what
 you get with each Engine:
 
-| Language | Edge-TTS          | Piper | Chatterbox                    | VoxCPM2 (dev only) |
-|----------|-------------------|-------|-------------------------------|--------------------|
-| Finnish  | Yes (Noora)       | Yes   | Yes (Grandmom)                | Yes |
-| English  | Yes (Jenny etc.)  | Yes   | Yes (Route B, Grandmom voice) | Yes |
+| Language | Edge-TTS               | Piper    | Chatterbox                | VoxCPM2 (dev only) |
+|----------|------------------------|----------|---------------------------|--------------------|
+| Finnish  | OK (Noora)             | Untested | **Best (Grandmom)**       | Yes |
+| English  | Excellent (Jenny etc.) | Untested | **Excellent (Grandmom)**  | Yes |
 
 Which Engine should you pick? Short answer for Finnish: use
 Chatterbox if you have an NVIDIA GPU, Edge-TTS otherwise. For
