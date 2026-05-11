@@ -76,6 +76,15 @@ hidden_imports += _all_pathvalidate[2]
 # numpy is now REQUIRED at runtime (onnxruntime/piper need it), so it
 # must NOT appear in excludes. Same story for PIL (Pillow) — the hero
 # header and icon assets load PNGs via CTkImage which wraps PIL.Image.
+#
+# Defense-in-depth: today's CI build env (`pip install -r requirements.txt`)
+# does not install torch / transformers / chatterbox / pyannote / etc., so
+# they currently don't reach the bundle. But a future contributor who
+# accidentally adds one of those to requirements.txt — or who builds on a
+# dev machine with the chatterbox venv polluting site-packages — would
+# silently inflate the installer by hundreds of MB. Excluding by name
+# turns "accidentally large" into "build error", which is the desired
+# trade.
 excludes = [
     'matplotlib',
     'scipy',
@@ -85,6 +94,120 @@ excludes = [
     'notebook',
     'sphinx',
     'docutils',
+    # Heavy ML stack — Chatterbox SYNTHESIS reaches torch through a separate
+    # post-install venv (`.venv-chatterbox`), NOT in-process; VoxCPM2 is
+    # sys.frozen-gated; voice-pack cloning runs as subprocess scripts that
+    # use the chatterbox venv's Python. None of these belong in the frozen
+    # main bundle.
+    'torch',
+    'torchaudio',
+    'torchvision',
+    'transformers',
+    'chatterbox',
+    'chatterbox_tts',
+    'voxcpm',
+    'pyannote',  # prefix-matches pyannote.audio / pyannote.core / pyannote.metrics
+    'silero_vad',
+    'safetensors',
+    'accelerate',
+    'bitsandbytes',
+    'peft',
+    'ctranslate2',
+    'faster_whisper',
+    'whisper',
+    'speechbrain',
+    'soundfile',
+    'librosa',
+    'sklearn',  # also the PyPI 'scikit-learn' wheel — same package
+    'huggingface_hub',
+    # Test machinery — never reached at runtime.
+    'pytest',
+    'pytest_asyncio',
+    'pytest_cov',
+    'pytest_timeout',
+    '_pytest',
+    'coverage',
+    # System-Python pollution from dev tooling (pip_audit / cyclonedx /
+    # rich / markdown_it / etc.). Not reachable from the frozen GUI.
+    'cyclonedx',
+    'cyclonedx_python_lib',
+    'pip_audit',
+    'pip_api',
+    'pip_requirements_parser',
+    'CacheControl',
+    'msgpack',
+    'rich',
+    'markdown_it',
+    'mdurl',
+    'Pygments',
+    'boolean',
+    'docopt',
+    'license_expression',
+    'tabulate',
+    'imageio_ffmpeg',
+    # psutil arrives transitively from pip_audit / cyclonedx in the dev
+    # site-packages and is not imported by any reachable code under
+    # src/ today. If a future GUI feature actually wants psutil (e.g. a
+    # chatterbox-venv health check), remove this entry — there's no
+    # other reason to keep it excluded.
+    'psutil',
+    # Jupyter / notebook stack (transitive risk via dev tooling).
+    'jupyter',
+    'jupyter_client',
+    'jupyter_core',
+    'jupyterlab',
+    'ipykernel',
+    'ipywidgets',
+    'tornado',
+    'zmq',
+    # PIL plugins the app does not use. Keep only Bmp/Jpeg/Png/Ico (CTkImage
+    # loads PNG icons + ICO window icon; Bmp/Jpeg added as cheap fallbacks
+    # for any user-supplied image). Pillow's PyInstaller hook otherwise
+    # pulls all 40+ plugin modules and their native sidecar libs (e.g.
+    # _avif.cp311-win_amd64.pyd is 7.6 MB on its own).
+    'PIL.AvifImagePlugin',
+    'PIL.BlpImagePlugin',
+    'PIL.BufrStubImagePlugin',
+    'PIL.CurImagePlugin',
+    'PIL.DcxImagePlugin',
+    'PIL.DdsImagePlugin',
+    'PIL.EpsImagePlugin',
+    'PIL.FitsImagePlugin',
+    'PIL.FliImagePlugin',
+    'PIL.FpxImagePlugin',
+    'PIL.FtexImagePlugin',
+    'PIL.GbrImagePlugin',
+    'PIL.GifImagePlugin',
+    'PIL.GribStubImagePlugin',
+    'PIL.Hdf5StubImagePlugin',
+    'PIL.IcnsImagePlugin',
+    'PIL.ImImagePlugin',
+    'PIL.ImtImagePlugin',
+    'PIL.IptcImagePlugin',
+    'PIL.Jpeg2KImagePlugin',
+    'PIL.McIdasImagePlugin',
+    'PIL.MicImagePlugin',
+    'PIL.MpegImagePlugin',
+    'PIL.MpoImagePlugin',
+    'PIL.MspImagePlugin',
+    'PIL.PalmImagePlugin',
+    'PIL.PcdImagePlugin',
+    'PIL.PcxImagePlugin',
+    'PIL.PdfImagePlugin',
+    'PIL.PixarImagePlugin',
+    'PIL.PpmImagePlugin',
+    'PIL.PsdImagePlugin',
+    'PIL.QoiImagePlugin',
+    'PIL.SgiImagePlugin',
+    'PIL.SpiderImagePlugin',
+    'PIL.SunImagePlugin',
+    'PIL.TgaImagePlugin',
+    'PIL.TiffImagePlugin',
+    'PIL.WebPImagePlugin',
+    'PIL.WmfImagePlugin',
+    'PIL.XVThumbImagePlugin',
+    'PIL.XbmImagePlugin',
+    'PIL.XpmImagePlugin',
 ]
 
 binaries = _all_onnx[1] + _all_piper[1] + _all_pathvalidate[1]
@@ -95,14 +218,23 @@ binaries = _all_onnx[1] + _all_piper[1] + _all_pathvalidate[1]
 hidden_imports += ['piper.espeakbridge', 'piper.voice', 'piper.config',
                    'piper.phonemize_espeak', 'piper.phoneme_ids', 'piper.const']
 
-# Bundle ffmpeg.exe, ffprobe.exe, and ffplay.exe from dist/ffmpeg/ into the
-# package root so pydub can find them at runtime (see src/ffmpeg_path.py).
-# ffprobe is required by pydub to read audio file metadata (mediainfo_json).
-# ffplay is used by the Listen button.
+# Bundle ffmpeg.exe and ffprobe.exe from dist/ffmpeg/ into the package
+# root so pydub can find them at runtime (see src/ffmpeg_path.py).
+# ffprobe is required by pydub to read audio file metadata
+# (mediainfo_json) — kept because pydub.AudioSegment.from_file() in
+# src/tts_audio.py:85 detects format via ffprobe before deciding which
+# decoder to use.
+#
+# ffplay.exe is NOT bundled — the Listen / Preview button plays via
+# pygame in src/_audio_player.py (see src/gui_unified.py:_on_listen_click).
+# The dead helper UnifiedApp._find_ffplay at src/gui_unified.py:2442 has
+# no callers; voice_recorder.py's ffplay usage lives behind the dev-only
+# voice-cloning subprocess that ships its own ffplay via the chatterbox
+# venv. Skipping ffplay.exe (~195 MB raw / ~50 MB compressed) is the
+# single biggest installer-size win.
 datas = [
     (os.path.join('dist', 'ffmpeg', 'ffmpeg.exe'), '.'),
     (os.path.join('dist', 'ffmpeg', 'ffprobe.exe'), '.'),
-    (os.path.join('dist', 'ffmpeg', 'ffplay.exe'), '.'),
 ]
 # Pull piper/onnxruntime/pathvalidate data (includes espeak-ng-data/,
 # onnxruntime config files, etc.) from collect_all().
@@ -195,9 +327,77 @@ a = Analysis(
 # ctranslate2 copy gets picked first. Keep torch's full cuDNN suite; strip
 # the ctranslate2 duplicate so the end-user .exe matches the dev workaround
 # (we rename the ctranslate2 copy to .disabled on developer machines).
+#
+# (Now strictly belt-and-suspenders — ctranslate2 is also in `excludes=`
+# above, so it shouldn't enter the bundle in the first place. Left in
+# place to defend against dev-machine builds where ctranslate2 lands via
+# site-packages despite the exclude.)
 a.binaries = [
     b for b in a.binaries
     if not b[0].lower().replace('\\', '/').endswith('ctranslate2/cudnn64_9.dll')
+]
+
+# ── Bundle trimming: drop subtrees and native libs we don't use ──────────
+#
+# These trims target specific paths inside packages we DO need (piper,
+# onnxruntime, PIL). The excludes list above operates at module-import
+# granularity; this filter operates on physical paths in `a.datas`,
+# `a.pure`, and `a.binaries`. Together they keep the frozen bundle from
+# carrying unused dependencies AND from carrying unused payload inside
+# used dependencies.
+def _drop_path(item, *needles):
+    """True if any needle matches the item's dest path (case-insensitive).
+
+    Handles both path-style entries (``a.datas`` / ``a.binaries`` —
+    ``"piper/tashkeel/foo.onnx"``) and module-name entries (``a.pure`` —
+    ``"piper.tashkeel.foo"``) by checking the raw form and the
+    dot-to-slash normalized form against needles like ``"piper/tashkeel/"``.
+    """
+    raw = item[0].lower().replace('\\', '/')
+    as_path = raw.replace('.', '/')
+    return any(n.lower() in raw or n.lower() in as_path for n in needles)
+
+
+# piper ships a 4.6 MB Arabic diacritization model (tashkeel/) plus
+# training-only tools and CLI helpers the GUI engine never invokes.
+# The engine uses piper.voice.PiperVoice + piper.phonemize_espeak only.
+_piper_unused_paths = (
+    'piper/tashkeel/',          # Arabic diacritizer ONNX + scaler
+    'piper/train/',             # training utilities
+    'piper/phonemize_chinese',  # CN phonemizer (we ship en/fi voices)
+    'piper/http_server',        # CLI HTTP server entry point
+    'piper/__main__',           # python -m piper CLI dispatcher
+    'piper/download_voices',    # voice-pack downloader (app uses its own)
+)
+
+# onnxruntime ships training/quantization toolchains alongside the
+# inference runtime. Piper only consumes onnxruntime.InferenceSession
+# (loads from onnxruntime/capi/), so the dev tools are dead weight.
+_onnxruntime_unused_paths = (
+    'onnxruntime/transformers/',   # ONNX-Runtime transformer optimizers
+    'onnxruntime/quantization/',   # model quantization toolchain
+    'onnxruntime/tools/',          # CLI tools
+    'onnxruntime/backend/',        # legacy backend shim (deprecated)
+    'onnxruntime/datasets/',       # sample data
+)
+
+# Drop native PIL plugin DLLs that pair with the excluded plugin modules.
+# Without the .pyd files the plugin imports would have failed at runtime
+# anyway; this just reclaims the disk space.
+_pil_unused_binaries = (
+    'pil/_avif.',     # 7.6 MB — AVIF format
+    'pil/_webp.',     # WebP — no WebP assets in the app
+    'pil/_imagingcms.',  # ICC color profile management (printing)
+)
+
+_unused_path_needles = _piper_unused_paths + _onnxruntime_unused_paths
+
+a.datas = [d for d in a.datas if not _drop_path(d, *_unused_path_needles)]
+a.pure = [p for p in a.pure if not _drop_path(p, *_unused_path_needles)]
+a.binaries = [
+    b for b in a.binaries
+    if not _drop_path(b, *_unused_path_needles)
+    and not _drop_path(b, *_pil_unused_binaries)
 ]
 
 pyz = PYZ(
