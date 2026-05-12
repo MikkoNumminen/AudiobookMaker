@@ -118,6 +118,12 @@ jobs:
           cp "$TESS_DIR/tessdata/eng.traineddata" dist/ocr/tessdata/
           curl -L -o dist/ocr/tessdata/fin.traineddata \
             "https://github.com/tesseract-ocr/tessdata_fast/raw/main/fin.traineddata"
+          # configs/ holds Tesseract output-format presets (hocr, txt, pdf
+          # etc.) that ocrmypdf invokes via the Tesseract subprocess.
+          # Without these files OCR runs to 100% then ocrmypdf crashes
+          # trying to read empty .hocr output (caught during PR #26 smoke
+          # test on a 32-page scanned PDF).
+          cp -r "$TESS_DIR/tessdata/configs" dist/ocr/tessdata/
           # Ghostscript: ocrmypdf calls gswin64c.exe for image preprocessing
           # of certain scanned PDF layouts. Glob the version-prefixed install
           # dir so a Ghostscript point release doesn't break this step.
