@@ -102,10 +102,17 @@ class TestConvertHelp:
     def test_convert_help_lists_all_flags(self):
         result = _cli("convert", "--help")
         output = result.stdout + result.stderr
-        for flag in ("--engine", "--language", "--voice", "--speed", "--output",
+        # --speed is deferred from v1 (see docs/CLI.md "Deferred from v1").
+        for flag in ("--engine", "--language", "--voice", "--output",
                      "--ref-audio", "--voice-pack", "--chunk-chars", "--dry-run",
                      "--json", "--quiet"):
             assert flag in output, f"'{flag}' not in convert --help"
+
+    def test_convert_help_does_not_list_speed(self):
+        # Verifying the removal of the silent-no-op --speed flag.
+        result = _cli("convert", "--help")
+        output = result.stdout + result.stderr
+        assert "--speed" not in output, "--speed should be deferred from v1"
 
 
 # ---------------------------------------------------------------------------
@@ -339,33 +346,6 @@ class TestEnvVarPrecedence:
 class TestConvertMocked:
     """Test convert with the inprocess synthesis mocked out so no real TTS runs."""
 
-    def test_convert_inprocess_success(self, tmp_path):
-        from src.launcher_bridge import ProgressEvent
-
-        path = _tmp_txt("A longer sentence for testing the CLI. Second sentence here.")
-        out = str(tmp_path / "output.mp3")
-        try:
-            with mock.patch(
-                "src.synthesis_orchestrator.run_inprocess_synthesis",
-                side_effect=lambda req, on_event: (
-                    on_event(ProgressEvent(kind="log", raw_line="Synthesizing...")),
-                    on_event(ProgressEvent(kind="done", output_path=out, raw_line=f"Saved: {out}")),
-                ),
-            ):
-                result = _cli(
-                    "convert", path,
-                    "--engine", "edge",
-                    "--language", "en",
-                    "--output", out,
-                )
-            # Exit 0 expected from the subprocess which runs in its own process,
-            # so we can only validate the overall flow via the subprocess approach.
-            # (mock.patch won't affect the subprocess — validate via dry-run instead)
-            # This test structure validates the import path is correct.
-            assert True  # If we got here without import error, the structure is valid.
-        finally:
-            os.unlink(path)
-
     def test_convert_quiet_mode_dry_run(self, tmp_path):
         path = _tmp_txt()
         out = str(tmp_path / "output.mp3")
@@ -386,5 +366,33 @@ class TestConvertMocked:
                 "convert", path, "--dry-run", "--json", "--engine", "edge", "--output", out,
             )
             assert result.returncode == 0
+            # The dry-run output must be parseable JSON, not the plain-text key/value
+            # form used in human mode.
+            stripped = result.stdout.strip()
+            assert stripped, "expected at least one JSON line from --dry-run --json"
+            obj = json.loads(stripped)
+            assert obj["dry_run"] is True
+            assert obj["engine"] == "edge"
+            assert obj["input"] == path
         finally:
             os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Voices dedup
+# ---------------------------------------------------------------------------
+
+
+class TestVoicesDedup:
+    def test_json_no_duplicate_voice_ids_per_engine(self):
+        """A voice id should appear at most once per engine even when the
+        engine returns the same voice for multiple languages."""
+        result = _cli("voices", "list", "--engine", "edge", "--json")
+        assert result.returncode == 0
+        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+        seen = set()
+        for line in lines:
+            obj = json.loads(line)
+            key = (obj["engine"], obj["id"])
+            assert key not in seen, f"duplicate voice {key} in voices list output"
+            seen.add(key)

@@ -35,8 +35,12 @@ EXIT_INTERNAL = 5
 #   --engine     AUDIOBOOKMAKER_ENGINE
 #   --language   AUDIOBOOKMAKER_LANGUAGE
 #   --voice      AUDIOBOOKMAKER_VOICE
-#   --speed      AUDIOBOOKMAKER_SPEED
 #   --output     AUDIOBOOKMAKER_OUTPUT
+#
+# --speed is deferred from v1: the underlying TTSEngine.synthesize()
+# signature does not accept a speed parameter, and adding it would be
+# a base-class change (i.e. business logic outside the CLI layer).
+# Tracked in docs/CLI.md "Deferred from v1".
 
 
 def resolve_str(
@@ -65,11 +69,11 @@ def resolve_str(
 
 
 def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --engine, --language, --voice, --speed, --output to a parser.
+    """Add --engine, --language, --voice, --output to a parser.
 
-    These five flags have identical semantics across convert and sample.
-    Each flag documents its env-var override and default so --help is
-    the contract.
+    These four flags have identical semantics across convert and
+    sample. Each flag documents its env-var override and default so
+    --help is the contract.
     """
     parser.add_argument(
         "--engine",
@@ -104,16 +108,6 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
-        "--speed",
-        metavar="ADJ",
-        default=None,
-        help=(
-            "Speed adjustment: -25%%, +0%%, +25%%, +50%%. "
-            "Default from config; fallback: +0%%. "
-            "Env: AUDIOBOOKMAKER_SPEED."
-        ),
-    )
-    parser.add_argument(
         "--output",
         metavar="PATH",
         default=None,
@@ -132,7 +126,7 @@ def add_output_mode_flags(parser: argparse.ArgumentParser) -> None:
         "--json",
         action="store_true",
         default=False,
-        help="Emit one JSON object per line (ProgressEvent shape).",
+        help="Emit one JSON object per line (NDJSON format, ProgressEvent shape).",
     )
     group.add_argument(
         "--quiet",
@@ -223,6 +217,31 @@ def _app_root() -> Path:
 
 
 def runner_script_path() -> Path:
-    """Return the path to generate_chatterbox_audiobook.py."""
+    """Return the path to generate_chatterbox_audiobook.py.
+
+    TODO(cli-frozen-build): when the standalone audiobookmaker_cli.spec
+    ships, verify that scripts/generate_chatterbox_audiobook.py is in
+    that bundle's datas list or this lookup will fail at runtime in
+    installed-binary mode. The GUI's spec already includes it; the
+    CLI's future spec must too.
+    """
     root = _app_root()
     return root / "scripts" / "generate_chatterbox_audiobook.py"
+
+
+def validate_input_path(path: str) -> tuple[int, str]:
+    """Validate that ``path`` exists and has a supported book extension.
+
+    Returns ``(EXIT_OK, '')`` if valid, or ``(EXIT_BAD_INPUT, message)``
+    if invalid. Shared by convert and sample so the validation rules
+    stay in one place.
+    """
+    if not Path(path).exists():
+        return EXIT_BAD_INPUT, f"input file not found: {path}"
+    ext = Path(path).suffix.lower()
+    if ext not in (".pdf", ".epub", ".txt"):
+        return (
+            EXIT_BAD_INPUT,
+            f"unsupported file type '{ext}'. Supported formats: .pdf, .epub, .txt",
+        )
+    return EXIT_OK, ""

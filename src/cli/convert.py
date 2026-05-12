@@ -36,6 +36,7 @@ from src.cli._common import (
     print_event,
     resolve_str,
     runner_script_path,
+    validate_input_path,
 )
 
 
@@ -103,25 +104,15 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
     input_path = args.input
 
     # Validate input file.
-    if not Path(input_path).exists():
-        print(f"Error: input file not found: {input_path}", file=sys.stderr)
-        return EXIT_BAD_INPUT
-    ext = Path(input_path).suffix.lower()
-    if ext not in (".pdf", ".epub", ".txt"):
-        print(
-            f"Error: unsupported file type '{ext}'. "
-            "Supported formats: .pdf, .epub, .txt",
-            file=sys.stderr,
-        )
-        return EXIT_BAD_INPUT
+    code, msg = validate_input_path(input_path)
+    if code != EXIT_OK:
+        print(f"Error: {msg}", file=sys.stderr)
+        return code
 
-    # Resolve config and flags.
-    try:
-        from src.app_config import load as load_config
-        cfg = load_config()
-    except Exception:
-        from src.app_config import UserConfig
-        cfg = UserConfig()
+    # Resolve config and flags. app_config.load() already returns a
+    # default UserConfig() on disk / JSON errors, so no outer wrap.
+    from src.app_config import load as load_config
+    cfg = load_config()
 
     engine_id = resolve_str(
         getattr(args, "engine", None),
@@ -176,6 +167,7 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
             voice_pack=voice_pack,
             chunk_chars=chunk_chars,
             is_sample=(sample_text is not None),
+            json_mode=json_mode,
         )
         return EXIT_OK
 
@@ -405,9 +397,33 @@ def _print_dry_run(
     voice_pack: Optional[str],
     chunk_chars: Optional[int],
     is_sample: bool,
+    json_mode: bool = False,
 ) -> None:
-    """Print what the conversion would do without running it."""
+    """Print what the conversion would do without running it.
+
+    In ``--json`` mode emits a single JSON object so the dry-run is
+    machine-readable for the same callers that consume ``--json`` for
+    the real run.
+    """
     kind = "sample" if is_sample else "convert"
+
+    if json_mode:
+        import json as _json
+        obj = {
+            "dry_run": True,
+            "kind": kind,
+            "input": input_path,
+            "engine": engine_id,
+            "language": language,
+            "voice": voice_id,
+            "output": output_path,
+            "ref_audio": ref_audio,
+            "voice_pack": voice_pack,
+            "chunk_chars": chunk_chars,
+        }
+        print(_json.dumps(obj), flush=True)
+        return
+
     print(f"dry-run: {kind}")
     print(f"  input:      {input_path}")
     print(f"  engine:     {engine_id}")

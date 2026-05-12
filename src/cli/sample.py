@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from src.cli._common import (
     EXIT_BAD_INPUT,
@@ -24,7 +23,7 @@ from src.cli._common import (
     EXIT_OK,
     add_common_synthesis_flags,
     add_output_mode_flags,
-    resolve_str,
+    validate_input_path,
 )
 
 
@@ -83,18 +82,12 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 def run(args: argparse.Namespace) -> int:
     input_path = args.input
 
-    # Validate input file.
-    if not Path(input_path).exists():
-        print(f"Error: input file not found: {input_path}", file=sys.stderr)
-        return EXIT_BAD_INPUT
-    ext = Path(input_path).suffix.lower()
-    if ext not in (".pdf", ".epub", ".txt"):
-        print(
-            f"Error: unsupported file type '{ext}'. "
-            "Supported formats: .pdf, .epub, .txt",
-            file=sys.stderr,
-        )
-        return EXIT_BAD_INPUT
+    # Validate input file via the shared helper so the rules stay in
+    # one place across convert and sample.
+    code, msg = validate_input_path(input_path)
+    if code != EXIT_OK:
+        print(f"Error: {msg}", file=sys.stderr)
+        return code
 
     if getattr(args, "dry_run", False):
         # For dry-run, delegate to convert.run() with the flag set.
