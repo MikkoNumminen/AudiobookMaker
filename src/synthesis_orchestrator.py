@@ -42,7 +42,12 @@ from src.tts_base import get_engine
 # ---------------------------------------------------------------------------
 
 
-def parse_book(file_path: str) -> ParsedBook:
+def parse_book(
+    file_path: str,
+    *,
+    ocr_language: str = "",
+    ocr_cache_dir: Path | None = None,
+) -> ParsedBook:
     """Route a book-shaped file to the right parser by extension.
 
     ``.pdf``  -> :func:`src.pdf_parser.parse_pdf`
@@ -51,10 +56,19 @@ def parse_book(file_path: str) -> ParsedBook:
 
     Keeping the dispatcher in one place means every call site (conversion,
     preview, disk-space estimate) stays in sync when new formats are added.
+
+    ``ocr_language`` is the Tesseract code (e.g. ``"fin"`` / ``"eng"``)
+    forwarded to ``parse_pdf`` for scanned-PDF fallback. Use
+    ``src.ocr_path.tesseract_lang_for(cfg.language)`` to derive it from
+    the TTS book language at the boundary. EPUB / TXT ignore it.
     """
     ext = Path(file_path).suffix.lower()
     if ext == ".pdf":
-        return parse_pdf(file_path)
+        return parse_pdf(
+            file_path,
+            ocr_language=ocr_language,
+            ocr_cache_dir=ocr_cache_dir,
+        )
     if ext == ".epub":
         return parse_epub(file_path)
     if ext == ".txt":
@@ -76,7 +90,11 @@ def parse_book(file_path: str) -> ParsedBook:
         return ParsedBook(metadata=meta, chapters=[chapter])
     # Unknown extension — default to PDF so legacy call sites still raise
     # the familiar error message.
-    return parse_pdf(file_path)
+    return parse_pdf(
+        file_path,
+        ocr_language=ocr_language,
+        ocr_cache_dir=ocr_cache_dir,
+    )
 
 
 # ---------------------------------------------------------------------------

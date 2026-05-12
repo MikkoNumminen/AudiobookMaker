@@ -1430,7 +1430,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._input_mode == "pdf":
             if not self._pdf_path:
                 raise ValueError(self._s("no_pdf"))
-            book = parse_book(self._pdf_path)
+            from src.ocr_path import tesseract_lang_for
+            book = parse_book(
+                self._pdf_path,
+                ocr_language=tesseract_lang_for(self._current_language()),
+            )
             if not book.full_text.strip():
                 raise ValueError(self._s("pdf_no_text"))
             return book.full_text
