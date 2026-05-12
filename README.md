@@ -429,11 +429,11 @@ Now `parse_pdf` watches for empty pages and, when it sees one, runs the
 whole document through [`ocrmypdf`](https://ocrmypdf.readthedocs.io/)
 (Tesseract + Ghostscript under the hood) in `--skip-text` mode. The
 OCR'd PDF is cached on disk keyed by source SHA-256, so a second run on
-the same input skips Tesseract entirely. **Dev mode requires Tesseract
-+ Ghostscript installed locally** (winget `UB-Mannheim.TesseractOCR`
-+ Artifex Ghostscript installer) — the released `.exe` doesn't yet
-bundle them, but the spec changes that ship them are on master and
-will land in the next installer.
+the same input skips Tesseract entirely. **The released `.exe` bundles
+Tesseract + eng/fin language packs** — installer users don't need to
+do anything. **Dev mode (running from source) requires Tesseract +
+Ghostscript installed locally** (winget `UB-Mannheim.TesseractOCR` +
+Artifex Ghostscript installer).
 
 Architectural detail in [`docs/OCR_FALLBACK.md`](docs/OCR_FALLBACK.md);
 the operational runbook (when to invoke, sample-first guidance, the
