@@ -217,13 +217,13 @@ ever disagree, both are reading the same orchestrator.
 audiobookmaker --help
 audiobookmaker --version
 
-audiobookmaker convert <input> [--out PATH] [--language fi|en]
-                                [--engine edge|piper|chatterbox]
-                                [--voice ID] [--speed -25|0|+25|+50]
+audiobookmaker convert <input> [--output PATH] [--language fi|en]
+                                [--engine edge|piper|chatterbox_fi]
+                                [--voice ID]
                                 [--ref-audio PATH] [--voice-pack PATH]
                                 [--output-mode single|chapters]
                                 [--chunk-chars N] [--resume]
-                                [--dry-run]
+                                [--dry-run] [--json | --quiet]
 
 audiobookmaker sample  <input> [same flags as convert, but
                                 synthesizes only ~500 chars]
@@ -293,13 +293,26 @@ the kind of drift where the GUI fixes a bug and the CLI doesn't.
 
 - Default output is human-readable, single-line per progress step.
 - `--json` on any subcommand emits machine-readable progress events
-  (the same `ProgressEvent` shape `launcher_bridge.py` already
-  produces), one JSON object per line.
-- `--quiet` suppresses progress and prints only the final result path.
+  in NDJSON format — one JSON object per line, using the same
+  `ProgressEvent` shape `launcher_bridge.py` already produces. The
+  dry-run path emits a single JSON object summarising what would
+  happen.
+- `--quiet` emits the minimum useful output per command. `convert` and
+  `sample` print only the final MP3 path on success. List commands
+  (`voices list`, `engines list`) print one id per line. `doctor`
+  prints a one-line `OK` / `FAIL` summary. Errors always go to stderr.
 - Exit codes: 0 success; 1 bad input / validation; 2 missing dependency
   (engine not installed, ffmpeg missing); 3 user cancelled (Ctrl-C);
   4 transient runtime failure (network, GPU); 5 unexpected internal
   error.
+
+### Deferred from v1
+
+- `--speed` (per-engine speed override): the underlying
+  `TTSEngine.synthesize()` signature does not accept a speed parameter
+  today. Wiring it would be a base-class change and therefore business
+  logic outside the CLI presentation layer. Add the flag back once the
+  engine contract grows a `speed` argument.
 
 ### Configuration precedence
 
