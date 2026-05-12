@@ -216,26 +216,35 @@ touching the parser API.
 
 ### Scaling to long PDFs
 
-OCR is page-bounded: Tesseract processes one page at a time so RAM
-stays near-constant, but the wall clock is roughly linear in pages.
+OCR is page-bounded: each Tesseract worker handles one page at a time
+so per-process RAM stays near-constant. Peak RAM is `jobs` × per-page
+footprint — bounded by CPU-core count, not by document length. Wall
+clock is roughly linear in pages.
+
+Reference rate: **~1-2 s/page wall-clock** with ocrmypdf's default
+parallelism on a multi-core CPU. The 32-page PR #26 smoke test landed
+at the fast end (25 s end-to-end ≈ 0.8 s/page on a fast multi-core dev
+box).
 
 | Pages | OCR wall-clock | Notes |
 |-------|----------------|-------|
-| < 50  | < 1 min        | unnoticeable |
-| 50-200 | 1-5 min       | "this'll take a minute" territory |
-| 200-500 | 5-15 min     | brew coffee |
-| 500-1000 | 15-30 min   | dedicated step recommended |
-| 1000+ | 30+ min        | run OCR independently, ear-check sample text, then synth |
+| < 50  | under 2 min    | unnoticeable |
+| 50-200 | 1-7 min       | "this'll take a minute" territory |
+| 200-500 | 5-20 min     | brew coffee |
+| 500-1000 | 15-35 min   | dedicated step recommended |
+| 1000+ | 30 min+        | run OCR independently, ear-check sample text, then synth |
 
-ocrmypdf 17.x defaults to `jobs=os.cpu_count()`, so a multi-core box
-parallelises page jobs up to the per-page Tesseract bottleneck (~8
-effective jobs in practice). On a long source, the dominant cost is
-still per-page Tesseract; CPU-core count helps but doesn't change the
-order of magnitude.
+ocrmypdf 17.x uses all available CPU cores by default
+(`multiprocessing.cpu_count()`), so a multi-core box parallelises page
+jobs up to the per-page Tesseract bottleneck (~8 effective jobs in
+practice). On a long source, the dominant cost is still per-page
+Tesseract; CPU-core count helps but doesn't change the order of
+magnitude.
 
-Disk-side: ocrmypdf writes intermediate PNGs into the OS temp dir
-(~1-2 MB per scanned page). For a 1000-page source, intermediates can
-hit 1-2 GB. If `TEMP` is on a small partition, set `TMPDIR` to a
+Disk-side: ocrmypdf writes intermediate PNGs into the OS temp dir.
+Rough order of magnitude: ~1-2 MB per scanned page, so a 1000-page
+source can land 1-2 GB of scratch in TEMP before the OCR'd output is
+finalised. If `TEMP` is on a small partition, set `TMPDIR` to a
 roomier location BEFORE invoking `parse_pdf`. Cache files in
 `.local/ocr/cache/<sha256>.pdf` add another source-PDF's worth of
 disk (~the same size as the input).

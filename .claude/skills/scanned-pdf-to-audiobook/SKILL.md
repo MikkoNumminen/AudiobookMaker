@@ -210,9 +210,12 @@ Surface to the user:
 
 - char count (10 000 chars ≈ 30 min of audio at average speech rate)
 - page count
-- wall-clock (OCR is ~3-8 s per page on a modern CPU; 200-page book ≈
-  10-25 min — if you're seeing per-page times an order of magnitude over
-  that, Tesseract is probably hitting the wrong language pack)
+- wall-clock — see the [wall-clock table in
+  `docs/OCR_FALLBACK.md` §10](../../../docs/OCR_FALLBACK.md#10-performance-characteristics).
+  Reference rate is ~1-2 s/page with ocrmypdf's default parallelism
+  on a multi-core CPU. If you're seeing per-page times an order of
+  magnitude over that, Tesseract is probably hitting the wrong
+  language pack.
 - the first ~100-200 chars of `book.full_text` as a sanity check.
 
 If the snippet is garbage characters, the language is wrong (or the source
@@ -310,21 +313,21 @@ Surface the final MP3 path when done.
 
 ## Very long PDFs (300+ pages, 100+ MB)
 
-The pipeline handles long PDFs mechanically — Tesseract processes one page
-at a time so RAM stays bounded — but the wall-clock and disk story changes
-enough that it deserves its own pre-flight. Apply this whole section before
-Step 3 when the source PDF is over ~100 MB or you can see it has hundreds
-of pages.
+The pipeline handles long PDFs mechanically — Tesseract processes one
+page at a time per worker, so per-process RAM stays near-constant — but
+the wall-clock and disk story changes enough that it deserves its own
+pre-flight. Apply this whole section before Step 3 when the source PDF
+is over ~100 MB or you can see it has hundreds of pages.
 
 ### Pre-flight: size + disk
 
 ```bash
 # Source size and rough page count
-python -c "import fitz, sys; d=fitz.open(sys.argv[1]); print(f'pages={len(d)}, size_mb={__import__(\"os\").path.getsize(sys.argv[1])/1e6:.1f}')" .local/<source>.pdf
+python -c "import fitz, os, sys; d=fitz.open(sys.argv[1]); print(f'pages={len(d)}, size_mb={os.path.getsize(sys.argv[1])/1e6:.1f}')" .local/<source>.pdf
 
 # OS temp dir free space — ocrmypdf writes intermediates here.
-# Roughly 1-2 MB of intermediate state per scanned page; 1000 pages ≈ 2 GB
-# Always check before kicking off a multi-hour run.
+# Rough order of magnitude: ~1-2 MB per scanned page; a 1000-page source
+# can land 1-2 GB of scratch in TEMP before the OCR'd output is finalised.
 df -h "$TEMP" 2>/dev/null || powershell -NoProfile -Command "Get-PSDrive -Name C | Select-Object Used,Free"
 ```
 
@@ -334,22 +337,18 @@ parse_pdf so ocrmypdf lands its scratch there.
 
 ### Wall-clock expectations
 
-Tesseract scales linearly in pages on CPU. The 32-page smoke test took 25 s
-end-to-end on this dev box — about **~0.8 s per page** in the best case.
-Rough rules of thumb:
+The canonical table lives at
+[`docs/OCR_FALLBACK.md` §10](../../../docs/OCR_FALLBACK.md#10-performance-characteristics)
+— update the doc, not this section, when the numbers drift. Reference
+rate is ~1-2 s/page wall-clock with ocrmypdf's default parallelism on a
+multi-core CPU. The 32-page PR #26 smoke test landed at the fast end
+(25 s end-to-end ≈ 0.8 s/page on a fast multi-core box).
 
-| Pages | OCR wall-clock | What the user should be told |
-|-------|---------------|-------------------------------|
-| < 50  | < 1 min       | "kicking off OCR" |
-| 50-200 | 1-5 min      | "this'll take a few minutes" |
-| 200-500 | 5-15 min    | "go grab coffee" |
-| 500-1000 | 15-30 min  | "this is a 15-30 min OCR pass, then a multi-hour synth" |
-| 1000+ | 30+ min      | "run OCR in a dedicated step; ear-check the OCR'd text BEFORE committing to synth" |
-
-ocrmypdf 17.x defaults to `jobs=os.cpu_count()`, so on a 16-core box you'll
-see speedups close to linear up to ~8 jobs (Tesseract's per-page work is
-single-threaded internally; parallelism comes from running multiple page
-jobs concurrently).
+ocrmypdf 17.x uses all available CPU cores by default
+(`multiprocessing.cpu_count()`), so peak RAM scales with `jobs` × per-page
+footprint — bounded by core count, not by document length. Tesseract
+itself is single-threaded per page; the speedup comes from running
+multiple page-jobs concurrently and tops out around 8 effective jobs.
 
 ### Run OCR as a dedicated step on long sources
 
