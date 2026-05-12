@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 from src.launcher_bridge import ProgressEvent
@@ -84,9 +85,10 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
         "--language",
         metavar="LANG",
         default=None,
-        choices=["fi", "en"],
         help=(
-            "Language code: fi or en. "
+            "Language code (e.g. fi, en). The Language picker in the GUI "
+            "exposes fi + en; other codes route through to the engine, "
+            "which will reject anything it doesn't speak. "
             "Default from config; fallback: auto-detect from locale. "
             "Env: AUDIOBOOKMAKER_LANGUAGE."
         ),
@@ -211,9 +213,6 @@ def print_event(event: ProgressEvent, *, json_mode: bool, quiet: bool) -> None:
 # ---------------------------------------------------------------------------
 # Resolve runner script path (same logic the GUI uses)
 # ---------------------------------------------------------------------------
-
-
-from pathlib import Path  # noqa: E402 — placed here to avoid top-level import noise
 
 
 def _app_root() -> Path:

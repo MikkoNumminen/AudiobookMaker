@@ -64,14 +64,13 @@ def run(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------
     # 2. GPU
     # ------------------------------------------------------------------
+    gpu = None
+    _gpu_err = ""
     try:
         from src.system_checks import detect_gpu
         gpu = detect_gpu()
     except Exception as exc:
-        gpu = None
         _gpu_err = str(exc)
-    else:
-        _gpu_err = ""
 
     if gpu is not None and gpu.has_nvidia:
         gpu_status = "ok"
