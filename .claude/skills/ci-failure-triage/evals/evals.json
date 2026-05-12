@@ -1,0 +1,26 @@
+{
+  "skill_name": "ci-failure-triage",
+  "evals": [
+    {
+      "id": 1,
+      "name": "pytest-timeout-late-fire",
+      "prompt": "CI is red on the v3.12.1 tag. The 'Run tests' step passed all tests but then the build crashed with 'AssertionError in read_global_capture()'. What's wrong and how do I fix it?",
+      "expected_output": "Assistant runs 'gh run list --limit 5' to confirm the failing run, then 'gh run view <id> --log-failed' to capture the error. Matches recipe R1 (pytest-timeout late fire). Explains that pytest-timeout's thread method cannot cancel its timer on headless Windows and the timer fires during Tcl shutdown. Fix: add '-p no:timeout' to the pytest command in build-release.yml and drop '--cov' if present. Commit message follows 'fix(ci): disable pytest-timeout — thread-method timer fires late on Windows'. Since the failure was on a release tag, instructs user to re-tag using the release-cut skill after the fix lands on master.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "ffmpeg-pin-rotated",
+      "prompt": "The release build is failing at the 'Download ffmpeg' step with a 404. Last release was a week ago and worked fine.",
+      "expected_output": "Assistant runs 'gh run list --limit 5' and 'gh run view <id> --log-failed' to confirm the 404 on the ffmpeg download step. Matches recipe R3 (ffmpeg autobuild pin rotated off BtbN). Directs user to https://github.com/BtbN/FFmpeg-Builds/releases to find the current autobuild tag. States that BOTH build-release.yml and build-launcher.yml must be updated to the new pin. Commit message: 'fix(ci): bump ffmpeg pin to <new-tag>'. Does not mention re-tagging because the failure is on a PR run, not a release tag.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "tk-thread-hang-new-file",
+      "prompt": "CI is hanging indefinitely on the 'Run tests' step. I just added a new test file tests/test_audio_utils.py that imports from src/voice_recorder.py.",
+      "expected_output": "Assistant runs 'gh run list --limit 5' and 'gh run view <id> --log-failed'. Matches recipe R2 (Tk-thread hang — GUI test file slipped past ignore list). Explains that src/voice_recorder.py does a module-level tkinter import which initialises the Tcl notifier thread on headless GHA Windows. Fix: add '--ignore=tests/test_audio_utils.py' to the pytest command in build-release.yml. Also checks pytest.ini for consistency. Notes that both files must be updated. Commit: 'fix(ci): add test_audio_utils.py to CI ignore list — transitive module-level tkinter import hangs headless runner'.",
+      "files": []
+    }
+  ]
+}

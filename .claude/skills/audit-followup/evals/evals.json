@@ -1,0 +1,26 @@
+{
+  "skill_name": "audit-followup",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standard-five-bucket-followup",
+      "prompt": "The 2026-04-23 audit is done. Let's burn down those findings and land the fixes.",
+      "expected_output": "Assistant reads docs/audits/audit-2026-04-23.md, buckets findings into the five areas (resource lifecycle, data integrity, concurrency, error paths, external boundaries), removes any struck-through false positives, proposes five branch names following the fix/audit-2026-04-23-<area> pattern with per-branch finding counts, waits for user confirmation, then spawns one sub-agent per non-empty bucket via the worktree-launch procedure. After PRs land, writes a single merge commit 'merge: land audit 2026-04-23 fixes across N parallel branches' with PR references, then appends a Follow-up status section to the audit report and commits it as docs(audits): record follow-up merge SHA for audit-2026-04-23.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "critical-finding-escalates-to-p0",
+      "prompt": "Start the audit follow-up for the latest audit. One of the findings is critical.",
+      "expected_output": "Assistant reads the latest audit report, identifies the critical finding, escalates it to P0 and fixes it immediately on the current branch before spawning any sub-agents. States the P0 resolution clearly, then proceeds to bucket remaining findings, propose branches, and spawn sub-agents for the non-critical work. The merge commit notes the P0 fix that landed before the parallel branches.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "sparse-report-skips-empty-buckets",
+      "prompt": "Fix the audit findings from audit-2026-05-12.md — it only had findings in error-paths and external-boundaries, the rest were clean.",
+      "expected_output": "Assistant reads docs/audits/audit-2026-05-12.md, confirms three buckets (resource lifecycle, data integrity, concurrency) are empty or fully struck-through, skips those branches entirely, and spawns exactly two sub-agents: one for fix/audit-2026-05-12-error-paths and one for fix/audit-2026-05-12-external-boundaries. After both PRs merge, writes the sweep commit referencing only the two PRs and notes the three skipped buckets in the Follow-up status section of the audit report.",
+      "files": []
+    }
+  ]
+}
