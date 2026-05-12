@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-2172%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-2047%20passing-brightgreen)](tests/)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
 
 [![Stars](https://img.shields.io/github/stars/MikkoNumminen/AudiobookMaker?style=social)](https://github.com/MikkoNumminen/AudiobookMaker/stargazers)
@@ -103,29 +103,25 @@ right now.
 
 ## What's new
 
-**v3.12.0** -- Slimmer installer, faster engine manager, no more
-voice-cloning surface in the GUI:
+**v3.13.0** -- Scanned PDFs now work:
 
-- **−27% installer footprint** -- removed unused subtrees from the
-  PyInstaller bundle (ffplay.exe, AVIF support, ONNX training tools,
-  Arabic phonemizer model) and added defense-in-depth excludes that
-  keep the heavy ML stack (torch / transformers / pyannote /
-  chatterbox) out of the frozen build for good. Uncompressed bundle
-  dropped from 786 MB to 568 MB
-- **Engine manager opens fast** -- the dialog used to spawn a
-  torch + pyannote import probe twice per open (5-15 s × 2 of GPU
-  model load); now it does a filesystem stat instead. Sub-second
-  cold open
-- **Voice creation moved out of the GUI** -- the in-app voice
-  importer, the Hugging Face token modal, and the pyannote-gated-
-  model walkthrough are gone. Voice packs are still created in the
-  dev environment via `scripts/voice_pack_analyze.py`; the GUI
-  just consumes finished packs through `Import voice pack`
-- **Engine list reads better** -- Chatterbox row now says
-  "Chatterbox (Isoäiti + Grandmom)" so users stop looking for a
-  separate English engine
+- **OCR fallback for image-only PDFs.** When the parser hits a page
+  with no embedded text layer (scans, photographs of book pages), it
+  now runs Tesseract via ocrmypdf to recover the words, then feeds
+  the OCR'd text to the chosen TTS engine. English and Finnish
+  language packs ship with the installer — no first-run download.
+  Mixed-content PDFs (some pages text-bearing, others image-only)
+  are handled page by page
+- **Architecture writeup** lives in
+  [docs/OCR_FALLBACK.md](docs/OCR_FALLBACK.md), and a new
+  `scanned-pdf-to-audiobook` skill encodes the end-to-end runbook
 
-Older releases (v3.11.2 back to v2.0.0) live in
+The v3.12.x cleanup also rolls into this release: voice-cloning
+surface removed from the GUI, installer footprint cut ~27 %, engine
+manager opens sub-second, and the launcher CI workflow actually
+verifies launcher builds now.
+
+Older releases (v3.12.1 back to v2.0.0) live in
 [docs/RELEASES.md](docs/RELEASES.md) so this page stays focused on what
 just shipped.
 
@@ -148,10 +144,10 @@ just shipped.
 
 ## Installation
 
-**Download:** [AudiobookMaker v3.12.1](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.12.1)
+**Download:** [AudiobookMaker v3.13.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.13.0)
 
 **How to install:**
-1. Download `AudiobookMaker-Setup-3.12.1.exe`
+1. Download `AudiobookMaker-Setup-3.13.0.exe`
 2. Double-click it. Windows will show a SmartScreen warning because the
    installer isn't signed -- click **More info**, then **Run anyway**
 3. Click Next a few times, done
@@ -422,6 +418,29 @@ step-by-step walkthrough lives in
 Edge-TTS and is about 8× faster for large books (the cloud voice
 takes parallel requests well).
 
+### You can read scanned / image-only PDFs
+
+Born-digital PDFs are easy — the text is right there in the file. Scanned
+PDFs (photographed pages, image-only exports, anything where the words
+live as pixels) used to dead-end with a "PDF contains no extractable
+text — may be scanned, try OCR first" error.
+
+Now `parse_pdf` watches for empty pages and, when it sees one, runs the
+whole document through [`ocrmypdf`](https://ocrmypdf.readthedocs.io/)
+(Tesseract + Ghostscript under the hood) in `--skip-text` mode. The
+OCR'd PDF is cached on disk keyed by source SHA-256, so a second run on
+the same input skips Tesseract entirely. **Dev mode requires Tesseract
++ Ghostscript installed locally** (winget `UB-Mannheim.TesseractOCR`
++ Artifex Ghostscript installer) — the released `.exe` doesn't yet
+bundle them, but the spec changes that ship them are on master and
+will land in the next installer.
+
+Architectural detail in [`docs/OCR_FALLBACK.md`](docs/OCR_FALLBACK.md);
+the operational runbook (when to invoke, sample-first guidance, the
+`tessdata/configs/` gotcha) is the
+[`scanned-pdf-to-audiobook`](.claude/skills/scanned-pdf-to-audiobook/SKILL.md)
+Claude Code skill.
+
 ### You can fix a mispronunciation yourself
 
 When the Finnish voice mispronounces something -- a loanword, an
@@ -436,7 +455,7 @@ lexicon lives in
 
 ### You get the full test suite
 
-2172 tests and counting. The pre-commit hook runs them on every
+2047 tests and counting. The pre-commit hook runs them on every
 commit; CI runs them on every push. Breaking a test gets caught
 before it ever reaches master.
 
@@ -582,7 +601,7 @@ bridge, auto-update flow, cleanup — see
 
 ## Claude Code skills (measured)
 
-The [`.claude/skills/`](.claude/skills/) directory holds four
+The [`.claude/skills/`](.claude/skills/) directory holds seven
 custom skills for
 [Claude Code](https://www.anthropic.com/claude-code) that automate
 the repetitive, mistake-prone parts of maintaining this project. A
@@ -590,13 +609,16 @@ skill is a single `SKILL.md` file that Claude Code loads into its
 context when a matching keyword is used, giving Claude a written
 playbook for a recurring task.
 
-Three of the four are domain-specific — `release-cut` knows exactly
-which AudiobookMaker files to bump, `pronunciation-corpus-add` knows
-where the Finnish pronunciation corpus lives — so they live in this
-repository because detaching them would break them. The fourth,
-`audit`, is universal by design: it ran first on this codebase and
-is being promoted into its own standalone repo. Both places are
-wired from the same idea: measure the benefit, don't guess.
+Most of them are domain-specific — `release-cut` knows exactly which
+AudiobookMaker files to bump, `pronunciation-corpus-add` knows where
+the Finnish pronunciation corpus lives, `scanned-pdf-to-audiobook`
+encodes the OCR-fallback runbook including the failure modes a fresh
+session would re-discover the hard way. One (`audit`) is universal
+by design: it ran first on this codebase and is being promoted into
+its own standalone repo. All of them are wired from the same idea:
+measure the benefit, don't guess. The four oldest have measured
+token/quality numbers below; the three added in 2026-05 haven't been
+benchmarked yet.
 
 ### Measured impact
 
@@ -657,6 +679,31 @@ whole point is to decide honestly which skills to keep.
   on this repo produced 66 findings and 26 `fix(*)` commits. Universal
   by design — not AudiobookMaker-specific. Triggered by "audit this
   codebase", "find bugs", "robustness review". Not benchmarked yet.
+- **[`voice-clone-finnish`](.claude/skills/voice-clone-finnish/SKILL.md)** —
+  end-to-end Finnish voice cloning from an audio file: chunked analyze
+  with ECAPA diarization, transcript validation per speaker, LoRA
+  training (or few-shot ref-clip fallback for short sources),
+  packaging, ear-check by synth. Encodes the empirically-validated
+  pipeline so the "trust pyannote labels", "single-speaker default",
+  and "install copyright-derived packs to ~/.audiobookmaker" mistakes
+  don't recur. Triggered by "copy the voices", "clone these voices",
+  "extract voices from this clip".
+- **[`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md)** —
+  audit the PyInstaller `.spec` files for unused deps + dead-code
+  data files; propose spec-only fixes on a `chore/release-bundle-size`
+  branch. First run cut the uncompressed bundle 786 MB → 568 MB
+  (-28%) by dropping ffplay.exe, AVIF support, the Arabic phonemizer,
+  and ONNX training tools, plus a defense-in-depth exclude set that
+  catches future regressions. Triggered by "the installer is huge",
+  "shrink the .exe", "audit the .spec".
+- **[`scanned-pdf-to-audiobook`](.claude/skills/scanned-pdf-to-audiobook/SKILL.md)** —
+  operational runbook for the OCR fallback above. Pre-flight checks
+  (Tesseract + Ghostscript reachable, `tessdata/configs/` present),
+  language picker = TTS language (auto), sample-first voice
+  ear-check, failure-modes table covering the four real failure
+  surfaces, and a dedicated "very long PDFs" section for 300+-page
+  sources. Triggered by "this PDF is scanned", "OCR this and read it
+  aloud", "the EmptyPDFError says it might be scanned".
 
 ### A note on methodology
 
@@ -708,7 +755,7 @@ AudiobookMaker/
 │   └── voice_pack/                # Voice pack artefact format + import
 ├── data/
 │   └── fi_loanwords.yaml          # Loanword lexicon
-├── tests/                         # Unit tests (2172)
+├── tests/                         # Unit tests (2047)
 ├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
 ├── docs/                          # Documentation and research notes
 ├── installer/                     # Inno Setup build scripts
