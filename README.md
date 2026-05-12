@@ -618,7 +618,7 @@ bridge, auto-update flow, cleanup — see
 
 ## Claude Code skills (measured)
 
-The [`.claude/skills/`](.claude/skills/) directory holds seven
+The [`.claude/skills/`](.claude/skills/) directory holds fourteen
 custom skills for
 [Claude Code](https://www.anthropic.com/claude-code) that automate
 the repetitive, mistake-prone parts of maintaining this project. A
@@ -721,6 +721,56 @@ whole point is to decide honestly which skills to keep.
   surfaces, and a dedicated "very long PDFs" section for 300+-page
   sources. Triggered by "this PDF is scanned", "OCR this and read it
   aloud", "the EmptyPDFError says it might be scanned".
+- **[`voice-pack-from-audio-short`](.claude/skills/voice-pack-from-audio-short/SKILL.md)** —
+  few-shot voice cloning for audio sources under five minutes
+  (the LoRA-training path in `voice-clone-finnish` needs more data
+  than that). `ffprobe` duration gate, ECAPA diarization, per-speaker
+  transcript validation, few-shot packaging, ear-check synth.
+  Triggered by "copy this voice quickly", "I have a short clip",
+  "make a fast pack".
+- **[`audit-followup`](.claude/skills/audit-followup/SKILL.md)** —
+  translates an `audit-<date>.md` report into one fix branch per area
+  (resource lifecycle / data integrity / concurrency / error paths /
+  external boundaries) with parallel sub-agents doing the actual
+  fixes, then a merge sweep. Pairs with the `audit` skill above so
+  finding-the-bug and fixing-the-bug are separate, parallelisable
+  workflows. Triggered by "land the audit fixes", "fix the audit
+  findings", "burn down audit-<date>".
+- **[`ci-failure-triage`](.claude/skills/ci-failure-triage/SKILL.md)** —
+  when CI fails on a release tag or PR, walks the failure modes in
+  the right order against a recipe library built from this project's
+  `fix(ci)` commit history (FFmpeg URL rot, py-launcher PATH
+  resolution, Pytest collection misses, etc.). Saves the "where do I
+  even start" thinking. Triggered by "CI is red", "the build failed",
+  "tag failed CI".
+- **[`commit-then-scan`](.claude/skills/commit-then-scan/SKILL.md)** —
+  pre-commit ritual that re-reads `TODO.md`, scans the staged diff for
+  AI-origin mentions and copyright leaks, validates the Conventional
+  Commits subject, and only then runs `git commit`. Encodes the three
+  CLAUDE.md obligations that have each been skipped in past sessions.
+  Triggered by "commit this", "make a commit", "stage and commit".
+- **[`copyright-scan`](.claude/skills/copyright-scan/SKILL.md)** —
+  scans a git diff (staged by default, or a named revision range) for
+  accidental third-party copyright leaks. CLAUDE.md marks copyright
+  leakage as P0 — this skill turns the manual scan ritual into a
+  one-pass pass/fail report with `file:line` citations and, on fail,
+  the exact remediation path. Triggered by "scan the diff", "copyright
+  check", "is this safe to push".
+- **[`pre-push-scan`](.claude/skills/pre-push-scan/SKILL.md)** —
+  every pre-push safety check in one pass before any `git push` — AI
+  mention scan, copyright leak scan, accidental `TODO.md` content,
+  Conventional Commits subject validation, across every commit in the
+  push range. Composes `copyright-scan` and `commit-then-scan` so a
+  multi-commit branch can't slip something past push. Triggered by
+  "ready to push", "push it", "let's ship this".
+- **[`worktree-launch`](.claude/skills/worktree-launch/SKILL.md)** —
+  starts a new parallel Claude session safely: picks a free session
+  slot (Claude 1/2/3/4), creates the worktree under
+  `.claude/worktrees/<branch>`, claims a task in `TODO.md`, verifies
+  isolation actually held after the agent runs (per the
+  "worktree isolation is a hint, not a guarantee" CLAUDE.md
+  rule). Triggered by "start a new session", "spawn another Claude",
+  "open a worktree".
 
 ### A note on methodology
 
