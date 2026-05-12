@@ -102,34 +102,44 @@ jobs:
         # (e.g. for a PR-only build) PyInstaller produces a no-OCR build
         # that degrades gracefully on scanned PDFs (EmptyPDFError instead
         # of crash). See src/ocr_path.py and src/pdf_parser.py.
+        #
+        # Trained-data is pinned to the tessdata_fast 4.1.0 release tag
+        # (latest tag as of 2026-05-12 — the repo releases roughly every
+        # Tesseract major bump, so we re-evaluate whenever pyocr / Tesseract
+        # itself moves). Both files are SHA-verified; SHAs lifted into the
+        # YAML env: block above the run: block to mirror the ffmpeg-pin
+        # shape (see "Download ffmpeg" step) and stay greppable.
         if: github.event_name == 'push'
+        env:
+          TESSDATA_RELEASE: "4.1.0"
+          ENG_TRAINEDDATA_SHA: 7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2
+          FIN_TRAINEDDATA_SHA: 61a04cd62b507c3d9ae0e1cda399e6715ebf49dea9df47897c8acdcd3bd3e13c
         run: |
           set -e
           mkdir -p dist/ocr/tessdata
           # Tesseract: Chocolatey is preinstalled on GHA Windows runners.
           # The choco package installs to "C:\Program Files\Tesseract-OCR".
+          # We use it for the binary + DLLs + configs/ subdir only; the
+          # trained-data ships from tessdata_fast at a pinned tag below.
           choco install tesseract -y --no-progress
           TESS_DIR="/c/Program Files/Tesseract-OCR"
           cp "$TESS_DIR/tesseract.exe" dist/ocr/
           cp "$TESS_DIR"/*.dll dist/ocr/ 2>/dev/null || true
-          # Chocolatey's Tesseract ships eng + osd by default; pull Finnish
-          # from tessdata_fast (smaller LSTM model, identical API to
-          # tessdata_best for the OCR-fallback use case).
-          #
-          # URL pinned to the 4.1.0 release tag — `main` branch HEAD would
-          # silently change the bundled trained-data on every build, the
-          # same class of rot that bit ffmpeg in PR #19. SHA verified the
-          # same way as ffmpeg.zip a few lines above.
-          cp "$TESS_DIR/tessdata/eng.traineddata" dist/ocr/tessdata/
-          FIN_TRAINEDDATA_SHA=61a04cd62b507c3d9ae0e1cda399e6715ebf49dea9df47897c8acdcd3bd3e13c
+          # Pull both eng and fin from tessdata_fast at the pinned tag so
+          # the bundled trained-data isn't subject to choco-package drift.
+          # SHA-verified the same way ffmpeg.zip is checked above.
+          curl -L -o dist/ocr/tessdata/eng.traineddata \
+            "https://github.com/tesseract-ocr/tessdata_fast/raw/${TESSDATA_RELEASE}/eng.traineddata"
+          echo "${ENG_TRAINEDDATA_SHA}  dist/ocr/tessdata/eng.traineddata" | sha256sum -c -
           curl -L -o dist/ocr/tessdata/fin.traineddata \
-            "https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/fin.traineddata"
+            "https://github.com/tesseract-ocr/tessdata_fast/raw/${TESSDATA_RELEASE}/fin.traineddata"
           echo "${FIN_TRAINEDDATA_SHA}  dist/ocr/tessdata/fin.traineddata" | sha256sum -c -
           # configs/ holds Tesseract output-format presets (hocr, txt, pdf
           # etc.) that ocrmypdf invokes via the Tesseract subprocess.
           # Without these files OCR runs to 100% then ocrmypdf crashes
           # trying to read empty .hocr output (caught during PR #26 smoke
-          # test on a 32-page scanned PDF).
+          # test on a 32-page scanned PDF). Shipped by the choco package
+          # alongside the binary; not part of the tessdata_fast pin.
           cp -r "$TESS_DIR/tessdata/configs" dist/ocr/tessdata/
           # Ghostscript: ocrmypdf calls gswin64c.exe for image preprocessing
           # of certain scanned PDF layouts. Glob the version-prefixed install
