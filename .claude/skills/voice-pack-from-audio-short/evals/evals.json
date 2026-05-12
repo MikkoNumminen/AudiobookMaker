@@ -1,0 +1,26 @@
+{
+  "skill_name": "voice-pack-from-audio-short",
+  "evals": [
+    {
+      "id": 1,
+      "name": "short-clip-correct-tier",
+      "prompt": "I have a 90-second WAV of two people talking. Can you quickly clone both voices?",
+      "expected_output": "Assistant asks operator how many speakers they hear and the gender mix before starting any analysis. Then runs ffprobe to confirm under 300 s. Normalizes to 16 kHz mono WAV. Runs run_chunked_analyze with diarizer='ecapa' and num_speakers=2. Validates transcripts per speaker. Runs voice_pack_package with --tier few-shot for each speaker. Synthesizes a 30 s ear-check sample per speaker using --ref-audio only (no --voice-pack adapter). Places packs in .local/voice_packs/. Does NOT attempt LoRA training. Does NOT install packs to ~/.audiobookmaker.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "over-five-minutes-handoff",
+      "prompt": "Here is a 12-minute interview clip. Make a fast pack from it.",
+      "expected_output": "Assistant runs ffprobe and sees duration over 300 s. Stops and tells the user this source is over five minutes, so LoRA training is viable and the voice-clone-finnish skill should be used instead. Does not proceed with the few-shot path. Does not normalize or analyze the clip.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "bad-diarization-recovery",
+      "prompt": "The transcript validation shows both speaker labels contain the same kind of speech — looks like ECAPA conflated them on this 2-minute clip. What now?",
+      "expected_output": "Assistant retries run_chunked_analyze with diarizer='pyannote' and re-validates transcripts. If pyannote also produces conflated labels, offers the operator manual ref-segment selection: asks them to pick a timestamp by ear for each speaker, then slices that segment as the reference clip directly using ffmpeg. Does not declare done until transcript validation passes or the operator explicitly accepts the limitation.",
+      "files": []
+    }
+  ]
+}

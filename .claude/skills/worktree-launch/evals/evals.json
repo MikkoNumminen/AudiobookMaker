@@ -1,0 +1,26 @@
+{
+  "skill_name": "worktree-launch",
+  "evals": [
+    {
+      "id": 1,
+      "name": "launch-new-session-with-free-slot",
+      "prompt": "Spin up a second Claude session to work on the CI timeout fix. I'm already Claude 1.",
+      "expected_output": "Assistant fetches and fast-forward-merges master, reads TODO.md in full, finds a 🟢 idle slot (e.g. Claude 2), picks branch name 'ci-timeout-fix', runs 'git worktree add .claude/worktrees/ci-timeout-fix -b ci-timeout-fix origin/master', verifies the worktree appears in 'git worktree list', then produces a launch block for Claude 2 containing the absolute worktree path, the session ID 'Claude 2', and the task description — and instructs the new session to invoke the work-session skill to claim the task before touching any code.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "detect-and-fix-isolation-leak",
+      "prompt": "The agent just stopped. Check whether the worktree was actually isolated.",
+      "expected_output": "Assistant runs 'git -C <main-repo-path> status' targeting the main checkout (not the worktree). If any files the agent touched appear as modified, assistant identifies each one with 'git diff --name-only', then surgically reverts each with 'git checkout HEAD -- <leaked-file>' — not 'git stash' or 'git restore .' — and re-runs 'git status' to confirm the main tree is clean. If the tree was already clean, assistant reports isolation held.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "refuse-fifth-session",
+      "prompt": "All four Claude sessions are busy but I need another one right now. Just spin up a Claude 5.",
+      "expected_output": "Assistant refuses to create a Claude 5 slot. It explains that the project has exactly four permanent session slots and a fifth session would have no status-board row in TODO.md, making its claim invisible to the other sessions and guaranteeing a collision. Assistant offers to identify which of the four active sessions could be paused or finished to free up a slot, and asks the user to decide before proceeding.",
+      "files": []
+    }
+  ]
+}
