@@ -127,6 +127,23 @@ just shipped.
 
 ---
 
+## Command-line use
+
+AudiobookMaker ships a built-in CLI for batch conversion, scripting, and
+headless use. Full reference: [docs/CLI.md](docs/CLI.md).
+
+```
+python -m src.cli --help
+python -m src.cli doctor
+python -m src.cli convert book.pdf
+```
+
+Every subcommand supports `--json` for machine-readable output and `--quiet`
+for script-friendly minimal output. Run `python -m src.cli <command> --help`
+for per-command flags.
+
+---
+
 ## Two ways to use AudiobookMaker
 
 | | Installer | Developer (clone the repo) |
