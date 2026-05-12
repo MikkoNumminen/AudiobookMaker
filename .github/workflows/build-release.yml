@@ -115,9 +115,16 @@ jobs:
           # Chocolatey's Tesseract ships eng + osd by default; pull Finnish
           # from tessdata_fast (smaller LSTM model, identical API to
           # tessdata_best for the OCR-fallback use case).
+          #
+          # URL pinned to the 4.1.0 release tag — `main` branch HEAD would
+          # silently change the bundled trained-data on every build, the
+          # same class of rot that bit ffmpeg in PR #19. SHA verified the
+          # same way as ffmpeg.zip a few lines above.
           cp "$TESS_DIR/tessdata/eng.traineddata" dist/ocr/tessdata/
+          FIN_TRAINEDDATA_SHA=61a04cd62b507c3d9ae0e1cda399e6715ebf49dea9df47897c8acdcd3bd3e13c
           curl -L -o dist/ocr/tessdata/fin.traineddata \
-            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/fin.traineddata"
+            "https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/fin.traineddata"
+          echo "${FIN_TRAINEDDATA_SHA}  dist/ocr/tessdata/fin.traineddata" | sha256sum -c -
           # configs/ holds Tesseract output-format presets (hocr, txt, pdf
           # etc.) that ocrmypdf invokes via the Tesseract subprocess.
           # Without these files OCR runs to 100% then ocrmypdf crashes

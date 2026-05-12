@@ -8,6 +8,13 @@ PyMuPDF==1.24.5
 # the OCR stack still work — they just can't read scanned PDFs).
 # Frozen .exe builds bundle tesseract.exe + eng/fin language packs + gswin64
 # alongside ffmpeg.exe; see audiobookmaker.spec.
+#
+# Pin policy: this is the version we end-to-end-validated against a 32-page
+# scanned PDF during PR #26. ocrmypdf renamed a few public API entry points
+# between the 16.x and 17.x lines, so a blind major-version bump risks
+# breaking pdf_parser._run_ocr_fallback silently — re-validate before
+# moving off 17.x. The pin gets refreshed alongside the other heavy deps
+# (PyMuPDF, edge-tts) every 3-6 months.
 ocrmypdf==17.4.2
 
 # EPUB parsing
