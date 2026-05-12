@@ -214,13 +214,54 @@ touching the parser API.
   image-only pages thanks to `skip_text=True`, so wall time scales with
   the count of scanned pages, not document length.
 
+### Scaling to long PDFs
+
+OCR is page-bounded: Tesseract processes one page at a time so RAM
+stays near-constant, but the wall clock is roughly linear in pages.
+
+| Pages | OCR wall-clock | Notes |
+|-------|----------------|-------|
+| < 50  | < 1 min        | unnoticeable |
+| 50-200 | 1-5 min       | "this'll take a minute" territory |
+| 200-500 | 5-15 min     | brew coffee |
+| 500-1000 | 15-30 min   | dedicated step recommended |
+| 1000+ | 30+ min        | run OCR independently, ear-check sample text, then synth |
+
+ocrmypdf 17.x defaults to `jobs=os.cpu_count()`, so a multi-core box
+parallelises page jobs up to the per-page Tesseract bottleneck (~8
+effective jobs in practice). On a long source, the dominant cost is
+still per-page Tesseract; CPU-core count helps but doesn't change the
+order of magnitude.
+
+Disk-side: ocrmypdf writes intermediate PNGs into the OS temp dir
+(~1-2 MB per scanned page). For a 1000-page source, intermediates can
+hit 1-2 GB. If `TEMP` is on a small partition, set `TMPDIR` to a
+roomier location BEFORE invoking `parse_pdf`. Cache files in
+`.local/ocr/cache/<sha256>.pdf` add another source-PDF's worth of
+disk (~the same size as the input).
+
+### What the user sees during a long OCR
+
 The Convert button does not advertise OCR progress today. The status
 strip says "Parsing..." for the full duration of `parse_book`, which
-covers the OCR pass. A future enhancement could surface an "OCR'ing
-scanned pages..." sub-state, but only the Convert path runs this — the
-sticky-strip estimate at file-pick time uses the same `parse_book` call
-but on a worker thread, so the UI stays responsive even when OCR is
-slow.
+covers the OCR pass. ocrmypdf writes its own progress bar to stderr
+that the GUI's log panel surfaces, so a long run isn't *silent* — but
+the top-level progress widget stays generic. A future enhancement
+could surface an "OCR'ing scanned pages..." sub-state, but only the
+Convert path runs this — the sticky-strip estimate at file-pick time
+uses the same `parse_book` call but on a worker thread, so the UI
+stays responsive even when OCR is slow.
+
+### Cancellation and resume on long runs
+
+ocrmypdf is a synchronous Python call inside `_run_ocr_fallback`. If
+the user kills the process, the partial output PDF is deleted by the
+`except` branch ([pdf_parser.py:368](../src/pdf_parser.py#L368)). No
+per-page checkpointing — restart re-OCRs from page 1. For multi-hour
+sources, the operational runbook (see the
+[scanned-pdf-to-audiobook skill](../.claude/skills/scanned-pdf-to-audiobook/SKILL.md))
+splits OCR into its own dedicated step so a synth-time crash doesn't
+cost the OCR pass.
 
 ## 11. Known deferred work
 

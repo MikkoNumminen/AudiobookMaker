@@ -1,6 +1,6 @@
 ---
 name: scanned-pdf-to-audiobook
-description: Convert a scanned / image-only PDF into an audiobook end-to-end via AudiobookMaker's OCR fallback (PR #26 — ocrmypdf + Tesseract). Use whenever the user says "this PDF is scanned", "the app says no text", "OCR this and read it aloud", "convert this image PDF / image book / image document to audio", "the EmptyPDFError says it might be scanned", or hands you a `.pdf` in `.local/` that PyMuPDF can't extract text from. Encodes the voice / language / sample-first decisions so a future session doesn't relitigate them; surfaces the Tesseract `tessdata/configs/` gotcha that crashes ocrmypdf at 100%. CRITICAL — never commit the source PDF, never put its filename / title / author in any tracked file (CLAUDE.md "no copyrighted material in repo"); all artefacts stay in `.local/`.
+description: Convert a scanned / image-only PDF into an audiobook end-to-end via the OCR fallback (ocrmypdf + Tesseract, merged in PR #26). Use whenever the user says "this PDF is scanned", "OCR this and read it aloud", "the app says no text", "the EmptyPDFError says it might be scanned", or hands you a `.pdf` PyMuPDF can't extract text from. Encodes the voice / language / sample-first decisions, surfaces the `tessdata/configs/` gotcha that crashes ocrmypdf at 100%, and walks long-running OCR jobs (300+ pages, 100+ MB) through the right pre-flight + cancellation handling. CRITICAL — never commit the source PDF or put its filename / title / author in any tracked file; all artefacts stay in `.local/`.
 ---
 
 # scanned-pdf-to-audiobook
@@ -251,8 +251,8 @@ modes during the ear-check.
 
 ### Step 5 — synthesize a 30-second sample
 
-Pick the first ~600 characters of `book.full_text` (roughly 30 s of speech),
-write to a file under `.local/audiobooks/`, and synthesize.
+Pick the first ~800 characters of `book.full_text` (≈ 30 s of speech at
+160 wpm), write to a file under `.local/audiobooks/`, and synthesize.
 
 For an Edge-TTS sample, the GUI's "Convert" path on a 600-char text file
 is fastest; or the headless equivalent goes through the synthesis
@@ -308,6 +308,93 @@ about are a common annoyance.
 
 Surface the final MP3 path when done.
 
+## Very long PDFs (300+ pages, 100+ MB)
+
+The pipeline handles long PDFs mechanically — Tesseract processes one page
+at a time so RAM stays bounded — but the wall-clock and disk story changes
+enough that it deserves its own pre-flight. Apply this whole section before
+Step 3 when the source PDF is over ~100 MB or you can see it has hundreds
+of pages.
+
+### Pre-flight: size + disk
+
+```bash
+# Source size and rough page count
+python -c "import fitz, sys; d=fitz.open(sys.argv[1]); print(f'pages={len(d)}, size_mb={__import__(\"os\").path.getsize(sys.argv[1])/1e6:.1f}')" .local/<source>.pdf
+
+# OS temp dir free space — ocrmypdf writes intermediates here.
+# Roughly 1-2 MB of intermediate state per scanned page; 1000 pages ≈ 2 GB
+# Always check before kicking off a multi-hour run.
+df -h "$TEMP" 2>/dev/null || powershell -NoProfile -Command "Get-PSDrive -Name C | Select-Object Used,Free"
+```
+
+If temp has less than 2× the source's worst-case intermediate footprint,
+either free space, or set `TMPDIR` to a roomier partition before invoking
+parse_pdf so ocrmypdf lands its scratch there.
+
+### Wall-clock expectations
+
+Tesseract scales linearly in pages on CPU. The 32-page smoke test took 25 s
+end-to-end on this dev box — about **~0.8 s per page** in the best case.
+Rough rules of thumb:
+
+| Pages | OCR wall-clock | What the user should be told |
+|-------|---------------|-------------------------------|
+| < 50  | < 1 min       | "kicking off OCR" |
+| 50-200 | 1-5 min      | "this'll take a few minutes" |
+| 200-500 | 5-15 min    | "go grab coffee" |
+| 500-1000 | 15-30 min  | "this is a 15-30 min OCR pass, then a multi-hour synth" |
+| 1000+ | 30+ min      | "run OCR in a dedicated step; ear-check the OCR'd text BEFORE committing to synth" |
+
+ocrmypdf 17.x defaults to `jobs=os.cpu_count()`, so on a 16-core box you'll
+see speedups close to linear up to ~8 jobs (Tesseract's per-page work is
+single-threaded internally; parallelism comes from running multiple page
+jobs concurrently).
+
+### Run OCR as a dedicated step on long sources
+
+Don't bundle a multi-hour OCR into the same invocation as the synthesis run.
+Do this instead:
+
+1. Call `parse_pdf(source_pdf, ocr_language=..., ocr_cache_dir=Path('.local/ocr/cache'))`.
+   This runs OCR, populates the cache, and returns a `ParsedBook`.
+2. Sanity-check the OCR'd output — pull `book.full_text[:1500]` and read it.
+   If it's garbled (wrong language, low-DPI source, bad confidence), fix
+   the language or pre-process the source BEFORE wasting a long synth run.
+3. **Only then** kick off the synthesis run (Step 5+ of the main workflow).
+   The synth re-calls `parse_pdf` against the same source; it's a cache hit
+   (~100 ms) and zero re-OCR work.
+
+### Cancellation and resume
+
+ocrmypdf runs as a synchronous Python call. Ctrl-C / process-kill /
+ocrmypdf crash → [`_run_ocr_fallback`'s `except` branch](../../../src/pdf_parser.py#L368)
+deletes the partial output PDF so the cache stays clean. There is **no
+per-page resume** — restart re-OCRs from page 1. Two implications:
+
+- For a 30-minute OCR job, an interrupt costs the full 30 minutes on retry.
+- Telling the user the ETA upfront is non-negotiable on long runs.
+
+If you absolutely must split a 1000-page PDF into batches (e.g. you keep
+losing the run to system reboots), use PyMuPDF to slice the source into
+N smaller PDFs, OCR each separately (each produces its own cache entry
+keyed by its sha256), then concatenate the OCR'd outputs. The skill does
+not automate this — it's manual-task territory and the operator should
+flag the unusual workflow to the user before doing it.
+
+### What "garbage OCR" looks like at scale
+
+On long PDFs you'll occasionally see Tesseract degrade on:
+- Pages with heavy artefacts (margins, page-numbers running into body text)
+- Mid-document language shifts (an English paper quotes a Finnish source)
+- Faded / low-DPI source scans (< 200 DPI)
+
+The skill ships no confidence filtering (Phase 0 deferred — see
+[OCR_FALLBACK.md §11](../../../docs/OCR_FALLBACK.md)). For long runs,
+spot-check 3-5 sample pages from across the doc (first / 25% / 50% / 75% /
+last) by reading `book.chapters[i].content` and dumping the first 200 chars.
+A 5-second visual scan catches most failures cheaper than a 2-hour synth.
+
 ## Common failure modes
 
 | Symptom | Cause | Fix |
@@ -318,6 +405,7 @@ Surface the final MP3 path when done.
 | Garbage OCR output triggering false chapter headings | OCR confidence filtering not implemented yet (Phase 0 deferred) | Manual fix: edit the OCR'd PDF's text layer in Acrobat / a similar editor, OR pass the OCR'd `.pdf` through and accept that the chapter detector in [`_split_into_chapters`](../../../src/pdf_parser.py#L196) will produce noise — wrap-everything-in-one-chapter fallback kicks in only when *no* headings match. |
 | Synth pronounces every word wrong | Wrong `ocr_language=` | Re-run Step 3 with the correct Tesseract code. Cache key is per-content + per-language, so the corrected run produces a different cache file and the original is preserved (delete it manually from `.local/ocr/cache/` if you want to reclaim disk). |
 | OCR cache fills `.local/ocr/cache/` over time | No automatic eviction | Manually delete stale `.pdf` files under `.local/ocr/cache/`. Each file is keyed by source sha256, so removing a file just forces a re-OCR if the same source comes back. |
+| Long OCR run interrupted halfway (Ctrl-C, OS kill, ocrmypdf crash) | Synchronous subprocess; no per-page checkpointing | The partial output PDF is deleted by [`_run_ocr_fallback`'s except block](../../../src/pdf_parser.py#L368), so the next run sees a cache miss and re-OCRs from scratch (no "zombie half-OCR'd cache file" risk). Wall-clock cost: full re-run. To minimise risk on multi-hour OCRs, run OCR in a dedicated step before kicking off any synthesis. |
 
 ## What this skill does NOT do
 
