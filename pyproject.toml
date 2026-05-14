@@ -23,5 +23,6 @@ dependencies = []
 [project.scripts]
 audiobookmaker = "src.cli.__main__:main"
 
-[tool.setuptools]
-packages = ["src", "src.cli"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
