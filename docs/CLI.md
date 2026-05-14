@@ -21,9 +21,11 @@ audiobookmaker convert book.pdf
 ready, and that you have free disk space. If everything is green you are
 ready to convert.
 
-The output MP3 lands in the configured output directory
-(`~/.audiobookmaker/` by default). The path is printed on the last line of
-the output.
+The output MP3 lands in the configured output directory. In dev mode
+(running from source) the default is `.local/audiobooks/` inside the repo.
+In frozen mode (installed `.exe`) the default is next to the running
+executable. Either way, the exact path is printed on the last line of the
+output.
 
 ---
 
