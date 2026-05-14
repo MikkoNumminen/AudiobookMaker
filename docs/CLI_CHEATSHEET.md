@@ -1,178 +1,196 @@
-# AudiobookMaker CLI — cheatsheet
+# AudiobookMaker — Chatterbox cheatsheet
 
-Convert books to audiobooks from the command line. Same engines and voices as the desktop app, no window required.
+Chatterbox engine + cloned voices, end to end. Four steps from bare machine to
+a custom-voice Finnish (or English) audiobook.
 
-## Install
+## Prerequisites
 
-```bash
-git clone https://github.com/MikkoNumminen/AudiobookMaker
-cd AudiobookMaker
-pip install -e .
-```
+- **GPU:** NVIDIA with 6 GB VRAM or more. CUDA 12-compatible driver required.
+- **OS:** Windows 10 or 11 (full path). macOS without NVIDIA cannot run Chatterbox.
+- **Disk:** ~15 GB free for the initial model download.
 
-After this the `audiobookmaker` command works from any directory.
+## Step 1 — Install
 
-Windows users without Python: grab `AudiobookMaker-CLI-X.Y.Z-windows-x64.zip` from the [releases page](https://github.com/MikkoNumminen/AudiobookMaker/releases), unzip, add the folder to `PATH`. ffmpeg is bundled.
-
-## First time — check everything works
-
-```bash
-audiobookmaker doctor
-```
-
-Reports ffmpeg presence, which engines are ready, free disk space, and Python version. Green across the board means you're ready to convert.
-
-## Convert a book
-
-```bash
-audiobookmaker convert book.pdf
-```
-
-Works with **PDF**, **EPUB**, and **TXT**. The output MP3 lands in `~/.audiobookmaker/` by default. The final path is printed when synthesis finishes.
-
-Pick a specific engine, voice, language for one run:
-
-```bash
-audiobookmaker convert book.pdf --engine edge --language fi --voice fi-FI-NooraNeural
-```
-
-Choose where the file goes:
-
-```bash
-audiobookmaker convert book.pdf --output ~/Audiobooks/my-book.mp3
-```
-
-## Hear what an engine sounds like before a long run
-
-```bash
-audiobookmaker sample book.pdf
-```
-
-Synthesises the first ~500 characters and writes `book_sample.mp3`. Compare two engines:
-
-```bash
-audiobookmaker sample book.pdf --engine edge   --output book_edge.mp3
-audiobookmaker sample book.pdf --engine piper  --output book_piper.mp3
-```
-
-## Quick voice test, no file involved
-
-```bash
-audiobookmaker preview "Hello, this is a test."
-```
-
-Speaks the text through your speakers. Add `--engine`, `--voice` to test combinations. Use `--no-play` to write the audio to a tempfile path instead of playing it.
-
-## See what voices and engines you have
-
-```bash
-audiobookmaker voices list
-audiobookmaker voices list --engine edge --language fi
-audiobookmaker engines list
-```
-
-## Install or remove an engine
-
-```bash
-audiobookmaker engines install piper
-audiobookmaker engines install chatterbox_fi
-audiobookmaker engines remove piper
-audiobookmaker engines check chatterbox_fi
-```
-
-`engines check` exits 0 if available, 2 if not — useful in scripts:
-
-```bash
-audiobookmaker engines check piper || audiobookmaker engines install piper --yes
-```
-
-## Set your defaults so you don't repeat flags
-
-```bash
-audiobookmaker config set engine_id piper
-audiobookmaker config set language fi
-audiobookmaker config show
-```
-
-From this point `audiobookmaker convert book.epub` uses Piper without any `--engine` flag.
-
-Other config commands:
-
-```bash
-audiobookmaker config show engine_id   # show one field
-audiobookmaker config reset engine_id  # reset one field to default
-audiobookmaker config reset            # reset everything
-audiobookmaker config path             # print the config file path
-```
-
-## Voice packs (custom voices you imported)
-
-```bash
-audiobookmaker packs list
-audiobookmaker packs import ~/Downloads/my_voice_pack
-audiobookmaker packs info my_voice_pack
-audiobookmaker packs remove my_voice_pack
-```
-
-## Update to a new version
-
-```bash
-audiobookmaker update check
-audiobookmaker update apply
-```
-
-`update apply` downloads, verifies SHA-256, and runs the installer. Only meaningful for the standalone Windows binary — `pip install` users update with `git pull && pip install -e .`.
-
-## Batch convert a folder
-
-```bash
-# bash / zsh
-for f in ~/books/*.epub; do
-    audiobookmaker convert "$f" --quiet
-done
-```
+Source install (developers and power users):
 
 ```powershell
-# PowerShell
-Get-ChildItem ~/books -Filter *.epub | ForEach-Object {
-    audiobookmaker convert $_.FullName --quiet
-}
-```
-
-`--quiet` suppresses per-chunk progress and prints only the final output path — keeps batch output readable.
-
-## Pipe progress into another tool
-
-Every synthesis subcommand supports `--json` for NDJSON (one JSON object per line):
-
-```bash
-audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="chunk") | "\(.total_done)/\(.total_chunks)"'
-```
-
-Grab the final output path in a script:
-
-```bash
-out=$(audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="done") | .output_path')
-echo "Written to: $out"
-```
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Bad input or validation failure |
-| 2 | Missing dependency (engine not installed, ffmpeg absent, SHA-256 mismatch) |
-| 3 | User cancelled (Ctrl-C or "N" answer) |
-| 4 | Runtime failure (network, GPU, synthesis error) |
-| 5 | Unexpected internal error |
-
-## When in doubt
-
-```bash
-audiobookmaker --help
-audiobookmaker <command> --help
+git clone https://github.com/MikkoNumminen/AudiobookMaker
+cd AudiobookMaker
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
 audiobookmaker doctor
+audiobookmaker engines install chatterbox_fi
 ```
 
-Full reference and worked examples in [docs/CLI.md](CLI.md).
+`engines install` checks for NVIDIA + CUDA 12 and refuses with a clear error
+if either is missing. Fix the driver before retrying.
+
+A standalone Windows zip (no Python needed) is planned for a future release.
+
+## Step 2 — First audiobook with Isoäiti / Grandmom
+
+Isoäiti is the bundled Finnish voice. The same voice id (`grandmom`) works for
+Finnish and English — `--language` selects the speech model path.
+
+```powershell
+# Finnish (Isoäiti)
+audiobookmaker convert book.pdf --engine chatterbox_fi --language fi
+
+# English (Grandmom)
+audiobookmaker convert book.pdf --engine chatterbox_fi --language en
+```
+
+Works with PDF, EPUB, and TXT. Output lands in `.local/audiobooks/` (dev mode)
+or next to the installed .exe (frozen mode). The final path is printed when
+synthesis finishes.
+
+## Step 3 — Clone a voice from an audio file
+
+Pick the right path based on how much source audio you have:
+
+| Source length | Tier | What happens |
+|---------------|------|-------------|
+| Under 10 min | `few_shot` | Ref-clip only, no training |
+| 10–30 min | `reduced_lora` | Short LoRA fine-tune |
+| 30 min+ | `full_lora` | Full LoRA fine-tune |
+
+### Steps common to all tiers
+
+**1. Normalize to 16 kHz mono WAV**
+
+```powershell
+ffmpeg -y -i source.mp3 -ac 1 -ar 16000 .local\voice_runs\source.wav
+```
+
+**2. Analyze (ASR + diarization)**
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\voice_pack_analyze.py `
+  --input .local\voice_runs\source.wav `
+  --out .local\voice_runs\analysis\ `
+  --diarizer ecapa
+```
+
+Use `--diarizer ecapa` unless you have an HF_TOKEN and the pyannote license
+accepted. ECAPA needs no token and rescues runs where pyannote conflates
+similar-timbre speakers.
+
+**3. Validate by transcript**
+
+Open `.local\voice_runs\analysis\transcripts.jsonl` and confirm that
+`SPEAKER_00`, `SPEAKER_01`, etc. match the expected speakers. If two labels
+hold the same person's lines, re-run analyze with `--diarizer pyannote`
+(requires HF_TOKEN) or pick reference clips manually.
+
+---
+
+### `full_lora` / `reduced_lora` path (10 min+)
+
+**4. Export per-speaker dataset**
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\voice_pack_export.py `
+  --transcripts .local\voice_runs\analysis\transcripts.jsonl `
+  --source .local\voice_runs\source.wav `
+  --speaker SPEAKER_00 `
+  --out .local\voice_runs\dataset\
+```
+
+**5. Train LoRA**
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\voice_pack_train.py `
+  --manifest .local\voice_runs\dataset\manifest.json `
+  --out .local\voice_runs\lora\ `
+  --language fi `
+  --mixed-precision fp16
+```
+
+Use `--language en` for an English voice pack.
+
+**6. Package**
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\voice_pack_package.py `
+  --out .local\voice_packs\my_voice `
+  --name "my_voice" `
+  --language fi `
+  --tier full_lora `
+  --tier-reason "30+ min source" `
+  --total-source-minutes 35 `
+  --sample .local\voice_runs\dataset\wavs\0000.wav `
+  --adapter .local\voice_runs\lora\adapter
+```
+
+Adjust `--tier` and `--total-source-minutes` to match your source.
+`--adapter` accepts either the `.safetensors` file or the PEFT save directory.
+
+---
+
+### `few_shot` path (under ~10 min)
+
+**4. Package directly with a reference clip**
+
+```powershell
+.venv-chatterbox\Scripts\python.exe scripts\voice_pack_package.py `
+  --out .local\voice_packs\my_voice_short `
+  --name "my_voice_short" `
+  --language fi `
+  --tier few_shot `
+  --tier-reason "under 10 min — ref-clip only" `
+  --total-source-minutes 4 `
+  --reference .local\voice_runs\analysis\refs\SPEAKER_00.wav
+```
+
+**Tier spelling:** `few_shot` (underscore), not `few-shot`.
+
+For an interactive walkthrough, invoke the `voice-clone-finnish` skill
+(long source / LoRA) or `voice-pack-from-audio-short` (short clip).
+
+---
+
+## Step 4 — Use the cloned voice for a new audiobook
+
+```powershell
+audiobookmaker packs import .local\voice_packs\my_voice
+audiobookmaker packs list          # find the slug it landed under
+audiobookmaker convert book2.epub `
+  --engine chatterbox_fi `
+  --language fi `
+  --voice-pack my_voice
+```
+
+The pack installs to `~\.audiobookmaker\voice_packs\`. The desktop GUI sees
+it automatically — no separate import needed.
+
+## When something goes wrong
+
+```powershell
+audiobookmaker doctor                        # show everything that's wrong
+audiobookmaker engines check chatterbox_fi   # exit 0 = ok, exit 2 = not installed
+audiobookmaker packs list                    # list what's installed
+```
+
+If you see "Chatterbox engine is not installed":
+
+```powershell
+audiobookmaker engines install chatterbox_fi
+```
+
+If the cloned voice sounds wrong, the most common cause is diarization putting
+the wrong speaker in a ref clip. Re-run step 2 with the other `--diarizer`,
+or pick a clip by hand from `.local\voice_runs\analysis\refs\`.
+
+## Where files go
+
+| Path | Purpose |
+|------|---------|
+| `~\.audiobookmaker\config.json` | Saved engine / voice defaults |
+| `~\.audiobookmaker\voice_packs\` | Installed packs (GUI + CLI share this) |
+| `.local\voice_runs\` | Analyze / train artifacts (gitignored) |
+| `.local\voice_packs\` | Packaged but not yet imported packs |
+| `.local\audiobooks\` | Converted MP3 output (dev mode) |
+
+Full CLI reference: [docs/CLI.md](CLI.md)

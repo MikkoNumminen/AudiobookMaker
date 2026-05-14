@@ -64,6 +64,7 @@ class TrainConfig:
 
     manifest_path: Path
     out_dir: Path
+    language: str = "fi"  # "fi" or "en" — controls text_to_tokens language_id
     base_model: str = "chatterbox-multilingual"
     lora_rank: int = 16
     lora_alpha: int = 32
@@ -501,12 +502,10 @@ def _run_training_impl(config: TrainConfig, manifest: DatasetManifest) -> None:
                 .astype(np.float32)
             )
 
-            # Text tokens. language_id="en" for the current English
-            # audiobook use case; when the pipeline grows multi-lingual
-            # callers, the manifest will carry a language field and we'll
-            # plumb it through.
+            # Text tokens. Use the language specified by the training config
+            # (default "fi" for Finnish voice packs).
             tt = engine.tokenizer.text_to_tokens(
-                clip.text, language_id="en"
+                clip.text, language_id=config.language
             ).squeeze(0).long()
             text_tokens = torch.cat(
                 [
@@ -799,6 +798,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output directory for the training run (config + adapter).",
     )
     parser.add_argument(
+        "--language",
+        choices=["fi", "en"],
+        default="fi",
+        help=(
+            "Language for text tokenisation. Passed as language_id to "
+            "engine.tokenizer.text_to_tokens. Use 'fi' for Finnish voice "
+            "packs (default) and 'en' for English. Unknown values are "
+            "rejected by argparse."
+        ),
+    )
+    parser.add_argument(
         "--base-model",
         default="chatterbox-multilingual",
         help="Base TTS checkpoint identifier (default: chatterbox-multilingual).",
@@ -904,6 +914,7 @@ def _config_from_args(args: argparse.Namespace) -> TrainConfig:
     return TrainConfig(
         manifest_path=args.manifest,
         out_dir=args.out,
+        language=args.language,
         base_model=args.base_model,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
