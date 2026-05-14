@@ -1,8 +1,16 @@
 # AudiobookMaker — command-line interface
 
-The `audiobookmaker` command converts books to speech, manages voices and
+The `audiobookmaker-cli` command converts books to speech, manages voices and
 engines, and exposes every conversion capability that the GUI provides —
 without a window.
+
+> **Why the hyphen?** The installed Windows app ships `AudiobookMaker.exe`. On
+> the case-insensitive Windows filesystem that exe shadows a bare
+> `audiobookmaker.exe` console script on PATH, so typing `audiobookmaker ...`
+> can silently launch the GUI on machines that have both installed. The
+> hyphenated `audiobookmaker-cli` has no such collision. A back-compat
+> `audiobookmaker` script is still registered for users who only have the
+> dev tree on PATH, but every example in this document uses the safe form.
 
 ---
 
@@ -13,8 +21,8 @@ commands.
 
 ```bash
 pip install -e .
-audiobookmaker doctor
-audiobookmaker convert book.pdf
+audiobookmaker-cli doctor
+audiobookmaker-cli convert book.pdf
 ```
 
 `doctor` checks that ffmpeg is on the PATH, that at least one TTS engine is
@@ -41,12 +49,13 @@ cd AudiobookMaker
 pip install -e .
 ```
 
-The `audiobookmaker` console script is registered by `pyproject.toml`. After
-installation it is on your PATH so you can run it from any directory.
+The `audiobookmaker-cli` console script (and the back-compat `audiobookmaker`
+alias) is registered by `pyproject.toml`. After installation both are on your
+PATH so you can run them from any directory.
 
 ### Standalone binary
 
-A standalone Windows binary (`audiobookmaker.exe`) is planned as a future
+A standalone Windows binary (`audiobookmaker-cli.exe`) is planned as a future
 release artifact — a self-contained zip with ffmpeg bundled so nothing else
 needs to be installed. It is not available yet. Watch the
 [releases page](https://github.com/MikkoNumminen/AudiobookMaker/releases) for
@@ -59,7 +68,7 @@ the first `AudiobookMaker-CLI-*.zip` asset.
 ### 1. Convert one book end-to-end with the default engine
 
 ```bash
-audiobookmaker convert book.epub
+audiobookmaker-cli convert book.epub
 ```
 
 AudiobookMaker reads the engine, language, and voice from
@@ -70,7 +79,7 @@ printed when synthesis finishes.
 Override any setting for a single run without changing your saved config:
 
 ```bash
-audiobookmaker convert book.epub --engine piper --language fi --voice fi_FI-aho-medium
+audiobookmaker-cli convert book.epub --engine piper --language fi --voice fi_FI-aho-medium
 ```
 
 Chatterbox supports both Finnish (Isoäiti) and English (Grandmom). The voice
@@ -78,10 +87,10 @@ id is `grandmom` for both — only `--language` differs:
 
 ```bash
 # Finnish Grandmom (Isoäiti)
-audiobookmaker convert book.txt --engine chatterbox_fi --language fi
+audiobookmaker-cli convert book.txt --engine chatterbox_fi --language fi
 
 # English Grandmom voice
-audiobookmaker convert book.txt --engine chatterbox_fi --language en
+audiobookmaker-cli convert book.txt --engine chatterbox_fi --language en
 ```
 
 ### 2. A/B test engines with `sample`
@@ -90,8 +99,8 @@ audiobookmaker convert book.txt --engine chatterbox_fi --language en
 hear what an engine sounds like without waiting for a full run.
 
 ```bash
-audiobookmaker sample book.pdf --engine edge
-audiobookmaker sample book.pdf --engine piper
+audiobookmaker-cli sample book.pdf --engine edge
+audiobookmaker-cli sample book.pdf --engine piper
 ```
 
 Each call writes a `*_sample.mp3` next to the full output path. Compare the
@@ -103,37 +112,37 @@ Set your preferred engine once so every subsequent `convert` call uses it
 without extra flags:
 
 ```bash
-audiobookmaker config set engine_id piper
-audiobookmaker config set language fi
-audiobookmaker config show
+audiobookmaker-cli config set engine_id piper
+audiobookmaker-cli config set language fi
+audiobookmaker-cli config show
 ```
 
-From this point `audiobookmaker convert book.epub` uses Piper without any
+From this point `audiobookmaker-cli convert book.epub` uses Piper without any
 `--engine` flag.
 
 To check what your active config is in a shell script:
 
 ```bash
-audiobookmaker config show --quiet
+audiobookmaker-cli config show --quiet
 # Output: one key=value line per field
 ```
 
 ### 4. Batch convert a folder
 
-`audiobookmaker convert` takes one file at a time, but a shell loop covers
+`audiobookmaker-cli convert` takes one file at a time, but a shell loop covers
 a whole folder:
 
 ```bash
 # bash / zsh
 for f in ~/books/*.epub; do
-    audiobookmaker convert "$f" --quiet
+    audiobookmaker-cli convert "$f" --quiet
 done
 ```
 
 ```powershell
 # PowerShell
 Get-ChildItem ~/books -Filter *.epub | ForEach-Object {
-    audiobookmaker convert $_.FullName --quiet
+    audiobookmaker-cli convert $_.FullName --quiet
 }
 ```
 
@@ -148,13 +157,13 @@ line (NDJSON). This lets you pipe progress events into any JSON-aware tool.
 Show only the percentage done as synthesis runs:
 
 ```bash
-audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="chunk") | "\(.total_done)/\(.total_chunks)"'
+audiobookmaker-cli convert book.pdf --json | jq -r 'select(.kind=="chunk") | "\(.total_done)/\(.total_chunks)"'
 ```
 
 Wait for completion and print the output path:
 
 ```bash
-out=$(audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="done") | .output_path')
+out=$(audiobookmaker-cli convert book.pdf --json | jq -r 'select(.kind=="done") | .output_path')
 echo "Written to: $out"
 ```
 
@@ -165,10 +174,10 @@ Install a pack you built (or downloaded) with `packs import`, then pass it to
 
 ```bash
 # Install the pack once
-audiobookmaker packs import /path/to/my_voice_pack/
+audiobookmaker-cli packs import /path/to/my_voice_pack/
 
 # Use it in a conversion (pack name or full path both work)
-audiobookmaker convert book.txt --engine chatterbox_fi --voice-pack my_voice_pack
+audiobookmaker-cli convert book.txt --engine chatterbox_fi --voice-pack my_voice_pack
 ```
 
 `packs import` copies the pack into the app's pack store and validates its
@@ -215,7 +224,7 @@ the auto-generated detail follows.
 <!-- This block is auto-generated by scripts/render_cli_help.py.
      Do not edit by hand; edit the argparse parsers and re-run the
      renderer (or the pre-commit hook will re-run it for you). -->
-### `audiobookmaker convert`
+### `audiobookmaker-cli convert`
 
 Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
@@ -235,7 +244,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
 ---
 
-### `audiobookmaker sample`
+### `audiobookmaker-cli sample`
 
 Convert the first ~500 characters of a book to MP3 as a quick quality check before running the full conversion.
 
@@ -255,7 +264,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 
 ---
 
-### `audiobookmaker preview`
+### `audiobookmaker-cli preview`
 
 Synthesize a short text string and play it through the system audio output. Nothing is saved to disk.
 
@@ -272,7 +281,7 @@ Synthesize a short text string and play it through the system audio output. Noth
 
 ---
 
-### `audiobookmaker voices list`
+### `audiobookmaker-cli voices list`
 
 List voices across all engines, or filtered by engine / language.
 
@@ -285,7 +294,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker engines list`
+### `audiobookmaker-cli engines list`
 
 | Flag | Description |
 |------|-------------|
@@ -295,7 +304,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker engines install`
+### `audiobookmaker-cli engines install`
 
 | Flag | Description |
 |------|-------------|
@@ -306,7 +315,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker engines remove`
+### `audiobookmaker-cli engines remove`
 
 | Flag | Description |
 |------|-------------|
@@ -315,7 +324,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker engines check`
+### `audiobookmaker-cli engines check`
 
 | Flag | Description |
 |------|-------------|
@@ -325,7 +334,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker packs list`
+### `audiobookmaker-cli packs list`
 
 | Flag | Description |
 |------|-------------|
@@ -334,7 +343,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker packs import`
+### `audiobookmaker-cli packs import`
 
 | Flag | Description |
 |------|-------------|
@@ -344,7 +353,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker packs remove`
+### `audiobookmaker-cli packs remove`
 
 | Flag | Description |
 |------|-------------|
@@ -355,7 +364,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker packs info`
+### `audiobookmaker-cli packs info`
 
 | Flag | Description |
 |------|-------------|
@@ -365,7 +374,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker config show`
+### `audiobookmaker-cli config show`
 
 | Flag | Description |
 |------|-------------|
@@ -375,7 +384,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker config set`
+### `audiobookmaker-cli config set`
 
 | Flag | Description |
 |------|-------------|
@@ -386,7 +395,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker config reset`
+### `audiobookmaker-cli config reset`
 
 | Flag | Description |
 |------|-------------|
@@ -396,7 +405,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker config path`
+### `audiobookmaker-cli config path`
 
 | Flag | Description |
 |------|-------------|
@@ -405,7 +414,7 @@ List voices across all engines, or filtered by engine / language.
 
 ---
 
-### `audiobookmaker update check`
+### `audiobookmaker-cli update check`
 
 Query GitHub Releases and report whether this build is current.
 
@@ -416,7 +425,7 @@ Query GitHub Releases and report whether this build is current.
 
 ---
 
-### `audiobookmaker update apply`
+### `audiobookmaker-cli update apply`
 
 Download the latest installer, verify its SHA-256, and run it.
 
@@ -428,7 +437,7 @@ Download the latest installer, verify its SHA-256, and run it.
 
 ---
 
-### `audiobookmaker doctor`
+### `audiobookmaker-cli doctor`
 
 Run system health checks and report which engines are ready.
 
@@ -458,7 +467,7 @@ not because a dependency is broken but because the check itself is the
 question. Use it in scripts to guard conditional installs:
 
 ```bash
-audiobookmaker engines check piper || audiobookmaker engines install piper --yes
+audiobookmaker-cli engines check piper || audiobookmaker-cli engines install piper --yes
 ```
 
 ---
@@ -473,22 +482,22 @@ one surface affects the other.
 
 ```bash
 # Show everything
-audiobookmaker config show
+audiobookmaker-cli config show
 
 # Show one field
-audiobookmaker config show engine_id
+audiobookmaker-cli config show engine_id
 
 # Set the default engine
-audiobookmaker config set engine_id piper
+audiobookmaker-cli config set engine_id piper
 
 # Reset one field to its built-in default
-audiobookmaker config reset engine_id
+audiobookmaker-cli config reset engine_id
 
 # Reset everything
-audiobookmaker config reset
+audiobookmaker-cli config reset
 
 # Find the file
-audiobookmaker config path
+audiobookmaker-cli config path
 ```
 
 ### Environment variable overrides
@@ -523,7 +532,7 @@ shell-safe quoting. Values containing spaces or special characters are
 wrapped in single quotes:
 
 ```bash
-eval "$(audiobookmaker config show --quiet)"
+eval "$(audiobookmaker-cli config show --quiet)"
 echo "Current engine: $engine_id"
 ```
 
@@ -577,16 +586,16 @@ object per check.
 ## Out of scope / future work
 
 The following capabilities exist in the repo but are not part of the
-`audiobookmaker` CLI surface described in this document.
+`audiobookmaker-cli` CLI surface described in this document.
 
 **Voice-cloning pipeline.** The scripts under `scripts/` —
 `voice_pack_analyze.py`, `voice_pack_export.py`, `voice_pack_train.py`,
 `voice_pack_package.py` — are developer tools for creating new voice packs
 from audio sources. They run directly as `python scripts/voice_pack_*.py`
 and are documented separately. They are not wrapped under the
-`audiobookmaker` entry point.
+`audiobookmaker-cli` entry point.
 
-**Standalone binary.** A PyInstaller-frozen `audiobookmaker.exe` for users
+**Standalone binary.** A PyInstaller-frozen `audiobookmaker-cli.exe` for users
 who do not have Python is in progress. The spec file
 `audiobookmaker_cli.spec` is a parallel task and has not shipped in a
 release yet.
@@ -662,7 +671,7 @@ will be added once the engine interface grows a `speed` argument.
 
 The scripts under `scripts/` that predate the CLI remain in place. They are
 still the right tools for one-off diagnostics and ML pipeline stages. The
-`audiobookmaker` entry point wraps the user-facing conversion surface only.
+`audiobookmaker-cli` entry point wraps the user-facing conversion surface only.
 
 Two earlier scripts have been removed because the CLI's `convert` now
 covers their use cases: `scripts/generate_audiobook_parallel.py` (an
