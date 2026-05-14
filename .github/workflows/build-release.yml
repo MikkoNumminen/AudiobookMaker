@@ -235,6 +235,51 @@ jobs:
           name: installer
           path: installer/Output/*.exe
 
+      # ── CLI standalone zip ────────────────────────────────────────────────
+      # Builds a console-mode audiobookmaker.exe with bundled ffmpeg so users
+      # can unzip, add to PATH, and run `audiobookmaker convert book.pdf`
+      # without installing Python. No Tk / CustomTkinter / ML stack included.
+      - name: Build CLI exe with PyInstaller
+        if: github.event_name == 'push'
+        run: pyinstaller audiobookmaker_cli.spec
+
+      - name: Package CLI zip
+        if: github.event_name == 'push'
+        id: cli_zip
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $zipName = "AudiobookMaker-CLI-$version-windows-x64.zip"
+          # dist/audiobookmaker/ is the COLLECT output folder from the spec.
+          Compress-Archive -Path dist/audiobookmaker/* -DestinationPath $zipName
+          Write-Host "Packaged: $zipName"
+          "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        shell: pwsh
+
+      - name: Compute CLI zip SHA-256
+        if: github.event_name == 'push'
+        id: cli_sha
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $zipName = "${{ steps.cli_zip.outputs.ZIP_NAME }}"
+          $hash = (Get-FileHash $zipName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "CLI zip SHA-256: $hash"
+          "CLI_HASH=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          # Sidecar .sha256 file uploaded alongside the zip so users can
+          # verify the download without parsing release notes.
+          "$hash  $zipName" | Out-File `
+              -FilePath "$zipName.sha256" `
+              -Encoding ascii -NoNewline
+        shell: pwsh
+
+      - name: Upload CLI artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-zip
+          path: |
+            ${{ steps.cli_zip.outputs.ZIP_NAME }}
+            ${{ steps.cli_zip.outputs.ZIP_NAME }}.sha256
+
       # Auto-update is the lifeline to existing users. Every released installer
       # MUST publish its SHA-256 — both inside the release notes (where the
       # auto-updater reads it) and as a sidecar `.exe.sha256` asset (the
@@ -259,6 +304,8 @@ jobs:
           # Using an array (not a here-string) so the YAML literal block can
           # keep uniform indentation without leaking spaces into the output.
           $exeName = "AudiobookMaker-Setup-$version.exe"
+          $cliZipName = "${{ steps.cli_zip.outputs.ZIP_NAME }}"
+          $cliHash = "${{ steps.cli_sha.outputs.CLI_HASH }}"
           $lines = @(
             "## AudiobookMaker $version",
             "",
@@ -282,8 +329,19 @@ jobs:
             "",
             "No Python or other dependencies needed - everything is bundled.",
             "",
+            "### CLI (command-line interface)",
+            "",
+            "Download ``$cliZipName``, unzip, add the folder to PATH, then:",
+            "",
+            "``````",
+            "audiobookmaker convert book.pdf",
+            "``````",
+            "",
+            "No Python required. Run ``audiobookmaker --help`` for all options.",
+            "",
             "---",
-            "SHA-256: $hash"
+            "SHA-256: $hash",
+            "CLI: SHA-256: $cliHash"
           )
           Set-Content -Path release_notes.md -Value $lines -Encoding utf8
         shell: pwsh
@@ -291,14 +349,23 @@ jobs:
       # Belt-and-braces: refuse to publish if the rendered body does not
       # contain a 64-hex SHA-256 line. The auto-updater requires this; without
       # it every existing user is locked out of updates.
-      - name: Guard — release notes must contain SHA-256
+      # Also checks that the CLI SHA line is present — same rigor applied to
+      # both delivery artifacts.
+      - name: Guard — release notes must contain SHA-256 lines
         if: github.event_name == 'push'
         run: |
-          if (-not (Select-String -Path release_notes.md -Pattern '(?i)sha-?256:\s*[0-9a-f]{64}' -Quiet)) {
-            Write-Error "release_notes.md is missing a SHA-256 line — refusing to publish. Auto-update would break for every existing user."
+          $content = Get-Content release_notes.md -Raw
+          # GUI installer SHA (consumed by the auto-updater)
+          if (-not ($content -match '(?i)^SHA-256:\s*[0-9a-f]{64}' )) {
+            Write-Error "release_notes.md is missing the GUI installer SHA-256 line — refusing to publish. Auto-update would break for every existing user."
             exit 1
           }
-          Write-Host "release_notes.md contains a SHA-256 line — OK to publish."
+          # CLI zip SHA (informational + sidecar integrity)
+          if (-not ($content -match '(?i)CLI:\s*SHA-256:\s*[0-9a-f]{64}')) {
+            Write-Error "release_notes.md is missing the CLI SHA-256 line — refusing to publish."
+            exit 1
+          }
+          Write-Host "release_notes.md contains both SHA-256 lines — OK to publish."
         shell: pwsh
 
       - name: Create GitHub Release
@@ -310,13 +377,15 @@ jobs:
           files: |
             installer/Output/*.exe
             installer/Output/*.exe.sha256
+            ${{ steps.cli_zip.outputs.ZIP_NAME }}
+            ${{ steps.cli_zip.outputs.ZIP_NAME }}.sha256
           draft: false
           prerelease: false
 
       # Last line of defence: after the release is live, fetch the published
-      # body via the GitHub API and verify the SHA line survived. Catches the
+      # body via the GitHub API and verify the SHA lines survived. Catches the
       # rare case of a release-process bug that strips the body before publish.
-      - name: Verify published release notes contain SHA-256
+      - name: Verify published release notes contain SHA-256 lines
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -324,10 +393,14 @@ jobs:
           $version = "${{ steps.version.outputs.VERSION }}"
           $body = gh release view "v$version" -R "${{ github.repository }}" --json body -q .body
           if (-not ($body -match '(?i)sha-?256:\s*[0-9a-f]{64}')) {
-            Write-Error "Published release v$version is missing the SHA-256 line. Auto-update will fail for every existing user. Restore it before announcing."
+            Write-Error "Published release v$version is missing the GUI installer SHA-256 line. Auto-update will fail for every existing user. Restore it before announcing."
             exit 1
           }
-          Write-Host "Published release v$version has SHA-256 — auto-update path verified."
+          if (-not ($body -match '(?i)cli:\s*sha-?256:\s*[0-9a-f]{64}')) {
+            Write-Error "Published release v$version is missing the CLI SHA-256 line. Restore it before announcing."
+            exit 1
+          }
+          Write-Host "Published release v$version has both SHA-256 lines — auto-update path verified."
         shell: pwsh
 
       - name: Update README version links
