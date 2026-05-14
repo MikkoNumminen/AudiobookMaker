@@ -184,7 +184,7 @@ One pack per speaker. Use generic labels (`speaker_00_local`,
   --out .local/voice_packs/speaker_00_short \
   --name "speaker_00_local" \
   --language fi \
-  --tier few-shot \
+  --tier few_shot \
   --tier-reason "source under 5 min — few-shot only, no LoRA" \
   --total-source-minutes <N> \
   --reference .local/voice_runs/refs_short/SPEAKER_00.wav

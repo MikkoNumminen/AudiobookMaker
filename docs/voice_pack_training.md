@@ -17,7 +17,7 @@ use case on a 12 GB RTX 3080 Ti.
 <audio file>
    │  (1) ffmpeg extract
    ▼
-<clip.wav, 24 kHz mono>
+<clip.wav, 16 kHz mono>
    │  (2) voice_pack_analyze.py      → transcripts.jsonl + speakers.yaml
    ▼
 <per-speaker VoiceChunks>
@@ -45,11 +45,11 @@ All stages are one-shot CLIs.
 
 ## Step-by-step — 1 hour sample
 
-### 1. Extract 1 hour of mono 24 kHz audio
+### 1. Extract 1 hour of mono 16 kHz audio
 
 ```bash
 ffmpeg -i "D:/path/to/source_audiobook.m4b" \
-  -t 3600 -ar 24000 -ac 1 sample_1h.wav
+  -t 3600 -ar 16000 -ac 1 sample_1h.wav
 ```
 
 ### 2. Analyze (ASR + diarization)
@@ -203,11 +203,35 @@ Expected: ~30–60 min wall time for 1 h of source audio on a 3080 Ti.
 
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_package.py \
-  --run runs/sample_1h/ \
+  --adapter runs/sample_1h/adapter/ \
   --tier full_lora \
   --sample dataset_1h/wavs/0000.wav \
   --out voice_packs/my_narrator/
 ```
+
+### 5b. Packaging — few-shot tier (short sources, no LoRA)
+
+If you have less than five minutes of source audio, skip Steps 3 and 4
+(export and train) entirely. The LoRA adapter cannot converge on such a
+small dataset. Instead, package the reference clip directly:
+
+```bash
+.venv-chatterbox/Scripts/python.exe scripts/voice_pack_package.py \
+  --tier few_shot \
+  --reference .local/voice_runs/refs_short/SPEAKER_00.wav \
+  --name "speaker_00_local" \
+  --language fi \
+  --tier-reason "source under 5 min — few-shot only, no LoRA" \
+  --out .local/voice_packs/speaker_00_short/
+```
+
+No `--adapter` flag — the few-shot pack carries only the reference WAV.
+At synthesis time, the engine clones the voice directly from that clip
+without loading a LoRA adapter. Quality is lower than a full LoRA pack
+but usable for short sources where training data is insufficient.
+
+For sources over five minutes, use the `full_lora` (or `reduced_lora`)
+path in Steps 3–5 above.
 
 ## What still needs a human
 

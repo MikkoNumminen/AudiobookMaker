@@ -338,3 +338,81 @@ def test_main_few_shot_tier_returns_one_with_reason(
     err_lower = captured.err.lower()
     assert "few_shot" in err_lower or "few-shot" in err_lower
     assert "tier" in err_lower or "does not support" in err_lower
+
+
+# ---------------------------------------------------------------------------
+# --language flag
+# ---------------------------------------------------------------------------
+
+
+def test_language_flag_default_is_fi(tmp_path: Path) -> None:
+    """The parser default for --language must be 'fi'."""
+    parser = voice_pack_train._build_parser()
+    args = parser.parse_args(
+        ["--manifest", str(tmp_path / "m.json"), "--out", str(tmp_path / "out")]
+    )
+    assert args.language == "fi"
+
+
+def test_language_flag_accepts_fi(tmp_path: Path) -> None:
+    parser = voice_pack_train._build_parser()
+    args = parser.parse_args(
+        [
+            "--manifest", str(tmp_path / "m.json"),
+            "--out", str(tmp_path / "out"),
+            "--language", "fi",
+        ]
+    )
+    assert args.language == "fi"
+
+
+def test_language_flag_accepts_en(tmp_path: Path) -> None:
+    parser = voice_pack_train._build_parser()
+    args = parser.parse_args(
+        [
+            "--manifest", str(tmp_path / "m.json"),
+            "--out", str(tmp_path / "out"),
+            "--language", "en",
+        ]
+    )
+    assert args.language == "en"
+
+
+def test_language_flag_rejects_unknown(tmp_path: Path) -> None:
+    """An unrecognised language value must exit with code 2 (argparse error)."""
+    parser = voice_pack_train._build_parser()
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(
+            [
+                "--manifest", str(tmp_path / "m.json"),
+                "--out", str(tmp_path / "out"),
+                "--language", "de",
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
+def test_train_config_language_stored(tmp_path: Path) -> None:
+    """TrainConfig stores the language and includes it in to_dict()."""
+    config = voice_pack_train.TrainConfig(
+        manifest_path=tmp_path / "m.json",
+        out_dir=tmp_path / "out",
+        language="fi",
+    )
+    assert config.language == "fi"
+    data = config.to_dict()
+    assert data["language"] == "fi"
+
+
+def test_main_language_en_dry_run(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """--language en is accepted and produces a zero exit on dry-run."""
+    manifest_path = _write_manifest(tmp_path, total_seconds=40 * 60)
+    rc = voice_pack_train.main(
+        [
+            "--manifest", str(manifest_path),
+            "--out", str(tmp_path / "run"),
+            "--language", "en",
+            "--dry-run",
+        ]
+    )
+    assert rc == 0
