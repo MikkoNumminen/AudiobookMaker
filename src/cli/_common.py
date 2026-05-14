@@ -232,13 +232,18 @@ def runner_script_path() -> Path:
 def validate_input_path(path: str) -> tuple[int, str]:
     """Validate that ``path`` exists and has a supported book extension.
 
+    Expands a leading ``~`` before the existence check so callers that
+    pass ``~/books/foo.epub`` (Makefile, cron, subprocess.run with
+    shell=False) get the same behaviour as an absolute path.
+
     Returns ``(EXIT_OK, '')`` if valid, or ``(EXIT_BAD_INPUT, message)``
     if invalid. Shared by convert and sample so the validation rules
     stay in one place.
     """
-    if not Path(path).exists():
-        return EXIT_BAD_INPUT, f"input file not found: {path}"
-    ext = Path(path).suffix.lower()
+    resolved = Path(path).expanduser()
+    if not resolved.exists():
+        return EXIT_BAD_INPUT, f"input file not found: {resolved}"
+    ext = resolved.suffix.lower()
     if ext not in (".pdf", ".epub", ".txt"):
         return (
             EXIT_BAD_INPUT,
