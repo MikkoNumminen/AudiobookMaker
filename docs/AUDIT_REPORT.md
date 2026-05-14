@@ -263,7 +263,7 @@ Severity legend: 🔴 critical · 🟡 warning · 🟢 suggestion.
 - **Observation:** `edge_tts`, `piper`, `torch`, `chatterbox` are imported inside methods, not at module load. VoxCPM is conditionally imported only when not frozen ([src/gui_unified.py:59-65](../src/gui_unified.py#L59-L65)).
 
 ### 🟢 asyncio concurrency in the parallel CLI is correct
-- **File/lines:** [scripts/generate_audiobook_parallel.py:69-78](../scripts/generate_audiobook_parallel.py#L69-L78).
+- **File/lines (historical):** `scripts/generate_audiobook_parallel.py:69-78` — script removed after the audit, see [docs/CLI.md](CLI.md) "Existing scripts" for context.
 - **Observation:** Semaphore-guarded, no shared mutable state, default 8-way concurrency sensible.
 
 ### 🟢 Most normalizer regexes are pre-compiled module-level
