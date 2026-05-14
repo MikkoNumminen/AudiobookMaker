@@ -1,13 +1,15 @@
-"""engines subcommand — list registered TTS engines.
+"""engines subcommand — list, install, remove, and check TTS engines.
 
 Usage:
-    audiobookmaker engines list [--installed-only] [--json] [--quiet]
-
-Prints one row per engine with id, display name, availability, and
-a reason string when unavailable.
+    audiobookmaker engines list             [--installed-only] [--json] [--quiet]
+    audiobookmaker engines install <id>     [--yes] [--json] [--quiet]
+    audiobookmaker engines remove  <id>     [--yes]
+    audiobookmaker engines check   <id>
 
 Exit codes:
-    0  success
+    0  success / engine available
+    1  bad input (unknown engine id, engine not installed)
+    2  install/check failure
     5  unexpected error
 """
 
@@ -15,32 +17,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import threading
 
-from src.cli._common import EXIT_INTERNAL, EXIT_OK, add_output_mode_flags
+from src.cli._common import (
+    EXIT_BAD_INPUT,
+    EXIT_INTERNAL,
+    EXIT_MISSING_DEP,
+    EXIT_OK,
+    add_output_mode_flags,
+)
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "engines",
-        help="List and inspect TTS engines.",
-        description="Manage and inspect installed TTS engines.",
+        help="List and manage TTS engines.",
+        description="List, install, remove, and check TTS engines.",
     )
     sub = p.add_subparsers(dest="engines_cmd", metavar="CMD")
     sub.required = True
 
     # engines list
-    lst = sub.add_parser(
-        "list",
-        help="List all registered engines.",
-        description=(
-            "List every registered TTS engine with its availability.\n\n"
-            "Exit codes:\n"
-            "  0  success\n"
-            "  5  unexpected error\n"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    lst = sub.add_parser("list", help="List all registered engines.")
     lst.add_argument(
         "--installed-only",
         action="store_true",
@@ -49,6 +49,25 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     add_output_mode_flags(lst)
     lst.set_defaults(func=_run_list)
+
+    # engines install <id>
+    ins = sub.add_parser("install", help="Download and install a TTS engine.")
+    ins.add_argument("engine_id", metavar="ID", help="Engine id (e.g. piper, chatterbox_fi).")
+    ins.add_argument("--yes", action="store_true", default=False, help="Skip prompts.")
+    add_output_mode_flags(ins)
+    ins.set_defaults(func=_run_install)
+
+    # engines remove <id>
+    rem = sub.add_parser("remove", help="Remove an installed TTS engine's assets.")
+    rem.add_argument("engine_id", metavar="ID", help="Engine id to remove.")
+    rem.add_argument("--yes", action="store_true", default=False, help="Skip confirmation.")
+    rem.set_defaults(func=_run_remove)
+
+    # engines check <id>
+    chk = sub.add_parser("check", help="Check whether a TTS engine is available.")
+    chk.add_argument("engine_id", metavar="ID", help="Engine id to check.")
+    add_output_mode_flags(chk)
+    chk.set_defaults(func=_run_check)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -110,3 +129,163 @@ def _print_engines_table(rows: list[dict]) -> None:
         avail = "yes" if row["available"] else "no"
         detail = row["display_name"] if row["available"] else row["reason"]
         print(f"  {row['id']:<20}  {avail:<10}  {detail}")
+
+
+def _run_install(args: argparse.Namespace) -> int:
+    engine_id: str = args.engine_id
+    json_mode: bool = getattr(args, "json", False)
+    quiet: bool = getattr(args, "quiet", False)
+
+    try:
+        from src.engine_installer import get_installer
+    except Exception as exc:
+        print(f"Error loading installer module: {exc}", file=sys.stderr)
+        return EXIT_INTERNAL
+
+    installer = get_installer(engine_id)
+    if installer is None:
+        print(f"Unknown engine id '{engine_id}'. Run 'engines list' to see valid ids.", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    def _emit(message: str) -> None:
+        if json_mode:
+            print(json.dumps({"kind": "log", "message": message}), flush=True)
+        elif not quiet:
+            print(message, flush=True)
+
+    _emit(f"Installing engine '{engine_id}'...")
+
+    error_holder: list[str] = []
+    cancel_event = threading.Event()
+
+    def _progress(prog) -> None:
+        if prog.error:
+            error_holder.append(prog.error)
+        if json_mode:
+            print(json.dumps({
+                "kind": "progress",
+                "step": prog.step,
+                "total_steps": prog.total_steps,
+                "step_label": prog.step_label,
+                "percent": prog.percent,
+                "message": prog.message,
+                "error": prog.error,
+                "done": prog.done,
+            }), flush=True)
+        elif not quiet:
+            if prog.error:
+                print(f"  Error: {prog.error}", flush=True)
+            elif prog.done:
+                print(f"  Done: {prog.step_label}", flush=True)
+            elif prog.message:
+                print(f"  {prog.message}", flush=True)
+
+    try:
+        installer.install(_progress, cancel_event)
+    except InterruptedError:
+        print("Install cancelled.", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    except Exception as exc:
+        print(f"Install failed: {exc}", file=sys.stderr)
+        return EXIT_MISSING_DEP
+
+    if error_holder:
+        print(f"Install failed: {error_holder[-1]}", file=sys.stderr)
+        return EXIT_MISSING_DEP
+
+    _emit(f"Engine '{engine_id}' installed successfully.")
+    return EXIT_OK
+
+
+def _run_remove(args: argparse.Namespace) -> int:
+    engine_id: str = args.engine_id
+    yes: bool = getattr(args, "yes", False)
+
+    try:
+        from src.engine_installer import get_installer
+    except Exception as exc:
+        print(f"Error loading installer module: {exc}", file=sys.stderr)
+        return EXIT_INTERNAL
+
+    installer = get_installer(engine_id)
+    if installer is None:
+        print(f"Unknown engine id '{engine_id}'.", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    if hasattr(installer, "is_installed") and not installer.is_installed():
+        print(f"Engine '{engine_id}' is not installed.", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    if not yes:
+        try:
+            answer = input(f"Remove engine '{engine_id}'? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        if answer not in ("y", "yes"):
+            print("Aborted.", file=sys.stderr)
+            return EXIT_BAD_INPUT
+
+    try:
+        removed_any = False
+        if hasattr(installer, "_voice_dir") and installer._voice_dir.exists():
+            shutil.rmtree(installer._voice_dir, ignore_errors=False)
+            removed_any = True
+        if hasattr(installer, "_venv_path") and installer._venv_path.exists():
+            shutil.rmtree(installer._venv_path, ignore_errors=False)
+            removed_any = True
+        if not removed_any:
+            print(f"Engine '{engine_id}' is not installed.", file=sys.stderr)
+            return EXIT_BAD_INPUT
+    except Exception as exc:
+        print(f"Remove failed: {exc}", file=sys.stderr)
+        return EXIT_INTERNAL
+
+    print(f"Engine '{engine_id}' removed.")
+    return EXIT_OK
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    engine_id: str = args.engine_id
+    json_mode: bool = getattr(args, "json", False)
+    quiet: bool = getattr(args, "quiet", False)
+
+    try:
+        from src import engine_registry  # noqa: F401
+        from src.tts_base import get_engine
+    except Exception as exc:
+        print(f"Error loading engines: {exc}", file=sys.stderr)
+        return EXIT_INTERNAL
+
+    engine = get_engine(engine_id)
+    if engine is None:
+        msg = f"Unknown engine id '{engine_id}'. Run 'engines list' to see valid ids."
+        if json_mode:
+            print(json.dumps({"available": False, "reason": msg}), flush=True)
+        else:
+            print(msg, file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    try:
+        status = engine.check_status()
+    except Exception as exc:
+        msg = str(exc)
+        if json_mode:
+            print(json.dumps({"id": engine_id, "available": False, "reason": msg}), flush=True)
+        else:
+            print(f"check_status() failed: {msg}", file=sys.stderr)
+        return EXIT_INTERNAL
+
+    if json_mode:
+        print(json.dumps({
+            "id": engine_id,
+            "display_name": engine.display_name,
+            "available": status.available,
+            "reason": status.reason,
+        }), flush=True)
+    elif not quiet:
+        avail = "available" if status.available else "not available"
+        detail = f"  {status.reason}" if status.reason else ""
+        print(f"{engine_id}: {avail}{detail}")
+
+    return EXIT_OK if status.available else EXIT_MISSING_DEP
