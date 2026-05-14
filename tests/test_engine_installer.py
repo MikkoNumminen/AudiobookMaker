@@ -724,11 +724,15 @@ class TestChatterboxInstallerRemove:
         elsewhere, remove() must delete that venv root (not silently
         report False)."""
         non_default_root = tmp_path / "elsewhere_venv"
-        # Build the venv layout the resolver would point at.
+        # Build the venv layout the resolver would point at, including
+        # the pyvenv.cfg marker that real venvs always carry.
         scripts = non_default_root / "Scripts"
         scripts.mkdir(parents=True)
         python_exe = scripts / "python.exe"
         python_exe.write_bytes(b"")
+        (non_default_root / "pyvenv.cfg").write_text(
+            "home = C:\\Python311\n", encoding="utf-8"
+        )
 
         # Default path is empty; resolver returns the non-default python.
         inst = ChatterboxInstaller(venv_path=tmp_path / "default_missing")
@@ -740,3 +744,32 @@ class TestChatterboxInstallerRemove:
 
         assert inst.remove() is True
         assert not non_default_root.exists()
+
+    def test_rejects_resolver_result_that_is_not_a_venv(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Defense against a misconfigured CHATTERBOX_PYTHON pointing at
+        a system python (e.g. /usr/bin/python3). The resolver returns
+        whatever Path is set, and parent.parent on a system python
+        resolves to a real system directory. Without the pyvenv.cfg
+        guard, remove() would rmtree that directory.
+        """
+        fake_system_root = tmp_path / "fake_system_root"
+        bin_dir = fake_system_root / "Scripts"
+        bin_dir.mkdir(parents=True)
+        python_exe = bin_dir / "python.exe"
+        python_exe.write_bytes(b"")
+        # Deliberately NO pyvenv.cfg — this is not a venv, it is a
+        # directory that happens to contain a python.
+
+        inst = ChatterboxInstaller(venv_path=tmp_path / "default_missing")
+        monkeypatch.setattr(
+            "src.launcher_bridge.resolve_chatterbox_python",
+            lambda: python_exe,
+            raising=True,
+        )
+
+        assert inst.remove() is False, "must refuse to rmtree non-venv directories"
+        assert fake_system_root.exists(), (
+            "guard must keep the parent directory intact when it is not a venv"
+        )

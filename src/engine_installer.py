@@ -594,6 +594,15 @@ class ChatterboxInstaller(EngineInstaller):
         # <venv>/bin/python on POSIX). Walk two levels up to get the
         # venv root.
         venv_root = Path(resolved).parent.parent
+        # Defense against a misconfigured CHATTERBOX_PYTHON env var
+        # pointing at a system python (e.g. /usr/bin/python3): in that
+        # case parent.parent is /usr, and rmtree(/usr) is catastrophic.
+        # pyvenv.cfg is created by `python -m venv` at the venv root
+        # and exists in every legitimate venv; system directories never
+        # carry one. Refuse to delete anything that does not look like
+        # an actual venv.
+        if not (venv_root / "pyvenv.cfg").is_file():
+            return False
         if venv_root.exists() and venv_root.is_dir():
             _shutil.rmtree(venv_root, ignore_errors=False)
             return True
