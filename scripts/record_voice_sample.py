@@ -28,7 +28,7 @@ Quick usage::
 
     # Reuse an existing recording (skip recording step)
     python scripts/record_voice_sample.py \\
-        --use-existing voice_samples/mikko_001.wav \\
+        --use-existing .local/voice_runs/mikko_001.wav \\
         --synthesize "Uusi testi samalla äänellä."
 
     # Production run on the Windows GPU machine
@@ -94,8 +94,8 @@ rejected."""
 
 DEFAULT_SAMPLE_RATE_HZ = 22050
 DEFAULT_DURATION_S = 12.0
-DEFAULT_VOICE_SAMPLES_DIR = Path("voice_samples")
-DEFAULT_SYNTH_OUTPUT_DIR = Path("out")
+DEFAULT_VOICE_SAMPLES_DIR = Path(".local/voice_runs")
+DEFAULT_SYNTH_OUTPUT_DIR = Path(".local/audiobooks")
 
 # Recording script reused from the main AudiobookMaker pipeline.
 CHATTERBOX_SCRIPT = Path("dev_chatterbox_fi.py")
