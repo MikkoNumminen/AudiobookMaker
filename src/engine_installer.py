@@ -449,6 +449,14 @@ class PiperInstaller(EngineInstaller):
             (self._voice_dir / f).exists() for f in PIPER_VOICE_FILES
         )
 
+    def remove(self) -> bool:
+        """Delete the installed voice files. Returns True if anything was removed."""
+        import shutil as _shutil
+        if self._voice_dir.exists():
+            _shutil.rmtree(self._voice_dir, ignore_errors=False)
+            return True
+        return False
+
     def install(
         self,
         progress_cb: ProgressCallback,
@@ -558,6 +566,14 @@ class ChatterboxInstaller(EngineInstaller):
             return resolve_chatterbox_python() is not None
         except Exception:
             return False
+
+    def remove(self) -> bool:
+        """Delete the Chatterbox venv. Returns True if anything was removed."""
+        import shutil as _shutil
+        if self._venv_path.exists():
+            _shutil.rmtree(self._venv_path, ignore_errors=False)
+            return True
+        return False
 
     def install(
         self,
