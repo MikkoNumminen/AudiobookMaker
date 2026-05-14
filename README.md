@@ -40,7 +40,7 @@ Four TTS engines, each with different tradeoffs:
 |---|---|---|---|---|---|
 | **Edge-TTS** | Excellent | No | No | No | Default. Fast, free, great Finnish voices. |
 | **Piper** | Good | Yes | No | No | Privacy-sensitive content, no internet, older machines. |
-| **Chatterbox** | Excellent | Yes | NVIDIA | Voice packs | Best Finnish quality. In-app install or developer setup. |
+| **Chatterbox** | Excellent | Yes | NVIDIA | Voice packs | Grandmom / Isoäiti voice. Best Finnish quality. One-time in-app install (~15 GB). |
 | **VoxCPM2** | Variable | Yes | NVIDIA | Zero-shot | Voice design from text descriptions, experimentation. Developer setup only. |
 
 Edge-TTS is the default and what most users want. Don't overthink it unless you have a specific reason.
