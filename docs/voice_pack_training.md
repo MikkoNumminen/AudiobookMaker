@@ -203,7 +203,7 @@ Expected: ~30–60 min wall time for 1 h of source audio on a 3080 Ti.
 
 ```bash
 .venv-chatterbox/Scripts/python.exe scripts/voice_pack_package.py \
-  --run runs/sample_1h/ \
+  --adapter runs/sample_1h/adapter/ \
   --tier full_lora \
   --sample dataset_1h/wavs/0000.wav \
   --out voice_packs/my_narrator/
