@@ -17,7 +17,7 @@ use case on a 12 GB RTX 3080 Ti.
 <audio file>
    │  (1) ffmpeg extract
    ▼
-<clip.wav, 24 kHz mono>
+<clip.wav, 16 kHz mono>
    │  (2) voice_pack_analyze.py      → transcripts.jsonl + speakers.yaml
    ▼
 <per-speaker VoiceChunks>
@@ -45,11 +45,11 @@ All stages are one-shot CLIs.
 
 ## Step-by-step — 1 hour sample
 
-### 1. Extract 1 hour of mono 24 kHz audio
+### 1. Extract 1 hour of mono 16 kHz audio
 
 ```bash
 ffmpeg -i "D:/path/to/source_audiobook.m4b" \
-  -t 3600 -ar 24000 -ac 1 sample_1h.wav
+  -t 3600 -ar 16000 -ac 1 sample_1h.wav
 ```
 
 ### 2. Analyze (ASR + diarization)
