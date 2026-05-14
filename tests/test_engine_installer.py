@@ -662,3 +662,81 @@ class TestCanonicalizeVenvPath:
         monkeypatch.delenv("TMP", raising=False)
         with pytest.raises(ValueError):
             ChatterboxInstaller(venv_path=Path("Z:/escape/venv"))
+
+
+# ---------------------------------------------------------------------------
+# Installer.remove() — public uninstall API used by the CLI
+# ---------------------------------------------------------------------------
+
+
+class TestPiperInstallerRemove:
+    """The CLI's `engines remove piper` flow ends up calling this."""
+
+    def test_returns_false_when_nothing_to_remove(self, tmp_path, monkeypatch) -> None:
+        # Point _voice_dir at an empty tmp path with nothing under it.
+        inst = PiperInstaller()
+        target = tmp_path / "piper_voices_fake"
+        monkeypatch.setattr(inst, "_voice_dir", target, raising=True)
+        assert not target.exists()
+        assert inst.remove() is False
+
+    def test_returns_true_and_deletes_dir(self, tmp_path, monkeypatch) -> None:
+        inst = PiperInstaller()
+        target = tmp_path / "piper_voices_real"
+        target.mkdir()
+        # Drop a sentinel file so we can assert the whole subtree is gone.
+        (target / "harri.onnx").write_bytes(b"")
+        monkeypatch.setattr(inst, "_voice_dir", target, raising=True)
+
+        assert inst.remove() is True
+        assert not target.exists()
+
+
+class TestChatterboxInstallerRemove:
+    """The CLI's `engines remove chatterbox_fi` flow ends up calling this."""
+
+    def test_returns_false_when_nothing_to_remove(self, tmp_path, monkeypatch) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv_absent")
+        # Also blank the resolver so it can't find a fallback venv anywhere.
+        monkeypatch.setattr(
+            "src.launcher_bridge.resolve_chatterbox_python",
+            lambda: None,
+            raising=True,
+        )
+        assert inst.remove() is False
+
+    def test_returns_true_and_deletes_default_venv(self, tmp_path) -> None:
+        venv = tmp_path / "venv_default"
+        # Mimic a minimal venv layout so rmtree has something real to delete.
+        scripts = venv / "Scripts"
+        scripts.mkdir(parents=True)
+        (scripts / "python.exe").write_bytes(b"")
+        inst = ChatterboxInstaller(venv_path=venv)
+        assert venv.exists()
+
+        assert inst.remove() is True
+        assert not venv.exists()
+
+    def test_falls_back_to_resolver_for_non_default_install(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """When _venv_path is missing but the resolver finds an install
+        elsewhere, remove() must delete that venv root (not silently
+        report False)."""
+        non_default_root = tmp_path / "elsewhere_venv"
+        # Build the venv layout the resolver would point at.
+        scripts = non_default_root / "Scripts"
+        scripts.mkdir(parents=True)
+        python_exe = scripts / "python.exe"
+        python_exe.write_bytes(b"")
+
+        # Default path is empty; resolver returns the non-default python.
+        inst = ChatterboxInstaller(venv_path=tmp_path / "default_missing")
+        monkeypatch.setattr(
+            "src.launcher_bridge.resolve_chatterbox_python",
+            lambda: python_exe,
+            raising=True,
+        )
+
+        assert inst.remove() is True
+        assert not non_default_root.exists()

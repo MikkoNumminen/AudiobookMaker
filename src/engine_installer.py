@@ -568,10 +568,34 @@ class ChatterboxInstaller(EngineInstaller):
             return False
 
     def remove(self) -> bool:
-        """Delete the Chatterbox venv. Returns True if anything was removed."""
+        """Delete the Chatterbox venv. Returns True if anything was removed.
+
+        Symmetric with :meth:`is_installed`: try the default location
+        first, then fall back to ``resolve_chatterbox_python()`` so a
+        venv at a non-default path (D-drive dev install, sibling-of-exe
+        bundle, ``CHATTERBOX_PYTHON`` override) is still removable via
+        the CLI. Without this, the engines list would say "available"
+        and ``engines remove chatterbox_fi`` would refuse with
+        "not installed" — a confusing UX gap.
+        """
         import shutil as _shutil
         if self._venv_path.exists():
             _shutil.rmtree(self._venv_path, ignore_errors=False)
+            return True
+        try:
+            from src.launcher_bridge import resolve_chatterbox_python
+            resolved = resolve_chatterbox_python()
+        except Exception:
+            return False
+        if resolved is None:
+            return False
+        # resolve_chatterbox_python() returns the path to python.exe
+        # inside the venv (<venv>/Scripts/python.exe on Windows,
+        # <venv>/bin/python on POSIX). Walk two levels up to get the
+        # venv root.
+        venv_root = Path(resolved).parent.parent
+        if venv_root.exists() and venv_root.is_dir():
+            _shutil.rmtree(venv_root, ignore_errors=False)
             return True
         return False
 
