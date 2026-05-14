@@ -34,7 +34,7 @@ the output.
 Clone the repo and install in editable mode:
 
 ```bash
-git clone https://github.com/mikkopetteri/AudiobookMaker
+git clone https://github.com/MikkoNumminen/AudiobookMaker
 cd AudiobookMaker
 pip install -e .
 ```
@@ -47,7 +47,7 @@ installation it is on your PATH so you can run it from any directory.
 A standalone Windows binary (`audiobookmaker.exe`) is planned as a future
 release artifact — a self-contained zip with ffmpeg bundled so nothing else
 needs to be installed. It is not available yet. Watch the
-[releases page](https://github.com/mikkopetteri/AudiobookMaker/releases) for
+[releases page](https://github.com/MikkoNumminen/AudiobookMaker/releases) for
 the first `AudiobookMaker-CLI-*.zip` asset.
 
 ---
