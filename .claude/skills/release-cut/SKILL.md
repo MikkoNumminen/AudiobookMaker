@@ -30,9 +30,11 @@ re-implement those guards — CI does that. Your job is to:
 `.github/workflows/build-release.yml` fires on any `v*` tag. It:
 
 - Runs the full pytest suite.
-- Asserts `src/auto_updater.py::APP_VERSION` matches
-  `installer/setup.iss::#define MyAppVersion`. Drift → build fails.
-- Rewrites both values to match the tag name (strips the leading `v`).
+- Asserts `src/auto_updater.py::APP_VERSION` matches both
+  `installer/setup.iss::#define MyAppVersion` AND `pyproject.toml`'s
+  top-level `version`. Drift in any of the three → build fails.
+- Rewrites all three values to match the tag name (strips the leading
+  `v`).
 - Builds the exe and installer, computes the SHA-256, writes it into
   `release_notes.md`, uploads a `AudiobookMaker-Setup-<v>.exe.sha256`
   sidecar asset, and refuses to publish if the notes are missing the
@@ -63,13 +65,14 @@ git pull --ff-only origin master
 Re-read [TODO.md](../../../TODO.md) before committing anything, per the
 project's shared-board protocol.
 
-### Step 3 — bump both version strings together
+### Step 3 — bump all three version strings together
 
-They MUST match before the tag is pushed, otherwise the CI version-drift
-guard fails the build.
+All three MUST match before the tag is pushed, otherwise the CI
+version-drift guard fails the build.
 
 - `src/auto_updater.py` — line near top: `APP_VERSION = "X.Y.Z"`
 - `installer/setup.iss` — line near top: `#define MyAppVersion "X.Y.Z"`
+- `pyproject.toml` — line near top: `version = "X.Y.Z"`
 
 Update README download links at the same time. They point at
 `https://github.com/MikkoNumminen/AudiobookMaker/releases/download/vX.Y.Z/AudiobookMaker-Setup-X.Y.Z.exe`
@@ -89,7 +92,7 @@ recording there. The detailed changelog will be written by CI from the
 template in `build-release.yml` — you don't hand-author it.
 
 ```bash
-git add src/auto_updater.py installer/setup.iss README.md
+git add src/auto_updater.py installer/setup.iss pyproject.toml README.md
 git commit -m "release: bump APP_VERSION and installer to X.Y.Z"
 git push origin master
 ```
