@@ -85,7 +85,7 @@ Open-source neural TTS from OpenBMB. Supports 30 languages including Finnish, ru
 
 **Honest expectations:**
 
-- VoxCPM2's Finnish has not been A/B tested against Chatterbox-Finnish or Edge-TTS Noora by the project maintainer. Try a sample chapter on each before committing to one for a whole book.
+- A/B tested against Chatterbox-Finnish and Edge-TTS Noora on real text. **For Finnish, Chatterbox sounds better** — it's the production choice for Finnish audiobooks. **For English the gap is small** and depends on the voice and the source text; both are listenable. Try a sample chapter on each before committing to a long book — listening tests are cheap and your ears are the final judge.
 - Voice description prompts work for broad characteristics (gender, age, tone). Specific ethnic accents across language boundaries (e.g. "African American accent reading Finnish") are well outside what any current open-source multilingual TTS handles reliably. For stronger persona matching, use voice cloning with a reference clip.
 
 To install:
