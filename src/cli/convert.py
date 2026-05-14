@@ -20,6 +20,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import os
+import secrets
 import sys
 from pathlib import Path
 from typing import Optional
@@ -59,9 +61,23 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "input",
         metavar="INPUT",
-        help="Path to a PDF, EPUB, or TXT file.",
+        help=(
+            "Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. "
+            "When '-' is used, --input-format must also be provided."
+        ),
     )
     add_common_synthesis_flags(p)
+    p.add_argument(
+        "--input-format",
+        metavar="FMT",
+        default=None,
+        choices=["pdf", "epub", "txt"],
+        help=(
+            "File format when reading from stdin ('-'). "
+            "Required when INPUT is '-'; not valid otherwise. "
+            "Choices: pdf, epub, txt."
+        ),
+    )
     p.add_argument(
         "--ref-audio",
         metavar="PATH",
@@ -100,14 +116,104 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
     json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
     dry_run: bool = getattr(args, "dry_run", False)
+    input_format: Optional[str] = getattr(args, "input_format", None)
 
-    input_path = str(Path(args.input).expanduser())
+    raw_input: str = args.input
+    stdin_tempfile: Optional[str] = None
 
-    # Validate input file.
-    code, msg = validate_input_path(input_path)
-    if code != EXIT_OK:
-        print(f"Error: {msg}", file=sys.stderr)
-        return code
+    # --input-format is only valid with stdin sentinel.
+    if input_format is not None and raw_input != "-":
+        print(
+            "Error: use --input-format only with '-' (stdin).",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
+    if raw_input == "-":
+        # Stdin sentinel — validate preconditions and materialize to tempfile.
+        if input_format is None:
+            print(
+                "Error: --input-format is required when INPUT is '-' (stdin). "
+                "Choices: pdf, epub, txt.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+
+        if sys.stdin.isatty():
+            print(
+                "Error: stdin is a terminal — pipe data in, or pass a file path.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+
+        # Determine scratch directory (relative to repo/app root, per CLAUDE.md).
+        from src.cli._common import _app_root
+        scratch_dir = _app_root() / ".local" / "scratch"
+        try:
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"Error: cannot create scratch directory: {exc}", file=sys.stderr)
+            return EXIT_INTERNAL
+
+        hex_suffix = secrets.token_hex(4)
+        tmp_name = f"stdin_{hex_suffix}.{input_format}"
+        stdin_tempfile = str(scratch_dir / tmp_name)
+
+        try:
+            data = sys.stdin.buffer.read()
+        except Exception as exc:
+            print(f"Error reading from stdin: {exc}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+
+        try:
+            with open(stdin_tempfile, "wb") as fh:
+                fh.write(data)
+        except OSError as exc:
+            print(f"Error writing stdin to tempfile: {exc}", file=sys.stderr)
+            return EXIT_INTERNAL
+
+        input_path = stdin_tempfile
+    else:
+        input_path = str(Path(raw_input).expanduser())
+
+    def _cleanup_stdin_temp() -> None:
+        if stdin_tempfile is not None:
+            try:
+                Path(stdin_tempfile).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    try:
+        return _run_inner(
+            args,
+            input_path=input_path,
+            sample_text=sample_text,
+            json_mode=json_mode,
+            quiet=quiet,
+            dry_run=dry_run,
+            stdin_tempfile=stdin_tempfile,
+        )
+    finally:
+        _cleanup_stdin_temp()
+
+
+def _run_inner(
+    args: argparse.Namespace,
+    *,
+    input_path: str,
+    sample_text: Optional[str],
+    json_mode: bool,
+    quiet: bool,
+    dry_run: bool,
+    stdin_tempfile: Optional[str],
+) -> int:
+    """Core convert logic; called by run() after stdin materialisation."""
+    # Validate input file (skipped for stdin — we just wrote it ourselves).
+    if stdin_tempfile is None:
+        code, msg = validate_input_path(input_path)
+        if code != EXIT_OK:
+            print(f"Error: {msg}", file=sys.stderr)
+            return code
 
     # Resolve config and flags. app_config.load() already returns a
     # default UserConfig() on disk / JSON errors, so no outer wrap.
