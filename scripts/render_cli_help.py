@@ -132,7 +132,7 @@ def _render_block(root_parser: argparse.ArgumentParser) -> str:
     sections: list[str] = []
 
     for crumb, parser in leaves:
-        heading_words = ["audiobookmaker"] + crumb
+        heading_words = ["audiobookmaker-cli"] + crumb
         heading = "### `" + " ".join(heading_words) + "`"
 
         # One-line description: prefer the parser's description, fall back

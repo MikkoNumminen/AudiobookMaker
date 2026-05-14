@@ -18,8 +18,16 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 pip install -e .
-audiobookmaker engines install chatterbox_fi
+audiobookmaker-cli engines install chatterbox_fi
 ```
+
+> **The CLI command is `audiobookmaker-cli` (with the hyphen).** The
+> installed Windows app ships an `AudiobookMaker.exe` that, on the case-
+> insensitive Windows filesystem, can shadow a bare `audiobookmaker.exe`
+> console script and silently launch the GUI when the user means the CLI.
+> The hyphenated `audiobookmaker-cli` is immune to that collision, so the
+> command in this cheatsheet always lands on the CLI regardless of whether
+> the GUI is also installed on the machine.
 
 `engines install chatterbox_fi` is the long one — it downloads the Chatterbox
 model (~15 GB) and sets up the GPU venv. It refuses with a clear error if you
@@ -28,7 +36,7 @@ don't have NVIDIA + CUDA 12.
 You can already make an audiobook with the bundled voice:
 
 ```powershell
-audiobookmaker convert mybook.pdf --engine chatterbox_fi --language fi
+audiobookmaker-cli convert mybook.pdf --engine chatterbox_fi --language fi
 ```
 
 `--language fi` = Isoäiti. `--language en` = Grandmom. PDF, EPUB, and TXT all
@@ -43,8 +51,8 @@ Pick **ONE** of these two paths.
 ### Path A — Someone gave you a voice pack folder
 
 ```powershell
-audiobookmaker packs import path\to\the\pack
-audiobookmaker packs list
+audiobookmaker-cli packs import path\to\the\pack
+audiobookmaker-cli packs list
 ```
 
 `packs list` prints the name (slug) of the pack you just installed. Use that
@@ -79,17 +87,17 @@ Package it as a few-shot voice pack:
 Install it:
 
 ```powershell
-audiobookmaker packs import .local\voice_packs\myvoice
+audiobookmaker-cli packs import .local\voice_packs\myvoice
 ```
 
-Now `audiobookmaker packs list` shows `myvoice` alongside the bundled voices.
+Now `audiobookmaker-cli packs list` shows `myvoice` alongside the bundled voices.
 
 ---
 
 ## Step 3 — Make an audiobook with that voice
 
 ```powershell
-audiobookmaker convert mybook.pdf --engine chatterbox_fi --language fi --voice-pack myvoice
+audiobookmaker-cli convert mybook.pdf --engine chatterbox_fi --language fi --voice-pack myvoice
 ```
 
 Works with PDF, EPUB, TXT. The final MP3 path is printed when synthesis

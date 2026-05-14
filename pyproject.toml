@@ -21,6 +21,13 @@ authors = [{name = "Mikko Numminen"}]
 dependencies = []
 
 [project.scripts]
+# `audiobookmaker-cli` is the canonical CLI command. The hyphen is deliberate:
+# the installed Windows app ships `AudiobookMaker.exe`, which on the case-
+# insensitive Windows filesystem collides with a bare `audiobookmaker.exe`
+# console script and silently launches the GUI when the user means the CLI.
+# `audiobookmaker-cli.exe` cannot be shadowed. The bare `audiobookmaker` name
+# is kept as a back-compat alias for users who have only the dev tree on PATH.
+audiobookmaker-cli = "src.cli.__main__:main"
 audiobookmaker = "src.cli.__main__:main"
 
 [tool.setuptools.packages.find]
