@@ -68,9 +68,12 @@ class ChatterboxFiEngine(TTSEngine):
             return EngineStatus(
                 available=False,
                 reason=(
-                    "Chatterbox engine is not installed. "
+                    "Chatterbox engine is not installed.\n"
+                    "Chatterbox-moottoria ei ole asennettu.\n"
                     "Install it via the GUI's \"Install engines…\" button "
-                    "in the Settings panel, or via the CLI:\n"
+                    "in the Settings panel\n"
+                    "(Asetukset-paneelin \"Asenna moottoreita…\"-painikkeesta), "
+                    "or via the CLI:\n"
                     "  audiobookmaker engines install chatterbox_fi"
                 ),
             )

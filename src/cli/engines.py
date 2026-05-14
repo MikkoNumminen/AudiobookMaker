@@ -156,8 +156,11 @@ def _run_install(args: argparse.Namespace) -> int:
     try:
         issues = installer.check_prerequisites(ui_lang="en")
     except Exception as exc:
+        # An exception from inside check_prerequisites is an internal
+        # bug in the installer, not a missing dependency the user can
+        # fix — return EXIT_INTERNAL so scripts can distinguish the two.
         print(f"Prerequisite check failed: {exc}", file=sys.stderr)
-        return EXIT_MISSING_DEP
+        return EXIT_INTERNAL
 
     if issues:
         for issue in issues:
