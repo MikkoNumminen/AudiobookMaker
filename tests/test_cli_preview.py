@@ -99,20 +99,25 @@ class TestPreviewBasic:
 
 
 def _ffmpeg_available() -> bool:
-    """Return True when ffmpeg is on PATH or bundled.
+    """Return True only when ffmpeg actually runs as a subprocess.
 
     Edge-TTS synth uses pydub to assemble MP3 chunks, and pydub needs
-    ffmpeg. CI runners frequently lack it, in which case preview synth
-    fails with exit 4 — that is correct CLI behaviour, not a test bug,
-    so we skip the test rather than treat exit 4 as a pass.
+    ffmpeg. CI runners often lack it. Just finding a path is not
+    enough — the CLI subprocess that runs synth inherits the parent's
+    environment, so the only reliable check is to invoke ffmpeg the
+    same way pydub will. If `ffmpeg -version` works, synthesis can
+    proceed; if it doesn't, we skip rather than treat the exit 4
+    that follows as a regression.
     """
-    import shutil
-    if shutil.which("ffmpeg"):
-        return True
+    import subprocess
     try:
-        from src.ffmpeg_path import get_ffmpeg_exe
-        return get_ffmpeg_exe() is not None
-    except Exception:
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return False
 
 
