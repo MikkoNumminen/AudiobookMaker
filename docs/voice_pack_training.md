@@ -209,6 +209,30 @@ Expected: ~30–60 min wall time for 1 h of source audio on a 3080 Ti.
   --out voice_packs/my_narrator/
 ```
 
+### 5b. Packaging — few-shot tier (short sources, no LoRA)
+
+If you have less than five minutes of source audio, skip Steps 3 and 4
+(export and train) entirely. The LoRA adapter cannot converge on such a
+small dataset. Instead, package the reference clip directly:
+
+```bash
+.venv-chatterbox/Scripts/python.exe scripts/voice_pack_package.py \
+  --tier few_shot \
+  --reference .local/voice_runs/refs_short/SPEAKER_00.wav \
+  --name "speaker_00_local" \
+  --language fi \
+  --tier-reason "source under 5 min — few-shot only, no LoRA" \
+  --out .local/voice_packs/speaker_00_short/
+```
+
+No `--adapter` flag — the few-shot pack carries only the reference WAV.
+At synthesis time, the engine clones the voice directly from that clip
+without loading a LoRA adapter. Quality is lower than a full LoRA pack
+but usable for short sources where training data is insufficient.
+
+For sources over five minutes, use the `full_lora` (or `reduced_lora`)
+path in Steps 3–5 above.
+
 ## What still needs a human
 
 - **Speaker selection.** The analyzer gives you a report, not a pick.
