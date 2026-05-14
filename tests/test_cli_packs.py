@@ -265,6 +265,64 @@ class TestPacksRemove:
         assert obj["slug"] == "rm_json"
         assert not (tmp_path / "rm_json").exists()
 
+    def test_quiet_alone_still_shows_prompt(self, tmp_path):
+        """--quiet must not bypass the confirmation prompt.
+
+        Before the fix, `quiet` was OR-ed into the skip condition alongside
+        `--yes`, so piping output with --quiet silently deleted packs.  The
+        correct behaviour is that --quiet only suppresses the success line;
+        it must never skip the destructive-action guard.
+        """
+        import src.cli.packs as packs_mod
+
+        _make_fake_pack(tmp_path, "quiet_test")
+        parser, _ = _make_packs_parser(tmp_path)
+        input_mock = mock.Mock(return_value="n")
+        with mock.patch.object(packs_mod, "_packs_dir", return_value=tmp_path):
+            with mock.patch("builtins.input", input_mock):
+                parsed = parser.parse_args(["packs", "remove", "quiet_test", "--quiet"])
+                rc = parsed.func(parsed)
+        input_mock.assert_called_once()
+        # User answered "n", so pack is still there and we got EXIT_CANCELLED.
+        assert rc != 0
+        assert (tmp_path / "quiet_test").exists()
+
+    def test_quiet_yes_skips_prompt(self, tmp_path):
+        """--quiet --yes together must skip the prompt (documented fast path)."""
+        import src.cli.packs as packs_mod
+
+        _make_fake_pack(tmp_path, "quiet_yes_test")
+        parser, _ = _make_packs_parser(tmp_path)
+        input_mock = mock.Mock(return_value="y")
+        with mock.patch.object(packs_mod, "_packs_dir", return_value=tmp_path):
+            stdout_buf = StringIO()
+            stderr_buf = StringIO()
+            with mock.patch("sys.stdout", stdout_buf), mock.patch("sys.stderr", stderr_buf):
+                with mock.patch("builtins.input", input_mock):
+                    parsed = parser.parse_args(["packs", "remove", "quiet_yes_test", "--quiet", "--yes"])
+                    rc = parsed.func(parsed)
+        input_mock.assert_not_called()
+        assert rc == 0
+        assert not (tmp_path / "quiet_yes_test").exists()
+
+    def test_quiet_removes_with_y_and_suppresses_success_line(self, tmp_path):
+        """--quiet with user typing 'y' must remove the pack AND suppress stdout."""
+        import src.cli.packs as packs_mod
+
+        _make_fake_pack(tmp_path, "quiet_y_test")
+        parser, _ = _make_packs_parser(tmp_path)
+        with mock.patch.object(packs_mod, "_packs_dir", return_value=tmp_path):
+            stdout_buf = StringIO()
+            stderr_buf = StringIO()
+            with mock.patch("sys.stdout", stdout_buf), mock.patch("sys.stderr", stderr_buf):
+                with mock.patch("builtins.input", return_value="y"):
+                    parsed = parser.parse_args(["packs", "remove", "quiet_y_test", "--quiet"])
+                    rc = parsed.func(parsed)
+        assert rc == 0
+        assert not (tmp_path / "quiet_y_test").exists()
+        # Success line must be suppressed when --quiet is active.
+        assert stdout_buf.getvalue().strip() == ""
+
 
 # ---------------------------------------------------------------------------
 # Path-traversal regression tests
