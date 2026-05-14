@@ -83,11 +83,14 @@ def run(args: argparse.Namespace) -> int:
     input_path = args.input
 
     # Validate input file via the shared helper so the rules stay in
-    # one place across convert and sample.
+    # one place across convert and sample.  On success, msg holds the
+    # ~ -expanded absolute path; replace input_path so the rest of the
+    # function and any convert.run() delegation use the resolved form.
     code, msg = validate_input_path(input_path)
     if code != EXIT_OK:
         print(f"Error: {msg}", file=sys.stderr)
         return code
+    args.input = msg  # propagate expanded path to convert.run() delegate
 
     if getattr(args, "dry_run", False):
         # For dry-run, delegate to convert.run() with the flag set.

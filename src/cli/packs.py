@@ -28,6 +28,7 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     add_output_mode_flags,
+    expand_path,
 )
 
 
@@ -144,7 +145,7 @@ def _run_list(args: argparse.Namespace) -> int:
 def _run_import(args: argparse.Namespace) -> int:
     json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
-    source = args.directory
+    source = expand_path(args.directory)
     try:
         from src.voice_pack import VoicePackError, install_pack, validate_pack_dir
     except Exception as exc:

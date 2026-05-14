@@ -52,12 +52,16 @@ def resolve_str(
     """Return the highest-priority non-empty value.
 
     Priority: CLI flag > environment variable > persisted config > default.
+
+    Path-like values (those that start with ``~``) are expanded so
+    callers that use the result as a filesystem path always get an
+    absolute string without a further ``expanduser`` call.
     """
     if flag_value is not None and flag_value != "":
-        return flag_value
+        return expand_path(flag_value) if flag_value.startswith("~") else flag_value
     env = os.environ.get(env_key, "")
     if env:
-        return env
+        return expand_path(env) if env.startswith("~") else env
     if config_value:
         return config_value
     return default
@@ -229,19 +233,34 @@ def runner_script_path() -> Path:
     return root / "scripts" / "generate_chatterbox_audiobook.py"
 
 
+def expand_path(path: str) -> str:
+    """Expand ``~`` and return the absolute string path.
+
+    Callers pass user-supplied paths that may start with ``~``.  The
+    shell expands ``~`` when the user types it directly, but not when
+    the value comes from an env var override or a non-interactive
+    context.  Normalising here means every resolution site gets a
+    fully-qualified path regardless of how the value was supplied.
+    """
+    return str(Path(path).expanduser())
+
+
 def validate_input_path(path: str) -> tuple[int, str]:
     """Validate that ``path`` exists and has a supported book extension.
 
-    Returns ``(EXIT_OK, '')`` if valid, or ``(EXIT_BAD_INPUT, message)``
-    if invalid. Shared by convert and sample so the validation rules
-    stay in one place.
+    Returns ``(EXIT_OK, expanded_path)`` if valid, or
+    ``(EXIT_BAD_INPUT, message)`` if invalid.  The returned path always
+    has ``~`` expanded so callers can use it without a second
+    ``expanduser`` call.  Shared by convert and sample so the
+    validation rules stay in one place.
     """
-    if not Path(path).exists():
+    expanded = expand_path(path)
+    if not Path(expanded).exists():
         return EXIT_BAD_INPUT, f"input file not found: {path}"
-    ext = Path(path).suffix.lower()
+    ext = Path(expanded).suffix.lower()
     if ext not in (".pdf", ".epub", ".txt"):
         return (
             EXIT_BAD_INPUT,
             f"unsupported file type '{ext}'. Supported formats: .pdf, .epub, .txt",
         )
-    return EXIT_OK, ""
+    return EXIT_OK, expanded

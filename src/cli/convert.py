@@ -33,6 +33,7 @@ from src.cli._common import (
     EXIT_RUNTIME,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    expand_path,
     print_event,
     resolve_str,
     runner_script_path,
@@ -103,11 +104,13 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
 
     input_path = args.input
 
-    # Validate input file.
+    # Validate input file; validate_input_path also expands ~ so the
+    # returned message is the expanded path on success.
     code, msg = validate_input_path(input_path)
     if code != EXIT_OK:
         print(f"Error: {msg}", file=sys.stderr)
         return code
+    input_path = msg  # msg holds the expanded absolute path on EXIT_OK
 
     # Resolve config and flags. app_config.load() already returns a
     # default UserConfig() on disk / JSON errors, so no outer wrap.
@@ -140,7 +143,11 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
     ) or None
 
     ref_audio: Optional[str] = getattr(args, "ref_audio", None)
+    if ref_audio is not None:
+        ref_audio = expand_path(ref_audio)
     voice_pack: Optional[str] = getattr(args, "voice_pack", None)
+    if voice_pack is not None:
+        voice_pack = expand_path(voice_pack)
     chunk_chars: Optional[int] = getattr(args, "chunk_chars", None)
 
     # Resolve output path.
