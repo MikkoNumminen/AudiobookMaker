@@ -1,78 +1,28 @@
 # AudiobookMaker
 
-[![Build installer](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-release.yml/badge.svg)](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-release.yml)
-[![Build launcher](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-launcher.yml/badge.svg)](https://github.com/MikkoNumminen/AudiobookMaker/actions/workflows/build-launcher.yml)
-[![Latest release](https://img.shields.io/github/v/release/MikkoNumminen/AudiobookMaker?label=installer&color=blue)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/MikkoNumminen/AudiobookMaker/total?color=brightgreen&label=downloads)](https://github.com/MikkoNumminen/AudiobookMaker/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows)](https://github.com/MikkoNumminen/AudiobookMaker/releases/latest)
-[![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/github/license/MikkoNumminen/AudiobookMaker?color=brightgreen)](LICENSE.txt)
-[![Tests](https://img.shields.io/badge/tests-2047%20passing-brightgreen)](tests/)
-[![Status](https://img.shields.io/badge/status-active%20development-orange)](#status)
+Turn PDFs, EPUBs, and scanned books into audiobooks. Load a file, pick a voice, get an MP3.
 
-[![Stars](https://img.shields.io/github/stars/MikkoNumminen/AudiobookMaker?style=social)](https://github.com/MikkoNumminen/AudiobookMaker/stargazers)
-[![Last commit](https://img.shields.io/github/last-commit/MikkoNumminen/AudiobookMaker?color=blue)](https://github.com/MikkoNumminen/AudiobookMaker/commits/master)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/MikkoNumminen/AudiobookMaker?color=blueviolet)](https://github.com/MikkoNumminen/AudiobookMaker/pulse)
-[![Open issues](https://img.shields.io/github/issues/MikkoNumminen/AudiobookMaker?color=informational)](https://github.com/MikkoNumminen/AudiobookMaker/issues)
-[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow)](https://www.conventionalcommits.org)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/MikkoNumminen/AudiobookMaker/pulls)
+Finnish-first, English supported. Windows installer for end users; full Python source for developers who want voice cloning, OCR fallback, and Chatterbox.
 
-Turn a PDF, EPUB, or plain text file into an audiobook. Pick a file, press a button, get an MP3.
+## Why this exists
 
-The app reads Finnish best, and English almost as well. Those are the
-two languages you can pick in the Language menu today. Other languages
-aren't in the menu yet — the voices exist underneath, but nobody has
-tested them carefully enough to put them in front of you. Here's what
-you get with each Engine:
+Reading a 400-page PDF takes hours during which you can do nothing else. Listening to one takes the same hours but your hands and eyes are free — dishes, commute, walk. Commercial audiobook services don't carry the specific Finnish legal texts, niche academic papers, or that PDF a colleague sent you last week. This bridges the gap.
 
-| Language | Edge-TTS               | Piper    | Chatterbox                | VoxCPM2 (dev only) |
-|----------|------------------------|----------|---------------------------|--------------------|
-| Finnish  | OK (Noora)             | Untested | **Best (Grandmom)**       | Yes |
-| English  | Excellent (Jenny etc.) | Untested | **Excellent (Grandmom)**  | Yes |
+## Quick start
 
-Which Engine should you pick? Short answer for Finnish: use
-Chatterbox if you have an NVIDIA GPU, Edge-TTS otherwise. For
-English: Edge-TTS is excellent and Chatterbox's Grandmom is at
-least as good, maybe better. Longer answer:
+1. Download `AudiobookMaker-Setup-X.X.X.exe` from [Releases](https://github.com/MikkoNumminen/AudiobookMaker/releases).
+2. Run it. Windows will warn it's from an unknown publisher — click **More info** → **Run anyway**.
+3. Open the app, pick a PDF, pick a voice, click **Convert**.
 
-- **Edge-TTS** uses Microsoft's cloud voices. You need an internet
-  connection because the voice lives on their servers, not your
-  computer. It's fast and free. **English is really good** — one
-  of the best free options out there. **Finnish is okay but not
-  great** — the cloud voices are usable but read with a flat,
-  generic delivery that doesn't quite sound like a person reading
-  to you. The trade-off either way: you can't use it on a plane
-  or in a cabin with no Wi-Fi.
-- **Piper** runs entirely on your own computer. The first time you
-  pick a voice it downloads a small voice file (about the size of a
-  phone photo), and after that it works forever without internet.
-  We haven't graded its Finnish or English carefully enough to claim
-  a quality tier — give it a Make-sample run and compare for
-  yourself.
-- **Chatterbox** is the quality champion for **Finnish** — the
-  Grandmom voice (Isoäiti in the app) reads like an actual elderly
-  person sitting across from you, not a synthesizer. **English
-  works too** and the same Grandmom voice reads English at a level
-  that's at least on par with Edge-TTS English, probably better
-  (this is what "Route B" means — think of it as Grandmom wearing
-  a second hat). Downside: it needs an NVIDIA graphics card with
-  8 GB or more of video memory, and the first-time setup downloads
-  about 15 GB. Other languages beyond Finnish and English don't
-  work here.
-- **VoxCPM2** is a science-experiment engine. It's powerful but not
-  ready for normal users, so it's hidden unless you're working from
-  the source code. The installer leaves it out on purpose. If you
-  download the `.exe` from the Releases page, you won't see it in the
-  Engine menu — and that's intentional, not a bug.
+That's the whole flow. Read on if you want to know what's underneath, or if you want to do something more interesting like clone your own voice into a Finnish reading.
 
 ## Hear it first
 
 These clips were made by AudiobookMaker using the "Grandmom" voice
 (Chatterbox engine). Both source texts are **public domain** — their
 copyrights expired long ago because the authors died over 70 years
-ago. That means anyone can read, record, or remix them freely. We
-picked well-known classics so you can judge the voice quality on text
-you might actually recognize.
+ago. We picked well-known classics so you can judge the voice quality
+on text you might recognise.
 
 **Finnish — Aleksis Kivi, *Seitsemän veljestä* (1870)**
 
@@ -82,55 +32,143 @@ https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/finnish_
 
 https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/english_grandmom_gibbon.mp3
 
-## Status
+## Pick your engine
 
-Active development. Things are moving fast and a few releases per
-week is normal right now.
+Four TTS engines, each with different tradeoffs:
 
-**What's stable:** the core PDF-to-MP3 flow with all three engines —
-Edge-TTS (online), Piper (offline), and Chatterbox (offline, GPU).
-Chatterbox in particular has been validated on a real 10-hour Finnish
-audiobook that came out sounding great. Installer works. Auto-updates
-work.
+| Engine | Quality | Offline | GPU | Voice cloning | Best for |
+|---|---|---|---|---|---|
+| **Edge-TTS** | Excellent | No | No | No | Default. Fast, free, great Finnish voices. |
+| **Piper** | Good | Yes | No | No | Privacy-sensitive content, no internet, older machines. |
+| **Chatterbox** | Excellent | Yes | NVIDIA | Voice packs | Best Finnish quality. In-app install or developer setup. |
+| **VoxCPM2** | Variable | Yes | NVIDIA | Zero-shot | Voice design from text descriptions, experimentation. Developer setup only. |
 
-**What's still getting rough edges sanded off:** the VoxCPM2 engine
-(dev mode only), the in-app engine installer, and some UI corners.
-These work but you might hit a snag.
+Edge-TTS is the default and what most users want. Don't overthink it unless you have a specific reason.
 
-If you hit a bug, open an issue -- they get fixed fast. The
-`Build and Release` badge at the top tells you whether CI is green
-right now.
+### Edge-TTS (online, default)
 
-## What's new
+Microsoft's free online neural TTS. Fast, no model downloads, Finnish voices Noora and Harri are the best in their class. Requires an internet connection during synthesis. If Microsoft ever deprecates this service, all of us are in trouble — but it has been stable for years.
 
-**v3.13.0** -- Scanned PDFs now work:
+- Finnish voices: Noora, Harri
+- English US voices: Jenny, Aria, Ava, Guy, Andrew
+- English GB voices: Sonia, Ryan
+- No GPU. No voice cloning.
 
-- **OCR fallback for image-only PDFs.** When the parser hits a page
-  with no embedded text layer (scans, photographs of book pages), it
-  now runs Tesseract via ocrmypdf to recover the words, then feeds
-  the OCR'd text to the chosen TTS engine. English and Finnish
-  language packs ship with the installer — no first-run download.
-  Mixed-content PDFs (some pages text-bearing, others image-only)
-  are handled page by page
-- **Architecture writeup** lives in
-  [docs/OCR_FALLBACK.md](docs/OCR_FALLBACK.md), and a new
-  `scanned-pdf-to-audiobook` skill encodes the end-to-end runbook
+### Piper (offline, CPU)
 
-The v3.12.x cleanup also rolls into this release: voice-cloning
-surface removed from the GUI, installer footprint cut ~27 %, engine
-manager opens sub-second, and the launcher CI workflow actually
-verifies launcher builds now.
+Local neural TTS that runs entirely on CPU. After the first voice download (~60 MB per voice, stored in `~/.audiobookmaker/piper_voices/`), no internet needed. The Finnish voice (Harri) has different pronunciation quirks than Edge-TTS's Harri — sometimes better for specific words, sometimes worse. Try both on a sample chapter and pick.
 
-Older releases (v3.12.1 back to v2.0.0) live in
-[docs/RELEASES.md](docs/RELEASES.md) so this page stays focused on what
-just shipped.
+- Finnish voice: Harri
+- English US voices: Lessac, Ryan-high
+- English GB voice: Alan
+- No GPU. No voice cloning.
 
----
+### Chatterbox + Finnish-NLP/Chatterbox-Finnish (NVIDIA GPU)
+
+The interesting one. Chatterbox is an open-source neural TTS from Resemble AI; `Finnish-NLP/Chatterbox-Finnish` is a Finnish fine-tune by the Finnish-NLP organization. Together they produce the best Finnish voice quality in this app — close to commercial audiobook quality on prepared text — and they support voice cloning from a short reference clip.
+
+**How end users get Chatterbox.** The model weights (~15 GB) aren't bundled into the installer — they would balloon it past usability. Instead, open the app, click **Install engines…** in the Settings panel, and the GUI downloads the Chatterbox venv and the Finnish-NLP model on demand. After that initial setup, Chatterbox works fully offline. The default voice is **Grandmom** (Isoäiti in the app), a warm elderly speaker.
+
+**How developers get voice cloning.** The voice-cloning pipeline that produces a custom voice pack from a sample of your own voice (analyze → export → train → package) lives in `scripts/voice_pack_*.py` and is **dev-only** — it needs a `HF_TOKEN` and a Python environment with CUDA. See [docs/DEVELOPER_SETUP.md](docs/DEVELOPER_SETUP.md). The GUI consumes the resulting voice packs via its **Import voice pack…** button; it does not produce them.
+
+**Honest expectations:**
+
+- Quality of a cloned voice depends heavily on the reference recording. `scripts/record_voice_sample.py` enforces an audio preflight: input volume ~85%, loudness in a healthy dBFS band, SNR 40+ dB, 12–20 second length. Skipping the preflight produces worse cloning. Do not skip it.
+- Use it on voices you have the right to use. See [A note on voice cloning](#a-note-on-voice-cloning) at the bottom.
+
+### VoxCPM2 (developer install only, NVIDIA GPU)
+
+Open-source neural TTS from OpenBMB. Supports 30 languages including Finnish, runs locally, and offers two features the others don't:
+
+- **Zero-shot voice cloning** from a short reference audio clip.
+- **Voice design** — describe the desired voice in natural language (e.g. `warm baritone elderly male`) and the model steers toward that description.
+
+**Honest expectations:**
+
+- VoxCPM2's Finnish has not been A/B tested against Chatterbox-Finnish or Edge-TTS Noora by the project maintainer. Try a sample chapter on each before committing to one for a whole book.
+- Voice description prompts work for broad characteristics (gender, age, tone). Specific ethnic accents across language boundaries (e.g. "African American accent reading Finnish") are well outside what any current open-source multilingual TTS handles reliably. For stronger persona matching, use voice cloning with a reference clip.
+
+To install:
+
+```bash
+pip install voxcpm
+```
+
+Requires Python ≥ 3.10, PyTorch ≥ 2.5 with CUDA ≥ 12.0, NVIDIA GPU with ~8 GB VRAM. No CPU fallback. On machines without a CUDA GPU (including all Macs), the engine appears in the dropdown but reports itself as unavailable; Edge-TTS and Piper keep working normally.
+
+## Features
+
+- **PDF text extraction** via PyMuPDF, with cleanup heuristics: strips soft hyphens, fixes line-wrap hyphenation, flattens in-paragraph wraps, preserves compound hyphens.
+- **EPUB support** via ebooklib + BeautifulSoup.
+- **OCR fallback for scanned PDFs** via ocrmypdf + Tesseract. If PyMuPDF can't extract selectable text (because the PDF is image-based), the app falls back to OCR. The Windows installer bundles Tesseract + Finnish and English language packs; developers install Tesseract separately. Details: [docs/OCR_FALLBACK.md](docs/OCR_FALLBACK.md).
+- **Automatic chapter detection.**
+- **Context-aware sentence splitter** handling Finnish and English abbreviations, initials, decimals, and domain names.
+- **Finnish text normalizer** with 16 normalization passes covering `-ismi` / `-tio` stems, abbreviations, ordinals, Latin phrases, Roman numerals, compound-word seam splitting, and acronym handling. 400+ unit tests for this module alone. The reason this is here at all is that Finnish TTS pronunciation gets weird in predictable ways, and the normalizer is what makes the difference between "robotic" and "audiobook-grade".
+- **Preview button** — auditions an engine + voice on short text before committing to a full conversion. Use it. A 6-hour conversion in the wrong voice is no fun.
+- **Make sample** — synthesizes only the first ~30 seconds and saves it next to where the full run would land, so you can A/B engines or voices in under a minute.
+- **Import voice pack** — point the GUI at a voice pack folder produced by the dev-only voice-cloning pipeline and the cloned voice appears in the Voice dropdown.
+- **Voice design text field** for natural-language voice direction (VoxCPM2 only).
+- **Session memory** — remembers last-used engine, voice, language, speed, reference audio, and voice description between runs (`~/.audiobookmaker/config.json`).
+- **Silence trimming between chunks** for seamless playback.
+- **Single combined MP3 or one file per chapter** (one-per-chapter currently Edge-TTS only).
+- **CustomTkinter GUI** (modern Tk theme).
+- **Built-in CLI** for batch conversion, scripting, and headless use. Full reference: [docs/CLI.md](docs/CLI.md).
+- **In-app auto-update** — when a new release ships, a banner appears at the top of the window. Click **Update now** and the app handles download, hash verification, and reinstall in one step.
+- **Windows installer** — no Python, no ffmpeg, no other dependencies needed for end users. Everything is bundled.
+
+## End-user installation
+
+1. Download `AudiobookMaker-Setup-X.X.X.exe` from [Releases](https://github.com/MikkoNumminen/AudiobookMaker/releases).
+2. Double-click it.
+3. Windows shows a **"Windows protected your PC"** SmartScreen warning because the installer isn't code-signed. Click **More info** → **Run anyway**.
+4. Click through the installer prompts (Next → Next → Install).
+5. Find AudiobookMaker in the Start Menu.
+
+Nothing else to install for the basic flow. Edge-TTS and Piper work out of the box. Tesseract for scanned PDFs is bundled.
+
+**Already have an older version?** The app checks for updates automatically. When a new version is available, a banner appears at the top of the window — click **Update now** and the app handles the download, SHA-256 verification, and reinstall. No manual downloads, no installer prompts.
+
+For **Chatterbox** voice cloning, open the GUI and click **Install engines…** in the Settings panel. The app downloads the Chatterbox venv + Finnish-NLP model on demand (one-time ~15 GB). After that it works fully offline.
+
+For **VoxCPM2** or the dev-only voice-cloning pipeline (analyze / export / train / package), use the [Development setup](#development-setup) instead.
+
+For scanned PDFs on a **developer install** (Tesseract is bundled in the released `.exe`), install Tesseract separately:
+
+- **Windows:** Download from [tesseract-ocr.github.io](https://tesseract-ocr.github.io/tessdoc/Installation.html), and during install, tick the Finnish language pack.
+- **macOS:** `brew install tesseract tesseract-lang`
+- **Linux:** `apt install tesseract-ocr tesseract-ocr-fin`
+
+### Why the SmartScreen warning?
+
+Windows flags every unsigned installer from unknown publishers, regardless of whether the file is actually malicious. Silencing the warning requires a paid code-signing certificate ($100–300/year), which this project doesn't have. The installer is safe to run; its full source (PyInstaller spec + Inno Setup script + GitHub Actions build) lives in this repo and rebuilds automatically on every tagged release.
+
+If you don't trust an unsigned installer (a reasonable default), build it yourself: see [BUILDING.md](BUILDING.md).
+
+## Usage
+
+1. Open AudiobookMaker.
+2. Click **Select book file** and pick your PDF, EPUB, or `.txt`.
+3. Choose TTS engine from the dropdown. **Edge-TTS** is the default and the right answer unless you have a specific reason otherwise.
+4. Pick **Language** (Finnish / English).
+5. Pick a **Voice**.
+6. Click **Preview** to hear a short clip. If you don't like it, change it now, not after a 6-hour conversion.
+7. (Chatterbox / VoxCPM2 only) Optionally **Import voice pack** if you have one from the dev-only voice-cloning pipeline, or provide a reference audio clip (VoxCPM2 zero-shot), and/or a voice description like `warm baritone elderly male` (VoxCPM2).
+8. Adjust speech rate if needed.
+9. Click **Convert**. Progress bar updates as it runs.
+10. Save the MP3 (or use the **Open folder** button that appears when done).
+
+## Limitations
+
+- **Edge-TTS needs Microsoft's servers.** No internet, no Edge-TTS. Switch to Piper.
+- **OCR is fallback, not first-class.** Tesseract handles scanned PDFs but it's slower and less accurate than native text extraction. If your PDF has selectable text (try Ctrl+A in any PDF reader), you'll get better results with PyMuPDF doing the work.
+- **PDF cleanup heuristics aren't perfect.** Multi-column academic papers, unusual layouts, and PDFs with embedded tables can break them. Run **Make sample** on one chapter before committing to a 400-page book.
+- **"One MP3 per chapter" works only with Edge-TTS currently.** Piper, Chatterbox, and VoxCPM2 produce a single combined MP3.
+- **GPU engines need an NVIDIA card with ~8 GB VRAM and CUDA 12+.** No CPU fallback exists. On unsupported machines, these engines show as unavailable in the dropdown and the rest of the app keeps working normally.
+- **Voice cloning quality depends on the reference clip.** A noisy reference produces a noisy clone. The audio preflight check exists for a reason; don't bypass it.
 
 ## Command-line use
 
-AudiobookMaker ships a built-in CLI for batch conversion, scripting, and
-headless use. Full reference: [docs/CLI.md](docs/CLI.md).
+AudiobookMaker ships a built-in CLI for batch conversion, scripting, and headless use. Full reference: [docs/CLI.md](docs/CLI.md).
 
 ```
 python -m src.cli --help
@@ -138,376 +176,35 @@ python -m src.cli doctor
 python -m src.cli convert book.pdf
 ```
 
-Every subcommand supports `--json` for machine-readable output and `--quiet`
-for script-friendly minimal output. Run `python -m src.cli <command> --help`
-for per-command flags.
+Every subcommand supports `--json` for machine-readable output and `--quiet` for script-friendly minimal output. Run `python -m src.cli <command> --help` for per-command flags.
 
----
+## Development setup
 
-## Two ways to use AudiobookMaker
+Required:
 
-| | Installer | Developer (clone the repo) |
-|---|---|---|
-| **Who is it for?** | Anyone with a Windows PC | Developers who want to tinker |
-| **How do you get it?** | Download one .exe, install, done | Clone the repo, set up Python |
-| **Voice engines** | Edge-TTS + Piper out of the box; Chatterbox via in-app install | Everything, including experimental engines |
-| **Works offline?** | With Piper or Chatterbox | Yes, after first setup |
-| **Needs a GPU?** | No (Chatterbox needs NVIDIA 8+ GB) | Depends on which engine you pick |
-| **Voice cloning?** | Consumes pre-made voice packs | Yes (dev-only scripts) |
-| **Languages** | Finnish, English, German, Swedish, French, Spanish | Same |
-| **Download size** | ~200 MB (Chatterbox adds ~15 GB) | Varies |
-
----
-
-## Installation
-
-**Download:** [AudiobookMaker v3.13.0](https://github.com/MikkoNumminen/AudiobookMaker/releases/tag/v3.13.0)
-
-**How to install:**
-1. Download `AudiobookMaker-Setup-3.13.0.exe`
-2. Double-click it. Windows will show a SmartScreen warning because the
-   installer isn't signed -- click **More info**, then **Run anyway**
-3. Click Next a few times, done
-4. Open AudiobookMaker from the Start Menu
-
-**Already have an older version?** The app checks for updates
-automatically. When a new version is available, a banner appears at the
-top of the window -- click "Update now" and the app handles everything.
-No manual downloads, no installer prompts.
-
----
-
-## What you can do in the GUI
-
-You installed the app. Now what? Here is the whole tour of what the
-main window does -- no code, no command line, no Python. Think of this
-as the "things you can actually click" section.
-
-### Turn a book into an MP3
-
-The main job. Drop a **PDF**, an **EPUB**, or a plain **.txt** file into
-the Book tab. Pick a **Language** (Finnish or English), pick an
-**Engine** (Edge-TTS, Piper, or Chatterbox), pick a **Voice**. Click
-**Convert**. Go make coffee. You come back to one MP3 saved next to the
-app (or split per chapter if you flipped the Output toggle).
-
-### Type text and listen instantly
-
-No file? Click the **Text** tab, paste in whatever you want spoken,
-click **Preview** -- the voice reads it back through the built-in audio
-player. No file save required. Good for testing a voice before
-committing a 10-hour book to it.
-
-### Make a 30-second sample before committing to a whole book
-
-Click **Make sample** and the app synthesizes only the first ~30 seconds
-of your book and saves it as `<book>_sample.mp3` next to where the full
-run would land. Takes a minute instead of an hour, so you can A/B two
-engines or voices in seconds. The button stays greyed out until you
-have picked both an input and a voice, so you can't accidentally make
-an empty sample.
-
-### Three engines, three personalities
-
-- **Edge-TTS** -- Microsoft's cloud voices. Needs internet, 30+
-  voices across six languages. Excellent in English. Okay in
-  Finnish (usable, but the delivery is flat — fine for short reads,
-  not first choice for a multi-hour audiobook).
-- **Piper** -- Lives on your computer. Downloads a voice model once
-  (about a phone photo in size), then works forever without internet.
-  Quality varies by voice and language; try a Make-sample run before
-  committing to a long book.
-- **Chatterbox** -- The quality champion for **Finnish** and a strong
-  contender for **English**. Needs an NVIDIA graphics card, and the
-  first-time setup is big (~15 GB of AI model). The default voice is
-  called **Grandmom** (Isoäiti in the app) -- a warm elderly narrator
-  that sounds like somebody reading to you in a cabin. For English,
-  the same Grandmom voice is at least on par with Edge-TTS English,
-  probably better.
-
-The **Language** picker at the top of the window filters the Engine and
-Voice dropdowns so you only see things that actually speak your
-language.
-
-### Install Chatterbox without leaving the app
-
-The **Install engines** button in Settings opens the Engine Manager.
-Each engine has its own row with an Install / Remove button.
-Everything downloads in the background with a progress bar; you never
-touch a terminal.
-
-### Import a voice pack somebody else built
-
-Got a voice pack folder from a collaborator or a previous run? Click
-**Import voice pack** in Settings, point at the folder, and the voice
-shows up in the Voice dropdown next to Grandmom. The app auto-wires the
-reference audio so Chatterbox uses it as the synthesis reference
-without you having to point at a file.
-
-### Finnish text intelligence
-
-When you use Chatterbox-Finnish, a text normalizer runs first and
-fixes how abbreviations, numbers, dates, and Finnish case endings get
-read aloud. For example:
-
-- `1300-luvulla` becomes "tuhat kolmesataa luvulla"
-- `esim.` becomes "esimerkiksi"
-- `5 %` becomes "viisi prosenttia"
-- `sivulta 42` inflects the number to match Finnish case grammar
-
-You don't click anything. It just happens before the AI speaks. The
-normalizer has 300+ unit tests behind it so the common cases don't
-regress.
-
-### Watch progress as it runs, and pick up where you left off
-
-A status strip under the toolbar shows live progress and an estimated
-finish time -- updated every chunk. If you Ctrl-C or Windows reboots,
-re-running the same command picks up from the last finished chunk. You
-don't re-synthesize what is already done.
-
-### Report a bug in two clicks
-
-The **Report a bug** link in Settings opens a pre-filled GitHub issue
-with your app version, OS, and engine info. Fixes don't wait on you
-remembering which build you were running.
-
-### Auto-updates that actually work
-
-The app polls GitHub every five minutes for a newer version. When one
-lands, a banner appears at the top. Click it, the app downloads the
-new installer, verifies its SHA-256 fingerprint, installs it silently,
-and pops itself to the front of your screen when the update is done.
-No manual downloads. No SmartScreen dance on every release.
-
-### Finnish or English UI, follows your system
-
-First launch picks Finnish if Windows is in Finnish, English
-otherwise. You can override it under Settings -> Language (the UI
-picker, separate from the book-language dropdown in the main bar).
-
----
-
-## First audiobook: the numbers
-
-We fed a real Finnish book into AudiobookMaker to see what happens.
-Here's what came out:
-
-| What | Number |
-|------|--------|
-| Pages in the PDF | 180 |
-| Words the app read | ~65,000 |
-| Finnish numbers, dates, and abbreviations normalized | ~2,400 |
-| Audio chunks synthesized | ~1,200 |
-| Total spoken audio | ~4.5 hours |
-| Time to convert (Chatterbox, RTX 3080 Ti) | ~90 minutes |
-| Output MP3 size | ~250 MB |
-| Chapters detected automatically | 12 |
-
-The app chewed through the whole thing unattended. It turned
-`sivulta 42` into the correctly inflected Finnish, expanded every
-`esim.` into `esimerkiksi`, and read `1300-luvulla` the way a Finnish
-person would say it out loud.
-
-No manual editing needed. Drop a PDF in, press a button, go make
-coffee, come back to a finished audiobook.
-
----
-
-## Real-world use
-
-A law student used AudiobookMaker to turn a stack of study material
-into audio. They wanted to listen to it while walking the dog, which
-is a normal thing students do -- walks are long, dogs need the
-exercise, and school reading has to happen somehow.
-
-Before finding this app, they had tried the usual free options:
-
-- Copy the text into Word and click "Read aloud". Word mispronounces
-  abbreviations and the voice sounds robotic
-- Let Microsoft Edge read the PDF out loud. Same kind of voice, even
-  lower quality
-- Pay for ready-made audiobooks meant for students. Some had a real
-  human reading, which sounded great. Others used an AI voice, which
-  sometimes glitched on a word or skipped a page
-
-AudiobookMaker did better than all the automated options and held its
-own against the human-narrated ones. It didn't trip on abbreviations.
-It didn't skip pages. Finnish numbers and case endings came out right.
-Emphasis landed in the right spots.
-
-Here's what the student said after a few hours of listening:
-
-> "That's insanely good. I get this mental image of a 60-plus grandma
-> with reading glasses reading it somewhere in a cabin."
-
-> "Better than anything I've listened to so far for study material.
-> 5/5."
-
-The "grandma in a cabin" bit is the part we care about most. The
-point isn't just that the words are correct. It's that the voice has
-enough character that your brain builds a picture of who is reading
-to you, and sticks with it for hours.
-
-One practical question came up: does 1.25x playback muddle the audio?
-The answer: every audio player has its own speed control, so the app
-doesn't need to. Make the audiobook once at normal speed, then speed
-it up in your player when you want to get through it faster.
-
----
-
-## Why the SmartScreen warning?
-
-The installer is unsigned. Windows shows a scary-looking warning for
-every unsigned program from an unknown publisher. Getting rid of this
-warning requires a code-signing certificate ($100-300/year), which the
-project doesn't have yet.
-
-The installer is safe -- its entire build process is open source
-in this repository and runs automatically on GitHub's servers on every
-release. You can read every line of code that goes into it.
-
----
-
-## What dev mode adds on top
-
-The installer gives you a polished app that makes audiobooks. Cloning
-the repo and running from source gives you **everything else** -- the
-stuff that either isn't ready for normal users, or that makes more
-sense from a terminal than from a button. Think of dev mode as the
-back room of the same building.
-
-### Gated features
-
-A fresh clone runs Edge-TTS and Piper out of the box and errors out
-cleanly on anything that needs a Hugging Face token or a gated-license
-acceptance. See [docs/DEVELOPER_SETUP.md](docs/DEVELOPER_SETUP.md) for
-the full list of features that need your own credentials, the exact
-steps for setting up `HF_TOKEN`, and the gitignored files that don't
-ship in this repo. The maintainer's keys are not bundled — a clean
-checkout enables only the public features until you provide your own.
-
-### You can run the full voice-pack training pipeline
-
-The GUI can **use** a trained voice pack. Dev mode can **train a new
-pack from scratch** or build one from any audio file -- a set of
-command-line tools under `scripts/voice_pack_*`:
-
-- `voice_pack_analyze.py` -- listens to a source recording, runs
-  diarization + ASR, and writes a per-chunk transcript tagged with
-  speaker labels
-- `voice_pack_characters.py` -- optional stage that subclusters one
-  speaker's chunks by voice so a narrator performing many characters
-  can be split into per-character training sets
-- `voice_pack_export.py` -- filters the transcript to a single speaker
-  (or character), slices per-clip WAVs, and writes the training manifest
-- `voice_pack_train.py` -- runs a LoRA fine-tune (this is the heavy,
-  hours-long step; needs a GPU)
-- `voice_pack_package.py` -- bundles the trained adapter + reference
-  audio + metadata into an installable pack
-
-The no-training shortcut is `scripts/voice_pack_analyze.py` run by
-hand in `.venv-chatterbox` — it produces a voice pack from any audio
-file using diarization + ASR. The full LoRA pipeline (the training
-scripts above) captures a voice's character much more faithfully at
-the cost of a long training run.
-
-### You get the experimental engines
-
-- **VoxCPM2** -- a research engine with natural-language voice design
-  ("warm baritone elderly male"). Works but hasn't been tested
-  thoroughly. `pip install voxcpm`.
-- The GUI dropdown **does not show** VoxCPM2 -- the engine registry
-  filters it out in frozen builds. From source it appears like any
-  other engine.
-
-### You can synthesize books from the command line
-
-`scripts/generate_chatterbox_audiobook.py` is the same synthesis path
-the GUI uses underneath, exposed directly. Run it with `--epub book.epub
---out .local/audiobooks --language en --device cuda` and it will synthesize
-the whole thing, chunk by chunk, resumable on Ctrl-C. Good for batch
-runs across many books, or for scripting a custom workflow. The
-step-by-step walkthrough lives in
-[docs/QUICKSTART_DEV.md](docs/QUICKSTART_DEV.md).
-
-`scripts/generate_audiobook_parallel.py` does the same thing with
-Edge-TTS and is about 8× faster for large books (the cloud voice
-takes parallel requests well).
-
-### You can read scanned / image-only PDFs
-
-Born-digital PDFs are easy — the text is right there in the file. Scanned
-PDFs (photographed pages, image-only exports, anything where the words
-live as pixels) used to dead-end with a "PDF contains no extractable
-text — may be scanned, try OCR first" error.
-
-Now `parse_pdf` watches for empty pages and, when it sees one, runs the
-whole document through [`ocrmypdf`](https://ocrmypdf.readthedocs.io/)
-(Tesseract + Ghostscript under the hood) in `--skip-text` mode. The
-OCR'd PDF is cached on disk keyed by source SHA-256, so a second run on
-the same input skips Tesseract entirely. **The released `.exe` bundles
-Tesseract + eng/fin language packs** — installer users don't need to
-do anything. **Dev mode (running from source) requires Tesseract +
-Ghostscript installed locally** (winget `UB-Mannheim.TesseractOCR` +
-Artifex Ghostscript installer).
-
-Architectural detail in [`docs/OCR_FALLBACK.md`](docs/OCR_FALLBACK.md);
-the operational runbook (when to invoke, sample-first guidance, the
-`tessdata/configs/` gotcha) is the
-[`scanned-pdf-to-audiobook`](.claude/skills/scanned-pdf-to-audiobook/SKILL.md)
-Claude Code skill.
-
-### You can fix a mispronunciation yourself
-
-When the Finnish voice mispronounces something -- a loanword, an
-abbreviation, an odd number -- the fix is usually a two-line edit to
-a YAML file in `data/fi_*.yaml` (the lexicon) or a small change to one
-of the 18 passes in `src/tts_normalizer_fi.py`. Add a regression test
-in `tests/test_tts_normalizer_fi.py` so it stays fixed.
-
-The canonical guide to the passes and when to add one vs. edit the
-lexicon lives in
-[docs/CONVENTIONS.md](docs/CONVENTIONS.md#finnish-text-normalizer-lexicon-vs-new-pass).
-
-### You get the full test suite
-
-2047 tests and counting. The pre-commit hook runs them on every
-commit; CI runs them on every push. Breaking a test gets caught
-before it ever reaches master.
+- **Python 3.11 or newer.** Older versions break some Tkinter / CustomTkinter dependencies.
+- **ffmpeg on PATH** (or in `dist/ffmpeg/` for packaged builds).
+- **For Chatterbox / VoxCPM2:** NVIDIA GPU, CUDA 12+, ~8 GB VRAM. No CPU path.
+- **For OCR as a developer:** Tesseract on PATH plus the relevant language packs (`fin` for Finnish). End users get this bundled.
 
 ```bash
-pytest tests/
-```
-
-### You can build the installer yourself
-
-Everything CI does you can do locally -- PyInstaller bundle + Inno
-Setup installer. See [BUILDING.md](BUILDING.md) for the exact steps.
-
----
-
-## Developer setup
-
-**Best for:** You want to modify the code, experiment with different
-TTS engines, or contribute to the project.
-
-Cloning the repo gives you access to everything: all TTS engines, all
-normalizer passes, experimental scripts, voice cloning tools, and the
-full test suite.
-
-### Getting started
-
-Requires Python 3.11+, ffmpeg on PATH.
-
-```bash
-git clone <repo>
+git clone https://github.com/MikkoNumminen/AudiobookMaker
 cd AudiobookMaker
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python -m src.main
 ```
+
+For **Chatterbox** developer setup, see [docs/DEVELOPER_SETUP.md](docs/DEVELOPER_SETUP.md). A `.env` at the repo root containing `HF_TOKEN=...` is needed to download gated Hugging Face models.
+
+For **VoxCPM2**:
+
+```bash
+pip install voxcpm
+```
+
+Several GB of model weights download on first use.
 
 Run tests:
 
@@ -515,340 +212,73 @@ Run tests:
 pytest tests/
 ```
 
-### TTS engines available in dev mode
+A handful of tests skip automatically when `ffmpeg` isn't on PATH (audio export tests). To run all tests, install ffmpeg first.
 
-**Edge-TTS** and **Piper** work the same as in the installer.
+See [BUILDING.md](BUILDING.md) for full Windows installer build instructions.
 
-**Chatterbox-Finnish** needs a separate venv because it has heavy
-dependencies (PyTorch, CUDA). Easiest path: install the Windows `.exe`
-and tick the **Chatterbox Finnish (GPU)** component during setup; the
-installer creates `.venv-chatterbox/`, installs CUDA-enabled PyTorch,
-downloads the AI models (~5 GB), and applies necessary patches.
+## Upstream contribution
 
-If you're running from source, open the app (`python -m src.main`)
-and click the **Install engines…** button in the Settings panel —
-same work, same venv. See [docs/QUICKSTART_DEV.md](docs/QUICKSTART_DEV.md)
-for Linux/Mac equivalent commands.
+A patch for a memory-handler hook leak in resemble-ai/chatterbox lives in `docs/upstream/chatterbox/`:
 
-**VoxCPM2** is an experimental engine from OpenBMB. It supports voice
-cloning and natural-language voice design ("warm baritone elderly
-male"). Not tested thoroughly -- install with `pip install voxcpm` if
-you want to experiment. Requires NVIDIA GPU with ~8 GB VRAM.
+- `repro_hook_leak.py` — minimal reproducer demonstrating the leak.
+- `hook_leak_fix.patch` — the proposed fix.
+- `BUG_REPORT.md` — write-up for upstream submission.
 
-### Developer scripts
-
-These are standalone tools at the repo root and in `scripts/`. They
-are not part of the shipped installer.
-
-- **`dev_chatterbox_fi.py`** -- synthesize text with Chatterbox-Finnish
-  from the command line. Run with `--help` for options
-- **`scripts/generate_chatterbox_audiobook.py`** -- full book synthesis
-  from PDF (or plain text file) to MP3 via Chatterbox. Resumable (safe
-  to Ctrl-C and restart)
-- **`scripts/generate_audiobook_parallel.py`** -- parallel Edge-TTS
-  generator, about 8x faster than the GUI for large books
-- **`scripts/record_voice_sample.py`** -- record a voice clip, validate
-  its quality, and synthesize text using it as the Chatterbox reference.
-  **Input-volume gotcha:** Zoom, Teams, and Discord silently lower the
-  system mic level to roughly 5-10 % so you don't blow out calls. That
-  level is too quiet for a usable reference -- the preflight SNR check
-  will fail or the resulting synthesis will sound whispery. Before
-  recording, open the OS sound settings and raise the input volume to
-  about 85 %, then speak at a normal conversational distance (~20 cm
-  from the mic)
-- **`dev_qwen_tts.py`** -- Qwen3-TTS experiment. **Abandoned** --
-  Finnish isn't supported, MPS is broken, CPU is too slow. Kept so
-  nobody re-investigates the same dead end
-
-### Finnish text normalizer
-
-The normalizer makes Finnish numbers, abbreviations, and special terms
-sound natural when read aloud. It runs automatically when using
-Chatterbox-Finnish (via the app or dev scripts).
-
-It works as a series of 18 text transformation passes covering:
-
-- Century expressions (`1300-luvulla`)
-- Year numbers and numeric ranges
-- Abbreviations (`esim.`, `prof.`, `jne.`)
-- Roman numerals with context-aware ordinal detection
-- Unit symbols (`%`, `km`, `kg`)
-- Section signs
-- Finnish case inflection for numbers after prepositions
-- Loanword respelling for words the AI mispronounces
-- Various cleanup (ISBN stripping, TOC dot-leaders, metadata)
-
-The normalizer has 300+ unit tests. See
-[`docs/tts_text_normalization_cases.md`](docs/tts_text_normalization_cases.md)
-for the full inventory.
-
-### Known upstream issue
-
-Chatterbox-TTS v0.1.7 has a bug where repeated calls to `generate()`
-leak PyTorch hooks and corrupt internal state. Our scripts work around
-this automatically. We've reported the bug and submitted a fix:
-[resemble-ai/chatterbox#504](https://github.com/resemble-ai/chatterbox/issues/504),
-[resemble-ai/chatterbox#505](https://github.com/resemble-ai/chatterbox/pull/505).
-
----
-
-## How it fits together
-
-```mermaid
-flowchart LR
-    User --> GUI[Tkinter GUI]
-    GUI --> Engine[TTS engine<br/>Edge / Piper / Chatterbox]
-    Engine --> FF[ffmpeg]
-    FF --> MP3[book.mp3]
-    GH[GitHub Releases] -.->|auto-update poll| GUI
-```
-
-The GUI hands text + voice choice to one of the TTS engines. Edge-TTS
-and Piper run in-process; Chatterbox runs as a subprocess in its own
-Python 3.11 venv. All three emit audio chunks that ffmpeg stitches into
-a final MP3 saved next to `AudiobookMaker.exe`. The app polls GitHub
-Releases every five minutes for a newer version and can install it in
-place.
-
-For the full architecture — engine registry, text pipeline, subprocess
-bridge, auto-update flow, cleanup — see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
----
-
-## Claude Code skills (measured)
-
-The [`.claude/skills/`](.claude/skills/) directory holds fourteen
-custom skills for
-[Claude Code](https://www.anthropic.com/claude-code) that automate
-the repetitive, mistake-prone parts of maintaining this project. A
-skill is a single `SKILL.md` file that Claude Code loads into its
-context when a matching keyword is used, giving Claude a written
-playbook for a recurring task.
-
-Most of them are domain-specific — `release-cut` knows exactly which
-AudiobookMaker files to bump, `pronunciation-corpus-add` knows where
-the Finnish pronunciation corpus lives, `scanned-pdf-to-audiobook`
-encodes the OCR-fallback runbook including the failure modes a fresh
-session would re-discover the hard way. One (`audit`) is universal
-by design: it ran first on this codebase and is being promoted into
-its own standalone repo. All of them are wired from the same idea:
-measure the benefit, don't guess. The four oldest have measured
-token/quality numbers below; the three added in 2026-05 haven't been
-benchmarked yet.
-
-### Measured impact
-
-I maintain this project with up to four Claude Code sessions running
-in parallel daily. Token deltas multiply quickly at that volume, so
-a skill that shaves 15k tokens off a recurring task is not a
-rounding error. At the same time, not every skill is about saving
-tokens — some deliberately spend extra tokens so the output is more
-correct. Both kinds are tracked below.
-
-| Skill | Tokens (with / without) | Δ tokens | Pass rate (with / without) | Δ quality |
-|---|---|---:|---|---:|
-| [`release-cut`](.claude/skills/release-cut/SKILL.md) | 28,834 / 46,853 | **−38.5%** | 100% / 100% | tie |
-| [`work-session`](.claude/skills/work-session/SKILL.md) | 26,762 / 33,098 | −19.1% | 94% / 80% | **+14 pp** |
-| [`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md) | 27,170 / 29,661 | −8.4% | 100% / 89% | +11 pp |
-| `fi-normalizer-pass` (prototype) | 48,496 / 43,941 | **+10.4%** | 100% / 83% | **+17 pp** |
-
-All numbers are means across `n = 3` runs per configuration. Full
-per-eval breakdown, the raw `benchmark.json`, and methodology notes
-live in
-[`benchmarks/skills-eval/`](benchmarks/skills-eval/).
-
-The `fi-normalizer-pass` row is the interesting one. The skill
-**costs** tokens, which would make it look bad if we only watched
-the token column — but it lifts pass rate from 83% to 100% on hard
-normalizer tasks. That is why both metrics are shown together:
-measuring only one of them paints a misleading picture, and the
-whole point is to decide honestly which skills to keep.
-
-### What each skill does
-
-- **[`release-cut`](.claude/skills/release-cut/SKILL.md)** — end-to-end
-  release ritual: bump `APP_VERSION`, sync the installer `.iss`
-  file, create the `vX.Y.Z` tag, watch CI, and verify the live
-  release ships both the SHA-256 in the release notes and the
-  sidecar `.exe.sha256` asset. Auto-update silently breaks if either
-  is missing, so the skill encodes every guard. Triggered by "cut a
-  release", "bump the version", "ship X.Y.Z".
-- **[`work-session`](.claude/skills/work-session/SKILL.md)** —
-  start, pause, or finish a task against the shared `TODO.md`
-  protocol that coordinates multiple Claude Code sessions running in
-  parallel. Without it, two sessions silently claim the same item
-  and clobber each other's work. Triggered by "claim X", "take Y",
-  "I'm done", "go idle".
-- **[`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md)** —
-  append a Finnish pronunciation-failure report to
-  [`docs/pronunciation_corpus_fi.md`](docs/pronunciation_corpus_fi.md).
-  Testers (and I) hit mispronunciations constantly; this skill makes
-  logging them cheap enough that they actually get logged, instead
-  of being lost in chat. Triggered by "Grandmom pronounced X as Y",
-  "add to the corpus".
-- **[`audit`](.claude/skills/audit/SKILL.md)** — comprehensive
-  robustness audit: Phase 1 runs language-appropriate static analysis
-  (Python / JS-TS / Rust / Go), Phase 2 spawns five parallel subagents
-  across resource lifecycle, data integrity, concurrency, error
-  paths, and external boundaries, Phase 3 writes
-  `docs/audits/audit-YYYY-MM-DD.md` with a severity tally. First run
-  on this repo produced 66 findings and 26 `fix(*)` commits. Universal
-  by design — not AudiobookMaker-specific. Triggered by "audit this
-  codebase", "find bugs", "robustness review". Not benchmarked yet.
-- **[`voice-clone-finnish`](.claude/skills/voice-clone-finnish/SKILL.md)** —
-  end-to-end Finnish voice cloning from an audio file: chunked analyze
-  with ECAPA diarization, transcript validation per speaker, LoRA
-  training (or few-shot ref-clip fallback for short sources),
-  packaging, ear-check by synth. Encodes the empirically-validated
-  pipeline so the "trust pyannote labels", "single-speaker default",
-  and "install copyright-derived packs to ~/.audiobookmaker" mistakes
-  don't recur. Triggered by "copy the voices", "clone these voices",
-  "extract voices from this clip".
-- **[`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md)** —
-  audit the PyInstaller `.spec` files for unused deps + dead-code
-  data files; propose spec-only fixes on a `chore/release-bundle-size`
-  branch. First run cut the uncompressed bundle 786 MB → 568 MB
-  (-28%) by dropping ffplay.exe, AVIF support, the Arabic phonemizer,
-  and ONNX training tools, plus a defense-in-depth exclude set that
-  catches future regressions. Triggered by "the installer is huge",
-  "shrink the .exe", "audit the .spec".
-- **[`scanned-pdf-to-audiobook`](.claude/skills/scanned-pdf-to-audiobook/SKILL.md)** —
-  operational runbook for the OCR fallback above. Pre-flight checks
-  (Tesseract + Ghostscript reachable, `tessdata/configs/` present),
-  language picker = TTS language (auto), sample-first voice
-  ear-check, failure-modes table covering the four real failure
-  surfaces, and a dedicated "very long PDFs" section for 300+-page
-  sources. Triggered by "this PDF is scanned", "OCR this and read it
-  aloud", "the EmptyPDFError says it might be scanned".
-- **[`voice-pack-from-audio-short`](.claude/skills/voice-pack-from-audio-short/SKILL.md)** —
-  few-shot voice cloning for audio sources under five minutes
-  (the LoRA-training path in `voice-clone-finnish` needs more data
-  than that). `ffprobe` duration gate, ECAPA diarization, per-speaker
-  transcript validation, few-shot packaging, ear-check synth.
-  Triggered by "copy this voice quickly", "I have a short clip",
-  "make a fast pack".
-- **[`audit-followup`](.claude/skills/audit-followup/SKILL.md)** —
-  translates an `audit-<date>.md` report into one fix branch per area
-  (resource lifecycle / data integrity / concurrency / error paths /
-  external boundaries) with parallel sub-agents doing the actual
-  fixes, then a merge sweep. Pairs with the `audit` skill above so
-  finding-the-bug and fixing-the-bug are separate, parallelisable
-  workflows. Triggered by "land the audit fixes", "fix the audit
-  findings", "burn down audit-<date>".
-- **[`ci-failure-triage`](.claude/skills/ci-failure-triage/SKILL.md)** —
-  when CI fails on a release tag or PR, walks the failure modes in
-  the right order against a recipe library built from this project's
-  `fix(ci)` commit history (FFmpeg URL rot, py-launcher PATH
-  resolution, Pytest collection misses, etc.). Saves the "where do I
-  even start" thinking. Triggered by "CI is red", "the build failed",
-  "tag failed CI".
-- **[`commit-then-scan`](.claude/skills/commit-then-scan/SKILL.md)** —
-  pre-commit ritual that re-reads `TODO.md`, scans the staged diff for
-  AI-origin mentions and copyright leaks, validates the Conventional
-  Commits subject, and only then runs `git commit`. Encodes the three
-  CLAUDE.md obligations that have each been skipped in past sessions.
-  Triggered by "commit this", "make a commit", "stage and commit".
-- **[`copyright-scan`](.claude/skills/copyright-scan/SKILL.md)** —
-  scans a git diff (staged by default, or a named revision range) for
-  accidental third-party copyright leaks. CLAUDE.md marks copyright
-  leakage as P0 — this skill turns the manual scan ritual into a
-  one-pass pass/fail report with `file:line` citations and, on fail,
-  the exact remediation path. Triggered by "scan the diff", "copyright
-  check", "is this safe to push".
-- **[`pre-push-scan`](.claude/skills/pre-push-scan/SKILL.md)** —
-  every pre-push safety check in one pass before any `git push` — AI
-  mention scan, copyright leak scan, accidental `TODO.md` content,
-  Conventional Commits subject validation, across every commit in the
-  push range. Composes `copyright-scan` and `commit-then-scan` so a
-  multi-commit branch can't slip something past push. Triggered by
-  "ready to push", "push it", "let's ship this".
-- **[`worktree-launch`](.claude/skills/worktree-launch/SKILL.md)** —
-  starts a new parallel Claude session safely: picks a free session
-  slot (Claude 1/2/3/4), creates the worktree under
-  `.claude/worktrees/<branch>`, claims a task in `TODO.md`, verifies
-  isolation actually held after the agent runs (per the
-  "worktree isolation is a hint, not a guarantee" CLAUDE.md
-  rule). Triggered by "start a new session", "spawn another Claude",
-  "open a worktree".
-
-### A note on methodology
-
-Skill benchmarking is prone to cache luck — a single run's token
-count can swing 20% depending on what Claude had cached from earlier
-work. These numbers average across three runs per configuration,
-with the prompt, model, and effort level held constant. That is
-enough to separate real signal from noise; it is not enough to be a
-scientific result. The caveats, the raw `benchmark.json`, and every
-per-eval pass-rate breakdown are in
-[`benchmarks/skills-eval/`](benchmarks/skills-eval/) so anyone can
-see what the pass-rate rubrics actually checked and reach their own
-conclusion.
-
----
+Status: prepared for submission to the upstream maintainers.
 
 ## Project structure
 
 ```
 AudiobookMaker/
 ├── src/
-│   ├── main.py                    # App entry point + single-instance guard
-│   ├── gui_unified.py             # CustomTkinter GUI (unified window)
-│   ├── gui_builders/              # Per-section widget builders
-│   ├── gui_style.py               # Cold Forge design tokens
-│   ├── gui_synth_mixin.py         # Synthesis orchestration mixin
-│   ├── gui_update_mixin.py        # Auto-update banner mixin
-│   ├── synthesis_orchestrator.py  # Input→output routing helpers
-│   ├── engine_registry.py         # Single import point for engines
-│   ├── auto_updater.py            # GitHub-based auto-update checker
-│   ├── system_checks.py           # GPU, disk, Python detection
-│   ├── engine_installer.py        # In-app engine installation
-│   ├── single_instance.py         # Prevent multiple app instances
-│   ├── voice_recorder.py          # In-app voice recording for cloning
-│   ├── pdf_parser.py              # PDF text extraction and cleanup
-│   ├── epub_parser.py             # EPUB chapter extraction
-│   ├── tts_base.py                # TTS engine interface + registry
-│   ├── tts_edge.py                # Edge-TTS adapter
-│   ├── tts_piper.py               # Piper adapter
-│   ├── tts_voxcpm.py              # VoxCPM2 adapter (dev only)
-│   ├── tts_chatterbox_bridge.py   # Chatterbox registration (subprocess)
-│   ├── tts_engine.py              # Text chunking, normalizer, audio combining
-│   ├── tts_normalizer_fi.py       # Finnish normalizer (18 passes)
-│   ├── tts_normalizer_en.py       # English normalizer (18 passes)
-│   ├── launcher_bridge.py         # Chatterbox subprocess runner
-│   ├── fi_loanwords.py            # Finnish loanword respelling
-│   ├── app_config.py              # Settings persistence
-│   ├── ffmpeg_path.py             # ffmpeg path helper
-│   └── voice_pack/                # Voice pack artefact format + import
-├── data/
-│   └── fi_loanwords.yaml          # Loanword lexicon
-├── tests/                         # Unit tests (2047)
-├── scripts/                       # CLI tools, setup scripts, voice pack pipeline
-├── docs/                          # Documentation and research notes
-├── installer/                     # Inno Setup build scripts
-├── assets/                        # Icons, design-system JSON, demo clips
-├── .claude/skills/                # Project-local Claude Code skills
-├── benchmarks/skills-eval/        # Measured token + quality impact of the skills
-├── .github/workflows/             # CI: auto-build installer on release
+│   ├── pdf_parser.py              # PDF parsing, OCR fallback
+│   ├── tts_base.py                # Abstract TTSEngine interface + registry
+│   ├── tts_edge.py                # Edge-TTS engine
+│   ├── tts_piper.py               # Piper offline TTS engine
+│   ├── tts_chatterbox_bridge.py   # Chatterbox + Finnish-NLP/Chatterbox-Finnish
+│   ├── tts_voxcpm.py              # VoxCPM2 GPU engine (dev only)
+│   ├── tts_normalizer_fi.py       # Finnish text normalizer (16-pass)
+│   ├── tts_normalizer_en.py       # English text normalizer
+│   ├── app_config.py              # Session preference persistence
+│   ├── gui_unified.py             # CustomTkinter UI (main entry)
+│   ├── cli/                       # Command-line interface (docs/CLI.md)
+│   ├── ffmpeg_path.py             # Runtime ffmpeg path helper for bundled builds
+│   └── main.py                    # Application entry point
+├── scripts/                       # CLI tools, voice sample recorder, voice-pack pipeline
+├── tests/                         # Unit tests (2000+)
+├── docs/                          # Architecture, CLI, OCR, conventions, audits
+├── installer/                     # Inno Setup script
+├── .github/workflows/             # CI: build Windows installer and publish releases
+├── assets/                        # Icon and other resources
+├── .claude/skills/                # Reusable procedures for the project (see docs/SKILLS_AUDIT.md)
 └── requirements.txt
 ```
 
-## Limitations
+## Tech stack
 
-- Edge-TTS needs an internet connection (it uses Microsoft's servers)
-- Piper needs internet once to download each voice model (~60 MB)
-- Chatterbox needs an NVIDIA GPU with 8+ GB video memory
-- Scanned PDFs (where text is actually an image) don't work -- the text
-  must be selectable in a PDF reader
-- The Finnish normalizer is tuned for legal/historical prose. Other
-  domains may have terms it doesn't handle yet
+| Component | Library |
+|---|---|
+| PDF parsing | PyMuPDF |
+| EPUB parsing | ebooklib + beautifulsoup4 |
+| OCR | ocrmypdf + Tesseract (system binary) |
+| Online TTS | edge-tts |
+| Offline CPU TTS | piper-tts (ONNX Runtime) |
+| GPU TTS | Chatterbox, VoxCPM2 (PyTorch + CUDA) |
+| Audio processing | pydub + ffmpeg |
+| In-process audio playback | pygame |
+| GUI | CustomTkinter |
+| Finnish text normalization | num2words + custom 16-pass normalizer |
+| Windows packaging | PyInstaller |
+| Installer | Inno Setup |
 
 ## License
 
-MIT
+MIT. See [LICENSE.txt](LICENSE.txt).
 
+## A note on voice cloning
 
+The voice cloning capability in this project is a tool. Tools can be used well or badly. This project assumes you'll use it well: cloning **your own** voice for your own reading, cloning a public-domain voice for a public-domain text, or cloning a voice from someone who has explicitly consented.
 
+Cloning someone's voice without consent is harmful and illegal in many jurisdictions, regardless of what's technically possible. The bar for "yes, this is fine" is higher than "I really want to do this." If you're unsure, ask first or use Edge-TTS instead.
 
-
-
+The voice-cloning **pipeline** (analyze → train → package) is intentionally kept out of the end-user installer. This isn't a packaging accident — it's a choice. The people most likely to do real harm are those who download a one-click installer and click around; the people most likely to do useful work are those willing to set up Python, install CUDA, read a README, and record their own voice. The friction is on purpose. The GUI consumes the resulting voice packs but does not produce them.
