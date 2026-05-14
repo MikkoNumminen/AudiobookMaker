@@ -53,6 +53,17 @@ SIDECAR_TIMEOUT = 30  # seconds
 # ---------------------------------------------------------------------------
 
 
+class IntegrityError(RuntimeError):
+    """Raised when a downloaded installer fails its SHA-256 check.
+
+    Existing callers catching ``RuntimeError`` keep working unchanged.
+    Callers that want to distinguish integrity failures from generic
+    download errors — most notably ``src.cli.update`` mapping this to
+    the project's existential exit code 2 — can catch this subclass
+    specifically instead of string-matching the error message.
+    """
+
+
 @dataclass
 class UpdateInfo:
     """Information about an available (or unavailable) update."""
@@ -366,7 +377,7 @@ def download_update(
     file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()
     if file_hash != update.sha256:
         dest.unlink(missing_ok=True)
-        raise RuntimeError(
+        raise IntegrityError(
             f"Integrity check failed: expected SHA-256 {update.sha256[:16]}…, "
             f"got {file_hash[:16]}…. Download may be corrupted."
         )

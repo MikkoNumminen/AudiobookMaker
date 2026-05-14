@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audiobookmaker"
+# Version duplicated from src/auto_updater.py APP_VERSION.
+# When cutting a release, bump both this field and APP_VERSION in the same
+# commit. (The release-cut workflow does not yet automate this — future work.)
+version = "3.13.0"
+description = "Turn PDFs, EPUBs, and scanned books into audiobooks."
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+requires-python = ">=3.11"
+authors = [{name = "Mikko Numminen"}]
+
+# Runtime dependencies stay in requirements.txt for the GUI / PyInstaller
+# workflow. This list is intentionally empty so `pip install -e .` registers
+# the console script without re-resolving the full dependency tree.
+# Run `pip install -r requirements.txt` separately to install runtime deps.
+dependencies = []
+
+[project.scripts]
+audiobookmaker = "src.cli.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

@@ -21,6 +21,13 @@ import sys
 
 from src.auto_updater import APP_VERSION
 from src.cli._common import EXIT_INTERNAL
+from src.ffmpeg_path import setup_ffmpeg_path
+
+# Configure ffmpeg before any synthesis path can import pydub. Matches
+# what src/main.py and src/launcher.py do for the GUI entry points so
+# the CLI honours dist/ffmpeg/ in dev mode and the bundled ffmpeg.exe
+# next to the frozen .exe in installed mode.
+setup_ffmpeg_path()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -31,8 +38,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "Subcommands:\n"
             "  convert     Convert PDF/EPUB/TXT to MP3\n"
             "  sample      Synthesize a ~500 char preview\n"
+            "  preview     Speak a short string through the system audio\n"
             "  voices      List available voices\n"
-            "  engines     List registered TTS engines\n"
+            "  engines     List, install, remove, or check TTS engines\n"
+            "  packs       Manage installed voice packs\n"
+            "  config      Show, set, or reset persistent user config\n"
+            "  update      Check for or install a new app version\n"
             "  doctor      Check system requirements\n\n"
             "Exit codes:\n"
             "  0  success\n"
@@ -54,12 +65,26 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.required = False
 
     # Import each subcommand module and let it register its parser.
-    from src.cli import convert, doctor, engines, sample, voices
+    from src.cli import (
+        config,
+        convert,
+        doctor,
+        engines,
+        packs,
+        preview,
+        sample,
+        update,
+        voices,
+    )
 
     convert.add_parser(subparsers)
     sample.add_parser(subparsers)
+    preview.add_parser(subparsers)
     voices.add_parser(subparsers)
     engines.add_parser(subparsers)
+    packs.add_parser(subparsers)
+    config.add_parser(subparsers)
+    update.add_parser(subparsers)
     doctor.add_parser(subparsers)
 
     return parser

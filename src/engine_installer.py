@@ -449,6 +449,14 @@ class PiperInstaller(EngineInstaller):
             (self._voice_dir / f).exists() for f in PIPER_VOICE_FILES
         )
 
+    def remove(self) -> bool:
+        """Delete the installed voice files. Returns True if anything was removed."""
+        import shutil as _shutil
+        if self._voice_dir.exists():
+            _shutil.rmtree(self._voice_dir, ignore_errors=False)
+            return True
+        return False
+
     def install(
         self,
         progress_cb: ProgressCallback,
@@ -558,6 +566,47 @@ class ChatterboxInstaller(EngineInstaller):
             return resolve_chatterbox_python() is not None
         except Exception:
             return False
+
+    def remove(self) -> bool:
+        """Delete the Chatterbox venv. Returns True if anything was removed.
+
+        Symmetric with :meth:`is_installed`: try the default location
+        first, then fall back to ``resolve_chatterbox_python()`` so a
+        venv at a non-default path (D-drive dev install, sibling-of-exe
+        bundle, ``CHATTERBOX_PYTHON`` override) is still removable via
+        the CLI. Without this, the engines list would say "available"
+        and ``engines remove chatterbox_fi`` would refuse with
+        "not installed" — a confusing UX gap.
+        """
+        import shutil as _shutil
+        if self._venv_path.exists():
+            _shutil.rmtree(self._venv_path, ignore_errors=False)
+            return True
+        try:
+            from src.launcher_bridge import resolve_chatterbox_python
+            resolved = resolve_chatterbox_python()
+        except Exception:
+            return False
+        if resolved is None:
+            return False
+        # resolve_chatterbox_python() returns the path to python.exe
+        # inside the venv (<venv>/Scripts/python.exe on Windows,
+        # <venv>/bin/python on POSIX). Walk two levels up to get the
+        # venv root.
+        venv_root = Path(resolved).parent.parent
+        # Defense against a misconfigured CHATTERBOX_PYTHON env var
+        # pointing at a system python (e.g. /usr/bin/python3): in that
+        # case parent.parent is /usr, and rmtree(/usr) is catastrophic.
+        # pyvenv.cfg is created by `python -m venv` at the venv root
+        # and exists in every legitimate venv; system directories never
+        # carry one. Refuse to delete anything that does not look like
+        # an actual venv.
+        if not (venv_root / "pyvenv.cfg").is_file():
+            return False
+        if venv_root.exists() and venv_root.is_dir():
+            _shutil.rmtree(venv_root, ignore_errors=False)
+            return True
+        return False
 
     def install(
         self,
