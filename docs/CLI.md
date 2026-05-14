@@ -156,6 +156,24 @@ out=$(audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="done") | .o
 echo "Written to: $out"
 ```
 
+### 6. Import and use a voice pack
+
+Install a pack you built (or downloaded) with `packs import`, then pass it to
+`convert` with `--voice-pack`:
+
+```bash
+# Install the pack once
+audiobookmaker packs import /path/to/my_voice_pack/
+
+# Use it in a conversion (pack name or full path both work)
+audiobookmaker convert book.txt --engine chatterbox_fi --voice-pack my_voice_pack
+```
+
+`packs import` copies the pack into the app's pack store and validates its
+metadata. After that, `--voice-pack <name>` selects it by the slug shown in
+`packs list`. You can also pass the original directory path directly if you
+haven't imported it yet.
+
 ---
 
 ## Subcommand reference
