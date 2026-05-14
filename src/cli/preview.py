@@ -21,6 +21,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 import tempfile
 import time
@@ -194,7 +195,10 @@ def run(args: argparse.Namespace) -> int:
 
     if no_play:
         # Hand the file to the caller; they own it.
-        print(tmp_path, flush=True)
+        # Shell-quote so callers that pass the path directly to a shell
+        # command work correctly even when the system tempdir contains
+        # spaces (common on Windows: C:\Users\First Last\AppData\...).
+        print(shlex.quote(str(tmp_path)), flush=True)
         return EXIT_OK
 
     # Play the clip and wait for it to finish.
