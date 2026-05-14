@@ -265,6 +265,39 @@ class TestPacksRemove:
         assert obj["slug"] == "rm_json"
         assert not (tmp_path / "rm_json").exists()
 
+    def test_remove_quiet_without_yes_prompts_and_cancels(self, tmp_path):
+        """--quiet alone must NOT bypass the confirmation guard.
+
+        The flag suppresses success output, but destructive operations
+        still require explicit --yes or an interactive 'y' answer.
+        Feeding 'n' must cancel and leave the pack intact.
+        """
+        _make_fake_pack(tmp_path, "quiet_keep")
+        rc, out, err = _run(tmp_path, "remove", "quiet_keep", "--quiet", input_str="n")
+        assert rc == 3, "--quiet without --yes must return EXIT_CANCELLED when user declines"
+        assert (tmp_path / "quiet_keep").is_dir(), "pack must still exist after cancellation"
+
+    def test_remove_quiet_with_yes_removes_without_prompting(self, tmp_path):
+        """--yes wins even when combined with --quiet: pack is removed silently."""
+        import src.cli.packs as packs_mod
+
+        _make_fake_pack(tmp_path, "quiet_gone")
+        with mock.patch.object(packs_mod, "_packs_dir", return_value=tmp_path):
+            stdout_buf = StringIO()
+            stderr_buf = StringIO()
+            input_called = mock.Mock(side_effect=AssertionError("input() must not be called"))
+            parser, _ = _make_packs_parser(tmp_path)
+            with (
+                mock.patch("sys.stdout", stdout_buf),
+                mock.patch("sys.stderr", stderr_buf),
+                mock.patch("builtins.input", input_called),
+            ):
+                parsed = parser.parse_args(["packs", "remove", "quiet_gone", "--yes", "--quiet"])
+                rc = parsed.func(parsed)
+        assert rc == 0, "--yes --quiet must remove the pack"
+        assert not (tmp_path / "quiet_gone").exists(), "pack must be deleted"
+        assert stdout_buf.getvalue().strip() == "", "--quiet must suppress success output"
+
 
 # ---------------------------------------------------------------------------
 # Path-traversal regression tests
