@@ -626,9 +626,11 @@ will be added once the engine interface grows a `speed` argument.
 The scripts under `scripts/` that predate the CLI remain in place. They are
 still the right tools for one-off diagnostics and ML pipeline stages. The
 `audiobookmaker` entry point wraps the user-facing conversion surface only.
-`generate_audiobook_parallel.py` (old Edge-TTS parallel runner) and
-`dev_qwen_tts.py` (abandoned experiment) are candidates for removal once
-the CLI's `convert` fully covers their original use cases.
+
+Two earlier scripts have been removed because the CLI's `convert` now
+covers their use cases: `scripts/generate_audiobook_parallel.py` (an
+Edge-TTS parallel runner) and the repo-root `dev_qwen_tts.py` (an
+abandoned Qwen3-TTS feasibility experiment).
 
 ### Versioning
 

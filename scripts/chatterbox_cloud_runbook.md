@@ -109,8 +109,7 @@ network.)
 
 ### 6. Run synthesis
 
-Upload `scripts/generate_audiobook_parallel.py` (or a Chatterbox variant)
-from your Mac:
+Upload the Chatterbox runner script from your Mac:
 ```bash
 scp -P <port> -i ~/.ssh/runpod \
     scripts/generate_audiobook_chatterbox.py \
