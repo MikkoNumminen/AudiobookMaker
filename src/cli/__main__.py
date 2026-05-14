@@ -91,6 +91,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Force UTF-8 on stdout/stderr so non-ASCII names (e.g. "Isoäiti") don't
+    # raise UnicodeEncodeError on Windows cmd.exe with the default cp1252 codepage.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 

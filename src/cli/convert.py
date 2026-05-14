@@ -101,7 +101,7 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
     quiet: bool = getattr(args, "quiet", False)
     dry_run: bool = getattr(args, "dry_run", False)
 
-    input_path = args.input
+    input_path = str(Path(args.input).expanduser())
 
     # Validate input file.
     code, msg = validate_input_path(input_path)
@@ -132,15 +132,18 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
         cfg.voice_id,
         "",
     ) or None
-    output_flag = resolve_str(
+    output_flag_raw = resolve_str(
         getattr(args, "output", None),
         "AUDIOBOOKMAKER_OUTPUT",
         "",
         "",
     ) or None
+    output_flag: Optional[str] = str(Path(output_flag_raw).expanduser()) if output_flag_raw else None
 
-    ref_audio: Optional[str] = getattr(args, "ref_audio", None)
-    voice_pack: Optional[str] = getattr(args, "voice_pack", None)
+    ref_audio_raw: Optional[str] = getattr(args, "ref_audio", None)
+    ref_audio: Optional[str] = str(Path(ref_audio_raw).expanduser()) if ref_audio_raw else None
+    voice_pack_raw: Optional[str] = getattr(args, "voice_pack", None)
+    voice_pack: Optional[str] = str(Path(voice_pack_raw).expanduser()) if voice_pack_raw else None
     chunk_chars: Optional[int] = getattr(args, "chunk_chars", None)
 
     # Resolve output path.

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from src.cli._common import (
     EXIT_BAD_INPUT,
@@ -80,7 +81,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    input_path = args.input
+    input_path = str(Path(args.input).expanduser())
 
     # Validate input file via the shared helper so the rules stay in
     # one place across convert and sample.
