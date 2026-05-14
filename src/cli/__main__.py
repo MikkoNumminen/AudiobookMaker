@@ -17,6 +17,7 @@ Exit codes are documented on every subcommand's --help and in docs/CLI.md:
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 
 from src.auto_updater import APP_VERSION
@@ -90,7 +91,27 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _force_utf8_streams() -> None:
+    """Reconfigure stdout and stderr to UTF-8 before any output.
+
+    The default Windows console codepage (cp1252) raises
+    UnicodeEncodeError when any subcommand prints non-ASCII text such
+    as Finnish voice names.  Calling reconfigure() here ensures a
+    consistent encoding regardless of the active console codepage.
+
+    The try/except guards against stream types that do not support
+    reconfigure() (e.g. BytesIO substitutes in unit tests, or
+    already-closed streams in some CI environments).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, io.UnsupportedOperation):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_streams()
     parser = _build_parser()
     args = parser.parse_args(argv)
 
