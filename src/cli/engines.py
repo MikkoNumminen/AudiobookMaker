@@ -153,6 +153,17 @@ def _run_install(args: argparse.Namespace) -> int:
         elif not quiet:
             print(message, flush=True)
 
+    try:
+        issues = installer.check_prerequisites(ui_lang="en")
+    except Exception as exc:
+        print(f"Prerequisite check failed: {exc}", file=sys.stderr)
+        return EXIT_MISSING_DEP
+
+    if issues:
+        for issue in issues:
+            print(f"Missing prerequisite: {issue}", file=sys.stderr)
+        return EXIT_MISSING_DEP
+
     _emit(f"Installing engine '{engine_id}'...")
 
     error_holder: list[str] = []

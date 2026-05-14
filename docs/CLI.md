@@ -71,6 +71,17 @@ Override any setting for a single run without changing your saved config:
 audiobookmaker convert book.epub --engine piper --language fi --voice fi_FI-aho-medium
 ```
 
+Chatterbox supports both Finnish (Isoäiti) and English (Grandmom). The voice
+id is `grandmom` for both — only `--language` differs:
+
+```bash
+# Finnish Grandmom (Isoäiti)
+audiobookmaker convert book.txt --engine chatterbox_fi --language fi
+
+# English Grandmom voice
+audiobookmaker convert book.txt --engine chatterbox_fi --language en
+```
+
 ### 2. A/B test engines with `sample`
 
 `sample` synthesizes only the first ~500 characters of a book — enough to
