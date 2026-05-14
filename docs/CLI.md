@@ -1,416 +1,637 @@
 # AudiobookMaker — command-line interface
 
-This document is two things in one file:
+The `audiobookmaker` command converts books to speech, manages voices and
+engines, and exposes every conversion capability that the GUI provides —
+without a window.
 
-1. **An audit** of every command-line tool that exists in the repo today,
-   what it does, who it's for, and what shape it ships in.
-2. **A design proposal** for a single `audiobookmaker-cli` entry point
-   that exposes every GUI capability to non-GUI users — packaged and
-   versioned as a parallel release artifact alongside the installer.
+---
 
-If you only care about which script to run for a given job today, jump
-to [Inventory](#inventory). If you're thinking about how to evolve this
-into a maintainable user-facing CLI, jump to [Design](#design).
+## Quick start
 
-## Why a CLI at all
+Install from the repo, verify it works, and convert your first book in three
+commands.
 
-The GUI is the primary surface for end users. But the project has three
-audiences a CLI serves better:
-
-- **Power users and sysadmins.** People who want to batch-convert a
-  whole shelf of PDFs without clicking through dialogs, or who run on
-  headless servers.
-- **Pipeline integrators.** People who want to feed AudiobookMaker into
-  a larger automation flow — cron, CI, a Makefile, another script —
-  and don't want to drive a Tk window.
-- **Developers and testers.** People reproducing a bug, comparing
-  engines, or running stress tests. They already do this today via the
-  scripts under `scripts/`, but the surface is uneven and undocumented.
-
-A unified, versioned `audiobookmaker-cli` makes all three groups
-first-class without bolting "headless mode" onto the GUI.
-
-## Inventory
-
-Everything below is what exists in `scripts/`, `src/`, and at the repo
-root as of this audit. Each entry lists what it does, what it needs to
-run, and its maturity tier.
-
-### Tier 1 — production CLIs (stable, documented, frozen-bundle-ready)
-
-These are the scripts safe to point users at. Argparse-driven, robust
-error handling, predictable output.
-
-#### `scripts/generate_chatterbox_audiobook.py`
-
-The big one. Full PDF / EPUB / TXT → MP3 via Chatterbox + the Finnish
-fine-tune. This is the script the GUI shells out to when you pick the
-Chatterbox engine; running it directly skips the GUI entirely.
-
-- Flags: `--pdf`, `--epub`, `--text-file`, `--out`, `--chapters`,
-  `--chunks-per-chapter`, `--device`, `--resume`, `--chunk-chars`,
-  `--rtf`, `--ref-audio`, `--language`, `--voice-pack`, `--dry-run`.
-- Needs: a `.venv-chatterbox` virtualenv with PyTorch + the Chatterbox
-  package, an NVIDIA GPU (8 GB+ VRAM), bundled ffmpeg.
-- Writes: `.local/audiobooks/<book>/` with per-chapter MP3s, a
-  combined `00_full.mp3`, a chunk cache, and a `.progress.json` so
-  resume works.
-
-#### `scripts/voice_pack_analyze.py`
-
-Stage 1 of the voice-pack pipeline. Takes a long audio source, runs
-ASR (faster-whisper) plus diarization (pyannote by default, ECAPA as a
-fallback), and writes per-speaker chunks with quality tiers.
-
-- Flags: `--input`, `--out`, `--hf-token`, `--asr-model`,
-  `--asr-device`, `--min-duration`, `--max-duration`,
-  `--min-confidence`, `--num-speakers`, `--min-speakers`,
-  `--max-speakers`, `--diarizer`.
-- Needs: `HF_TOKEN` (from `.env` or the OS environment) if you use
-  pyannote; nothing extra if you use `--diarizer ecapa`.
-- Writes: `transcripts.jsonl`, `speakers.yaml`, `report.md`.
-
-#### `scripts/voice_pack_export.py`
-
-Stage 2. Filters the analyze output by speaker, slices WAV clips at the
-right sample rate, and emits a training manifest.
-
-- Flags: `--transcripts`, `--source`, `--speaker`, `--out`,
-  `--emotion-label`, `--sample-rate-hz`, `--rebalance-by-emotion`,
-  `--character`.
-- Needs: bundled ffmpeg.
-- Writes: `wavs/`, `manifest.json`, `metadata.csv`.
-
-#### `scripts/voice_pack_train.py`
-
-Stage 3. LoRA fine-tune on the per-speaker dataset. Includes an upstream
-T3 loss monkey-patch, mixed-precision, early stopping, and step-level
-metric logging.
-
-- Flags: `--manifest`, `--out`, `--base-model`, `--lora-rank`,
-  `--lora-alpha`, `--lora-dropout`, `--lr`, `--batch-size`,
-  `--grad-accum`, `--epochs`, `--max-steps`, `--warmup-ratio`,
-  `--weight-decay`, `--mixed-precision`, `--early-stopping-patience`,
-  `--seed`, `--save-every-n-steps`, `--eval-every-n-steps`,
-  `--dry-run`, `-v`.
-- Needs: CUDA GPU, PyTorch + PEFT + Chatterbox.
-- Writes: `config.json`, `manifest_snapshot.json`, `run_command.txt`,
-  `adapter/`, `training.log`.
-
-#### `scripts/voice_pack_package.py`
-
-Stage 4. Assembles the on-disk pack format the GUI knows how to import.
-
-- Flags: `--out`, `--name`, `--language`, `--tier`, `--tier-reason`,
-  `--total-source-minutes`, `--sample`, `--adapter`, `--reference`,
-  `--emotion-coverage`, `--base-model`, `--notes`, `--slug`,
-  `--overwrite`.
-- Needs: PyYAML.
-- Writes: `<slug>/meta.yaml`, `sample.wav`, plus either `adapter.pt`
-  (LoRA tier) or `reference.wav` (few-shot tier).
-
-#### `scripts/record_voice_sample.py`
-
-Interactive voice-clone prep. Records a WAV through ffmpeg, runs the v7
-preflight QA (SNR, loudness, duration, clipping), optionally synthesizes
-a test sentence with the resulting sample as the reference.
-
-- Flags: `--list-devices`, `--input-device`, `--duration`,
-  `--sample-rate`, `--output`, `--use-existing`, `--skip-preflight`,
-  `--skip-trim`, `--no-playback`, `--no-countdown`, `--synthesize`,
-  `--synthesize-file`, `--synthesis-output`, `--tts-device`,
-  `--chunk-chars`.
-- Needs: ffmpeg; optional torch + chatterbox for the synthesis step.
-
-#### `scripts/ci_status.py`
-
-Watches GitHub Actions runs from the terminal. Useful when you've just
-pushed a release tag and want to see the build go green without
-flipping to the browser.
-
-- Flags: `-n/--limit`, `--watch`, `--interval`.
-- Needs: nothing (stdlib-only, public GitHub API).
-
-### Tier 2 — dev-only utilities
-
-These are smaller targeted tools. Documented less, less polish, but
-real CLIs.
-
-- **`scripts/check_spec_runner_imports.py`** — CI guard that compares
-  the imports of `generate_chatterbox_audiobook.py` against the spec's
-  `datas=` list. Zero arguments; exit 0 on pass, 1 on drift.
-- **`scripts/voice_pack_characters.py`** — optional clustering step
-  between analyze and export that separates distinct character voices
-  inside one speaker.
-- **`scripts/diagnose_turo_swallowing.py`** — long-run MP3 quality
-  diagnostic. Splits an MP3 into windows, reports speech / silence
-  metrics, flags monotonic degradation.
-- **`scripts/stress_test_chatterbox_longrun.py`** — Tier 1 validation
-  for long-run state-leak fixes. Loops `engine.generate()` N times,
-  collects per-call stats, flags drift.
-- **`scripts/generate_audiobook_parallel.py`** — early Edge-TTS
-  parallel runner. Predates the GUI's in-process path. No argparse;
-  positional `pdf out [concurrency]`. **Candidate for removal** — the
-  GUI's own path is the canonical Edge-TTS pipeline now.
-- **`dev_chatterbox_fi.py`** at the repo root — Finnish smoke test for
-  iterating on Chatterbox params (`--cfg-weight`, `--exaggeration`,
-  `--temperature`, etc.).
-- **`dev_qwen_tts.py`** at the repo root — abandoned Qwen3-TTS
-  experiment. **Candidate for removal** — Finnish unsupported,
-  acknowledged as dropped.
-
-### Tier 3 — build / asset generators (no CLI)
-
-Run once after design changes; nobody calls these from the command
-line during normal work.
-
-- **`scripts/generate_icons.py`** — renders 24 PNG icons from PIL
-  vectors. No flags.
-- **`scripts/generate_social_preview.py`** — renders the GitHub social
-  preview card. No flags.
-
-### Tier 4 — GUI entry points (not CLIs, but invoked from the shell)
-
-- **`src/main.py`** — `python -m src.main` launches the unified GUI.
-  No arguments.
-- **`src/gui_unified.py`** — same entry, also invokable as
-  `python -m src.gui_unified`. Accepts `--self-test` for headless
-  smoke testing.
-- **`src/launcher.py`** — legacy simple launcher, frozen separately by
-  `audiobookmaker_launcher.spec`. Accepts `--self-test`.
-
-## The gap
-
-The GUI today exposes 31 distinct user actions (Convert, Make Sample,
-Preview, Import voice pack, Test voice, Set language / engine / voice,
-Browse reference audio, Set speed, change output mode, install engines,
-auto-update, and so on — see `docs/ARCHITECTURE.md` for the
-breakdown). Of those, **only one** has a direct CLI equivalent today:
-"Convert book" via `generate_chatterbox_audiobook.py`, and that
-script only covers the Chatterbox engine.
-
-What a CLI user cannot do without writing Python:
-
-- Convert a book with Edge-TTS or Piper. (No script wraps the
-  in-process engine path.)
-- Make a 30 s sample without doing the full book.
-- List available voices for a given engine and language.
-- Test a single voice without writing a tiny Python harness.
-- Import a voice pack into the user data directory.
-- Pre-flight a synthesis job for disk space + ETA estimate.
-- Configure persistent defaults (language, engine, voice, output mode).
-- Trigger the auto-update check or apply an update.
-
-That's the surface to close.
-
-## Design
-
-The proposal is a single console script — `audiobookmaker` — that
-exposes every capability above through subcommands. Implemented as a
-thin module under `src/cli/` that calls the same backend functions the
-GUI calls. No business logic in the CLI layer; if the GUI and the CLI
-ever disagree, both are reading the same orchestrator.
-
-### Top-level shape
-
-```
-audiobookmaker --help
-audiobookmaker --version
-
-audiobookmaker convert <input> [--output PATH] [--language fi|en]
-                                [--engine edge|piper|chatterbox_fi]
-                                [--voice ID]
-                                [--ref-audio PATH] [--voice-pack PATH]
-                                [--output-mode single|chapters]
-                                [--chunk-chars N] [--resume]
-                                [--dry-run] [--json | --quiet]
-
-audiobookmaker sample  <input> [same flags as convert, but
-                                synthesizes only ~500 chars]
-
-audiobookmaker preview <text> [--engine ...] [--voice ...]
-                                [plays through default audio device]
-
-audiobookmaker voices  list [--engine X] [--language Y]
-audiobookmaker voices  test ID [--engine X] [--text "..."]
-
-audiobookmaker packs   list
-audiobookmaker packs   import <directory>
-audiobookmaker packs   remove <slug>
-audiobookmaker packs   info <slug>
-
-audiobookmaker engines list [--installed-only]
-audiobookmaker engines install <id>
-audiobookmaker engines remove <id>
-audiobookmaker engines check <id>
-
-audiobookmaker config  show
-audiobookmaker config  set KEY VALUE
-audiobookmaker config  reset
-
-audiobookmaker update  check
-audiobookmaker update  apply [--silent]
-
-audiobookmaker doctor          # disk, GPU, Python, ffmpeg, engines
-audiobookmaker estimate <input> [--engine X]
-                                # ETA + audio duration, no synthesis
-
-audiobookmaker pack    analyze   ...   # alias for scripts/voice_pack_analyze.py
-audiobookmaker pack    export    ...   # alias for scripts/voice_pack_export.py
-audiobookmaker pack    train     ...   # alias for scripts/voice_pack_train.py
-audiobookmaker pack    package   ...   # alias for scripts/voice_pack_package.py
-audiobookmaker pack    record    ...   # alias for record_voice_sample.py
+```bash
+pip install -e .
+audiobookmaker doctor
+audiobookmaker convert book.pdf
 ```
 
-The `pack` subcommands are aliases so the existing scripts keep working
-for muscle memory and CI, but new users see a single coherent surface.
+`doctor` checks that ffmpeg is on the PATH, that at least one TTS engine is
+ready, and that you have free disk space. If everything is green you are
+ready to convert.
 
-### Implementation outline
+The output MP3 lands in the configured output directory
+(`~/.audiobookmaker/` by default). The path is printed on the last line of
+the output.
+
+---
+
+## Installation
+
+### From source (recommended for developers)
+
+Clone the repo and install in editable mode:
+
+```bash
+git clone https://github.com/mikkopetteri/AudiobookMaker
+cd AudiobookMaker
+pip install -e .
+```
+
+The `audiobookmaker` console script is registered by `pyproject.toml`. After
+installation it is on your PATH so you can run it from any directory.
+
+### Standalone binary
+
+A standalone Windows binary (`audiobookmaker.exe`) is planned as a future
+release artifact — a self-contained zip with ffmpeg bundled so nothing else
+needs to be installed. It is not available yet. Watch the
+[releases page](https://github.com/mikkopetteri/AudiobookMaker/releases) for
+the first `AudiobookMaker-CLI-*.zip` asset.
+
+---
+
+## Common workflows
+
+### 1. Convert one book end-to-end with the default engine
+
+```bash
+audiobookmaker convert book.epub
+```
+
+AudiobookMaker reads the engine, language, and voice from
+`~/.audiobookmaker/config.json`. On a fresh install the engine defaults to
+`edge` (Edge-TTS, no GPU needed, no extra install). The output path is
+printed when synthesis finishes.
+
+Override any setting for a single run without changing your saved config:
+
+```bash
+audiobookmaker convert book.epub --engine piper --language fi --voice fi_FI-aho-medium
+```
+
+### 2. A/B test engines with `sample`
+
+`sample` synthesizes only the first ~500 characters of a book — enough to
+hear what an engine sounds like without waiting for a full run.
+
+```bash
+audiobookmaker sample book.pdf --engine edge
+audiobookmaker sample book.pdf --engine piper
+```
+
+Each call writes a `*_sample.mp3` next to the full output path. Compare the
+two files in any audio player.
+
+### 3. Switch the default engine via `config set`
+
+Set your preferred engine once so every subsequent `convert` call uses it
+without extra flags:
+
+```bash
+audiobookmaker config set engine_id piper
+audiobookmaker config set language fi
+audiobookmaker config show
+```
+
+From this point `audiobookmaker convert book.epub` uses Piper without any
+`--engine` flag.
+
+To check what your active config is in a shell script:
+
+```bash
+audiobookmaker config show --quiet
+# Output: one key=value line per field
+```
+
+### 4. Batch convert a folder
+
+`audiobookmaker convert` takes one file at a time, but a shell loop covers
+a whole folder:
+
+```bash
+# bash / zsh
+for f in ~/books/*.epub; do
+    audiobookmaker convert "$f" --quiet
+done
+```
+
+```powershell
+# PowerShell
+Get-ChildItem ~/books -Filter *.epub | ForEach-Object {
+    audiobookmaker convert $_.FullName --quiet
+}
+```
+
+`--quiet` suppresses the per-chunk progress lines and prints only the final
+output path, which makes the batch output readable.
+
+### 5. Stream `--json` progress through jq
+
+Every synthesis subcommand accepts `--json`, which emits one JSON object per
+line (NDJSON). This lets you pipe progress events into any JSON-aware tool.
+
+Show only the percentage done as synthesis runs:
+
+```bash
+audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="chunk") | "\(.total_done)/\(.total_chunks)"'
+```
+
+Wait for completion and print the output path:
+
+```bash
+out=$(audiobookmaker convert book.pdf --json | jq -r 'select(.kind=="done") | .output_path')
+echo "Written to: $out"
+```
+
+---
+
+## Subcommand reference
+
+Each subcommand has its own `--help`. The table below is a quick index;
+the auto-generated detail follows.
+
+| Subcommand | What it does |
+|---|---|
+| `convert INPUT` | Convert a PDF, EPUB, or TXT file to an MP3 audiobook |
+| `sample INPUT` | Synthesize the first ~500 characters as a quick quality check |
+| `preview TEXT` | Speak a short string through the system audio output (no file saved) |
+| `voices list` | List all voices across installed engines, with optional filters |
+| `engines list` | List all registered TTS engines and their availability |
+| `engines install ID` | Download and install a TTS engine |
+| `engines remove ID` | Remove an installed engine's assets |
+| `engines check ID` | Report whether a specific engine is ready to use |
+| `packs list` | List installed voice packs |
+| `packs import DIR` | Validate and install a voice pack from a directory |
+| `packs remove SLUG` | Delete an installed voice pack |
+| `packs info SLUG` | Print metadata for an installed voice pack |
+| `config show` | Print all persistent config fields (or one field) |
+| `config set KEY VALUE` | Set one config field and save |
+| `config reset` | Reset config (or one field) to defaults |
+| `config path` | Print the path to the config file |
+| `update check` | Query GitHub Releases for a newer version |
+| `update apply` | Download, verify (SHA-256), and install the latest version |
+| `doctor` | Run system health checks and report engine readiness |
+
+<!-- BEGIN_GENERATED_REFERENCE -->
+<!-- This block is auto-generated by scripts/render_cli_help.py.
+     Do not edit by hand; edit the argparse parsers and re-run the
+     renderer (or the pre-commit hook will re-run it for you). -->
+### `audiobookmaker convert`
+
+Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
+
+| Flag | Description |
+|------|-------------|
+| `INPUT` | Path to a PDF, EPUB, or TXT file. |
+| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
+| `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
+| `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
+| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
+| `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
+| `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
+| `--dry-run` | Print what would happen without synthesizing. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker sample`
+
+Convert the first ~500 characters of a book to MP3 as a quick quality check before running the full conversion.
+
+| Flag | Description |
+|------|-------------|
+| `INPUT` | Path to a PDF, EPUB, or TXT file. |
+| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
+| `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
+| `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
+| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
+| `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
+| `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
+| `--dry-run` | Print what would happen without synthesizing. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker preview`
+
+Synthesize a short text string and play it through the system audio output. Nothing is saved to disk.
+
+| Flag | Description |
+|------|-------------|
+| `TEXT` | The text to speak. |
+| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
+| `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
+| `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
+| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--no-play` | Synthesize only — do not play audio. Prints the tempfile path on stdout. The caller is responsible for deleting the file. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker voices list`
+
+List voices across all engines, or filtered by engine / language.
+
+| Flag | Description |
+|------|-------------|
+| `--engine ID` | Filter to voices of a specific engine (e.g. edge, piper, chatterbox_fi). |
+| `--language LANG` | Filter to voices for a specific language (fi or en). |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker engines list`
+
+| Flag | Description |
+|------|-------------|
+| `--installed-only` | Only show engines that are currently available. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker engines install`
+
+| Flag | Description |
+|------|-------------|
+| `ID` | Engine id (e.g. piper, chatterbox_fi). |
+| `--yes` | Skip prompts. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker engines remove`
+
+| Flag | Description |
+|------|-------------|
+| `ID` | Engine id to remove. |
+| `--yes` | Skip confirmation. |
+
+---
+
+### `audiobookmaker engines check`
+
+| Flag | Description |
+|------|-------------|
+| `ID` | Engine id to check. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker packs list`
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker packs import`
+
+| Flag | Description |
+|------|-------------|
+| `DIRECTORY` | Source pack directory. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker packs remove`
+
+| Flag | Description |
+|------|-------------|
+| `SLUG` | Pack slug (folder name). |
+| `--yes` | Skip confirmation prompt. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker packs info`
+
+| Flag | Description |
+|------|-------------|
+| `SLUG` | Pack slug (folder name). |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker config show`
+
+| Flag | Description |
+|------|-------------|
+| `KEY` | Field name to show. Omit to show all fields. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker config set`
+
+| Flag | Description |
+|------|-------------|
+| `KEY` | Field name. |
+| `VALUE` | New value. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker config reset`
+
+| Flag | Description |
+|------|-------------|
+| `KEY` | Field name to reset. Omit to reset entire config. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker config path`
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker update check`
+
+Query GitHub Releases and report whether this build is current.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker update apply`
+
+Download the latest installer, verify its SHA-256, and run it.
+
+| Flag | Description |
+|------|-------------|
+| `--yes` | Skip the confirmation prompt and apply immediately. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker doctor`
+
+Run system health checks and report which engines are ready.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+<!-- END_GENERATED_REFERENCE -->
+
+---
+
+## Exit codes
+
+Every subcommand follows this table.
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Bad input or validation failure |
+| 2 | Missing dependency (engine not installed, ffmpeg absent, SHA-256 mismatch) |
+| 3 | User cancelled (Ctrl-C or answered "N" at a prompt) |
+| 4 | Runtime failure (network, GPU, synthesis error) |
+| 5 | Unexpected internal error |
+
+`engines check` is an exception: it exits 2 when the engine is not available,
+not because a dependency is broken but because the check itself is the
+question. Use it in scripts to guard conditional installs:
+
+```bash
+audiobookmaker engines check piper || audiobookmaker engines install piper --yes
+```
+
+---
+
+## Configuration
+
+AudiobookMaker stores user preferences in `~/.audiobookmaker/config.json`.
+The GUI and the CLI read and write the same file, so changing a setting in
+one surface affects the other.
+
+### Reading and writing config
+
+```bash
+# Show everything
+audiobookmaker config show
+
+# Show one field
+audiobookmaker config show engine_id
+
+# Set the default engine
+audiobookmaker config set engine_id piper
+
+# Reset one field to its built-in default
+audiobookmaker config reset engine_id
+
+# Reset everything
+audiobookmaker config reset
+
+# Find the file
+audiobookmaker config path
+```
+
+### Environment variable overrides
+
+Each flag that participates in the precedence chain has a corresponding
+`AUDIOBOOKMAKER_*` environment variable. Set these in your shell profile or
+in a process supervisor to override config without editing the JSON file.
+
+| Flag | Env var |
+|------|---------|
+| `--engine` | `AUDIOBOOKMAKER_ENGINE` |
+| `--language` | `AUDIOBOOKMAKER_LANGUAGE` |
+| `--voice` | `AUDIOBOOKMAKER_VOICE` |
+| `--output` | `AUDIOBOOKMAKER_OUTPUT` |
+
+### Precedence
+
+Highest priority wins:
+
+1. Command-line flag (e.g. `--engine chatterbox_fi`)
+2. Environment variable (e.g. `AUDIOBOOKMAKER_ENGINE=chatterbox_fi`)
+3. Persisted config (`~/.audiobookmaker/config.json`)
+4. Built-in default (`edge` for engine, `fi` for language)
+
+This means you can set a global default in config, override it per-session
+with an env var, and override that further with a CLI flag for a single run.
+
+### Script-friendly config reads
+
+`config show --quiet` emits one `key=value` line per field with
+shell-safe quoting. Values containing spaces or special characters are
+wrapped in single quotes:
+
+```bash
+eval "$(audiobookmaker config show --quiet)"
+echo "Current engine: $engine_id"
+```
+
+---
+
+## JSON output
+
+Pass `--json` to any synthesis or list subcommand to get NDJSON output
+(one JSON object per line, flushed immediately). This is designed for
+piping into `jq`, logging to a file, or consuming from another process.
+
+The event shape matches the `ProgressEvent` dataclass from
+[`src/launcher_bridge.py`](src/launcher_bridge.py):
+
+```json
+{"kind": "chunk", "raw_line": "chunk 12/340", "output_path": null, "total_done": 12, "total_chunks": 340, "chapter_idx": 0, "chapter_total": 1, "chunk_idx": 12, "chunk_total": 340, "elapsed_s": 14.2, "eta_s": 383.0, "rtf": 0.11, "returncode": null}
+```
+
+Event kinds:
+
+| Kind | When |
+|------|------|
+| `log` | Informational message |
+| `chunk` | One synthesis chunk completed |
+| `chapter_start` | A chapter is starting |
+| `chapter_done` | A chapter finished |
+| `full_done` | All chapters merged into the final MP3 |
+| `done` | Synthesis complete; `output_path` is set |
+| `error` | A recoverable error; `raw_line` has the message |
+| `exit` | Subprocess exited; `returncode` is set |
+
+The `done` event carries the final output path:
+
+```json
+{"kind": "done", "output_path": "/home/user/.audiobookmaker/book.mp3", ...}
+```
+
+`--dry-run` with `--json` emits a single object describing what would
+happen without synthesizing:
+
+```json
+{"dry_run": true, "kind": "convert", "input": "book.pdf", "engine": "edge", "language": "fi", "voice": null, "output": "/home/user/.audiobookmaker/book.mp3", "ref_audio": null, "voice_pack": null, "chunk_chars": null}
+```
+
+`voices list --json` and `engines list --json` emit one object per row
+(same shape as the human-readable columns). `doctor --json` emits one
+object per check.
+
+---
+
+## Out of scope / future work
+
+The following capabilities exist in the repo but are not part of the
+`audiobookmaker` CLI surface described in this document.
+
+**Voice-cloning pipeline.** The scripts under `scripts/` —
+`voice_pack_analyze.py`, `voice_pack_export.py`, `voice_pack_train.py`,
+`voice_pack_package.py` — are developer tools for creating new voice packs
+from audio sources. They run directly as `python scripts/voice_pack_*.py`
+and are documented separately. They are not wrapped under the
+`audiobookmaker` entry point.
+
+**Standalone binary.** A PyInstaller-frozen `audiobookmaker.exe` for users
+who do not have Python is in progress. The spec file
+`audiobookmaker_cli.spec` is a parallel task and has not shipped in a
+release yet.
+
+**Auto-doc generator.** The `<!-- BEGIN_GENERATED_REFERENCE -->` block in
+the Subcommand reference section above will be filled by
+`scripts/render_cli_help.py` once that script lands. Until then the
+section contains only the hand-written index table.
+
+---
+
+## Appendix — Architecture and design rationale
+
+This section is for maintainers who want to understand how the CLI is
+structured and why.
+
+### Why a separate CLI layer
+
+The GUI is the primary surface for end users. A dedicated CLI serves three
+additional audiences:
+
+- **Power users and sysadmins.** Batch-converting a shelf of books without
+  clicking through dialogs, or running on headless servers.
+- **Pipeline integrators.** Feeding AudiobookMaker into a larger automation
+  flow — cron jobs, Makefiles, other scripts.
+- **Developers and testers.** Reproducing bugs, comparing engines, or
+  running stress tests against the backend directly.
+
+The CLI does not own synthesis logic. It is a presentation layer over the
+same backend modules the GUI calls: `synthesis_orchestrator`,
+`engine_registry`, `voice_pack`, `app_config`, `auto_updater`, and
+`system_checks`. If the GUI fixes a bug, the CLI picks it up automatically.
+
+### Module layout
 
 ```
 src/cli/
   __init__.py
-  __main__.py          # entry point, dispatches subcommands
-  convert.py           # wraps synthesis_orchestrator
-  sample.py            # wraps sample_helpers + orchestrator
-  preview.py           # wraps engine.synthesize + _audio_player
-  voices.py            # reads engine_registry, calls list_voices
-  packs.py             # wraps src/voice_pack/pack.py
-  engines.py           # wraps src/engine_installer.py
-  config.py            # wraps src/app_config.py
-  update.py            # wraps src/auto_updater.py
-  doctor.py            # wraps src/system_checks.py + ffmpeg_path
-  estimate.py          # wraps src/duration_estimate.py
-  pack_pipeline.py     # thin dispatcher to scripts/voice_pack_*
+  __main__.py       entry point; dispatches subcommands
+  _common.py        exit codes, shared flags, ProgressEvent printer
+  convert.py        wraps synthesis_orchestrator
+  sample.py         wraps sample_helpers + convert.run()
+  preview.py        wraps engine.synthesize + _audio_player
+  voices.py         reads engine_registry, calls list_voices
+  engines.py        wraps src/engine_installer.py
+  packs.py          wraps src/voice_pack/
+  config.py         wraps src/app_config.py
+  update.py         wraps src/auto_updater.py
+  doctor.py         wraps src/system_checks.py + ffmpeg_path
 ```
 
-Every subcommand is a function that takes parsed args and returns an
-exit code. No subcommand owns synthesis logic; they all call into the
-existing modules. This keeps the CLI a presentation layer and prevents
-the kind of drift where the GUI fixes a bug and the CLI doesn't.
+Each module exposes `add_parser(subparsers)` and stores `run` as the
+`func` default so `__main__.py` only needs to call `args.func(args)`.
 
-### Output and exit codes
+### Subprocess vs. in-process engines
 
-- Default output is human-readable, single-line per progress step.
-- `--json` on any subcommand emits machine-readable progress events
-  in NDJSON format — one JSON object per line, using the same
-  `ProgressEvent` shape `launcher_bridge.py` already produces. The
-  dry-run path emits a single JSON object summarising what would
-  happen.
-- `--quiet` emits the minimum useful output per command. `convert` and
-  `sample` print only the final MP3 path on success. List commands
-  (`voices list`, `engines list`) print one id per line. `doctor`
-  prints a one-line `OK` / `FAIL` summary. Errors always go to stderr.
-- Exit codes: 0 success; 1 bad input / validation; 2 missing dependency
-  (engine not installed, ffmpeg missing); 3 user cancelled (Ctrl-C);
-  4 transient runtime failure (network, GPU); 5 unexpected internal
-  error.
+Edge-TTS and Piper run in-process via `synthesis_orchestrator.run_inprocess_synthesis()`.
 
-### Deferred from v1
+Chatterbox (`chatterbox_fi`) runs as a subprocess because it requires a
+separate virtualenv with PyTorch and an NVIDIA GPU. `convert.py` detects
+which path to take via `engine.uses_subprocess` and dispatches accordingly.
+The `preview` subcommand does not support subprocess engines — use `sample`
+instead for a quick Chatterbox listen.
 
-- `--speed` (per-engine speed override): the underlying
-  `TTSEngine.synthesize()` signature does not accept a speed parameter
-  today. Wiring it would be a base-class change and therefore business
-  logic outside the CLI presentation layer. Add the flag back once the
-  engine contract grows a `speed` argument.
+### Deferred features
 
-### Configuration precedence
+`--speed` (per-engine speed override) is deferred from v1. The underlying
+`TTSEngine.synthesize()` contract does not accept a speed parameter. Wiring
+it requires a base-class change (business logic outside the CLI layer) and
+will be added once the engine interface grows a `speed` argument.
 
-Highest wins:
+### Existing scripts
 
-1. Command-line flag.
-2. `AUDIOBOOKMAKER_*` environment variable
-   (e.g. `AUDIOBOOKMAKER_ENGINE=piper`).
-3. The same `~/.audiobookmaker/config.json` the GUI persists.
-4. Built-in defaults.
+The scripts under `scripts/` that predate the CLI remain in place. They are
+still the right tools for one-off diagnostics and ML pipeline stages. The
+`audiobookmaker` entry point wraps the user-facing conversion surface only.
+`generate_audiobook_parallel.py` (old Edge-TTS parallel runner) and
+`dev_qwen_tts.py` (abandoned experiment) are candidates for removal once
+the CLI's `convert` fully covers their original use cases.
 
-A CLI user who never opens the GUI gets sensible defaults; a user who
-uses both gets one set of preferences across surfaces.
-
-## Distribution
-
-The user framing was "like a release I upkeep" — so this is a separate
-release artifact, not buried inside the installer.
-
-### Two artifacts per release
-
-1. **`AudiobookMaker-Setup-X.Y.Z.exe`** — what ships today. Bundles the
-   GUI plus its own copy of the CLI binary so installed users get both.
-2. **`AudiobookMaker-CLI-X.Y.Z-windows-x64.zip`** — new. A standalone
-   PyInstaller bundle of the CLI only, plus ffmpeg, plus a `README.txt`
-   and the `audiobookmaker.exe` console binary. No installer, no Tk,
-   no CustomTkinter. Drop it in a folder, add to PATH, done.
-
-Linux and macOS get the same zip structure when their bundles come
-online (currently Windows-only).
-
-### Build pipeline changes
-
-- Add `audiobookmaker_cli.spec` next to `audiobookmaker.spec` and
-  `audiobookmaker_launcher.spec`. Three frozen binaries, three specs,
-  same `src/` source tree.
-- Extend `.github/workflows/build-release.yml` to build, hash, and
-  upload the CLI zip as a release asset alongside the installer. Same
-  SHA-256-in-release-notes guarantee per `docs/CONVENTIONS.md` so
-  power users can verify the download. The CLI does not auto-update
-  itself — there's no UI to surface a banner — so the SHA is for
-  manual verification only.
-- Skip auto-update wiring for the CLI build. CLI users update by
-  re-downloading. Document that explicitly in the CLI's `--help`.
-
-### Documentation upkeep
-
-- This file (`docs/CLI.md`) is the canonical reference. Every
-  subcommand gets a section once implemented.
-- `README.md` gets a short "Command-line use" section pointing here
-  and to the release asset.
-- The CLI's `--help` text and this doc are generated from the same
-  argparse definitions — write a tiny `scripts/render_cli_help.py`
-  that walks the parser tree and emits the per-subcommand reference,
-  invoked by a pre-commit hook so they cannot drift.
-
-## Versioning
+### Versioning
 
 The CLI ships under the same version string as the GUI
-(`src/auto_updater.py::APP_VERSION`). One version, two binaries,
-guaranteed to agree on engine behaviour. The release-cut skill in
-`.claude/skills/release-cut/` already enforces the
-APP_VERSION / setup.iss sync gate; extending it to also bump the CLI
-spec is one line.
-
-## What this audit does not change
-
-- The existing `scripts/*.py` files keep working. They are still the
-  right place for one-off diagnostics and ML pipeline stages. The CLI
-  just wraps the user-facing ones with a nicer surface and a stable
-  contract.
-- The GUI does not call the CLI. Both call the same backend functions.
-- No business logic moves. The CLI is a thin shell over
-  `synthesis_orchestrator`, `engine_registry`, `voice_pack/pack.py`,
-  `app_config`, `auto_updater`, `system_checks`, and
-  `duration_estimate`.
-
-## Implementation plan (ordered, smallest first)
-
-Each step is independently shippable.
-
-1. **Scaffold `src/cli/`** with `convert` + `voices list` only.
-   Wire `python -m src.cli convert book.pdf` to
-   `synthesis_orchestrator.run_inprocess_synthesis()`. No PyInstaller
-   work yet — dev-only via `python -m`. Smallest possible useful CLI.
-2. **Add `sample`, `preview`, `voices test`, `estimate`, `doctor`.**
-   All read-only or short-running. Establishes the subcommand
-   pattern and exit-code conventions.
-3. **Add `packs` and `engines` subcommands.** Now CLI users have
-   feature parity with the GUI's settings panel.
-4. **Add `config show / set / reset`.** Closes the persistence gap.
-5. **Build pipeline.** Add `audiobookmaker_cli.spec` and the CI job
-   to produce the standalone zip artifact.
-6. **Auto-doc.** Write `scripts/render_cli_help.py` and a pre-commit
-   hook so this file's reference section regenerates from argparse.
-7. **Deprecate `generate_audiobook_parallel.py` and
-   `dev_qwen_tts.py`.** Delete after one release where the CLI's
-   `convert` covers the parallel case.
-
-Each step is small enough to land as a single PR. None of them touch
-the GUI's behaviour.
+(`APP_VERSION` in [`src/auto_updater.py`](src/auto_updater.py)). One
+version number, one set of engine semantics.
