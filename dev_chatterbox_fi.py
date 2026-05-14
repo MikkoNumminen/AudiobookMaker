@@ -2,7 +2,7 @@
 """dev_chatterbox_fi.py — Finnish-NLP/Chatterbox-Finnish smoke test.
 
 Developer-only tool for evaluating Chatterbox-Finnish on this Mac. Not
-part of the shipped AudiobookMaker app. Sits next to dev_qwen_tts.py.
+part of the shipped AudiobookMaker app.
 
 What this does:
     1. Loads ChatterboxMultilingualTTS from ResembleAI/chatterbox via

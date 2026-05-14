@@ -26,9 +26,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 # NOTE: edge_tts is imported lazily inside _synthesize_chunk() so that
-# other consumers (e.g. dev_qwen_tts.py) can `from src.tts_engine import
-# split_text_into_chunks` without dragging in an online-TTS dependency
-# they don't need.
+# other consumers can `from src.tts_engine import split_text_into_chunks`
+# without dragging in an online-TTS dependency they don't need.
 
 # Re-exports — keep the public surface of the old monolith intact so
 # existing call sites like `from src.tts_engine import normalize_finnish_text`
