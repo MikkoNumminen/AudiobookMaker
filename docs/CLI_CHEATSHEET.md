@@ -71,7 +71,7 @@ Package it as a few-shot voice pack:
   --language fi `
   --tier few_shot `
   --tier-reason "personal voice clip" `
-  --total-source-minutes 1 `
+  --total-source-minutes 0.25 `
   --sample myvoice_clip.wav `
   --reference myvoice_clip.wav
 ```
