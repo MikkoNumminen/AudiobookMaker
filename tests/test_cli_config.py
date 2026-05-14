@@ -95,6 +95,22 @@ class TestConfigShow:
         r = _cli("config", "show", "unknown_field", env=_home_env(tmp_path))
         assert r.returncode == 1
 
+    def test_show_all_quiet_emits_shell_safe_lines(self, tmp_path):
+        """Quiet mode is meant for shell scripts. Each line must be a
+        single shell-safe 'key=value' so a future field value that
+        contains '=' or whitespace cannot break line-based parsers."""
+        r = _cli("config", "show", "--quiet", env=_home_env(tmp_path))
+        assert r.returncode == 0
+        lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        assert lines, "expected one line per UserConfig field"
+        # Every line must have exactly one '=' on the LHS at minimum
+        # (values themselves can carry '=' once shlex.quote wraps them).
+        for line in lines:
+            assert "=" in line, f"missing key=value separator: {line!r}"
+            key, sep, _ = line.partition("=")
+            assert sep == "="
+            assert key.isidentifier(), f"non-identifier key on left: {key!r}"
+
     def test_show_all_json_is_parseable(self, tmp_path):
         r = _cli("config", "show", "--json", env=_home_env(tmp_path))
         assert r.returncode == 0

@@ -154,9 +154,12 @@ def _run_show(args: argparse.Namespace) -> int:
         print(json.dumps(data), flush=True)
     elif quiet:
         # Quiet mode: one "key=value" line per field — script-friendly,
-        # no human-readable column padding.
+        # no human-readable column padding. shlex.quote escapes values
+        # that contain '=', whitespace, or newlines so each line stays
+        # parseable by shell-style splitters and `eval` patterns.
+        import shlex
         for k, v in data.items():
-            print(f"{k}={v}", flush=True)
+            print(f"{k}={shlex.quote(str(v))}", flush=True)
     else:
         for k, v in data.items():
             print(f"{k}: {v}", flush=True)
