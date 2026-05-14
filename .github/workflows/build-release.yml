@@ -182,6 +182,39 @@ jobs:
           (Get-Content src/auto_updater.py) -replace 'APP_VERSION = ".*"', "APP_VERSION = `"$version`"" | Set-Content src/auto_updater.py
         shell: pwsh
 
+      # Guard: the `version = "..."` field in pyproject.toml MUST match
+      # APP_VERSION before we rewrite it from the tag. Drift here does not
+      # break the .exe installer (that path goes through setup.iss) but it
+      # ships a pip-installable package stamped with the wrong version,
+      # which breaks every downstream tool that consults pyproject for
+      # version info (CI matrices, deduplication caches, dependency
+      # solvers). Fail the job loudly instead.
+      - name: Verify pyproject.toml version matches APP_VERSION
+        if: github.event_name == 'push'
+        run: |
+          $pyVersion = (python -c "from src.auto_updater import APP_VERSION; print(APP_VERSION)").Trim()
+          $tomlLine = Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $tomlLine) {
+            Write-Error "pyproject.toml is missing a top-level version = `"...`" line. Cannot verify version sync."
+            exit 1
+          }
+          $tomlVersion = $tomlLine.Matches[0].Groups[1].Value
+          Write-Host "Python APP_VERSION: $pyVersion"
+          Write-Host "pyproject.toml version: $tomlVersion"
+          if ($pyVersion -ne $tomlVersion) {
+            Write-Error "Version drift: src/auto_updater.py APP_VERSION ($pyVersion) does not match pyproject.toml version ($tomlVersion). Update one or both so they agree, otherwise the published pip package will ship with the wrong version stamp."
+            exit 1
+          }
+          Write-Host "pyproject.toml version matches APP_VERSION — OK."
+        shell: pwsh
+
+      - name: Update pyproject.toml version from tag
+        if: github.event_name == 'push'
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          (Get-Content pyproject.toml) -replace '^version\s*=\s*"[^"]+"', "version = `"$version`"" | Set-Content pyproject.toml
+        shell: pwsh
+
       - name: Verify runner imports match spec datas
         if: github.event_name == 'push'
         run: python scripts/check_spec_runner_imports.py

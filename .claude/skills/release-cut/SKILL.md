@@ -30,9 +30,11 @@ re-implement those guards — CI does that. Your job is to:
 `.github/workflows/build-release.yml` fires on any `v*` tag. It:
 
 - Runs the full pytest suite.
-- Asserts `src/auto_updater.py::APP_VERSION` matches
-  `installer/setup.iss::#define MyAppVersion`. Drift → build fails.
-- Rewrites both values to match the tag name (strips the leading `v`).
+- Asserts `src/auto_updater.py::APP_VERSION` matches both
+  `installer/setup.iss::#define MyAppVersion` AND `pyproject.toml`'s
+  top-level `version`. Drift in any of the three → build fails.
+- Rewrites all three values to match the tag name (strips the leading
+  `v`).
 - Builds the exe and installer, computes the SHA-256, writes it into
   `release_notes.md`, uploads a `AudiobookMaker-Setup-<v>.exe.sha256`
   sidecar asset, and refuses to publish if the notes are missing the
@@ -42,13 +44,6 @@ re-implement those guards — CI does that. Your job is to:
 
 You never need to hand-edit release notes, compute hashes, or upload assets.
 Trust the pipeline; verify its output.
-
-**Known gap:** the CI version-drift guard currently checks
-`src/auto_updater.py` against `installer/setup.iss` but does **not** check
-`pyproject.toml`. The pyproject version still has to be bumped by hand
-(see Step 3) and a divergence will not fail the build — it just leaves
-the published `pip install` package stamped with the wrong version. Add
-this third file to the CI guard the next time the workflow is touched.
 
 ## The cut
 
@@ -72,9 +67,8 @@ project's shared-board protocol.
 
 ### Step 3 — bump all three version strings together
 
-The first two MUST match before the tag is pushed, otherwise the CI
-version-drift guard fails the build. The third is not yet CI-guarded but
-must still be updated so the `pip install` package version is correct.
+All three MUST match before the tag is pushed, otherwise the CI
+version-drift guard fails the build.
 
 - `src/auto_updater.py` — line near top: `APP_VERSION = "X.Y.Z"`
 - `installer/setup.iss` — line near top: `#define MyAppVersion "X.Y.Z"`
