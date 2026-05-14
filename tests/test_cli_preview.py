@@ -98,10 +98,30 @@ class TestPreviewBasic:
 # ---------------------------------------------------------------------------
 
 
+def _ffmpeg_available() -> bool:
+    """Return True when ffmpeg is on PATH or bundled.
+
+    Edge-TTS synth uses pydub to assemble MP3 chunks, and pydub needs
+    ffmpeg. CI runners frequently lack it, in which case preview synth
+    fails with exit 4 — that is correct CLI behaviour, not a test bug,
+    so we skip the test rather than treat exit 4 as a pass.
+    """
+    import shutil
+    if shutil.which("ffmpeg"):
+        return True
+    try:
+        from src.ffmpeg_path import get_ffmpeg_exe
+        return get_ffmpeg_exe() is not None
+    except Exception:
+        return False
+
+
 class TestPreviewNoPlay:
     def test_no_play_prints_path_and_exits_0(self):
         if not _edge_available():
             pytest.skip("edge engine not available in this environment")
+        if not _ffmpeg_available():
+            pytest.skip("ffmpeg not available — pydub cannot assemble MP3")
 
         result = _cli("preview", "hi", "--no-play", "--engine", "edge")
         assert result.returncode == 0, (
