@@ -166,7 +166,13 @@ def _run_apply(args: argparse.Namespace) -> int:
 
     # Check for available update first.
     try:
-        from src.auto_updater import APP_VERSION, check_for_update, download_update, apply_update
+        from src.auto_updater import (
+            APP_VERSION,
+            IntegrityError,
+            check_for_update,
+            download_update,
+            apply_update,
+        )
         info = check_for_update(APP_VERSION)
     except Exception as exc:
         print(f"Error checking for update: {exc}", file=sys.stderr)
@@ -204,11 +210,12 @@ def _run_apply(args: argparse.Namespace) -> int:
     # Download and verify.
     try:
         installer_path = download_update(info)
+    except IntegrityError as exc:
+        # The dedicated exception class lets us exit with the project's
+        # existential failure code without parsing the error message.
+        print(f"Integrity check failed: {exc}", file=sys.stderr)
+        return EXIT_SHA256_MISMATCH
     except RuntimeError as exc:
-        msg = str(exc)
-        if "Integrity check failed" in msg or "SHA-256" in msg.lower():
-            print(f"Integrity check failed: {exc}", file=sys.stderr)
-            return EXIT_SHA256_MISMATCH
         print(f"Download failed: {exc}", file=sys.stderr)
         return EXIT_RUNTIME
     except Exception as exc:

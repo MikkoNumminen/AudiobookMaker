@@ -221,12 +221,15 @@ class TestUpdateApplyCancel:
 
 class TestUpdateApplySha256Mismatch:
     def test_exit_2_on_integrity_failure(self, capsys):
+        from src.auto_updater import IntegrityError
         info = _make_update_info(available=True)
         with mock.patch("src.cli.update._is_frozen", return_value=True), \
              mock.patch("src.auto_updater.check_for_update", return_value=info), \
              mock.patch(
                  "src.auto_updater.download_update",
-                 side_effect=RuntimeError("Integrity check failed: expected SHA-256 abc…"),
+                 side_effect=IntegrityError(
+                     "Integrity check failed: expected SHA-256 abc…"
+                 ),
              ):
             rc = update_mod._run_apply(_args(yes=True))
         assert rc == 2

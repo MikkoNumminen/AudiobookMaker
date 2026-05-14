@@ -264,3 +264,50 @@ class TestPacksRemove:
         assert obj["ok"] is True
         assert obj["slug"] == "rm_json"
         assert not (tmp_path / "rm_json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Path-traversal regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestPacksPathTraversal:
+    """A malicious or careless slug must never escape packs_dir.
+
+    Reaching for `..` or an absolute path with `packs remove` would have
+    let an unprivileged caller rmtree arbitrary directories on the
+    machine. _resolve_pack_dir() rejects any candidate whose resolved
+    path is not a direct child of packs_dir; these tests pin that
+    behaviour.
+    """
+
+    def test_dotdot_slug_is_rejected(self, tmp_path):
+        # Create a victim directory next to packs_dir to make the test
+        # concrete: if the guard fails, rmtree("..") wipes it.
+        victim = tmp_path.parent / "victim_keep_me"
+        victim.mkdir(exist_ok=True)
+        try:
+            rc, out, err = _run(tmp_path, "remove", "..", "--yes")
+            assert rc == 1, "remove .. must report not-found, not succeed"
+            assert "not found" in err.lower()
+            assert victim.exists(), "guard must not let rmtree escape packs_dir"
+        finally:
+            if victim.exists():
+                import shutil
+                shutil.rmtree(victim, ignore_errors=True)
+
+    def test_nested_path_slug_is_rejected(self, tmp_path):
+        rc, out, err = _run(tmp_path, "remove", "subdir/inner", "--yes")
+        assert rc == 1
+        assert "not found" in err.lower()
+
+    def test_absolute_path_slug_is_rejected(self, tmp_path):
+        absolute = str(tmp_path.parent / "anywhere")
+        rc, out, err = _run(tmp_path, "remove", absolute, "--yes")
+        assert rc == 1
+        assert "not found" in err.lower()
+
+    def test_info_dotdot_slug_is_rejected(self, tmp_path):
+        rc, out, err = _run(tmp_path, "info", "..")
+        assert rc == 1
+        assert "not found" in err.lower()

@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import threading
 
 from src.cli._common import (
     EXIT_BAD_INPUT,
+    EXIT_CANCELLED,
     EXIT_INTERNAL,
     EXIT_MISSING_DEP,
     EXIT_OK,
@@ -184,7 +184,7 @@ def _run_install(args: argparse.Namespace) -> int:
         installer.install(_progress, cancel_event)
     except InterruptedError:
         print("Install cancelled.", file=sys.stderr)
-        return EXIT_BAD_INPUT
+        return EXIT_CANCELLED
     except Exception as exc:
         print(f"Install failed: {exc}", file=sys.stderr)
         return EXIT_MISSING_DEP
@@ -200,6 +200,7 @@ def _run_install(args: argparse.Namespace) -> int:
 def _run_remove(args: argparse.Namespace) -> int:
     engine_id: str = args.engine_id
     yes: bool = getattr(args, "yes", False)
+    quiet: bool = getattr(args, "quiet", False)
 
     try:
         from src.engine_installer import get_installer
@@ -221,27 +222,32 @@ def _run_remove(args: argparse.Namespace) -> int:
             answer = input(f"Remove engine '{engine_id}'? [y/N] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.", file=sys.stderr)
-            return EXIT_BAD_INPUT
+            return EXIT_CANCELLED
         if answer not in ("y", "yes"):
             print("Aborted.", file=sys.stderr)
-            return EXIT_BAD_INPUT
+            return EXIT_CANCELLED
 
+    # Every installer in the registry implements remove() on its class
+    # (PiperInstaller, ChatterboxInstaller); the CLI does not reach for
+    # private layout details any more.
     try:
-        removed_any = False
-        if hasattr(installer, "_voice_dir") and installer._voice_dir.exists():
-            shutil.rmtree(installer._voice_dir, ignore_errors=False)
-            removed_any = True
-        if hasattr(installer, "_venv_path") and installer._venv_path.exists():
-            shutil.rmtree(installer._venv_path, ignore_errors=False)
-            removed_any = True
-        if not removed_any:
-            print(f"Engine '{engine_id}' is not installed.", file=sys.stderr)
-            return EXIT_BAD_INPUT
+        if hasattr(installer, "remove"):
+            removed_any = bool(installer.remove())
+        else:
+            # Defensive fallback for any installer that predates the public
+            # remove() contract — surface as "not installed" rather than
+            # silently doing nothing.
+            removed_any = False
     except Exception as exc:
         print(f"Remove failed: {exc}", file=sys.stderr)
         return EXIT_INTERNAL
 
-    print(f"Engine '{engine_id}' removed.")
+    if not removed_any:
+        print(f"Engine '{engine_id}' is not installed.", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    if not quiet:
+        print(f"Engine '{engine_id}' removed.")
     return EXIT_OK
 
 

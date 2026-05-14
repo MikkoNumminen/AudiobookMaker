@@ -23,6 +23,7 @@ from pathlib import Path
 
 from src.cli._common import (
     EXIT_BAD_INPUT,
+    EXIT_CANCELLED,
     EXIT_INTERNAL,
     EXIT_MISSING_DEP,
     EXIT_OK,
@@ -71,6 +72,30 @@ def _packs_dir() -> Path:
         return default_voice_packs_root()
     except Exception:
         return Path.home() / ".audiobookmaker" / "voice_packs"
+
+
+def _resolve_pack_dir(slug: str) -> Path | None:
+    """Resolve <packs_dir>/<slug>, refusing any path that escapes packs_dir.
+
+    The slug comes from user input so it can contain "..", absolute paths,
+    or other segments that resolve outside the packs root. Without this
+    guard `audiobookmaker packs remove ..` would rmtree the parent of
+    voice_packs/. Returns the resolved directory when it is inside
+    packs_dir, or None when the path escapes (caller treats None as
+    "not found").
+    """
+    root = _packs_dir().resolve()
+    candidate = (root / slug).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    # The candidate also has to be a direct child of root — not the root
+    # itself ("." resolves to root) and not a deeper grandchild created
+    # by a slug containing path separators.
+    if candidate == root or candidate.parent != root:
+        return None
+    return candidate
 
 
 def _err(json_mode: bool, msg: str, code: int, *, extra: dict | None = None) -> int:
@@ -155,18 +180,18 @@ def _run_remove(args: argparse.Namespace) -> int:
     json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
     slug: str = args.slug
-    target = _packs_dir() / slug
-    if not target.exists() or not target.is_dir():
+    target = _resolve_pack_dir(slug)
+    if target is None or not target.is_dir():
         return _err(json_mode, f"Voice pack not found: {slug}", EXIT_BAD_INPUT)
     if not (json_mode or quiet or args.yes):
         try:
             answer = input(f"Remove voice pack '{slug}'? [y/N] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.", file=sys.stderr)
-            return EXIT_BAD_INPUT
+            return EXIT_CANCELLED
         if answer != "y":
-            print("Cancelled.")
-            return EXIT_OK
+            print("Cancelled.", file=sys.stderr)
+            return EXIT_CANCELLED
     try:
         shutil.rmtree(target)
     except Exception as exc:
@@ -187,8 +212,8 @@ def _run_info(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"Error: voice_pack unavailable: {exc}", file=sys.stderr)
         return EXIT_MISSING_DEP
-    pack_dir = _packs_dir() / slug
-    if not pack_dir.exists():
+    pack_dir = _resolve_pack_dir(slug)
+    if pack_dir is None or not pack_dir.exists():
         return _err(json_mode, f"Voice pack not found: {slug}", EXIT_BAD_INPUT)
     try:
         pack = load_pack(pack_dir)

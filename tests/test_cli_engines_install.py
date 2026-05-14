@@ -202,5 +202,7 @@ class TestEnginesRemoveMocked:
             text=True,
             env=os.environ.copy(),
         )
-        # Should abort with exit 1, not crash with 5.
-        assert proc.returncode in (0, 1)
+        # User-driven cancel returns EXIT_CANCELLED (3); a non-installed
+        # engine returns 1 before the prompt ever runs. Either is a clean
+        # abort — the test guards against EXIT_INTERNAL (5) crashes.
+        assert proc.returncode in (1, 3)

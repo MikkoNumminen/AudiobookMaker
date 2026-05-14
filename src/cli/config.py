@@ -124,6 +124,7 @@ def _coerce_value(key: str, raw: str):
 
 def _run_show(args: argparse.Namespace) -> int:
     json_mode: bool = getattr(args, "json", False)
+    quiet: bool = getattr(args, "quiet", False)
     key: str | None = args.key
 
     try:
@@ -141,6 +142,8 @@ def _run_show(args: argparse.Namespace) -> int:
         if json_mode:
             print(json.dumps({key: value}), flush=True)
         else:
+            # Single-field show is already minimal — quiet has nothing
+            # extra to suppress, just print the bare value.
             print(value, flush=True)
         return EXIT_OK
 
@@ -149,6 +152,11 @@ def _run_show(args: argparse.Namespace) -> int:
     data = asdict(cfg)
     if json_mode:
         print(json.dumps(data), flush=True)
+    elif quiet:
+        # Quiet mode: one "key=value" line per field — script-friendly,
+        # no human-readable column padding.
+        for k, v in data.items():
+            print(f"{k}={v}", flush=True)
     else:
         for k, v in data.items():
             print(f"{k}: {v}", flush=True)
