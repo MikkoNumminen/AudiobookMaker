@@ -168,15 +168,50 @@ If you don't trust an unsigned installer (a reasonable default), build it yourse
 
 ## Command-line use
 
-AudiobookMaker ships a built-in CLI for batch conversion, scripting, and headless use. Full reference: [docs/CLI.md](docs/CLI.md).
+AudiobookMaker ships a built-in CLI for batch conversion, scripting, and headless use. Same engines, same voices, no GUI. Full reference: [docs/CLI.md](docs/CLI.md).
 
-```
-python -m src.cli --help
-python -m src.cli doctor
-python -m src.cli convert book.pdf
+After `pip install -e .` (see [Development setup](#development-setup)), `audiobookmaker` is on your PATH:
+
+```bash
+audiobookmaker doctor                 # check ffmpeg, GPU, disk, engines
+audiobookmaker convert book.pdf       # PDF/EPUB/TXT → MP3
+audiobookmaker preview "Hello there"  # speak text, no file
 ```
 
-Every subcommand supports `--json` for machine-readable output and `--quiet` for script-friendly minimal output. Run `python -m src.cli <command> --help` for per-command flags.
+Three worked examples for common workflows:
+
+**Batch convert a folder.** Loop over every EPUB in a directory:
+
+```bash
+for f in ~/books/*.epub; do
+    audiobookmaker convert "$f" --quiet
+done
+```
+
+`--quiet` suppresses per-chunk progress and prints only the final output path, which makes the batch output readable.
+
+**Change the default engine without touching JSON.** The GUI and the CLI read the same `~/.audiobookmaker/config.json`:
+
+```bash
+audiobookmaker config set engine_id piper
+audiobookmaker config set language fi
+audiobookmaker convert book.epub      # uses Piper now, no flags needed
+```
+
+**Stream progress through `jq`.** Every synthesis subcommand accepts `--json` and emits one event per line (NDJSON):
+
+```bash
+audiobookmaker convert book.pdf --json \
+    | jq -r 'select(.kind=="chunk") | "\(.total_done)/\(.total_chunks)"'
+```
+
+Exit codes are stable across subcommands: 0 success, 1 bad input, 2 missing dependency, 3 user cancelled, 4 runtime failure, 5 internal. Use them in scripts to guard conditional installs:
+
+```bash
+audiobookmaker engines check piper || audiobookmaker engines install piper --yes
+```
+
+Run `audiobookmaker <command> --help` for per-command flags, or read [docs/CLI.md](docs/CLI.md) for the full tutorial and auto-generated reference.
 
 ## Development setup
 

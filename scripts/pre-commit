@@ -18,6 +18,16 @@
 #   edit must run the suite.
 DOC_PATTERN='\.(md|rst|gitattributes|gitignore|mp3|wav|ico|png|jpg)$|^(\.gitattributes|\.gitignore|TODO\.md|README\.md|BUILDING\.md|DEVELOPMENT\.md|CONVENTIONS\.md|LICENSE(\.txt)?)$'
 
+# CLI reference sync check — runs unconditionally so that docs/CLI.md
+# stays in sync even on docs-only commits where the test suite is skipped.
+echo "Checking docs/CLI.md is in sync with CLI parsers..."
+if ! py -3 scripts/render_cli_help.py --check 2>&1; then
+    echo ""
+    echo "docs/CLI.md is out of sync with the CLI parsers."
+    echo "Run: python scripts/render_cli_help.py"
+    exit 1
+fi
+
 staged=$(git diff --cached --name-only)
 if [ -z "$staged" ]; then
     # Nothing staged (e.g. --amend with no changes). Fall through to

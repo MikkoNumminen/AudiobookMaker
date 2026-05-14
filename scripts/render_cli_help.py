@@ -1,0 +1,310 @@
+"""Render the audiobookmaker CLI reference into docs/CLI.md.
+
+Usage
+-----
+    python scripts/render_cli_help.py            # rewrite docs/CLI.md in-place
+    python scripts/render_cli_help.py --check    # exit 1 if docs/CLI.md is stale
+    python scripts/render_cli_help.py --stdout   # print the rendered block, do not touch the file
+
+The rendered block replaces (or fills) the marker section in docs/CLI.md:
+
+    <!-- BEGIN_GENERATED_REFERENCE -->
+    ...
+    <!-- END_GENERATED_REFERENCE -->
+
+If the markers are missing the script prints a clear error and exits 1 with
+instructions for adding them — it never crashes with a KeyError.
+
+Pre-commit hook integration
+---------------------------
+Add the following lines to .git/hooks/pre-commit (or scripts/pre-commit)
+BEFORE the doc-only shortcut that exits early for markdown-only commits,
+so the check runs even when only docs/CLI.md is staged:
+
+    echo "Checking docs/CLI.md is in sync with CLI parsers..."
+    if ! py -3 scripts/render_cli_help.py --check; then
+        echo ""
+        echo "docs/CLI.md is out of sync with the CLI parsers."
+        echo "Run: python scripts/render_cli_help.py"
+        exit 1
+    fi
+
+The script is stdlib-only (no external dependencies).
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CLI_MD = _REPO_ROOT / "docs" / "CLI.md"
+
+_BEGIN_MARKER = "<!-- BEGIN_GENERATED_REFERENCE -->"
+_END_MARKER = "<!-- END_GENERATED_REFERENCE -->"
+
+# ---------------------------------------------------------------------------
+# Parser introspection helpers
+# ---------------------------------------------------------------------------
+
+
+def _action_metavar(action: argparse.Action) -> str:
+    """Return a short usage token for a flag (e.g. ``--engine ID``)."""
+    if action.option_strings:
+        name = max(action.option_strings, key=len)
+        if action.metavar:
+            return f"`{name} {action.metavar}`"
+        if action.nargs == 0 or isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+            return f"`{name}`"
+        return f"`{name}`"
+    # Positional
+    mv = action.metavar or action.dest.upper()
+    return f"`{mv}`"
+
+
+def _flag_table_rows(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
+    """Return (flag, description) pairs for all non-help actions."""
+    rows = []
+    for action in parser._actions:
+        if isinstance(action, argparse._HelpAction):
+            continue
+        if isinstance(action, argparse._SubParsersAction):
+            continue
+        token = _action_metavar(action)
+        desc = (action.help or "").replace("\n", " ").strip()
+        rows.append((token, desc))
+    return rows
+
+
+def _render_flag_table(parser: argparse.ArgumentParser) -> str:
+    """Return a markdown table of flags, or an empty string if none."""
+    rows = _flag_table_rows(parser)
+    if not rows:
+        return ""
+    lines = ["| Flag | Description |", "|------|-------------|"]
+    for token, desc in rows:
+        lines.append(f"| {token} | {desc} |")
+    return "\n".join(lines) + "\n"
+
+
+def _leaf_parsers(
+    parser: argparse.ArgumentParser,
+    breadcrumb: list[str],
+) -> list[tuple[list[str], argparse.ArgumentParser]]:
+    """Recursively collect (breadcrumb, parser) for every leaf command.
+
+    A leaf command is one that has no further sub-parsers (i.e. it can
+    actually be invoked).  Top-level commands that only exist to group
+    sub-commands (like ``engines``) are skipped in favour of their
+    leaves.
+    """
+    sub_action = None
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            sub_action = action
+            break
+
+    if sub_action is None:
+        # This is a leaf.
+        return [(breadcrumb, parser)]
+
+    leaves: list[tuple[list[str], argparse.ArgumentParser]] = []
+    for choice_name, choice_parser in sub_action.choices.items():
+        child_crumb = breadcrumb + [choice_name]
+        leaves.extend(_leaf_parsers(choice_parser, child_crumb))
+    return leaves
+
+
+# ---------------------------------------------------------------------------
+# Renderer
+# ---------------------------------------------------------------------------
+
+
+def _render_block(root_parser: argparse.ArgumentParser) -> str:
+    """Render the full reference block (content between markers)."""
+    leaves = _leaf_parsers(root_parser, [])
+    sections: list[str] = []
+
+    for crumb, parser in leaves:
+        heading_words = ["audiobookmaker"] + crumb
+        heading = "### `" + " ".join(heading_words) + "`"
+
+        # One-line description: prefer the parser's description, fall back
+        # to the help text registered in the parent subparsers.
+        description = (parser.description or "").strip()
+        # The description often has a multi-line exit-code block appended
+        # with two newlines.  We only want the first paragraph.
+        first_para = description.split("\n\n")[0].replace("\n", " ").strip()
+
+        table = _render_flag_table(parser)
+
+        parts = [heading, ""]
+        if first_para:
+            parts.append(first_para)
+            parts.append("")
+        if table:
+            parts.append(table)
+        else:
+            parts.append("*(no options)*")
+            parts.append("")
+
+        sections.append("\n".join(parts))
+
+    return "\n---\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# File I/O helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_cli_md(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _inject(original: str, rendered: str) -> str | None:
+    """Return the file content with the generated block replaced.
+
+    The output format between the markers is:
+
+        <!-- BEGIN_GENERATED_REFERENCE -->
+        <!-- This block is auto-generated ... -->
+        <rendered content>
+        <!-- END_GENERATED_REFERENCE -->
+
+    Returns None if either marker is missing.
+    """
+    begin_idx = original.find(_BEGIN_MARKER)
+    end_idx = original.find(_END_MARKER)
+    if begin_idx == -1 or end_idx == -1:
+        return None
+
+    # Everything up to and including the BEGIN_MARKER line.
+    before = original[: begin_idx + len(_BEGIN_MARKER)]
+    # Everything from END_MARKER onward.
+    after = original[end_idx:]
+
+    _AUTOGEN_COMMENT = (
+        "\n<!-- This block is auto-generated by scripts/render_cli_help.py.\n"
+        "     Do not edit by hand; edit the argparse parsers and re-run the\n"
+        "     renderer (or the pre-commit hook will re-run it for you). -->\n"
+    )
+
+    return before + _AUTOGEN_COMMENT + rendered.strip() + "\n" + after
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="render_cli_help.py",
+        description=__doc__.splitlines()[0],
+    )
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--check",
+        action="store_true",
+        default=False,
+        help="Exit 1 if docs/CLI.md is stale; exit 0 if it is up to date.",
+    )
+    mode.add_argument(
+        "--stdout",
+        action="store_true",
+        default=False,
+        help="Print the rendered block to stdout; do not modify any file.",
+    )
+    p.add_argument(
+        "--doc",
+        metavar="PATH",
+        default=str(_CLI_MD),
+        help="Path to docs/CLI.md (default: auto-detected from repo root).",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_arg_parser().parse_args(argv)
+    doc_path = Path(args.doc)
+
+    # Add the repo root to sys.path so ``src`` is importable when invoked
+    # directly as ``python scripts/render_cli_help.py`` from any cwd.
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    try:
+        from src.cli.__main__ import _build_parser as build_cli_parser
+    except ImportError as exc:
+        print(
+            f"Error: cannot import src.cli.__main__._build_parser: {exc}\n"
+            "Make sure you are running from the repo root or that the repo root "
+            "is on sys.path.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        root_parser = build_cli_parser()
+    except Exception as exc:
+        print(f"Error: _build_parser() raised: {exc}", file=sys.stderr)
+        return 1
+
+    rendered = _render_block(root_parser)
+
+    # --stdout: just print and exit.
+    if args.stdout:
+        print(rendered)
+        return 0
+
+    # Read the current file.
+    if not doc_path.exists():
+        print(f"Error: {doc_path} does not exist.", file=sys.stderr)
+        return 1
+
+    original = _load_cli_md(doc_path)
+    new_content = _inject(original, rendered)
+
+    if new_content is None:
+        print(
+            f"Error: {doc_path} is missing the marker block.\n\n"
+            "Add these two lines to docs/CLI.md where you want the auto-generated\n"
+            "reference to appear:\n\n"
+            "    <!-- BEGIN_GENERATED_REFERENCE -->\n"
+            "    <!-- END_GENERATED_REFERENCE -->\n\n"
+            "Then re-run this script.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --check: compare without writing.
+    if args.check:
+        if new_content == original:
+            return 0
+        print(
+            "docs/CLI.md is out of sync with the CLI parsers.\n"
+            "Run: python scripts/render_cli_help.py",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Default: rewrite in place.
+    if new_content != original:
+        doc_path.write_text(new_content, encoding="utf-8")
+        print(f"Updated {doc_path}")
+    else:
+        print(f"{doc_path} is already up to date.")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
