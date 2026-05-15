@@ -895,7 +895,7 @@ class TestStatusStrip:
             # file I/O by calling the setter directly.
             app._set_status_strip(
                 "ready",
-                name="Rubicon.epub",
+                name="book.epub",
                 chars=809,
                 audio_human=fake["audio_human"],
                 wall_human=fake["wall_human"],
@@ -903,7 +903,7 @@ class TestStatusStrip:
             )
             app.update_idletasks()
         text = app._status_strip_label.cget("text")
-        assert "Rubicon.epub" in text
+        assert "book.epub" in text
         assert "809" in text
         assert "1 h" in text
         assert app._status_strip_frame.winfo_manager() == "grid"
