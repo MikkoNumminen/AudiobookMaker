@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.error
 from io import StringIO
 from typing import Any
 from unittest import mock
@@ -282,3 +283,102 @@ class TestUpdateApplySuccess:
              mock.patch("builtins.input") as mock_input:
             update_mod._run_apply(_args(yes=True))
         mock_input.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# update check — network failure → exit 4
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateCheckNetworkFailure:
+    """Regression tests: network errors from check_for_update must exit 4."""
+
+    def test_exit_4_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args())
+        assert rc == 4
+
+    def test_stderr_message_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            update_mod._run_check(_args())
+        err = capsys.readouterr().err
+        assert "update check failed" in err
+        assert "Name or service not known" in err
+
+    def test_no_stdout_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            update_mod._run_check(_args())
+        out = capsys.readouterr().out
+        assert out == ""
+
+    def test_json_error_shape_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args(json=True))
+        assert rc == 4
+        out = capsys.readouterr().out.strip()
+        obj = json.loads(out)
+        assert obj["kind"] == "error"
+        assert obj["exit_code"] == 4
+        assert "error" in obj
+
+    def test_json_no_stderr_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            update_mod._run_check(_args(json=True))
+        err = capsys.readouterr().err
+        assert err == ""
+
+    def test_quiet_exit_4_no_stderr(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args(quiet=True))
+        assert rc == 4
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert captured.out == ""
+
+    def test_exit_4_on_connection_error(self, capsys):
+        exc = ConnectionError("Connection refused")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args())
+        assert rc == 4
+
+    def test_exit_4_on_os_error(self, capsys):
+        exc = OSError("Network unreachable")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args())
+        assert rc == 4
+
+    def test_success_path_still_exits_0_up_to_date(self, capsys):
+        """Control: up-to-date success path must still return 0."""
+        info = _make_update_info(available=False)
+        with mock.patch("src.auto_updater.check_for_update", return_value=info):
+            rc = update_mod._run_check(_args())
+        assert rc == 0
+
+    def test_success_path_still_exits_0_update_available(self, capsys):
+        """Control: update-available success path must still return 0."""
+        info = _make_update_info(available=True)
+        with mock.patch("src.auto_updater.check_for_update", return_value=info):
+            rc = update_mod._run_check(_args())
+        assert rc == 0
