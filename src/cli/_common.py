@@ -145,6 +145,9 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Output MP3 path. "
+            "With --output-mode per-chapter this is a directory that receives "
+            "one MP3 per chapter; with the default --output-mode single it is "
+            "a single MP3 file. "
             "Default: <output_dir>/<book-stem>.mp3. "
             "Env: AUDIOBOOKMAKER_OUTPUT."
         ),

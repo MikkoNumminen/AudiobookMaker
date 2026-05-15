@@ -143,6 +143,8 @@ class TestEngineCompatibilityCheck:
 
         stderr_lines: list[str] = []
 
+        import io
+        buf = io.StringIO()
         with (
             mock.patch("src.cli.convert.validate_input_path", return_value=(0, "")),
             mock.patch("src.app_config.load", return_value=mock.MagicMock(
@@ -153,20 +155,17 @@ class TestEngineCompatibilityCheck:
                        return_value="/tmp/out.mp3"),
             mock.patch("src.engine_registry"),
             mock.patch("src.tts_base.get_engine", return_value=fake_engine),
-            mock.patch("sys.stderr", new_callable=lambda: __import__("io").StringIO),
+            mock.patch("sys.stderr", buf),
         ):
-            import io
-            buf = io.StringIO()
-            with mock.patch("sys.stderr", buf):
-                code = convert._run_inner(
-                    args,
-                    input_path="dummy.txt",
-                    sample_text=None,
-                    json_mode=False,
-                    quiet=False,
-                    dry_run=False,
-                    stdin_tempfile=None,
-                )
+            code = convert._run_inner(
+                args,
+                input_path="dummy.txt",
+                sample_text=None,
+                json_mode=False,
+                quiet=False,
+                dry_run=False,
+                stdin_tempfile=None,
+            )
             return code, buf.getvalue()
 
     def test_piper_per_chapter_exits_1(self):

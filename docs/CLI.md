@@ -234,7 +234,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
 | `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
@@ -256,7 +256,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
 | `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
@@ -278,7 +278,7 @@ Synthesize a short text string and play it through the system audio output. Noth
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--no-play` | Synthesize only — do not play audio. Prints the tempfile path on stdout. The caller is responsible for deleting the file. |
 | `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
 | `--quiet` | Suppress progress; print only the final output path. |

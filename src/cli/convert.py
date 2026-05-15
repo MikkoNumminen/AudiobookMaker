@@ -545,7 +545,7 @@ def _print_dry_run(
     print(f"  language:   {language}")
     print(f"  voice:      {voice_id or '(engine default)'}")
     print(f"  output:     {output_path}")
-    print(f"  output-mode:{output_mode}")
+    print(f"  output-mode: {output_mode}")
     if ref_audio:
         print(f"  ref-audio:  {ref_audio}")
     if voice_pack:
