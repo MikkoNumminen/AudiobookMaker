@@ -159,6 +159,7 @@ class TTSEngine(ABC):
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
         voice_description: Optional[str] = None,
+        rate: Optional[str] = None,
     ) -> None:
         """Synthesize `text` to an MP3 file at `output_path`.
 
@@ -174,6 +175,10 @@ class TTSEngine(ABC):
             voice_description: Optional free-text description of the desired
                 voice (e.g. 'a warm baritone elderly male voice'). Engines
                 without support must silently ignore this parameter.
+            rate: Optional speed adjustment in edge-tts notation (e.g.
+                '-25%', '+0%', '+25%', '+50%'). None means use the engine
+                default. Engines that do not support speed control should
+                silently ignore this parameter.
 
         Raises:
             ValueError: If text is empty or voice_id is unknown.
