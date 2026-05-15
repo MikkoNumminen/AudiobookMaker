@@ -242,16 +242,24 @@ def materialize_stdin_to_tempfile(
 ) -> tuple[Optional[str], Optional[int], Optional[str]]:
     """Read ``sys.stdin.buffer`` into a tempfile under ``.local/scratch/``.
 
-    The caller is responsible for validating ``fmt`` (against
-    :data:`STDIN_INPUT_FORMATS`) and for checking ``sys.stdin.isatty()``
-    *before* calling this helper — both error paths produce different
-    error messages and so live at the call site.
+    The caller is responsible for checking ``sys.stdin.isatty()`` and
+    presenting the appropriate user-facing error message *before*
+    calling this helper — that error message differs per subcommand
+    and so lives at the call site.
 
     Returns ``(tempfile_path, None, None)`` on success, or
     ``(None, exit_code, error_message)`` on failure. The caller is
     responsible for cleanup via :func:`cleanup_stdin_tempfile` once the
     consuming subcommand finishes (success or failure).
+
+    Raises :class:`AssertionError` if ``fmt`` is not one of
+    :data:`STDIN_INPUT_FORMATS` — the CLI surface already enforces this
+    via argparse ``choices=``, but the assertion localizes the failure
+    for any future Python-level caller that bypasses argparse.
     """
+    assert fmt in STDIN_INPUT_FORMATS, (
+        f"unsupported stdin format {fmt!r}; expected one of {STDIN_INPUT_FORMATS}"
+    )
     scratch_dir = app_root() / ".local" / "scratch"
     try:
         scratch_dir.mkdir(parents=True, exist_ok=True)

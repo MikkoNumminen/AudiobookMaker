@@ -285,9 +285,18 @@ class TestPreviewStdin:
     def test_reads_text_from_stdin_unit(self, monkeypatch):
         """Drive preview.run directly with mocked stdin and engine.
 
-        Asserts the piped text actually reaches the engine — a stronger
-        contract than the "any exit code is fine" subprocess smoke test
-        that this replaces.
+        Asserts the piped text actually reaches the engine's synthesize
+        call. This replaces an earlier subprocess test that allowed any
+        of (0, 1, 2, 4) as the exit code — a contract so loose it would
+        have passed even if stdin parsing was broken.
+
+        The mock targets the *source* module ``src.tts_base.get_engine``
+        because preview.run() does ``from src.tts_base import get_engine``
+        inside the function body — so the name resolves through
+        ``tts_base`` at call time, not through ``preview`` as a module
+        attribute. Likewise ``--no-play`` is set so the playback path
+        (which would need ``_audio_player`` monkeypatched too) is never
+        reached.
         """
         import argparse
         from io import BytesIO, TextIOWrapper
@@ -303,29 +312,31 @@ class TestPreviewStdin:
         fake_stdin = TextIOWrapper(BytesIO(piped_text.encode("utf-8")))
         monkeypatch.setattr(sys, "stdin", fake_stdin)
 
-        # Mock the engine layer: capture what text was synthesized.
+        # Capture what text was synthesized. The stub mirrors the real
+        # TTSEngine.synthesize signature (text, output_path, voice_id,
+        # language, progress_cb) so a future contract drift surfaces
+        # here as a TypeError rather than a silent skip.
         synth_calls = []
 
         class _StubEngine:
             uses_subprocess = False
-            def synthesize(self, text, **kwargs):
-                synth_calls.append({"text": text, "kwargs": kwargs})
-                return b"\x00" * 1024  # dummy WAV bytes
+
+            def synthesize(self, text, output_path, voice_id=None,
+                           language=None, progress_cb=None, **kwargs):
+                synth_calls.append({"text": text, "output_path": output_path})
+                # Write dummy bytes so preview's "synth produced output" path
+                # is satisfied — preview doesn't validate the bytes itself.
+                with open(output_path, "wb") as fh:
+                    fh.write(b"\x00" * 1024)
+                return output_path
 
             def check_status(self):
                 return mock.Mock(available=True, reason="")
 
-        monkeypatch.setattr(
-            "src.cli.preview.get_engine",
-            lambda _id: _StubEngine(),
-            raising=False,
-        )
-        # Bypass the playback path; the synth output is the test's concern.
-        monkeypatch.setattr(
-            "src.cli.preview._play_audio",
-            lambda *a, **kw: 0,
-            raising=False,
-        )
+        # preview.py imports get_engine locally as
+        # `from src.tts_base import get_engine`, so the name resolves
+        # against src.tts_base at call time. Monkeypatch at that source.
+        monkeypatch.setattr("src.tts_base.get_engine", lambda _id: _StubEngine())
 
         args = argparse.Namespace(
             text="-",
@@ -339,18 +350,19 @@ class TestPreviewStdin:
         )
         code = preview_mod.run(args)
 
-        # If the test environment lacks one of the mocked symbols, the
-        # call may exit with a config/load error before reaching synth.
-        # We only assert tight behaviour when synth was reached.
-        if synth_calls:
-            assert code == EXIT_OK
-            assert synth_calls[0]["text"].strip() == piped_text
-        else:
-            # Fallback: at least confirm the stdin path didn't reject the
-            # input as empty/whitespace and didn't bail on TTY detection.
-            assert code in (EXIT_OK, 2, 4), (
-                f"preview - rejected non-empty stdin with exit {code}"
-            )
+        # Loud failure if the mock didn't bind or the synth call wasn't
+        # reached — the whole point of this test is to verify stdin text
+        # flows through to the engine.
+        assert synth_calls, (
+            f"engine.synthesize was never reached (exit code {code}). "
+            "Either the mock binding is wrong or preview.run() bailed "
+            "before the synth call."
+        )
+        assert code == EXIT_OK, (
+            f"expected EXIT_OK (0), got {code}; stub engine was called "
+            f"with text={synth_calls[0]['text']!r}"
+        )
+        assert synth_calls[0]["text"].strip() == piped_text
 
     def test_empty_stdin_exits_1(self):
         """`preview -` with empty stdin must exit 1."""
