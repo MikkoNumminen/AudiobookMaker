@@ -31,8 +31,11 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     EXIT_RUNTIME,
+    STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    cleanup_stdin_tempfile,
+    materialize_stdin_to_tempfile,
     print_event,
     resolve_str,
     runner_script_path,
@@ -59,9 +62,23 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "input",
         metavar="INPUT",
-        help="Path to a PDF, EPUB, or TXT file.",
+        help=(
+            "Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. "
+            "When '-' is used, --input-format must also be provided."
+        ),
     )
     add_common_synthesis_flags(p)
+    p.add_argument(
+        "--input-format",
+        metavar="FMT",
+        default=None,
+        choices=list(STDIN_INPUT_FORMATS),
+        help=(
+            "File format when reading from stdin ('-'). "
+            "Required when INPUT is '-'; not valid otherwise. "
+            "Choices: pdf, epub, txt."
+        ),
+    )
     p.add_argument(
         "--ref-audio",
         metavar="PATH",
@@ -100,14 +117,74 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
     json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
     dry_run: bool = getattr(args, "dry_run", False)
+    input_format: Optional[str] = getattr(args, "input_format", None)
 
-    input_path = str(Path(args.input).expanduser())
+    raw_input: str = args.input
+    stdin_tempfile: Optional[str] = None
 
-    # Validate input file.
-    code, msg = validate_input_path(input_path)
-    if code != EXIT_OK:
-        print(f"Error: {msg}", file=sys.stderr)
-        return code
+    # --input-format is only valid with stdin sentinel.
+    if input_format is not None and raw_input != "-":
+        print(
+            "Error: use --input-format only with '-' (stdin).",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
+    if raw_input == "-":
+        # Stdin sentinel: validate preconditions, then materialize bytes
+        # into .local/scratch/ via the shared helper.
+        if input_format is None:
+            print(
+                "Error: --input-format is required when INPUT is '-' (stdin). "
+                "Choices: pdf, epub, txt.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        if sys.stdin.isatty():
+            print(
+                "Error: stdin is a terminal — pipe data in, or pass a file path.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        stdin_tempfile, err_code, err_msg = materialize_stdin_to_tempfile(input_format)
+        if stdin_tempfile is None:
+            print(f"Error: {err_msg}", file=sys.stderr)
+            return err_code
+        input_path = stdin_tempfile
+    else:
+        input_path = str(Path(raw_input).expanduser())
+
+    try:
+        return _run_inner(
+            args,
+            input_path=input_path,
+            sample_text=sample_text,
+            json_mode=json_mode,
+            quiet=quiet,
+            dry_run=dry_run,
+            stdin_tempfile=stdin_tempfile,
+        )
+    finally:
+        cleanup_stdin_tempfile(stdin_tempfile)
+
+
+def _run_inner(
+    args: argparse.Namespace,
+    *,
+    input_path: str,
+    sample_text: Optional[str],
+    json_mode: bool,
+    quiet: bool,
+    dry_run: bool,
+    stdin_tempfile: Optional[str],
+) -> int:
+    """Core convert logic; called by run() after stdin materialisation."""
+    # Validate input file (skipped for stdin — we just wrote it ourselves).
+    if stdin_tempfile is None:
+        code, msg = validate_input_path(input_path)
+        if code != EXIT_OK:
+            print(f"Error: {msg}", file=sys.stderr)
+            return code
 
     # Resolve config and flags. app_config.load() already returns a
     # default UserConfig() on disk / JSON errors, so no outer wrap.
