@@ -323,6 +323,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `ID` | Engine id to remove. |
 | `--yes` | Skip confirmation. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
 
 ---
 
