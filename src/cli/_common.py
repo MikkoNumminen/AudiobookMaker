@@ -35,6 +35,18 @@ EXIT_INTERNAL = 5
 STDIN_INPUT_FORMATS = ("pdf", "epub", "txt")
 """File formats acceptable for the ``-`` (stdin) sentinel on convert/sample."""
 
+OUTPUT_MODE_CHOICES = ("single", "per-chapter")
+"""Accepted values for ``--output-mode`` on convert and sample.
+
+- ``single``      — one combined MP3 (the legacy default).
+- ``per-chapter`` — one MP3 per chapter in an output directory.
+                    Currently only Edge-TTS supports this mode.
+
+The config file stores these as ``"single"`` / ``"chapters"``; this module
+normalises on read (``"chapters"`` → ``"per-chapter"``) so the CLI and
+config stay consistent.
+"""
+
 # ---------------------------------------------------------------------------
 # Config precedence: CLI flag > env var > config.json > default
 # ---------------------------------------------------------------------------
@@ -69,6 +81,18 @@ def resolve_str(
     if config_value:
         return config_value
     return default
+
+
+def normalize_output_mode(raw: str) -> str:
+    """Normalise an output-mode value to a CLI-canonical string.
+
+    The config file may store ``"chapters"`` (the legacy GUI value); the CLI
+    uses ``"per-chapter"`` externally.  Any other value is returned unchanged
+    so argparse can reject it via ``choices=``.
+    """
+    if raw == "chapters":
+        return "per-chapter"
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +147,29 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
             "Output MP3 path. "
             "Default: <output_dir>/<book-stem>.mp3. "
             "Env: AUDIOBOOKMAKER_OUTPUT."
+        ),
+    )
+
+
+def add_synthesis_output_mode_flag(parser: argparse.ArgumentParser) -> None:
+    """Add ``--output-mode`` to a convert/sample parser.
+
+    Separate from :func:`add_output_mode_flags` (which adds ``--json`` /
+    ``--quiet``) to avoid a naming collision — "output mode" in the CLI
+    context refers to two different concepts.
+    """
+    parser.add_argument(
+        "--output-mode",
+        dest="output_mode",
+        metavar="MODE",
+        choices=list(OUTPUT_MODE_CHOICES),
+        default=None,
+        help=(
+            "Output mode: 'single' (one combined MP3) or 'per-chapter' "
+            "(one MP3 per chapter in a directory). "
+            "Per-chapter is currently only supported with the Edge-TTS engine. "
+            "Default from config; fallback: single. "
+            "Env: AUDIOBOOKMAKER_OUTPUT_MODE."
         ),
     )
 

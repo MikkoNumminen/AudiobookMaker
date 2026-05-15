@@ -240,6 +240,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
+| `--output-mode MODE` | Output mode: 'single' (one combined MP3) or 'per-chapter' (one MP3 per chapter in a directory). Per-chapter is currently only supported with the Edge-TTS engine. Default from config; fallback: single. Env: AUDIOBOOKMAKER_OUTPUT_MODE. |
 | `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
 | `--quiet` | Suppress progress; print only the final output path. |
 
@@ -261,6 +262,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
+| `--output-mode MODE` | Output mode: 'single' (one combined MP3) or 'per-chapter' (one MP3 per chapter in a directory). Per-chapter is currently only supported with the Edge-TTS engine. Default from config; fallback: single. Env: AUDIOBOOKMAKER_OUTPUT_MODE. |
 | `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
 | `--quiet` | Suppress progress; print only the final output path. |
 

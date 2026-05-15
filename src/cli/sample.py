@@ -26,6 +26,7 @@ from src.cli._common import (
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    add_synthesis_output_mode_flag,
     cleanup_stdin_tempfile,
     materialize_stdin_to_tempfile,
     validate_input_path,
@@ -94,6 +95,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Print what would happen without synthesizing.",
     )
+    add_synthesis_output_mode_flag(p)
     add_output_mode_flags(p)
     p.set_defaults(func=run)
 
