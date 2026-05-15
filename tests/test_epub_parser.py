@@ -148,6 +148,38 @@ class TestParseEpubBasic:
         with pytest.raises(ValueError):
             parse_epub(str(bogus))
 
+    def test_replacement_chars_stripped_from_content(self) -> None:
+        """U+FFFD must never reach the TTS step.
+
+        The TTS pipeline reads chapter.content verbatim. If a malformed
+        EPUB carries the replacement character (U+FFFD), the engine would
+        synthesize a literal "question mark" sound between sentences.
+        ``epub_parser`` strips it during content normalization.
+
+        This is a hand-crafted regression test so the contract is
+        enforced in CI; the opt-in real-EPUB suite also exercises the
+        same path on real-world content when a tester sets the env var.
+        """
+        path = _make_epub(
+            [
+                (
+                    "c1.xhtml",
+                    "Replacement Chapter",
+                    "<p>"
+                    + ("Hello�world. The fog � over the harbour. " * 8)
+                    + "</p>",
+                ),
+            ]
+        )
+        book = parse_epub(path)
+        # At least one chapter must have survived the parser; this rules
+        # out the degenerate "all chapters dropped" failure mode.
+        assert book.chapters, "parser dropped every chapter"
+        for ch in book.chapters:
+            assert "�" not in ch.content, (
+                f"Replacement char leaked into chapter {ch.index} {ch.title!r}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Spine-iteration error logging
