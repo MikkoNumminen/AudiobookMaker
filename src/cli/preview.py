@@ -21,10 +21,12 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 from src.cli._common import (
     EXIT_BAD_INPUT,
@@ -32,6 +34,7 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     EXIT_RUNTIME,
+    SPEED_KEYWORD_TO_RATE,
     add_common_synthesis_flags,
     add_output_mode_flags,
     resolve_str,
@@ -122,6 +125,29 @@ def run(args: argparse.Namespace) -> int:
         cfg.voice_id,
         "",
     ) or None
+    speed_keyword = resolve_str(
+        getattr(args, "speed", None),
+        "AUDIOBOOKMAKER_SPEED",
+        "",
+        "",
+    ) or None
+    if speed_keyword is not None:
+        rate: Optional[str] = SPEED_KEYWORD_TO_RATE.get(speed_keyword)
+        if rate is None:
+            print(
+                f"Error: invalid --speed value '{speed_keyword}'. "
+                f"Choose from: {', '.join(SPEED_KEYWORD_TO_RATE)}.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+    else:
+        rate = cfg.speed if cfg.speed else "+0%"
+    voice_description: Optional[str] = resolve_str(
+        getattr(args, "voice_description", None),
+        "AUDIOBOOKMAKER_VOICE_DESCRIPTION",
+        cfg.voice_description,
+        "",
+    ) or None
 
     # Load engine registry and look up the engine.
     try:
@@ -183,6 +209,8 @@ def run(args: argparse.Namespace) -> int:
             voice_id=voice_id,
             language=language,
             progress_cb=_on_progress,
+            voice_description=voice_description,
+            rate=rate,
         )
     except KeyboardInterrupt:
         _delete_temp(tmp_path)
@@ -194,7 +222,9 @@ def run(args: argparse.Namespace) -> int:
 
     if no_play:
         # Hand the file to the caller; they own it.
-        print(tmp_path, flush=True)
+        # Shell-quote the path so callers can safely eval/use it even
+        # when the tempdir contains spaces (common on Windows/macOS).
+        print(shlex.quote(str(tmp_path)), flush=True)
         return EXIT_OK
 
     # Play the clip and wait for it to finish.
