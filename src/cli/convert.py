@@ -20,8 +20,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import os
-import secrets
 import sys
 from pathlib import Path
 from typing import Optional
@@ -33,8 +31,11 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     EXIT_RUNTIME,
+    STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    cleanup_stdin_tempfile,
+    materialize_stdin_to_tempfile,
     print_event,
     resolve_str,
     runner_script_path,
@@ -71,7 +72,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "--input-format",
         metavar="FMT",
         default=None,
-        choices=["pdf", "epub", "txt"],
+        choices=list(STDIN_INPUT_FORMATS),
         help=(
             "File format when reading from stdin ('-'). "
             "Required when INPUT is '-'; not valid otherwise. "
@@ -130,7 +131,8 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
         return EXIT_BAD_INPUT
 
     if raw_input == "-":
-        # Stdin sentinel — validate preconditions and materialize to tempfile.
+        # Stdin sentinel: validate preconditions, then materialize bytes
+        # into .local/scratch/ via the shared helper.
         if input_format is None:
             print(
                 "Error: --input-format is required when INPUT is '-' (stdin). "
@@ -138,50 +140,19 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
                 file=sys.stderr,
             )
             return EXIT_BAD_INPUT
-
         if sys.stdin.isatty():
             print(
                 "Error: stdin is a terminal — pipe data in, or pass a file path.",
                 file=sys.stderr,
             )
             return EXIT_BAD_INPUT
-
-        # Determine scratch directory (relative to repo/app root, per CLAUDE.md).
-        from src.cli._common import _app_root
-        scratch_dir = _app_root() / ".local" / "scratch"
-        try:
-            scratch_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            print(f"Error: cannot create scratch directory: {exc}", file=sys.stderr)
-            return EXIT_INTERNAL
-
-        hex_suffix = secrets.token_hex(4)
-        tmp_name = f"stdin_{hex_suffix}.{input_format}"
-        stdin_tempfile = str(scratch_dir / tmp_name)
-
-        try:
-            data = sys.stdin.buffer.read()
-        except Exception as exc:
-            print(f"Error reading from stdin: {exc}", file=sys.stderr)
-            return EXIT_BAD_INPUT
-
-        try:
-            with open(stdin_tempfile, "wb") as fh:
-                fh.write(data)
-        except OSError as exc:
-            print(f"Error writing stdin to tempfile: {exc}", file=sys.stderr)
-            return EXIT_INTERNAL
-
+        stdin_tempfile, err_code, err_msg = materialize_stdin_to_tempfile(input_format)
+        if stdin_tempfile is None:
+            print(f"Error: {err_msg}", file=sys.stderr)
+            return err_code
         input_path = stdin_tempfile
     else:
         input_path = str(Path(raw_input).expanduser())
-
-    def _cleanup_stdin_temp() -> None:
-        if stdin_tempfile is not None:
-            try:
-                Path(stdin_tempfile).unlink(missing_ok=True)
-            except Exception:
-                pass
 
     try:
         return _run_inner(
@@ -194,7 +165,7 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
             stdin_tempfile=stdin_tempfile,
         )
     finally:
-        _cleanup_stdin_temp()
+        cleanup_stdin_tempfile(stdin_tempfile)
 
 
 def _run_inner(

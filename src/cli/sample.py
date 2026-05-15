@@ -15,6 +15,7 @@ Exit codes: same as convert (0/1/2/3/4/5).
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 from pathlib import Path
 
@@ -22,8 +23,11 @@ from src.cli._common import (
     EXIT_BAD_INPUT,
     EXIT_INTERNAL,
     EXIT_OK,
+    STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    cleanup_stdin_tempfile,
+    materialize_stdin_to_tempfile,
     validate_input_path,
 )
 
@@ -58,7 +62,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "--input-format",
         metavar="FMT",
         default=None,
-        choices=["pdf", "epub", "txt"],
+        choices=list(STDIN_INPUT_FORMATS),
         help=(
             "File format when reading from stdin ('-'). "
             "Required when INPUT is '-'; not valid otherwise. "
@@ -98,10 +102,11 @@ def run(args: argparse.Namespace) -> int:
     raw_input: str = args.input
 
     if raw_input == "-":
-        # Stdin sentinel: materialise bytes into a scratch tempfile, then
-        # proceed as if the user had passed that file path directly.
-        import secrets as _secrets
-        from src.cli._common import _app_root
+        # Stdin sentinel: validate preconditions, materialize bytes to a
+        # scratch tempfile via the shared helper, then proceed as if the
+        # user had passed that file path directly. We work on a *copy* of
+        # ``args`` so the caller's Namespace isn't mutated (callers may
+        # re-use it; mutation would be a subtle footgun).
         input_format = getattr(args, "input_format", None)
         if input_format is None:
             print(
@@ -116,40 +121,22 @@ def run(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return EXIT_BAD_INPUT
-        scratch_dir = _app_root() / ".local" / "scratch"
+        stdin_tempfile, err_code, err_msg = materialize_stdin_to_tempfile(input_format)
+        if stdin_tempfile is None:
+            print(f"Error: {err_msg}", file=sys.stderr)
+            return err_code
+        # Build a non-mutating copy with the resolved path. ``input_format``
+        # is cleared so convert.run() doesn't re-reject the now-real path.
+        args_copy = copy.copy(args)
+        args_copy.input = stdin_tempfile
+        args_copy.input_format = None
         try:
-            scratch_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            print(f"Error: cannot create scratch directory: {exc}", file=sys.stderr)
-            return EXIT_INTERNAL
-        hex_suffix = _secrets.token_hex(4)
-        tmp_name = f"stdin_{hex_suffix}.{input_format}"
-        stdin_tempfile = str(scratch_dir / tmp_name)
-        try:
-            data = sys.stdin.buffer.read()
-        except Exception as exc:
-            print(f"Error reading from stdin: {exc}", file=sys.stderr)
-            return EXIT_BAD_INPUT
-        try:
-            with open(stdin_tempfile, "wb") as _fh:
-                _fh.write(data)
-        except OSError as exc:
-            print(f"Error writing stdin to tempfile: {exc}", file=sys.stderr)
-            return EXIT_INTERNAL
-        # Swap the sentinel for the real tempfile path and proceed normally.
-        # Clear input_format so convert.run() does not reject the real path.
-        args.input = stdin_tempfile
-        args.input_format = None
-        try:
-            if getattr(args, "dry_run", False):
+            if getattr(args_copy, "dry_run", False):
                 from src.cli import convert
-                return convert.run(args, sample_text="(dry-run sample)")
-            return _run_sample_from_path(args, input_path=stdin_tempfile)
+                return convert.run(args_copy, sample_text="(dry-run sample)")
+            return _run_sample_from_path(args_copy, input_path=stdin_tempfile)
         finally:
-            try:
-                Path(stdin_tempfile).unlink(missing_ok=True)
-            except Exception:
-                pass
+            cleanup_stdin_tempfile(stdin_tempfile)
 
     input_path = str(Path(raw_input).expanduser())
 

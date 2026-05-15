@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,13 @@ EXIT_MISSING_DEP = 2
 EXIT_CANCELLED = 3
 EXIT_RUNTIME = 4
 EXIT_INTERNAL = 5
+
+# ---------------------------------------------------------------------------
+# Stdin support — shared by convert and sample
+# ---------------------------------------------------------------------------
+
+STDIN_INPUT_FORMATS = ("pdf", "epub", "txt")
+"""File formats acceptable for the ``-`` (stdin) sentinel on convert/sample."""
 
 # ---------------------------------------------------------------------------
 # Config precedence: CLI flag > env var > config.json > default
@@ -209,7 +217,7 @@ def print_event(event: ProgressEvent, *, json_mode: bool, quiet: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _app_root() -> Path:
+def app_root() -> Path:
     """Return the repo/app root (where scripts/ lives)."""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS)
@@ -225,8 +233,64 @@ def runner_script_path() -> Path:
     installed-binary mode. The GUI's spec already includes it; the
     CLI's future spec must too.
     """
-    root = _app_root()
+    root = app_root()
     return root / "scripts" / "generate_chatterbox_audiobook.py"
+
+
+def materialize_stdin_to_tempfile(
+    fmt: str,
+) -> tuple[Optional[str], Optional[int], Optional[str]]:
+    """Read ``sys.stdin.buffer`` into a tempfile under ``.local/scratch/``.
+
+    The caller is responsible for validating ``fmt`` (against
+    :data:`STDIN_INPUT_FORMATS`) and for checking ``sys.stdin.isatty()``
+    *before* calling this helper — both error paths produce different
+    error messages and so live at the call site.
+
+    Returns ``(tempfile_path, None, None)`` on success, or
+    ``(None, exit_code, error_message)`` on failure. The caller is
+    responsible for cleanup via :func:`cleanup_stdin_tempfile` once the
+    consuming subcommand finishes (success or failure).
+    """
+    scratch_dir = app_root() / ".local" / "scratch"
+    try:
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return None, EXIT_INTERNAL, f"cannot create scratch directory: {exc}"
+
+    hex_suffix = secrets.token_hex(4)
+    tmp_name = f"stdin_{hex_suffix}.{fmt}"
+    tmp_path = str(scratch_dir / tmp_name)
+
+    try:
+        data = sys.stdin.buffer.read()
+    except Exception as exc:
+        return None, EXIT_BAD_INPUT, f"reading from stdin: {exc}"
+
+    try:
+        with open(tmp_path, "wb") as fh:
+            fh.write(data)
+    except OSError as exc:
+        return None, EXIT_INTERNAL, f"writing stdin to tempfile: {exc}"
+
+    return tmp_path, None, None
+
+
+def cleanup_stdin_tempfile(path: Optional[str]) -> None:
+    """Best-effort delete of a tempfile produced by
+    :func:`materialize_stdin_to_tempfile`.
+
+    Safe to call with ``None`` (no-op) or with a path that no longer
+    exists. Any error during deletion is swallowed — leaving a stale
+    tempfile is preferable to masking the real failure that brought us
+    to the ``finally`` block.
+    """
+    if path is None:
+        return
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def validate_input_path(path: str) -> tuple[int, str]:
