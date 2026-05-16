@@ -127,20 +127,31 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_output_mode_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --json and --quiet output mode flags to a parser."""
+def add_output_mode_flags(
+    parser: argparse.ArgumentParser,
+    *,
+    json_help: str = "Emit one JSON object per line (NDJSON).",
+    quiet_help: str = "Suppress progress; print only the final result.",
+) -> None:
+    """Add --json and --quiet output mode flags to a parser.
+
+    Each subcommand passes ``json_help`` and ``quiet_help`` that describe
+    its own output shape so --help is accurate for every leaf command.
+    The defaults are intentionally generic and should not be used without
+    per-subcommand overrides.
+    """
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--json",
         action="store_true",
         default=False,
-        help="Emit one JSON object per line (NDJSON format, ProgressEvent shape).",
+        help=json_help,
     )
     group.add_argument(
         "--quiet",
         action="store_true",
         default=False,
-        help="Suppress progress; print only the final output path.",
+        help=quiet_help,
     )
 
 

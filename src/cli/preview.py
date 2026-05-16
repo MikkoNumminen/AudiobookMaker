@@ -73,7 +73,17 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
             "The caller is responsible for deleting the file."
         ),
     )
-    add_output_mode_flags(p)
+    add_output_mode_flags(
+        p,
+        json_help=(
+            "Emit one ProgressEvent per line (NDJSON); "
+            "see docs/CLI.md for the event schema."
+        ),
+        quiet_help=(
+            "Suppress progress; print only the tempfile path (with --no-play) "
+            "or nothing (when audio is played and the file is deleted)."
+        ),
+    )
     p.set_defaults(func=run)
 
 
