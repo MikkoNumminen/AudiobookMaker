@@ -213,3 +213,94 @@ class TestEnginesRemoveBackcompat:
             rc, _, _ = _run(["engines", "remove", "--yes", "piper"])
 
         assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Prompt-on-stderr regression tests (N5 — mirror of PR #49's packs/update fix)
+# ---------------------------------------------------------------------------
+
+
+class TestEnginesRemovePromptOnStderr:
+    """The confirmation prompt must go to stderr, not stdout.
+
+    A user piping ``engines remove SLUG | jq`` must not see the prompt
+    text in the JSON pipe. Both the prompt text and the cancellation
+    message must land on stderr only. Mirrors the N5 fix that landed in
+    PR #49 for packs remove and update apply.
+    """
+
+    def test_prompt_on_stderr_not_stdout(self):
+        pytest.importorskip("src.engine_installer")
+        import src.engine_installer as ei
+
+        fake = _make_fake_installer()
+        with mock.patch.object(ei, "get_installer", return_value=fake), \
+             mock.patch("builtins.input", return_value="n"):
+            rc, out, err = _run(["engines", "remove", "piper"])
+
+        assert rc == 3, "declining must return EXIT_CANCELLED"
+        assert "Remove engine" not in out, "prompt must not leak to stdout"
+        assert "Remove engine" in err, "prompt must appear on stderr"
+        assert "[y/N]" in err, "prompt marker must appear on stderr"
+
+    def test_stdout_empty_on_cancel(self):
+        pytest.importorskip("src.engine_installer")
+        import src.engine_installer as ei
+
+        fake = _make_fake_installer()
+        with mock.patch.object(ei, "get_installer", return_value=fake), \
+             mock.patch("builtins.input", return_value="n"):
+            rc, out, _ = _run(["engines", "remove", "piper"])
+
+        assert rc == 3
+        assert out.strip() == "", "stdout must be empty on cancellation"
+
+    def test_cancelled_message_on_stderr_explicit_no(self):
+        """The 'Cancelled.' message must appear on stderr when the user
+        answers 'n' at the prompt. Matches the packs-remove /
+        update-apply phrasing (was 'Aborted.' before this commit;
+        aligned for consistency with the rest of the CLI)."""
+        pytest.importorskip("src.engine_installer")
+        import src.engine_installer as ei
+
+        fake = _make_fake_installer()
+        with mock.patch.object(ei, "get_installer", return_value=fake), \
+             mock.patch("builtins.input", return_value="n"):
+            rc, _, err = _run(["engines", "remove", "piper"])
+
+        assert rc == 3
+        assert "Cancelled" in err
+
+    def test_cancelled_message_on_stderr_on_eof(self):
+        """The 'Cancelled.' message must also appear on stderr when
+        input is closed mid-prompt (EOFError) or Ctrl-C is pressed
+        (KeyboardInterrupt). Same path, same exit code, same wording."""
+        pytest.importorskip("src.engine_installer")
+        import src.engine_installer as ei
+
+        fake = _make_fake_installer()
+        with mock.patch.object(ei, "get_installer", return_value=fake), \
+             mock.patch("builtins.input", side_effect=EOFError):
+            rc, out, err = _run(["engines", "remove", "piper"])
+
+        assert rc == 3
+        assert "Cancelled" in err
+        # The prompt was still rendered (we print before input() blocks)
+        # so stdout must still be empty and stderr must carry the prompt.
+        assert "Remove engine" in err
+        assert out.strip() == ""
+
+    def test_yes_flag_no_prompt_anywhere(self):
+        """With --yes, no prompt text appears on stdout or stderr."""
+        pytest.importorskip("src.engine_installer")
+        import src.engine_installer as ei
+
+        fake = _make_fake_installer()
+        input_called = mock.Mock(side_effect=AssertionError("input() must not be called with --yes"))
+        with mock.patch.object(ei, "get_installer", return_value=fake), \
+             mock.patch("builtins.input", input_called):
+            rc, out, err = _run(["engines", "remove", "--yes", "piper"])
+
+        assert rc == 0
+        assert "Remove engine" not in out
+        assert "Remove engine" not in err
