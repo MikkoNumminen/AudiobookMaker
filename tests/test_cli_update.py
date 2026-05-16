@@ -447,3 +447,50 @@ class TestUpdateCheckNetworkFailure:
         with mock.patch("src.auto_updater.check_for_update", return_value=info):
             rc = update_mod._run_check(_args())
         assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# update apply — prompt-routing regression tests (N5)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateApplyPromptRouting:
+    """Confirmation prompt text must land on stderr, not stdout."""
+
+    def test_prompt_text_on_stderr(self, capsys):
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            update_mod._run_apply(_args())
+        captured = capsys.readouterr()
+        assert "99.0.0" in captured.err, "prompt text (version) must appear on stderr"
+        assert "[y/N]" in captured.err, "prompt marker must appear on stderr"
+
+    def test_prompt_text_not_on_stdout(self, capsys):
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            update_mod._run_apply(_args())
+        captured = capsys.readouterr()
+        assert "[y/N]" not in captured.out, "prompt must not appear on stdout"
+
+    def test_stdout_empty_on_cancel(self, capsys):
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            rc = update_mod._run_apply(_args())
+        captured = capsys.readouterr()
+        assert rc == 3
+        assert captured.out == "", "stdout must be empty when user cancels"
+
+    def test_exit_cancelled_on_no(self, capsys):
+        from src.cli._common import EXIT_CANCELLED
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            rc = update_mod._run_apply(_args())
+        assert rc == EXIT_CANCELLED

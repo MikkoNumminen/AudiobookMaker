@@ -243,7 +243,8 @@ def _run_remove(args: argparse.Namespace) -> int:
     # not change destructive behaviour (lesson from M6 / packs remove fix).
     if not (json_mode or yes):
         try:
-            answer = input(f"Remove engine '{engine_id}'? [y/N] ").strip().lower()
+            print(f"Remove engine '{engine_id}'? [y/N] ", end="", file=sys.stderr, flush=True)
+            answer = input("").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.", file=sys.stderr)
             return EXIT_CANCELLED

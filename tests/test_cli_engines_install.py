@@ -206,3 +206,59 @@ class TestEnginesRemoveMocked:
         # engine returns 1 before the prompt ever runs. Either is a clean
         # abort — the test guards against EXIT_INTERNAL (5) crashes.
         assert proc.returncode in (1, 3)
+
+
+# ---------------------------------------------------------------------------
+# engines remove — prompt-routing regression tests (N5)
+# ---------------------------------------------------------------------------
+
+
+def _run_remove_direct(engine_id: str, input_return: str = "n", yes: bool = False) -> int:
+    """Call _run_remove in-process without patching stdout/stderr.
+
+    Allows capsys to capture real output.  input() is mocked so tests
+    are non-interactive.  The installer is mocked to report installed so
+    the prompt is actually reached.
+    """
+    import argparse
+    import src.engine_installer as ei
+    from src.cli import engines as engines_mod
+
+    fake_installer = mock.MagicMock()
+    fake_installer.is_installed.return_value = True
+    fake_installer.remove.return_value = True
+
+    args = argparse.Namespace(engine_id=engine_id, yes=yes, json=False, quiet=False)
+    with mock.patch.object(ei, "get_installer", return_value=fake_installer), \
+         mock.patch("builtins.input", return_value=input_return):
+        return engines_mod._run_remove(args)
+
+
+class TestEnginesRemovePromptRouting:
+    """Confirmation prompt text must land on stderr, not stdout."""
+
+    def test_prompt_text_on_stderr(self, capsys):
+        pytest.importorskip("src.engine_installer")
+        _run_remove_direct("piper", input_return="n")
+        captured = capsys.readouterr()
+        assert "piper" in captured.err, "prompt text must appear on stderr"
+        assert "[y/N]" in captured.err, "prompt marker must appear on stderr"
+
+    def test_prompt_text_not_on_stdout(self, capsys):
+        pytest.importorskip("src.engine_installer")
+        _run_remove_direct("piper", input_return="n")
+        captured = capsys.readouterr()
+        assert "[y/N]" not in captured.out, "prompt must not appear on stdout"
+
+    def test_stdout_empty_on_cancel(self, capsys):
+        pytest.importorskip("src.engine_installer")
+        rc = _run_remove_direct("piper", input_return="n")
+        captured = capsys.readouterr()
+        assert rc == 3
+        assert captured.out == "", "stdout must be empty when user cancels"
+
+    def test_exit_cancelled_on_no(self, capsys):
+        pytest.importorskip("src.engine_installer")
+        from src.cli._common import EXIT_CANCELLED
+        rc = _run_remove_direct("piper", input_return="n")
+        assert rc == EXIT_CANCELLED

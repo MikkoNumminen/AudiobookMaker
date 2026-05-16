@@ -401,3 +401,53 @@ class TestPacksPathTraversal:
         rc, out, err = _run(tmp_path, "info", "..")
         assert rc == 1
         assert "not found" in err.lower()
+
+
+# ---------------------------------------------------------------------------
+# Prompt-routing regression tests (N5)
+# ---------------------------------------------------------------------------
+
+
+def _run_direct(packs_dir: Path, *args: str, input_return: str = "n") -> int:
+    """Run packs subcommand without patching sys.stdout/stderr.
+
+    Allows capsys to capture real stdout/stderr.  input() is still
+    mocked so tests are non-interactive.
+    """
+    import src.cli.packs as packs_mod
+
+    parser, _ = _make_packs_parser(packs_dir)
+    with mock.patch.object(packs_mod, "_packs_dir", return_value=packs_dir), \
+         mock.patch("builtins.input", return_value=input_return):
+        parsed = parser.parse_args(["packs"] + list(args))
+        return parsed.func(parsed)
+
+
+class TestPacksRemovePromptRouting:
+    """Confirmation prompt text must land on stderr, not stdout."""
+
+    def test_prompt_text_on_stderr(self, tmp_path, capsys):
+        _make_fake_pack(tmp_path, "prompt_check")
+        _run_direct(tmp_path, "remove", "prompt_check", input_return="n")
+        captured = capsys.readouterr()
+        assert "prompt_check" in captured.err, "prompt text must appear on stderr"
+        assert "[y/N]" in captured.err, "prompt marker must appear on stderr"
+
+    def test_prompt_text_not_on_stdout(self, tmp_path, capsys):
+        _make_fake_pack(tmp_path, "prompt_stdout_check")
+        _run_direct(tmp_path, "remove", "prompt_stdout_check", input_return="n")
+        captured = capsys.readouterr()
+        assert "[y/N]" not in captured.out, "prompt must not appear on stdout"
+
+    def test_stdout_empty_on_cancel(self, tmp_path, capsys):
+        _make_fake_pack(tmp_path, "cancel_stdout")
+        rc = _run_direct(tmp_path, "remove", "cancel_stdout", input_return="n")
+        captured = capsys.readouterr()
+        assert rc == 3
+        assert captured.out == "", "stdout must be empty when user cancels"
+
+    def test_exit_cancelled_on_no(self, tmp_path, capsys):
+        from src.cli._common import EXIT_CANCELLED
+        _make_fake_pack(tmp_path, "exit_check")
+        rc = _run_direct(tmp_path, "remove", "exit_check", input_return="n")
+        assert rc == EXIT_CANCELLED
