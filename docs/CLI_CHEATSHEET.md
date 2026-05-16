@@ -108,4 +108,86 @@ both languages.
 
 ---
 
+## Step 4 — Tune the run (optional)
+
+These flags work on `convert`, `sample`, and `preview`.
+
+**Speed.** Talk faster or slower without re-recording.
+```powershell
+audiobookmaker-cli convert mybook.pdf --speed fast    # +25%
+audiobookmaker-cli convert mybook.pdf --speed slow    # -25%
+```
+Keywords: `slow`, `normal`, `fast`, `xfast`. Engines that don't support
+rate (Piper, Chatterbox) ignore the flag.
+
+**Voice style** (engines that support free-text descriptions, e.g.
+VoxCPM2). Ignored by Edge-TTS and Chatterbox.
+```powershell
+audiobookmaker-cli convert mybook.pdf --voice-description "a calm narrator"
+```
+
+**Per-chapter output** (one MP3 per chapter). Edge-TTS only today.
+```powershell
+audiobookmaker-cli convert mybook.epub --engine edge --output-mode per-chapter --output .\chapters\
+ls .\chapters\
+# 01_Foreword.mp3, 02_Chapter_1.mp3, 03_Chapter_2.mp3, ...
+```
+
+**Resume vs fresh start.** Default is to overwrite the output file and
+reuse cached chunks. To skip if the output already exists (handy in
+batch loops), or start clean:
+```powershell
+audiobookmaker-cli convert mybook.pdf --overwrite skip    # exit 0 if output exists
+audiobookmaker-cli convert mybook.pdf --overwrite fresh   # wipe chunk cache first
+```
+
+**Pipe text or files in.** A `-` in place of the input means "read
+stdin." Binary inputs (`pdf`/`epub`) need `--input-format`:
+```powershell
+type mybook.txt | audiobookmaker-cli convert - --input-format txt
+curl -s https://example.com/poem.txt | audiobookmaker-cli preview -
+```
+
+**Watch the run.** Standard verbosity / log-level controls at the root:
+```powershell
+audiobookmaker-cli -v convert mybook.pdf            # INFO
+audiobookmaker-cli -vv convert mybook.pdf           # DEBUG
+audiobookmaker-cli --log-level debug convert ...    # explicit
+```
+
+**Short forms.** `c` for `convert`, `s` for `sample`, `p` for `preview`;
+`-q` for `--quiet`, `-j` for `--json`:
+```powershell
+audiobookmaker-cli c mybook.pdf -q
+audiobookmaker-cli c mybook.pdf -j | jq -r 'select(.kind=="done") | .output_path'
+```
+
+---
+
+## Step 5 — Sanity-check + scripting
+
+**Before you start a long run, see what would happen:**
+```powershell
+audiobookmaker-cli convert mybook.pdf --dry-run --json
+```
+Emits one JSON line with the resolved engine, voice, output path,
+output-mode, rate, and so on — no synthesis.
+
+**Disk-space preflight.** `convert` aborts with exit code 2 if the
+output drive doesn't have room (matches what the GUI does before
+synthesis). Skip it with `--dry-run`.
+
+**JSON for scripts.** Each subcommand documents its own `--json` shape
+under `--help`; `convert`/`sample`/`preview` emit one ProgressEvent per
+line (chunk, chapter_done, done, error, …), list commands emit one
+domain object per line.
+
+**Filing a bug.** Pre-fills the title/body with version + OS + engine:
+```powershell
+audiobookmaker-cli report-bug             # opens the URL in your browser
+audiobookmaker-cli report-bug --print     # just prints the URL
+```
+
+---
+
 That's the whole route.

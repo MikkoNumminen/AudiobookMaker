@@ -109,7 +109,19 @@ Each engine implements four methods:
 | `check_status()` | Is this engine installed + ready? Returns `EngineStatus` |
 | `list_voices(lang)` | Voices available for a given language |
 | `default_voice(lang)` | Opinionated default per language |
-| `synthesize(text, voice_id, out_path, …)` | Do the work |
+| `synthesize(text, voice_id, out_path, rate=, voice_description=, …)` | Do the work |
+
+The `synthesize()` contract grew two optional parameters during the
+CLI-parity audit work:
+
+- `rate` — edge-tts-style speed string (`"-25%"`, `"+0%"`, `"+25%"`,
+  `"+50%"`). Engines without rate control must silently ignore it.
+- `voice_description` — free-text voice prompt for engines that accept
+  one (e.g. VoxCPM2). Engines without support silently ignore it.
+
+Engines also advertise a class flag `supports_per_chapter: bool` so
+the GUI and CLI can refuse "per-chapter output" up front for engines
+that don't support it. Only Edge-TTS overrides this to `True` today.
 
 Chatterbox plugs into the same registry as everything else through
 `src/tts_chatterbox_bridge.py`, which sets the `uses_subprocess = True`
@@ -178,6 +190,93 @@ Three action buttons sit next to the dropdowns:
 Engine-bar callbacks (`_on_language_changed`, `_on_engine_changed`)
 are wired AFTER `_apply_loaded_config()` runs, so loading saved
 preferences during init never triggers the cascade.
+
+## CLI layer
+
+The CLI (`src/cli/`) is a thin presentation layer over the same backend
+modules the GUI uses: `synthesis_orchestrator`, `engine_registry`,
+`voice_pack`, `app_config`, `auto_updater`, `system_checks`. There is no
+CLI-only synthesis logic — if the GUI fixes a bug, the CLI picks it up
+automatically.
+
+```
+src/cli/
+  __main__.py       entry point; dispatches subcommands; sets up logging
+  _common.py        exit codes, shared flags, stdin materialization,
+                    rate sanitiser, ProgressEvent printer
+  convert.py        wraps run_inprocess_synthesis / ChatterboxRunner
+  sample.py         wraps sample_helpers + convert.run()
+  preview.py        wraps engine.synthesize + _audio_player
+  voices.py         reads engine_registry.list_voices
+  engines.py        wraps src/engine_installer.py
+  packs.py          wraps src/voice_pack/
+  config.py         wraps src/app_config.py
+  update.py         wraps src/auto_updater.py
+  doctor.py         wraps src/system_checks.py + ffmpeg_path
+  report_bug.py     wraps src/bug_report.build_bug_report_url
+```
+
+### Subcommand registration
+
+Each leaf module exposes `add_parser(subparsers)` and stores `run` as
+the subparser's `func` default, so `__main__.main()` only needs to call
+`args.func(args)`. Subcommand aliases (`c` for `convert`, `s` for
+`sample`, `p` for `preview`) are declared via the public argparse
+`aliases=` parameter on each `add_parser()` call — no private-API
+manipulation. The `scripts/render_cli_help.py` renderer dedupes aliased
+parsers by `id()` so `docs/CLI.md` doesn't get duplicate sections.
+
+### Stdin materialization
+
+A `-` in place of the INPUT positional means "read stdin". Binary
+inputs (`pdf`/`epub`) also require `--input-format` because stdin
+carries no extension. `_common.materialize_stdin_to_tempfile(fmt)` does
+the actual `sys.stdin.buffer.read()` into `.local/scratch/stdin_<8hex>.<ext>`
+and `cleanup_stdin_tempfile(path)` deletes it in a `try/finally` so the
+tempfile is gone whether synthesis succeeded, failed, or raised.
+
+### Per-chapter output dispatch
+
+`--output-mode per-chapter` flows through `InprocessRequest.output_mode`
+into `run_inprocess_synthesis`, which branches between a single-file
+loop and a per-chapter loop that emits `chapter_done` events per file
+and a terminal `done` event with the output **directory**. The CLI
+rejects `--output-mode per-chapter` at the engine-capability check
+(`engine.supports_per_chapter`) before any heavy load, so non-Edge-TTS
+engines fail fast with `EXIT_BAD_INPUT` instead of mid-synthesis.
+
+### Config precedence
+
+For every synthesis flag (`--engine`, `--language`, `--voice`,
+`--output`, `--speed`, `--voice-description`, `--output-mode`):
+
+```
+CLI flag  >  AUDIOBOOKMAKER_*  env var  >  ~/.audiobookmaker/config.json  >  built-in default
+```
+
+`_common.resolve_str` is the central resolver. `_common.sanitize_rate`
+guards the speed-rate field specifically: a corrupt config can't smuggle
+"bogus" into the engine — anything not matching `[+-]?\d+%` is rewritten
+to `"+0%"` with a one-line stderr breadcrumb.
+
+### JSON output
+
+Synthesis commands (`convert`, `sample`, `preview`) emit one
+ProgressEvent per line (NDJSON) with kinds `log`, `chunk`,
+`chapter_start`, `chapter_done`, `full_done`, `done`, `skipped`,
+`error`, `exit`. List commands (`voices list`, `engines list`,
+`packs list`) emit one domain object per line in a subcommand-specific
+shape — each leaf's `--help` documents its own JSON shape.
+
+### Confirmation prompts and destructive flags
+
+`packs remove`, `engines remove`, `update apply` all share two rules:
+
+1. `--yes` is the only flag that bypasses the interactive prompt; cosmetic
+   flags (`--quiet`) must not change destructive behaviour.
+2. Prompt text routes to **stderr**, not stdout, so a user piping the
+   output (`packs remove SLUG | jq`) doesn't see the prompt leak into
+   the consumer.
 
 ## Subprocess & cross-process messaging
 

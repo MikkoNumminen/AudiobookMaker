@@ -211,7 +211,20 @@ Exit codes are stable across subcommands: 0 success, 1 bad input, 2 missing depe
 audiobookmaker-cli engines check piper || audiobookmaker-cli engines install piper --yes
 ```
 
-Run `audiobookmaker-cli <command> --help` for per-command flags, or read [docs/CLI.md](docs/CLI.md) for the full tutorial and auto-generated reference.
+**Pipe books through `-`.** Stdin is a real input. Binary inputs need `--input-format`:
+
+```bash
+cat poem.txt | audiobookmaker-cli preview -
+curl -s https://example.com/book.epub | audiobookmaker-cli convert - --input-format epub
+```
+
+**Tune the synthesis without touching config.** All synthesis subcommands take `--speed {slow,normal,fast,xfast}` (Edge-TTS), `--voice-description "..."` (engines that accept free-text style), and `--output-mode {single,per-chapter}` (per-chapter writes one MP3 per chapter into a directory; Edge-TTS only today).
+
+**Batch-loop control.** `--overwrite skip` exits 0 immediately if the output file already exists; `--overwrite fresh` wipes the chunk cache and starts over.
+
+**Shorter forms.** `c` / `s` / `p` alias `convert` / `sample` / `preview`; `-q` and `-j` are short for `--quiet` and `--json`.
+
+Run `audiobookmaker-cli <command> --help` for per-command flags, or read [docs/CLI.md](docs/CLI.md) for the full tutorial and auto-generated reference. [docs/CLI_CHEATSHEET.md](docs/CLI_CHEATSHEET.md) walks through clone → convert in three steps.
 
 ## Development setup
 
