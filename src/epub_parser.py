@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Items shorter than this after text extraction are dropped as front-matter
-# noise (titlepage, half-title, dedication stubs). The Rubicon test file has
-# several items at 0 / 30-ish chars.
+# noise (titlepage, half-title, dedication stubs). Real-world EPUBs commonly
+# include several items in the 0 - 30-char range that aren't real chapters.
 _MIN_ITEM_CHARS = 50
 
 

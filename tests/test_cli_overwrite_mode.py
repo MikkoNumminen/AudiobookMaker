@@ -87,7 +87,7 @@ def _common_patches(engine, output_path: str):
     """Return a list of context managers for the standard engine-lookup chain."""
     return [
         mock.patch("src.app_config.load", return_value=mock.MagicMock(
-            engine_id="edge", language="fi", voice_id="", output_mode="single",
+            engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
         )),
         mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")),
         mock.patch("src.engine_registry"),
@@ -116,7 +116,7 @@ class TestOverwriteReplace:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -141,7 +141,7 @@ class TestOverwriteReplace:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -180,7 +180,7 @@ class TestOverwriteSkip:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -208,7 +208,7 @@ class TestOverwriteSkip:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -233,7 +233,7 @@ class TestOverwriteSkip:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -264,7 +264,7 @@ class TestOverwriteSkipJson:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -291,7 +291,7 @@ class TestOverwriteSkipJson:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -337,7 +337,7 @@ class TestOverwriteFresh:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -368,7 +368,7 @@ class TestOverwriteFresh:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -432,7 +432,7 @@ class TestOverwriteDefault:
 
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \
@@ -474,7 +474,7 @@ class TestSampleInheritsOverwrite:
         with mock.patch("src.cli.convert.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.cli.sample.validate_input_path", return_value=(EXIT_OK, "")), \
              mock.patch("src.app_config.load", return_value=mock.MagicMock(
-                 engine_id="edge", language="fi", voice_id="", output_mode="single",
+                 engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description="",
              )), \
              mock.patch("src.engine_registry"), \
              mock.patch("src.tts_base.get_engine", return_value=engine), \

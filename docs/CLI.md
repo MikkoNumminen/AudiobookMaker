@@ -226,6 +226,8 @@ the auto-generated detail follows.
      renderer (or the pre-commit hook will re-run it for you). -->
 ### `audiobookmaker-cli convert`
 
+**Aliases:** `c`
+
 Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
 | Flag | Description |
@@ -235,18 +237,22 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
+| `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
 | `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
 | `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
 | `--overwrite MODE` | What to do when output already exists. 'replace' (default): overwrite the output file, reuse cached chunks — same as today's behaviour. 'skip': exit 0 immediately if the output file exists; nothing is synthesized. Useful in batch loops. 'fresh': delete the chunk cache before starting so the run begins clean; overwrite the output file. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
+| `--quiet` | Suppress progress; print only the final output path (or directory in per-chapter mode). |
 
 ---
 
 ### `audiobookmaker-cli sample`
+
+**Aliases:** `s`
 
 Convert the first ~500 characters of a book to MP3 as a quick quality check before running the full conversion.
 
@@ -257,18 +263,22 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
+| `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
 | `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
 | `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
 | `--overwrite MODE` | What to do when the sample output already exists. 'replace' (default): overwrite. 'skip': exit 0 immediately without synthesizing. 'fresh': delete the chunk cache before starting. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path. |
 
 ---
 
 ### `audiobookmaker-cli preview`
+
+**Aliases:** `p`
 
 Synthesize a short text string and play it through the system audio output. Nothing is saved to disk.
 
@@ -279,9 +289,11 @@ Synthesize a short text string and play it through the system audio output. Noth
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
+| `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
 | `--no-play` | Synthesize only — do not play audio. Prints the tempfile path on stdout. The caller is responsible for deleting the file. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
+| `--quiet` | Suppress progress; print only the tempfile path (with --no-play) or nothing (when audio is played and the file is deleted). |
 
 ---
 
@@ -293,8 +305,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `--engine ID` | Filter to voices of a specific engine (e.g. edge, piper, chatterbox_fi). |
 | `--language LANG` | Filter to voices for a specific language (fi or en). |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one voice object per line (NDJSON) with fields: engine, id, language, gender, display_name. |
+| `--quiet` | Print only voice ids, one per line. |
 
 ---
 
@@ -303,8 +315,8 @@ List voices across all engines, or filtered by engine / language.
 | Flag | Description |
 |------|-------------|
 | `--installed-only` | Only show engines that are currently available. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one engine object per line (NDJSON) with fields: id, display_name, available, reason. |
+| `--quiet` | Print only engine ids, one per line. |
 
 ---
 
@@ -314,8 +326,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `ID` | Engine id (e.g. piper, chatterbox_fi). |
 | `--yes` | Skip prompts. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one progress object per line (NDJSON) with fields: kind, step, total_steps, step_label, percent, message, error, done. |
+| `--quiet` | Suppress progress; print only the final result. |
 
 ---
 
@@ -325,8 +337,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `ID` | Engine id to remove. |
 | `--yes` | Skip confirmation. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single result object with fields: ok, id. Also bypasses the interactive confirmation prompt. |
+| `--quiet` | Suppress the removal confirmation message. |
 
 ---
 
@@ -335,8 +347,8 @@ List voices across all engines, or filtered by engine / language.
 | Flag | Description |
 |------|-------------|
 | `ID` | Engine id to check. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single check object with fields: id, display_name, available, reason. |
+| `--quiet` | Suppress detail; print only "available" or nothing (uses exit code). |
 
 ---
 
@@ -344,8 +356,8 @@ List voices across all engines, or filtered by engine / language.
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one pack object per line (NDJSON) with fields: slug, name, language, tier, path. |
+| `--quiet` | Print only pack slugs, one per line. |
 
 ---
 
@@ -354,8 +366,8 @@ List voices across all engines, or filtered by engine / language.
 | Flag | Description |
 |------|-------------|
 | `DIRECTORY` | Source pack directory. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single result object with fields: ok, slug, path. |
+| `--quiet` | Print only the installed path on success. |
 
 ---
 
@@ -365,8 +377,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `SLUG` | Pack slug (folder name). |
 | `--yes` | Skip confirmation prompt. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single result object with fields: ok, slug. |
+| `--quiet` | Suppress the removal confirmation message. |
 
 ---
 
@@ -375,8 +387,8 @@ List voices across all engines, or filtered by engine / language.
 | Flag | Description |
 |------|-------------|
 | `SLUG` | Pack slug (folder name). |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single metadata object (all fields from pack manifest plus slug and path). |
+| `--quiet` | Print compact metadata (same as default; --quiet is a no-op for this subcommand). |
 
 ---
 
@@ -385,8 +397,8 @@ List voices across all engines, or filtered by engine / language.
 | Flag | Description |
 |------|-------------|
 | `KEY` | Field name to show. Omit to show all fields. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit the entire config as a single JSON object (or a one-key object when KEY is given). |
+| `--quiet` | Print one key=value line per field with shell-safe quoting (or the bare value when KEY is given). |
 
 ---
 
@@ -396,8 +408,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `KEY` | Field name. |
 | `VALUE` | New value. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single result object with fields: key, value. |
+| `--quiet` | Suppress output; exit code indicates success. |
 
 ---
 
@@ -406,8 +418,8 @@ List voices across all engines, or filtered by engine / language.
 | Flag | Description |
 |------|-------------|
 | `KEY` | Field name to reset. Omit to reset entire config. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single result object with fields: key, value (or status for full reset). |
+| `--quiet` | Suppress output; exit code indicates success. |
 
 ---
 
@@ -415,8 +427,8 @@ List voices across all engines, or filtered by engine / language.
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single object with field: path. |
+| `--quiet` | Print only the config file path (same as default; --quiet is a no-op here). |
 
 ---
 
@@ -426,8 +438,8 @@ Query GitHub Releases and report whether this build is current.
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit a single object with fields: current_version, latest_version, update_available, release_url. |
+| `--quiet` | Suppress detail; print only the latest version when an update is available, or nothing when already up to date. |
 
 ---
 
@@ -438,8 +450,8 @@ Download the latest installer, verify its SHA-256, and run it.
 | Flag | Description |
 |------|-------------|
 | `--yes` | Skip the confirmation prompt and apply immediately. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one progress object per line; the final object reports current_version, latest_version, installer_path, release_url, and status. |
+| `--quiet` | Suppress progress; print only the new version on success. |
 
 ---
 
@@ -449,8 +461,20 @@ Run system health checks and report which engines are ready.
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
+| `--json` | Emit one check object per line (NDJSON) with fields: name, status, required, detail; followed by a summary object with fields: kind, status, required_missing, exit_code. |
+| `--quiet` | Print only "doctor: OK" or "doctor: FAIL — required components missing". |
+
+---
+
+### `audiobookmaker-cli report-bug`
+
+Build a GitHub 'new issue' URL pre-filled with app version, OS, and active engine, then open it in the default browser.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON). |
+| `--quiet` | Suppress progress; print only the final result. |
+| `--print` | Print the URL to stdout without opening a browser. |
 <!-- END_GENERATED_REFERENCE -->
 
 ---

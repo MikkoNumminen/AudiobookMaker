@@ -90,6 +90,7 @@ class _StubEngine(TTSEngine):
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
         voice_description: Optional[str] = None,
+        rate: Optional[str] = None,
     ) -> None:
         if not text or not text.strip():
             raise ValueError("Cannot synthesize empty text.")

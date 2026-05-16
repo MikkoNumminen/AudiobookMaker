@@ -44,26 +44,48 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     show_p = sub.add_parser("show", help="Print config (or one field).")
     show_p.add_argument("key", nargs="?", default=None, metavar="KEY",
                         help="Field name to show. Omit to show all fields.")
-    add_output_mode_flags(show_p)
+    add_output_mode_flags(
+        show_p,
+        json_help=(
+            "Emit the entire config as a single JSON object "
+            "(or a one-key object when KEY is given)."
+        ),
+        quiet_help=(
+            "Print one key=value line per field with shell-safe quoting "
+            "(or the bare value when KEY is given)."
+        ),
+    )
     show_p.set_defaults(func=_run_show)
 
     # config set KEY VALUE
     set_p = sub.add_parser("set", help="Set one config field and save.")
     set_p.add_argument("key", metavar="KEY", help="Field name.")
     set_p.add_argument("value", metavar="VALUE", help="New value.")
-    add_output_mode_flags(set_p)
+    add_output_mode_flags(
+        set_p,
+        json_help="Emit a single result object with fields: key, value.",
+        quiet_help="Suppress output; exit code indicates success.",
+    )
     set_p.set_defaults(func=_run_set)
 
     # config reset [KEY]
     reset_p = sub.add_parser("reset", help="Reset config (or one field) to defaults.")
     reset_p.add_argument("key", nargs="?", default=None, metavar="KEY",
                          help="Field name to reset. Omit to reset entire config.")
-    add_output_mode_flags(reset_p)
+    add_output_mode_flags(
+        reset_p,
+        json_help="Emit a single result object with fields: key, value (or status for full reset).",
+        quiet_help="Suppress output; exit code indicates success.",
+    )
     reset_p.set_defaults(func=_run_reset)
 
     # config path
     path_p = sub.add_parser("path", help="Print the config file path.")
-    add_output_mode_flags(path_p)
+    add_output_mode_flags(
+        path_p,
+        json_help="Emit a single object with field: path.",
+        quiet_help="Print only the config file path (same as default; --quiet is a no-op here).",
+    )
     path_p.set_defaults(func=_run_path)
 
 

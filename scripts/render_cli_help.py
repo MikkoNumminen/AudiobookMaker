@@ -96,13 +96,24 @@ def _render_flag_table(parser: argparse.ArgumentParser) -> str:
 def _leaf_parsers(
     parser: argparse.ArgumentParser,
     breadcrumb: list[str],
-) -> list[tuple[list[str], argparse.ArgumentParser]]:
-    """Recursively collect (breadcrumb, parser) for every leaf command.
+) -> list[tuple[list[str], argparse.ArgumentParser, list[str]]]:
+    """Recursively collect ``(breadcrumb, parser, aliases)`` for every
+    leaf command.
 
     A leaf command is one that has no further sub-parsers (i.e. it can
     actually be invoked).  Top-level commands that only exist to group
     sub-commands (like ``engines``) are skipped in favour of their
     leaves.
+
+    When a subcommand is registered with ``aliases=[...]`` (e.g.
+    ``add_parser("convert", aliases=["c"])``), argparse stores every
+    alias as a separate key in ``subparsers.choices`` mapping to the
+    same parser instance.  Iterating naively would emit duplicate
+    documentation entries.  This implementation dedupes by parser
+    identity: the first name encountered (insertion-order = canonical
+    name) wins, the alias keys are skipped, and the alias names are
+    returned alongside the parser so the renderer can mention them
+    under the canonical heading.
     """
     sub_action = None
     for action in parser._actions:
@@ -111,13 +122,53 @@ def _leaf_parsers(
             break
 
     if sub_action is None:
-        # This is a leaf.
-        return [(breadcrumb, parser)]
+        # This is a leaf; no aliases at the leaf level.
+        return [(breadcrumb, parser, [])]
 
-    leaves: list[tuple[list[str], argparse.ArgumentParser]] = []
+    # Build a parser-id -> list-of-names map so we can collect aliases
+    # for each canonical entry.
+    names_by_parser_id: dict[int, list[str]] = {}
     for choice_name, choice_parser in sub_action.choices.items():
-        child_crumb = breadcrumb + [choice_name]
-        leaves.extend(_leaf_parsers(choice_parser, child_crumb))
+        names_by_parser_id.setdefault(id(choice_parser), []).append(choice_name)
+
+    leaves: list[tuple[list[str], argparse.ArgumentParser, list[str]]] = []
+    seen_parser_ids: set[int] = set()
+    for choice_name, choice_parser in sub_action.choices.items():
+        if id(choice_parser) in seen_parser_ids:
+            continue
+        seen_parser_ids.add(id(choice_parser))
+        # All names that point at this parser; the first is canonical,
+        # the rest are aliases.
+        all_names = names_by_parser_id[id(choice_parser)]
+        canonical = all_names[0]
+        aliases = all_names[1:]
+
+        child_crumb = breadcrumb + [canonical]
+        # Recurse into the child parser.  Aliases declared at THIS level
+        # only attach to a leaf that lives directly at this level — i.e.
+        # the recursion returned without descending further.  We detect
+        # that by comparing the returned breadcrumb's length against
+        # `child_crumb`: same length ⇒ the recursion hit the leaf
+        # branch and returned the same breadcrumb (no further nesting).
+        # The length check is more robust than `sub_crumb == child_crumb`
+        # because it survives any future normalization of breadcrumbs
+        # (e.g. tuple-isation) without silently swallowing aliases.
+        #
+        # Known limitation: aliases declared on a non-leaf parent (e.g.
+        # if `engines` itself ever got `aliases=["e"]`) would not
+        # propagate down to `engines list`, `engines install`, etc. —
+        # those leaves would still be tagged with empty alias lists.
+        # No subcommand in this codebase uses nested aliases today, so
+        # the gap is theoretical.  If it ever matters, switch to
+        # passing parent-aliases down into the recursion explicitly.
+        target_depth = len(child_crumb)
+        for sub_crumb, sub_parser, sub_aliases in _leaf_parsers(
+            choice_parser, child_crumb
+        ):
+            if len(sub_crumb) == target_depth:
+                leaves.append((sub_crumb, sub_parser, aliases))
+            else:
+                leaves.append((sub_crumb, sub_parser, sub_aliases))
     return leaves
 
 
@@ -131,7 +182,7 @@ def _render_block(root_parser: argparse.ArgumentParser) -> str:
     leaves = _leaf_parsers(root_parser, [])
     sections: list[str] = []
 
-    for crumb, parser in leaves:
+    for crumb, parser, aliases in leaves:
         heading_words = ["audiobookmaker-cli"] + crumb
         heading = "### `" + " ".join(heading_words) + "`"
 
@@ -145,6 +196,12 @@ def _render_block(root_parser: argparse.ArgumentParser) -> str:
         table = _render_flag_table(parser)
 
         parts = [heading, ""]
+        if aliases:
+            # Surface short aliases below the canonical heading so readers
+            # of the static reference (not just `--help`) discover them.
+            alias_list = ", ".join(f"`{a}`" for a in aliases)
+            parts.append(f"**Aliases:** {alias_list}")
+            parts.append("")
         if first_para:
             parts.append(first_para)
             parts.append("")

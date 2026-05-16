@@ -121,7 +121,7 @@ class TestNoFinnishRewritesOnEnglishInput:
     ]
 
     @pytest.mark.parametrize("sample", [
-        "Chapter IV opens with Caesar at the Rubicon.",
+        "Chapter IV opens with a quiet morning by the river.",
         "King Henry VIII founded the Church of England.",
         "In 1500 the world looked very different.",
         "Pope John XXIII convened the council in 1962.",

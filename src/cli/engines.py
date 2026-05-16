@@ -48,27 +48,55 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Only show engines that are currently available.",
     )
-    add_output_mode_flags(lst)
+    add_output_mode_flags(
+        lst,
+        json_help=(
+            "Emit one engine object per line (NDJSON) with fields: "
+            "id, display_name, available, reason."
+        ),
+        quiet_help="Print only engine ids, one per line.",
+    )
     lst.set_defaults(func=_run_list)
 
     # engines install <id>
     ins = sub.add_parser("install", help="Download and install a TTS engine.")
     ins.add_argument("engine_id", metavar="ID", help="Engine id (e.g. piper, chatterbox_fi).")
     ins.add_argument("--yes", action="store_true", default=False, help="Skip prompts.")
-    add_output_mode_flags(ins)
+    add_output_mode_flags(
+        ins,
+        json_help=(
+            "Emit one progress object per line (NDJSON) with fields: "
+            "kind, step, total_steps, step_label, percent, message, error, done."
+        ),
+        quiet_help="Suppress progress; print only the final result.",
+    )
     ins.set_defaults(func=_run_install)
 
     # engines remove <id>
     rem = sub.add_parser("remove", help="Remove an installed TTS engine's assets.")
     rem.add_argument("engine_id", metavar="ID", help="Engine id to remove.")
     rem.add_argument("--yes", action="store_true", default=False, help="Skip confirmation.")
-    add_output_mode_flags(rem)
+    add_output_mode_flags(
+        rem,
+        json_help=(
+            "Emit a single result object with fields: ok, id. "
+            "Also bypasses the interactive confirmation prompt."
+        ),
+        quiet_help="Suppress the removal confirmation message.",
+    )
     rem.set_defaults(func=_run_remove)
 
     # engines check <id>
     chk = sub.add_parser("check", help="Check whether a TTS engine is available.")
     chk.add_argument("engine_id", metavar="ID", help="Engine id to check.")
-    add_output_mode_flags(chk)
+    add_output_mode_flags(
+        chk,
+        json_help=(
+            "Emit a single check object with fields: "
+            "id, display_name, available, reason."
+        ),
+        quiet_help='Suppress detail; print only "available" or nothing (uses exit code).',
+    )
     chk.set_defaults(func=_run_check)
 
 
@@ -242,13 +270,21 @@ def _run_remove(args: argparse.Namespace) -> int:
     # interactively. --quiet alone does NOT bypass it — cosmetic flags must
     # not change destructive behaviour (lesson from M6 / packs remove fix).
     if not (json_mode or yes):
+        # Route the prompt to stderr so it never leaks into a stdout
+        # pipeline (lesson from N5 / packs remove + update apply prompt
+        # fix in PR #49). Cancellation message also stays on stderr to
+        # match packs remove / update apply.
+        print(
+            f"Remove engine '{engine_id}'? [y/N] ",
+            end="", file=sys.stderr, flush=True,
+        )
         try:
-            answer = input(f"Remove engine '{engine_id}'? [y/N] ").strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("\nAborted.", file=sys.stderr)
+            print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED
         if answer not in ("y", "yes"):
-            print("Aborted.", file=sys.stderr)
+            print("Cancelled.", file=sys.stderr)
             return EXIT_CANCELLED
 
     # Every installer in the registry implements remove() on its class

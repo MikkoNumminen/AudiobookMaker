@@ -86,7 +86,7 @@ The user's report usually looks like one of:
 
 - "Grandmom said `instituutio` like `instituushio`." — direct pair.
 - "Turo says the word `kommunikaatio` came out wrong in chapter 3 of
-  Rubicon — it sounded like `kommunikaasjo`." — attribution + source.
+  <book> — it sounded like `kommunikaasjo`." — attribution + source.
 - A pasted audio transcript with errors circled.
 
 Extract:
@@ -143,7 +143,7 @@ If the user pastes 5 reports at once, append all 5 entries in one
 commit with a single subject:
 
 ```
-docs(corpus): log 5 new mispronunciations from Rubicon chapter 3
+docs(corpus): log 5 new mispronunciations from current test book
 ```
 
 One commit per reporting session is fine; splitting per-word inflates
