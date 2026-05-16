@@ -104,7 +104,17 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Print what would happen without synthesizing.",
     )
-    add_output_mode_flags(p)
+    add_output_mode_flags(
+        p,
+        json_help=(
+            "Emit one ProgressEvent per line (NDJSON); "
+            "see docs/CLI.md for the event schema."
+        ),
+        quiet_help=(
+            "Suppress progress; print only the final output path "
+            "(or directory in per-chapter mode)."
+        ),
+    )
     p.set_defaults(func=run)
 
 
