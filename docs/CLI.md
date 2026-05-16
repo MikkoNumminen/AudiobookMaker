@@ -449,6 +449,18 @@ Run system health checks and report which engines are ready.
 |------|-------------|
 | `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
 | `--quiet` | Suppress progress; print only the final output path. |
+
+---
+
+### `audiobookmaker-cli report-bug`
+
+Build a GitHub 'new issue' URL pre-filled with app version, OS, and active engine, then open it in the default browser.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
+| `--print` | Print the URL to stdout without opening a browser. |
 <!-- END_GENERATED_REFERENCE -->
 
 ---
