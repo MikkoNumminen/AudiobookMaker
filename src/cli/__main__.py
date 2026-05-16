@@ -17,6 +17,7 @@ Exit codes are documented on every subcommand's --help and in docs/CLI.md:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
 from src.auto_updater import APP_VERSION
@@ -61,6 +62,28 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"AudiobookMaker {APP_VERSION}",
     )
 
+    log_group = parser.add_mutually_exclusive_group()
+    log_group.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help=(
+            "Increase verbosity. -v → INFO, -vv → DEBUG. "
+            "Mutually exclusive with --log-level."
+        ),
+    )
+    log_group.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error"],
+        default=None,
+        metavar="LEVEL",
+        help=(
+            "Set log level explicitly (debug/info/warning/error). "
+            "Mutually exclusive with -v/--verbose. Default: warning."
+        ),
+    )
+
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.required = False
 
@@ -72,6 +95,7 @@ def _build_parser() -> argparse.ArgumentParser:
         engines,
         packs,
         preview,
+        report_bug,
         sample,
         update,
         voices,
@@ -86,6 +110,12 @@ def _build_parser() -> argparse.ArgumentParser:
     config.add_parser(subparsers)
     update.add_parser(subparsers)
     doctor.add_parser(subparsers)
+    report_bug.add_parser(subparsers)
+
+    # Short aliases for the most-used subcommands are declared via the
+    # public ``aliases=`` parameter on each subcommand's add_parser()
+    # call (convert → c, sample → s, preview → p). No private-API
+    # manipulation needed.
 
     return parser
 
@@ -101,6 +131,23 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # Configure root logger from -v / --log-level before dispatching.
+    if args.log_level is not None:
+        # Explicit --log-level wins.
+        _level = getattr(logging, args.log_level.upper())
+    else:
+        # -v count: 0 → WARNING, 1 → INFO, 2+ → DEBUG.
+        _v = args.verbose or 0
+        _level = logging.WARNING if _v == 0 else logging.INFO if _v == 1 else logging.DEBUG
+    # force=True so this call wins even if an imported src/ module
+    # already touched the root logger handler list during import.
+    logging.basicConfig(
+        level=_level,
+        format="%(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+    logging.debug("verbosity: %s", logging.getLevelName(_level))
 
     if args.command is None:
         parser.print_help()

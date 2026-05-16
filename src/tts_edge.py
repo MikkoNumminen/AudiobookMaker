@@ -115,6 +115,7 @@ class EdgeTTSEngine(TTSEngine):
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
         voice_description: Optional[str] = None,
+        rate: Optional[str] = None,
     ) -> None:
         # Edge-TTS does not support voice cloning or voice description;
         # silently ignore both parameters for interface compatibility.
@@ -125,5 +126,5 @@ class EdgeTTSEngine(TTSEngine):
             if not voice_id:
                 raise ValueError(f"No Edge-TTS voice available for language '{language}'")
 
-        config = TTSConfig(language=language, voice=voice_id, rate="+0%")
+        config = TTSConfig(language=language, voice=voice_id, rate=rate or "+0%")
         _edge_text_to_speech(text, output_path, config, progress_cb)

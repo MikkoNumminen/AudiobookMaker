@@ -20,6 +20,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json as _json
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -32,6 +34,8 @@ from src.cli._common import (
     EXIT_OK,
     EXIT_RUNTIME,
     OUTPUT_MODE_CHOICES,
+    OVERWRITE_CHOICES,
+    SPEED_KEYWORD_TO_RATE,
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
@@ -49,6 +53,7 @@ from src.cli._common import (
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "convert",
+        aliases=["c"],
         help="Convert a PDF/EPUB/TXT to MP3.",
         description=(
             "Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.\n\n"
@@ -107,8 +112,33 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Print what would happen without synthesizing.",
     )
+    p.add_argument(
+        "--overwrite",
+        metavar="MODE",
+        choices=list(OVERWRITE_CHOICES),
+        default="replace",
+        help=(
+            "What to do when output already exists. "
+            "'replace' (default): overwrite the output file, reuse cached chunks — "
+            "same as today's behaviour. "
+            "'skip': exit 0 immediately if the output file exists; nothing is synthesized. "
+            "Useful in batch loops. "
+            "'fresh': delete the chunk cache before starting so the run begins clean; "
+            "overwrite the output file."
+        ),
+    )
     add_synthesis_output_mode_flag(p)
-    add_output_mode_flags(p)
+    add_output_mode_flags(
+        p,
+        json_help=(
+            "Emit one ProgressEvent per line (NDJSON); "
+            "see docs/CLI.md for the event schema."
+        ),
+        quiet_help=(
+            "Suppress progress; print only the final output path "
+            "(or directory in per-chapter mode)."
+        ),
+    )
     p.set_defaults(func=run)
 
 
@@ -213,6 +243,45 @@ def _run_inner(
         cfg.voice_id,
         "",
     ) or None
+    speed_keyword = resolve_str(
+        getattr(args, "speed", None),
+        "AUDIOBOOKMAKER_SPEED",
+        "",
+        "",
+    ) or None
+    # Convert the speed keyword to an edge-tts rate string. When the
+    # config stores a raw rate string (e.g. "+0%") fall back to that so
+    # the GUI-persisted value is honoured even when the user doesn't
+    # pass the flag explicitly. sanitize_rate() defends against a
+    # malformed config field (e.g. "bogus") which would otherwise be
+    # passed straight to the engine and fail mid-synthesis.
+    if speed_keyword is not None:
+        rate: Optional[str] = SPEED_KEYWORD_TO_RATE.get(speed_keyword)
+        if rate is None:
+            print(
+                f"Error: invalid --speed value '{speed_keyword}'. "
+                f"Choose from: {', '.join(SPEED_KEYWORD_TO_RATE)}.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+    else:
+        from src.cli._common import sanitize_rate
+        raw_cfg_speed = cfg.speed or ""
+        rate = sanitize_rate(raw_cfg_speed, default="+0%")
+        if raw_cfg_speed and rate != raw_cfg_speed:
+            # Config carried something we couldn't parse — warn so the
+            # user knows we substituted the default.
+            print(
+                f"[config] ignoring malformed speed value {raw_cfg_speed!r}; "
+                "falling back to '+0%'.",
+                file=sys.stderr,
+            )
+    voice_description = resolve_str(
+        getattr(args, "voice_description", None),
+        "AUDIOBOOKMAKER_VOICE_DESCRIPTION",
+        cfg.voice_description,
+        "",
+    ) or None
     output_flag_raw = resolve_str(
         getattr(args, "output", None),
         "AUDIOBOOKMAKER_OUTPUT",
@@ -241,6 +310,9 @@ def _run_inner(
     voice_pack: Optional[str] = str(Path(voice_pack_raw).expanduser()) if voice_pack_raw else None
     chunk_chars: Optional[int] = getattr(args, "chunk_chars", None)
 
+    # Resolve overwrite mode (default: replace — preserves legacy behaviour).
+    overwrite: str = getattr(args, "overwrite", "replace") or "replace"
+
     # Resolve output path.
     try:
         from src.synthesis_orchestrator import suggest_output_path
@@ -254,6 +326,25 @@ def _run_inner(
         print(f"Error resolving output path: {exc}", file=sys.stderr)
         return EXIT_INTERNAL
 
+    # --overwrite skip: bail out early if the output already exists.
+    if overwrite == "skip" and Path(output_path).exists():
+        if json_mode:
+            print(
+                _json.dumps({"kind": "skipped", "output_path": output_path}),
+                flush=True,
+            )
+        elif not quiet:
+            print(f"Skipped: output already exists: {output_path}", flush=True)
+        else:
+            print(output_path, flush=True)
+        return EXIT_OK
+
+    # --overwrite fresh: wipe the chunk cache so synthesis starts clean.
+    if overwrite == "fresh":
+        cache_dir = Path(output_path).parent / ".chunks"
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir)
+
     if dry_run:
         _print_dry_run(
             input_path=input_path,
@@ -262,6 +353,8 @@ def _run_inner(
             voice_id=voice_id,
             output_path=output_path,
             output_mode=output_mode,
+            rate=rate,
+            voice_description=voice_description,
             ref_audio=ref_audio,
             voice_pack=voice_pack,
             chunk_chars=chunk_chars,
@@ -269,6 +362,55 @@ def _run_inner(
             json_mode=json_mode,
         )
         return EXIT_OK
+
+    # Disk-space preflight — mirrors the GUI check in gui_unified.py.
+    # Skipped on --dry-run (no synthesis, no disk pressure).
+    #
+    # NOTE on double-parse: the call to parse_book below loads the whole
+    # input so we can pass an accurate text_chars to the disk estimator.
+    # The actual synthesis path parses the book again. The trade-off is
+    # accepted today because the estimate is highly sensitive to
+    # text_chars (linear scaling), and a file-size-based heuristic
+    # over-estimates by 100x+ on PDF/EPUB. A future optimization could
+    # cache the ParsedBook on InprocessRequest to avoid the re-parse.
+    try:
+        from src.system_checks import check_output_disk_space
+    except ImportError as exc:
+        # The safety net is gone — make sure the user knows we skipped it.
+        print(
+            f"[preflight] disk-space check unavailable: {exc}; "
+            "proceeding without check.",
+            file=sys.stderr,
+        )
+    else:
+        if sample_text is not None:
+            text_chars = len(sample_text)
+        else:
+            try:
+                from src.synthesis_orchestrator import parse_book
+                text_chars = len(parse_book(input_path).full_text)
+            except Exception as exc:
+                # Parse failed — synthesis will hit the same error and
+                # surface it properly. Skip the preflight loudly so the
+                # user sees that no disk check was performed.
+                print(
+                    f"[preflight] could not estimate disk requirement: {exc}; "
+                    "skipping disk-space check.",
+                    file=sys.stderr,
+                )
+                text_chars = 0
+        if text_chars > 0:
+            ok, free_mb, need_mb = check_output_disk_space(
+                output_path, text_chars, engine_id
+            )
+            if not ok:
+                print(
+                    f"Error: insufficient disk space at {output_path}. "
+                    f"Free: {free_mb:.0f} MB, required (estimate): {need_mb:.0f} MB. "
+                    "Free up space or pass --output to a drive with more free space.",
+                    file=sys.stderr,
+                )
+                return EXIT_MISSING_DEP
 
     # Load engine registry and look up the engine.
     try:
@@ -330,6 +472,8 @@ def _run_inner(
             output_path=output_path,
             output_mode=output_mode,
             ref_audio=ref_audio,
+            voice_description=voice_description,
+            rate=rate,
             sample_text=sample_text,
             json_mode=json_mode,
             quiet=quiet,
@@ -346,6 +490,8 @@ def _run_inprocess(
     output_path: str,
     output_mode: str = "single",
     ref_audio: Optional[str],
+    voice_description: Optional[str],
+    rate: Optional[str],
     sample_text: Optional[str],
     json_mode: bool,
     quiet: bool,
@@ -363,6 +509,8 @@ def _run_inprocess(
             voice_id=voice_id,
             input_text=sample_text,
             reference_audio=ref_audio,
+            voice_description=voice_description,
+            rate=rate,
             output_mode="single",
         )
     else:
@@ -374,6 +522,8 @@ def _run_inprocess(
             voice_id=voice_id,
             pdf_path=input_path,
             reference_audio=ref_audio,
+            voice_description=voice_description,
+            rate=rate,
             output_mode=output_mode,
         )
 
@@ -507,6 +657,8 @@ def _print_dry_run(
     voice_id: Optional[str],
     output_path: str,
     output_mode: str = "single",
+    rate: Optional[str] = None,
+    voice_description: Optional[str] = None,
     ref_audio: Optional[str],
     voice_pack: Optional[str],
     chunk_chars: Optional[int],
@@ -532,6 +684,8 @@ def _print_dry_run(
             "voice": voice_id,
             "output": output_path,
             "output_mode": output_mode,
+            "rate": rate,
+            "voice_description": voice_description,
             "ref_audio": ref_audio,
             "voice_pack": voice_pack,
             "chunk_chars": chunk_chars,
@@ -546,6 +700,10 @@ def _print_dry_run(
     print(f"  voice:      {voice_id or '(engine default)'}")
     print(f"  output:     {output_path}")
     print(f"  output-mode: {output_mode}")
+    if rate:
+        print(f"  rate:       {rate}")
+    if voice_description:
+        print(f"  voice-desc: {voice_description}")
     if ref_audio:
         print(f"  ref-audio:  {ref_audio}")
     if voice_pack:

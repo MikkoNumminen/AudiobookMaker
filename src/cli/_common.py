@@ -48,19 +48,67 @@ config stay consistent.
 """
 
 # ---------------------------------------------------------------------------
+# --overwrite mode — shared by convert and sample
+# ---------------------------------------------------------------------------
+
+OVERWRITE_CHOICES = ("replace", "skip", "fresh")
+"""Accepted values for ``--overwrite`` on convert and sample.
+
+- ``replace`` (default) — current behaviour: overwrite an existing output
+  file, reuse cached chunks. Preserves existing scripts.
+- ``skip``    — if the final output file already exists, exit 0 immediately
+  without synthesizing. Useful in batch loops.
+- ``fresh``   — delete the chunked cache directory before starting so the
+  run begins clean; overwrite the output file if it exists.
+"""
+
+# ---------------------------------------------------------------------------
 # Config precedence: CLI flag > env var > config.json > default
 # ---------------------------------------------------------------------------
 
 # Env var names per flag:
-#   --engine     AUDIOBOOKMAKER_ENGINE
-#   --language   AUDIOBOOKMAKER_LANGUAGE
-#   --voice      AUDIOBOOKMAKER_VOICE
-#   --output     AUDIOBOOKMAKER_OUTPUT
-#
-# --speed is deferred from v1: the underlying TTSEngine.synthesize()
-# signature does not accept a speed parameter, and adding it would be
-# a base-class change (i.e. business logic outside the CLI layer).
-# Tracked in docs/CLI.md "Deferred from v1".
+#   --engine              AUDIOBOOKMAKER_ENGINE
+#   --language            AUDIOBOOKMAKER_LANGUAGE
+#   --voice               AUDIOBOOKMAKER_VOICE
+#   --output              AUDIOBOOKMAKER_OUTPUT
+#   --speed               AUDIOBOOKMAKER_SPEED
+#   --voice-description   AUDIOBOOKMAKER_VOICE_DESCRIPTION
+
+# Speed keyword → edge-tts rate string mapping (same values as the GUI).
+SPEED_KEYWORD_TO_RATE: dict[str, str] = {
+    "slow":   "-25%",
+    "normal": "+0%",
+    "fast":   "+25%",
+    "xfast":  "+50%",
+}
+
+# Accepted format for a raw rate string in the config / env var: an
+# optional ``+`` or ``-`` sign, one or more digits, and a trailing ``%``.
+# Matches edge-tts's documented rate parameter shape. Anything else is
+# treated as malformed and the call site falls back to "+0%".
+import re as _re
+_RATE_PATTERN = _re.compile(r"^[+-]?\d+%$")
+
+
+def sanitize_rate(raw: Optional[str], *, default: str = "+0%") -> str:
+    """Return ``raw`` if it matches the edge-tts rate format, else
+    ``default``.
+
+    Used to defend against a corrupt config file or a hand-edited env
+    var carrying a bogus rate value (e.g. ``"bogus"`` or ``"fast"``).
+    Both would otherwise be passed straight through to the engine,
+    which would surface an opaque error mid-synthesis.
+
+    ``None`` and the empty string return ``default`` with no warning;
+    they're the natural "field absent" sentinel from the config layer.
+    A non-empty string that fails the regex returns ``default`` — the
+    caller is responsible for logging the substitution if it wants to.
+    """
+    if raw is None or raw == "":
+        return default
+    if _RATE_PATTERN.match(raw):
+        return raw
+    return default
 
 
 def resolve_str(
@@ -101,10 +149,10 @@ def normalize_output_mode(raw: str) -> str:
 
 
 def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --engine, --language, --voice, --output to a parser.
+    """Add --engine, --language, --voice, --output, --speed, --voice-description to a parser.
 
-    These four flags have identical semantics across convert and
-    sample. Each flag documents its env-var override and default so
+    These flags have identical semantics across convert, sample, and
+    preview. Each flag documents its env-var override and default so
     --help is the contract.
     """
     parser.add_argument(
@@ -152,6 +200,30 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
             "Env: AUDIOBOOKMAKER_OUTPUT."
         ),
     )
+    parser.add_argument(
+        "--speed",
+        metavar="KEYWORD",
+        choices=list(SPEED_KEYWORD_TO_RATE.keys()),
+        default=None,
+        help=(
+            "Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), "
+            "xfast (+50%%). Engines that do not support speed control ignore "
+            "this flag. Default from config (GUI Speed setting); fallback: normal. "
+            "Env: AUDIOBOOKMAKER_SPEED."
+        ),
+    )
+    parser.add_argument(
+        "--voice-description",
+        metavar="TEXT",
+        default=None,
+        help=(
+            "Free-text voice style prompt for engines that support it "
+            "(e.g. 'a warm baritone elderly male voice'). Ignored by engines "
+            "that do not support voice descriptions. "
+            "Default from config (GUI Voice style field). "
+            "Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION."
+        ),
+    )
 
 
 def add_synthesis_output_mode_flag(parser: argparse.ArgumentParser) -> None:
@@ -177,20 +249,32 @@ def add_synthesis_output_mode_flag(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_output_mode_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --json and --quiet output mode flags to a parser."""
+def add_output_mode_flags(
+    parser: argparse.ArgumentParser,
+    *,
+    json_help: str = "Emit one JSON object per line (NDJSON).",
+    quiet_help: str = "Suppress progress; print only the final result.",
+) -> None:
+    """Add --json / -j and --quiet / -q output mode flags to a parser.
+
+    Each subcommand passes ``json_help`` and ``quiet_help`` that describe
+    its own output shape so --help is accurate for every leaf command.
+    The defaults are intentionally generic and should not be used without
+    per-subcommand overrides. Short flags (``-j`` / ``-q``) are accepted
+    in addition to the long forms for command-line ergonomics.
+    """
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--json",
+        "--json", "-j",
         action="store_true",
         default=False,
-        help="Emit one JSON object per line (NDJSON format, ProgressEvent shape).",
+        help=json_help,
     )
     group.add_argument(
-        "--quiet",
+        "--quiet", "-q",
         action="store_true",
         default=False,
-        help="Suppress progress; print only the final output path.",
+        help=quiet_help,
     )
 
 
@@ -231,6 +315,23 @@ def print_event(event: ProgressEvent, *, json_mode: bool, quiet: bool) -> None:
             print(event.output_path, flush=True)
         elif event.kind == "error":
             print(f"Error: {event.raw_line}", file=sys.stderr, flush=True)
+        elif event.kind == "setup_cached":
+            # Resuming from cache — emit to stderr so script users know
+            # the fast progress is a cache hit, not a first run.
+            cached = event.total_done
+            total = event.total_chunks
+            if total:
+                print(f"Resuming: {cached}/{total} chunks already cached",
+                      file=sys.stderr, flush=True)
+            else:
+                print(f"Resuming: {event.raw_line}", file=sys.stderr, flush=True)
+        elif event.kind == "setup_total":
+            # Total chunk count — emit to stderr so script users see the job size.
+            total = event.total_chunks
+            if total:
+                print(f"Total: {total} chunks", file=sys.stderr, flush=True)
+            else:
+                print(f"Total: {event.raw_line}", file=sys.stderr, flush=True)
         return
 
     # Human-readable mode.
@@ -351,6 +452,51 @@ def cleanup_stdin_tempfile(path: Optional[str]) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Windows MAX_PATH guard
+# ---------------------------------------------------------------------------
+
+_WINDOWS_PATH_WARN_THRESHOLD = 250
+"""Warn when a resolved path on Windows exceeds this many characters.
+
+Windows MAX_PATH is 260.  We warn at 250 to leave headroom for suffixes
+that synthesis code appends (e.g. ``.tmp``, chapter index digits).
+Output-path checking is a future follow-up — this helper covers the
+input side via :func:`validate_input_path`.
+"""
+
+
+def _warn_if_long_windows_path(path: Path, label: str) -> None:
+    """Print a stderr warning when running on Windows and *path* is long.
+
+    Emits a single warning line when all of the following are true:
+
+    - ``sys.platform == "win32"``
+    - The resolved path string is longer than
+      :data:`_WINDOWS_PATH_WARN_THRESHOLD` characters.
+
+    The warning is non-fatal — callers decide whether to abort or
+    continue.  The *label* argument (e.g. ``"input"`` or ``"output"``)
+    appears in the warning so multi-path callers can distinguish which
+    path triggered it.
+
+    Note: output-path length checking is deferred to a follow-up; only
+    the input side is wired up here.
+    """
+    if sys.platform != "win32":
+        return
+    path_str = str(path)
+    if len(path_str) > _WINDOWS_PATH_WARN_THRESHOLD:
+        print(
+            f"Warning: {label} path is {len(path_str)} characters long "
+            f"(Windows MAX_PATH is 260). I/O may fail on deeply-nested paths. "
+            f"Consider enabling long-path support or moving the file closer to "
+            f"the drive root.",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def validate_input_path(path: str) -> tuple[int, str]:
     """Validate that ``path`` exists and has a supported book extension.
 
@@ -358,11 +504,16 @@ def validate_input_path(path: str) -> tuple[int, str]:
     pass ``~/books/foo.epub`` (Makefile, cron, subprocess.run with
     shell=False) get the same behaviour as an absolute path.
 
+    Emits a stderr warning via :func:`_warn_if_long_windows_path` when
+    the resolved path exceeds :data:`_WINDOWS_PATH_WARN_THRESHOLD`
+    characters on Windows.  The warning is non-fatal.
+
     Returns ``(EXIT_OK, '')`` if valid, or ``(EXIT_BAD_INPUT, message)``
     if invalid. Shared by convert and sample so the validation rules
     stay in one place.
     """
     resolved = Path(path).expanduser()
+    _warn_if_long_windows_path(resolved, "input")
     if not resolved.exists():
         return EXIT_BAD_INPUT, f"input file not found: {resolved}"
     ext = resolved.suffix.lower()

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.error
 from io import StringIO
 from typing import Any
 from unittest import mock
@@ -282,3 +283,214 @@ class TestUpdateApplySuccess:
              mock.patch("builtins.input") as mock_input:
             update_mod._run_apply(_args(yes=True))
         mock_input.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# update apply — prompt-on-stderr regression (N5)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateApplyPromptOnStderr:
+    """The confirmation prompt must go to stderr, not stdout.
+
+    A user piping `update apply | tee log.txt` must not see the prompt
+    text in the pipe.  Both the prompt and any cancellation message must
+    land on stderr only.
+    """
+
+    def test_prompt_on_stderr_not_stdout(self, capsys):
+        """Prompt text must appear on stderr, not stdout."""
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            rc = update_mod._run_apply(_args())
+        assert rc == 3, "declining must return EXIT_CANCELLED"
+        captured = capsys.readouterr()
+        assert "Download and install" not in captured.out, "prompt must not leak to stdout"
+        assert "Download and install" in captured.err, "prompt must appear on stderr"
+
+    def test_stdout_empty_on_cancel(self, capsys):
+        """stdout must be empty when the user cancels."""
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            rc = update_mod._run_apply(_args())
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "", "stdout must be empty on cancellation"
+
+    def test_cancelled_message_on_stderr(self, capsys):
+        """The 'Cancelled.' message must appear on stderr, not stdout."""
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value=""):
+            rc = update_mod._run_apply(_args())
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "Cancelled" in captured.err, "Cancelled message must be on stderr"
+        assert "Cancelled" not in captured.out, "Cancelled message must not leak to stdout"
+
+    def test_yes_flag_no_prompt_anywhere(self, capsys):
+        """With --yes, no prompt text must appear on stdout or stderr."""
+        from pathlib import Path
+        info = _make_update_info(available=True)
+        fake_path = Path("/tmp/AudiobookMaker-Setup-99.0.0.exe")
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("src.auto_updater.download_update", return_value=fake_path), \
+             mock.patch("src.auto_updater.apply_update"), \
+             mock.patch("builtins.input") as mock_input:
+            rc = update_mod._run_apply(_args(yes=True))
+        mock_input.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Download and install" not in captured.out
+        assert "Download and install" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# update check — network failure → exit 4
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateCheckNetworkFailure:
+    """Regression tests: network errors from check_for_update must exit 4."""
+
+    def test_exit_4_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args())
+        assert rc == 4
+
+    def test_stderr_message_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            update_mod._run_check(_args())
+        err = capsys.readouterr().err
+        assert "update check failed" in err
+        assert "Name or service not known" in err
+
+    def test_no_stdout_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            update_mod._run_check(_args())
+        out = capsys.readouterr().out
+        assert out == ""
+
+    def test_json_error_shape_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args(json=True))
+        assert rc == 4
+        out = capsys.readouterr().out.strip()
+        obj = json.loads(out)
+        assert obj["kind"] == "error"
+        assert obj["exit_code"] == 4
+        assert "error" in obj
+
+    def test_json_no_stderr_on_url_error(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            update_mod._run_check(_args(json=True))
+        err = capsys.readouterr().err
+        assert err == ""
+
+    def test_quiet_exit_4_no_stderr(self, capsys):
+        exc = urllib.error.URLError("Name or service not known")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args(quiet=True))
+        assert rc == 4
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert captured.out == ""
+
+    def test_exit_4_on_connection_error(self, capsys):
+        exc = ConnectionError("Connection refused")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args())
+        assert rc == 4
+
+    def test_exit_4_on_os_error(self, capsys):
+        exc = OSError("Network unreachable")
+        with mock.patch(
+            "src.auto_updater.check_for_update", side_effect=exc
+        ):
+            rc = update_mod._run_check(_args())
+        assert rc == 4
+
+    def test_success_path_still_exits_0_up_to_date(self, capsys):
+        """Control: up-to-date success path must still return 0."""
+        info = _make_update_info(available=False)
+        with mock.patch("src.auto_updater.check_for_update", return_value=info):
+            rc = update_mod._run_check(_args())
+        assert rc == 0
+
+    def test_success_path_still_exits_0_update_available(self, capsys):
+        """Control: update-available success path must still return 0."""
+        info = _make_update_info(available=True)
+        with mock.patch("src.auto_updater.check_for_update", return_value=info):
+            rc = update_mod._run_check(_args())
+        assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# update apply — prompt-routing regression tests (N5)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateApplyPromptRouting:
+    """Confirmation prompt text must land on stderr, not stdout."""
+
+    def test_prompt_text_on_stderr(self, capsys):
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            update_mod._run_apply(_args())
+        captured = capsys.readouterr()
+        assert "99.0.0" in captured.err, "prompt text (version) must appear on stderr"
+        assert "[y/N]" in captured.err, "prompt marker must appear on stderr"
+
+    def test_prompt_text_not_on_stdout(self, capsys):
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            update_mod._run_apply(_args())
+        captured = capsys.readouterr()
+        assert "[y/N]" not in captured.out, "prompt must not appear on stdout"
+
+    def test_stdout_empty_on_cancel(self, capsys):
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            rc = update_mod._run_apply(_args())
+        captured = capsys.readouterr()
+        assert rc == 3
+        assert captured.out == "", "stdout must be empty when user cancels"
+
+    def test_exit_cancelled_on_no(self, capsys):
+        from src.cli._common import EXIT_CANCELLED
+        info = _make_update_info(available=True)
+        with mock.patch("src.cli.update._is_frozen", return_value=True), \
+             mock.patch("src.auto_updater.check_for_update", return_value=info), \
+             mock.patch("builtins.input", return_value="n"):
+            rc = update_mod._run_apply(_args())
+        assert rc == EXIT_CANCELLED

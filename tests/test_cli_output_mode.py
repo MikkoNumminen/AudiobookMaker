@@ -149,7 +149,7 @@ class TestEngineCompatibilityCheck:
             mock.patch("src.cli.convert.validate_input_path", return_value=(0, "")),
             mock.patch("src.app_config.load", return_value=mock.MagicMock(
                 engine_id=engine_id, language="fi", voice_id="",
-                output_mode="single",
+                output_mode="single", speed="+0%", voice_description="",
             )),
             mock.patch("src.synthesis_orchestrator.suggest_output_path",
                        return_value="/tmp/out.mp3"),
@@ -216,7 +216,7 @@ class TestEngineCompatibilityCheck:
             mock.patch("src.cli.convert.validate_input_path", return_value=(0, "")),
             mock.patch("src.app_config.load", return_value=mock.MagicMock(
                 engine_id="edge", language="fi", voice_id="",
-                output_mode="single",
+                output_mode="single", speed="+0%", voice_description="",
             )),
             mock.patch("src.synthesis_orchestrator.suggest_output_path",
                        return_value="/tmp/out.mp3"),

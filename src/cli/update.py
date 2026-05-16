@@ -56,7 +56,17 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Check whether a newer version is available.",
         description="Query GitHub Releases and report whether this build is current.",
     )
-    add_output_mode_flags(chk)
+    add_output_mode_flags(
+        chk,
+        json_help=(
+            "Emit a single object with fields: "
+            "current_version, latest_version, update_available, release_url."
+        ),
+        quiet_help=(
+            "Suppress detail; print only the latest version when an update is "
+            "available, or nothing when already up to date."
+        ),
+    )
     chk.set_defaults(func=_run_check)
 
     # update apply
@@ -75,7 +85,15 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Skip the confirmation prompt and apply immediately.",
     )
-    add_output_mode_flags(apl)
+    add_output_mode_flags(
+        apl,
+        json_help=(
+            "Emit one progress object per line; "
+            "the final object reports current_version, latest_version, "
+            "installer_path, release_url, and status."
+        ),
+        quiet_help="Suppress progress; print only the new version on success.",
+    )
     apl.set_defaults(func=_run_apply)
 
 
@@ -105,13 +123,22 @@ def _is_frozen() -> bool:
 
 def _run_check(args: argparse.Namespace) -> int:
     json_mode: bool = getattr(args, "json", False)
+    quiet: bool = getattr(args, "quiet", False)
 
     try:
         from src.auto_updater import APP_VERSION, check_for_update
         info = check_for_update(APP_VERSION)
     except Exception as exc:
-        print(f"Error checking for update: {exc}", file=sys.stderr)
-        return EXIT_INTERNAL
+        reason = str(exc).strip() or type(exc).__name__
+        if json_mode:
+            print(json.dumps({
+                "kind": "error",
+                "error": reason,
+                "exit_code": EXIT_RUNTIME,
+            }), flush=True)
+        elif not quiet:
+            print(f"update check failed: {reason}", file=sys.stderr)
+        return EXIT_RUNTIME
 
     release_url = _release_url(info.latest_version) if info.available else ""
 
@@ -193,15 +220,17 @@ def _run_apply(args: argparse.Namespace) -> int:
 
     # Prompt unless --yes.
     if not yes:
+        print(
+            f"Download and install v{info.latest_version}? [y/N] ",
+            end="", flush=True, file=sys.stderr,
+        )
         try:
-            answer = input(
-                f"Download and install v{info.latest_version}? [y/N] "
-            ).strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED
         if answer not in ("y", "yes"):
-            print("Cancelled.")
+            print("Cancelled.", file=sys.stderr)
             return EXIT_CANCELLED
 
     if not json_mode:

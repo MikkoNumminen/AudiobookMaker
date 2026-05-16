@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -22,13 +23,12 @@ from src.pdf_parser import Chapter, ParsedBook
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
-# Repo root holds the Rubicon test file. Resolve it once so every test that
-# touches the real file can reuse it without recomputing the path.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_RUBICON = (
-    _REPO_ROOT
-    / "Rubicon_The_Last_Years_of_the_Roman_Republic_Holland,_Tom_2003_Anchor.epub"
-)
+# Optional real-EPUB round-trip suite. Set AUDIOBOOKMAKER_TEST_REAL_EPUB to
+# the absolute path of a substantial EPUB (e.g. one under .local/sources/)
+# to opt in. The path itself is never committed — keep test inputs out of
+# the public repo per CLAUDE.md's no-third-party-material policy.
+_REAL_EPUB_PATH = os.environ.get("AUDIOBOOKMAKER_TEST_REAL_EPUB", "")
+_REAL_EPUB = Path(_REAL_EPUB_PATH) if _REAL_EPUB_PATH else None
 
 
 def _make_epub(
@@ -148,6 +148,43 @@ class TestParseEpubBasic:
         with pytest.raises(ValueError):
             parse_epub(str(bogus))
 
+    def test_replacement_chars_stripped_from_content(self) -> None:
+        """U+FFFD must never reach the TTS step.
+
+        The TTS pipeline reads chapter.content verbatim. If a malformed
+        EPUB carries the replacement character (U+FFFD), the engine would
+        synthesize a literal "question mark" sound between sentences.
+        ``epub_parser`` strips it during content normalization.
+
+        This is a hand-crafted regression test so the contract is
+        enforced in CI; the opt-in real-EPUB suite also exercises the
+        same path on real-world content when a tester sets the env var.
+
+        The replacement character is spelled ``\\ufffd`` rather than as a
+        literal so the test source stays unambiguous in code-review
+        tools, editors, and diff viewers that render U+FFFD with their
+        own glyph.
+        """
+        path = _make_epub(
+            [
+                (
+                    "c1.xhtml",
+                    "Replacement Chapter",
+                    "<p>"
+                    + ("Hello\ufffdworld. The fog \ufffd over the harbour. " * 8)
+                    + "</p>",
+                ),
+            ]
+        )
+        book = parse_epub(path)
+        # At least one chapter must have survived the parser; this rules
+        # out the degenerate "all chapters dropped" failure mode.
+        assert book.chapters, "parser dropped every chapter"
+        for ch in book.chapters:
+            assert "\ufffd" not in ch.content, (
+                f"Replacement char leaked into chapter {ch.index} {ch.title!r}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Spine-iteration error logging
@@ -202,37 +239,53 @@ def test_spine_iteration_failure_logged(monkeypatch, tmp_path, caplog) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Full round-trip with the bundled Rubicon file
+# Full round-trip with a real EPUB (opt-in via AUDIOBOOKMAKER_TEST_REAL_EPUB)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(
-    not _RUBICON.exists(),
-    reason=f"Rubicon test EPUB not present at {_RUBICON}",
+    _REAL_EPUB is None or not _REAL_EPUB.exists(),
+    reason=(
+        "AUDIOBOOKMAKER_TEST_REAL_EPUB is not set or does not point at an "
+        "existing file. Set it to an absolute path to opt into the "
+        "real-EPUB round-trip suite."
+    ),
 )
-class TestParseEpubRubicon:
-    """Sanity checks against a real ~800k char English history EPUB."""
+class TestParseEpubRealBook:
+    """Sanity checks against a real, substantial EPUB.
 
-    def test_rubicon_has_many_chapters(self) -> None:
-        book = parse_epub(str(_RUBICON))
-        # Rubicon has 28 document items; several are front-matter stubs
-        # under _MIN_ITEM_CHARS. Even after filtering we expect well over
-        # five real chapters.
+    Hand-crafted fixtures in TestParseEpubBasic cover correctness; this
+    suite verifies that the parser behaves on a real-world file (encoding
+    edge cases, large content, full metadata round-trip). Opt in by
+    pointing AUDIOBOOKMAKER_TEST_REAL_EPUB at a local EPUB; skipped
+    otherwise.
+    """
+
+    def test_real_epub_has_many_chapters(self) -> None:
+        book = parse_epub(str(_REAL_EPUB))
+        # A real book always has more than a handful of chapter-sized
+        # items after front-matter filtering. Five is a low bar that any
+        # full-length work will clear.
         assert len(book.chapters) > 5
 
-    def test_rubicon_has_substantial_char_count(self) -> None:
-        book = parse_epub(str(_RUBICON))
+    def test_real_epub_has_substantial_char_count(self) -> None:
+        book = parse_epub(str(_REAL_EPUB))
+        # A real book is at least 100k characters. This guards against a
+        # regression where the parser silently drops most of the spine.
         assert book.total_chars > 100_000
 
-    def test_rubicon_metadata_extracted(self) -> None:
-        book = parse_epub(str(_RUBICON))
-        assert "Rubicon" in book.metadata.title
-        assert "Holland" in book.metadata.author
+    def test_real_epub_metadata_extracted(self) -> None:
+        book = parse_epub(str(_REAL_EPUB))
+        # We don't pin specific strings (the file could be anything); we
+        # only assert that title and author came through non-empty, which
+        # is the metadata contract.
+        assert book.metadata.title.strip() != ""
+        assert book.metadata.author.strip() != ""
 
-    def test_rubicon_no_replacement_chars_leak_into_content(self) -> None:
+    def test_real_epub_no_replacement_chars_leak_into_content(self) -> None:
         # Our parser strips the U+FFFD replacement character so it never
         # reaches the TTS step (where it would be read as "question mark").
-        book = parse_epub(str(_RUBICON))
+        book = parse_epub(str(_REAL_EPUB))
         for ch in book.chapters:
             assert "\ufffd" not in ch.content, (
                 f"Replacement char leaked into chapter {ch.index} {ch.title!r}"

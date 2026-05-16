@@ -73,6 +73,8 @@ class _DummyEngine(TTSEngine):
         language: str,
         progress_cb=None,
         reference_audio=None,
+        voice_description=None,
+        rate=None,
     ) -> None:
         pass
 

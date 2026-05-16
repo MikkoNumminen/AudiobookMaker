@@ -23,6 +23,7 @@ from src.cli._common import (
     EXIT_BAD_INPUT,
     EXIT_INTERNAL,
     EXIT_OK,
+    OVERWRITE_CHOICES,
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
@@ -36,6 +37,7 @@ from src.cli._common import (
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "sample",
+        aliases=["s"],
         help="Synthesize a ~500 char preview of a book.",
         description=(
             "Convert the first ~500 characters of a book to MP3 as a quick\n"
@@ -95,8 +97,27 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Print what would happen without synthesizing.",
     )
+    p.add_argument(
+        "--overwrite",
+        metavar="MODE",
+        choices=list(OVERWRITE_CHOICES),
+        default="replace",
+        help=(
+            "What to do when the sample output already exists. "
+            "'replace' (default): overwrite. "
+            "'skip': exit 0 immediately without synthesizing. "
+            "'fresh': delete the chunk cache before starting."
+        ),
+    )
     add_synthesis_output_mode_flag(p)
-    add_output_mode_flags(p)
+    add_output_mode_flags(
+        p,
+        json_help=(
+            "Emit one ProgressEvent per line (NDJSON); "
+            "see docs/CLI.md for the event schema."
+        ),
+        quiet_help="Suppress progress; print only the final output path.",
+    )
     p.set_defaults(func=run)
 
 

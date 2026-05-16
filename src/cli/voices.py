@@ -55,7 +55,14 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         choices=["fi", "en"],
         help="Filter to voices for a specific language (fi or en).",
     )
-    add_output_mode_flags(lst)
+    add_output_mode_flags(
+        lst,
+        json_help=(
+            "Emit one voice object per line (NDJSON) with fields: "
+            "engine, id, language, gender, display_name."
+        ),
+        quiet_help="Print only voice ids, one per line.",
+    )
     lst.set_defaults(func=_run_list)
 
 

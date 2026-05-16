@@ -3,13 +3,14 @@
 Usage:
     audiobookmaker engines list             [--installed-only] [--json] [--quiet]
     audiobookmaker engines install <id>     [--yes] [--json] [--quiet]
-    audiobookmaker engines remove  <id>     [--yes]
+    audiobookmaker engines remove  <id>     [--yes] [--json] [--quiet]
     audiobookmaker engines check   <id>
 
 Exit codes:
     0  success / engine available
     1  bad input (unknown engine id, engine not installed)
     2  install/check failure
+    3  cancelled by user
     5  unexpected error
 """
 
@@ -47,26 +48,55 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Only show engines that are currently available.",
     )
-    add_output_mode_flags(lst)
+    add_output_mode_flags(
+        lst,
+        json_help=(
+            "Emit one engine object per line (NDJSON) with fields: "
+            "id, display_name, available, reason."
+        ),
+        quiet_help="Print only engine ids, one per line.",
+    )
     lst.set_defaults(func=_run_list)
 
     # engines install <id>
     ins = sub.add_parser("install", help="Download and install a TTS engine.")
     ins.add_argument("engine_id", metavar="ID", help="Engine id (e.g. piper, chatterbox_fi).")
     ins.add_argument("--yes", action="store_true", default=False, help="Skip prompts.")
-    add_output_mode_flags(ins)
+    add_output_mode_flags(
+        ins,
+        json_help=(
+            "Emit one progress object per line (NDJSON) with fields: "
+            "kind, step, total_steps, step_label, percent, message, error, done."
+        ),
+        quiet_help="Suppress progress; print only the final result.",
+    )
     ins.set_defaults(func=_run_install)
 
     # engines remove <id>
     rem = sub.add_parser("remove", help="Remove an installed TTS engine's assets.")
     rem.add_argument("engine_id", metavar="ID", help="Engine id to remove.")
     rem.add_argument("--yes", action="store_true", default=False, help="Skip confirmation.")
+    add_output_mode_flags(
+        rem,
+        json_help=(
+            "Emit a single result object with fields: ok, id. "
+            "Also bypasses the interactive confirmation prompt."
+        ),
+        quiet_help="Suppress the removal confirmation message.",
+    )
     rem.set_defaults(func=_run_remove)
 
     # engines check <id>
     chk = sub.add_parser("check", help="Check whether a TTS engine is available.")
     chk.add_argument("engine_id", metavar="ID", help="Engine id to check.")
-    add_output_mode_flags(chk)
+    add_output_mode_flags(
+        chk,
+        json_help=(
+            "Emit a single check object with fields: "
+            "id, display_name, available, reason."
+        ),
+        quiet_help='Suppress detail; print only "available" or nothing (uses exit code).',
+    )
     chk.set_defaults(func=_run_check)
 
 
@@ -214,31 +244,47 @@ def _run_install(args: argparse.Namespace) -> int:
 def _run_remove(args: argparse.Namespace) -> int:
     engine_id: str = args.engine_id
     yes: bool = getattr(args, "yes", False)
+    json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
+
+    def _err(msg: str, code: int) -> int:
+        if json_mode:
+            print(json.dumps({"ok": False, "error": msg, "exit_code": code}), flush=True)
+        else:
+            print(msg, file=sys.stderr)
+        return code
 
     try:
         from src.engine_installer import get_installer
     except Exception as exc:
-        print(f"Error loading installer module: {exc}", file=sys.stderr)
-        return EXIT_INTERNAL
+        return _err(f"Error loading installer module: {exc}", EXIT_INTERNAL)
 
     installer = get_installer(engine_id)
     if installer is None:
-        print(f"Unknown engine id '{engine_id}'.", file=sys.stderr)
-        return EXIT_BAD_INPUT
+        return _err(f"Unknown engine id '{engine_id}'.", EXIT_BAD_INPUT)
 
     if hasattr(installer, "is_installed") and not installer.is_installed():
-        print(f"Engine '{engine_id}' is not installed.", file=sys.stderr)
-        return EXIT_BAD_INPUT
+        return _err(f"Engine '{engine_id}' is not installed.", EXIT_BAD_INPUT)
 
-    if not yes:
+    # --json bypasses the prompt because JSON consumers can't answer y/N
+    # interactively. --quiet alone does NOT bypass it — cosmetic flags must
+    # not change destructive behaviour (lesson from M6 / packs remove fix).
+    if not (json_mode or yes):
+        # Route the prompt to stderr so it never leaks into a stdout
+        # pipeline (lesson from N5 / packs remove + update apply prompt
+        # fix in PR #49). Cancellation message also stays on stderr to
+        # match packs remove / update apply.
+        print(
+            f"Remove engine '{engine_id}'? [y/N] ",
+            end="", file=sys.stderr, flush=True,
+        )
         try:
-            answer = input(f"Remove engine '{engine_id}'? [y/N] ").strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("\nAborted.", file=sys.stderr)
+            print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED
         if answer not in ("y", "yes"):
-            print("Aborted.", file=sys.stderr)
+            print("Cancelled.", file=sys.stderr)
             return EXIT_CANCELLED
 
     # Every installer in the registry implements remove() on its class
@@ -253,15 +299,15 @@ def _run_remove(args: argparse.Namespace) -> int:
             # silently doing nothing.
             removed_any = False
     except Exception as exc:
-        print(f"Remove failed: {exc}", file=sys.stderr)
-        return EXIT_INTERNAL
+        return _err(f"Remove failed: {exc}", EXIT_INTERNAL)
 
     if not removed_any:
-        print(f"Engine '{engine_id}' is not installed.", file=sys.stderr)
-        return EXIT_BAD_INPUT
+        return _err(f"Engine '{engine_id}' is not installed.", EXIT_BAD_INPUT)
 
-    if not quiet:
-        print(f"Engine '{engine_id}' removed.")
+    if json_mode:
+        print(json.dumps({"ok": True, "id": engine_id}), flush=True)
+    elif not quiet:
+        print(f"Removed: {engine_id}")
     return EXIT_OK
 
 
