@@ -23,6 +23,7 @@ from src.cli._common import (
     EXIT_BAD_INPUT,
     EXIT_INTERNAL,
     EXIT_OK,
+    OVERWRITE_CHOICES,
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
@@ -30,7 +31,6 @@ from src.cli._common import (
     materialize_stdin_to_tempfile,
     validate_input_path,
 )
-from src.cli.convert import OVERWRITE_CHOICES
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:

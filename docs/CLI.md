@@ -567,6 +567,7 @@ Event kinds:
 | `chapter_done` | A chapter finished |
 | `full_done` | All chapters merged into the final MP3 |
 | `done` | Synthesis complete; `output_path` is set |
+| `skipped` | `--overwrite skip` short-circuited the run because `output_path` already existed; no synthesis happened, `output_path` is set to the existing file |
 | `error` | A recoverable error; `raw_line` has the message |
 | `exit` | Subprocess exited; `returncode` is set |
 

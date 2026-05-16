@@ -33,6 +33,7 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     EXIT_RUNTIME,
+    OVERWRITE_CHOICES,
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
@@ -43,21 +44,6 @@ from src.cli._common import (
     runner_script_path,
     validate_input_path,
 )
-
-# ---------------------------------------------------------------------------
-# --overwrite choices
-# ---------------------------------------------------------------------------
-
-OVERWRITE_CHOICES = ("replace", "skip", "fresh")
-"""Accepted values for ``--overwrite`` on convert and sample.
-
-- ``replace`` (default) — current behaviour: overwrite an existing output
-  file, reuse cached chunks. Preserves existing scripts.
-- ``skip``    — if the final output file already exists, exit 0 immediately
-  without synthesizing. Useful in batch loops.
-- ``fresh``   — delete the chunked cache directory before starting so the
-  run begins clean; overwrite the output file if it exists.
-"""
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
