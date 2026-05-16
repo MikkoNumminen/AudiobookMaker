@@ -162,6 +162,13 @@ ffprobe -v error -show_entries stream=codec_name,channels,sample_rate \
 - If duration ≥ 300 s, you're on the **long branch**. Per-speaker totals
   from `speakers.yaml` will pick the tier after Step 2.
 
+This source-duration check is the coarse filter — it only decides
+whether the source is even long enough for LoRA to be viable.
+Per-speaker minutes from Step 2's `speakers.yaml` do the final tier
+assignment (a 30-min source with one speaker holding 28 min and
+another 90 s still puts the second speaker in `few_shot` regardless
+of source length).
+
 Then create the run dir and re-encode (ffmpeg does NOT auto-create
 parent directories):
 
@@ -399,8 +406,9 @@ Required flags (per `voice_pack_package.py --help`):
   preview sample inside the pack.
 - `--adapter` — required for `full_lora` / `reduced_lora`. Either the
   PEFT save directory or the `.safetensors` / `.bin` file inside it.
-- `--reference` — required ONLY for `few_shot` tier; path to the
-  picked ref WAV.
+
+(The few-shot path uses `--reference` instead of `--adapter`; see
+Step 5a for that flag.)
 
 The pack stays in `.local/`. **Never copy it to
 `~/.audiobookmaker/voice_packs/`.** The Voice dropdown in the GUI must
