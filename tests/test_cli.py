@@ -531,6 +531,28 @@ class TestSpeedFlag:
         finally:
             os.unlink(path)
 
+    def test_malformed_config_speed_falls_back_to_default(self):
+        """A corrupt config field (e.g. 'bogus') must not reach the
+        engine. sanitize_rate substitutes the safe default and a
+        stderr breadcrumb tells the user we did so."""
+        from src.cli._common import sanitize_rate
+
+        # Unit-test the sanitizer directly first.
+        assert sanitize_rate("bogus") == "+0%"
+        assert sanitize_rate("12345") == "+0%"
+        assert sanitize_rate("fast") == "+0%"
+        assert sanitize_rate(None) == "+0%"
+        assert sanitize_rate("") == "+0%"
+        # And valid edge-tts rate strings pass through untouched.
+        assert sanitize_rate("+0%") == "+0%"
+        assert sanitize_rate("-25%") == "-25%"
+        assert sanitize_rate("+25%") == "+25%"
+        assert sanitize_rate("+50%") == "+50%"
+        # Unusual but format-valid values also pass through; only
+        # malformed strings are rewritten.
+        assert sanitize_rate("+10%") == "+10%"
+        assert sanitize_rate("-50%") == "-50%"
+
 
 # ---------------------------------------------------------------------------
 # --voice-description flag (M7)

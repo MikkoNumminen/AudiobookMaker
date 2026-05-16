@@ -47,6 +47,34 @@ SPEED_KEYWORD_TO_RATE: dict[str, str] = {
     "xfast":  "+50%",
 }
 
+# Accepted format for a raw rate string in the config / env var: an
+# optional ``+`` or ``-`` sign, one or more digits, and a trailing ``%``.
+# Matches edge-tts's documented rate parameter shape. Anything else is
+# treated as malformed and the call site falls back to "+0%".
+import re as _re
+_RATE_PATTERN = _re.compile(r"^[+-]?\d+%$")
+
+
+def sanitize_rate(raw: Optional[str], *, default: str = "+0%") -> str:
+    """Return ``raw`` if it matches the edge-tts rate format, else
+    ``default``.
+
+    Used to defend against a corrupt config file or a hand-edited env
+    var carrying a bogus rate value (e.g. ``"bogus"`` or ``"fast"``).
+    Both would otherwise be passed straight through to the engine,
+    which would surface an opaque error mid-synthesis.
+
+    ``None`` and the empty string return ``default`` with no warning;
+    they're the natural "field absent" sentinel from the config layer.
+    A non-empty string that fails the regex returns ``default`` — the
+    caller is responsible for logging the substitution if it wants to.
+    """
+    if raw is None or raw == "":
+        return default
+    if _RATE_PATTERN.match(raw):
+        return raw
+    return default
+
 
 def resolve_str(
     flag_value: Optional[str],

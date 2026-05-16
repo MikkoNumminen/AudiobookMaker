@@ -141,7 +141,16 @@ def run(args: argparse.Namespace) -> int:
             )
             return EXIT_BAD_INPUT
     else:
-        rate = cfg.speed if cfg.speed else "+0%"
+        # See convert.run() for the rationale on sanitize_rate.
+        from src.cli._common import sanitize_rate
+        raw_cfg_speed = cfg.speed or ""
+        rate = sanitize_rate(raw_cfg_speed, default="+0%")
+        if raw_cfg_speed and rate != raw_cfg_speed:
+            print(
+                f"[config] ignoring malformed speed value {raw_cfg_speed!r}; "
+                "falling back to '+0%'.",
+                file=sys.stderr,
+            )
     voice_description: Optional[str] = resolve_str(
         getattr(args, "voice_description", None),
         "AUDIOBOOKMAKER_VOICE_DESCRIPTION",

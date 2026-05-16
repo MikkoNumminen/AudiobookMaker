@@ -139,10 +139,12 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
         "",
         "",
     ) or None
-    # Convert the speed keyword to an edge-tts rate string.  When the
+    # Convert the speed keyword to an edge-tts rate string. When the
     # config stores a raw rate string (e.g. "+0%") fall back to that so
-    # the GUI-persisted value is honoured even when the user doesn't pass
-    # the flag explicitly.
+    # the GUI-persisted value is honoured even when the user doesn't
+    # pass the flag explicitly. sanitize_rate() defends against a
+    # malformed config field (e.g. "bogus") which would otherwise be
+    # passed straight to the engine and fail mid-synthesis.
     if speed_keyword is not None:
         rate: Optional[str] = SPEED_KEYWORD_TO_RATE.get(speed_keyword)
         if rate is None:
@@ -153,7 +155,17 @@ def run(args: argparse.Namespace, *, sample_text: Optional[str] = None) -> int:
             )
             return EXIT_BAD_INPUT
     else:
-        rate = cfg.speed if cfg.speed else "+0%"
+        from src.cli._common import sanitize_rate
+        raw_cfg_speed = cfg.speed or ""
+        rate = sanitize_rate(raw_cfg_speed, default="+0%")
+        if raw_cfg_speed and rate != raw_cfg_speed:
+            # Config carried something we couldn't parse — warn so the
+            # user knows we substituted the default.
+            print(
+                f"[config] ignoring malformed speed value {raw_cfg_speed!r}; "
+                "falling back to '+0%'.",
+                file=sys.stderr,
+            )
     voice_description = resolve_str(
         getattr(args, "voice_description", None),
         "AUDIOBOOKMAKER_VOICE_DESCRIPTION",
