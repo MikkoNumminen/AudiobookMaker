@@ -128,16 +128,16 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def add_output_mode_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --json and --quiet output mode flags to a parser."""
+    """Add --json / -j and --quiet / -q output mode flags to a parser."""
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--json",
+        "--json", "-j",
         action="store_true",
         default=False,
         help="Emit one JSON object per line (NDJSON format, ProgressEvent shape).",
     )
     group.add_argument(
-        "--quiet",
+        "--quiet", "-q",
         action="store_true",
         default=False,
         help="Suppress progress; print only the final output path.",
