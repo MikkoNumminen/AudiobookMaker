@@ -226,6 +226,8 @@ the auto-generated detail follows.
      renderer (or the pre-commit hook will re-run it for you). -->
 ### `audiobookmaker-cli convert`
 
+**Aliases:** `c`
+
 Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
 | Flag | Description |
@@ -249,6 +251,8 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
 ### `audiobookmaker-cli sample`
 
+**Aliases:** `s`
+
 Convert the first ~500 characters of a book to MP3 as a quick quality check before running the full conversion.
 
 | Flag | Description |
@@ -271,6 +275,8 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 ---
 
 ### `audiobookmaker-cli preview`
+
+**Aliases:** `p`
 
 Synthesize a short text string and play it through the system audio output. Nothing is saved to disk.
 

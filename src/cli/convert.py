@@ -47,6 +47,7 @@ from src.cli._common import (
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "convert",
+        aliases=["c"],
         help="Convert a PDF/EPUB/TXT to MP3.",
         description=(
             "Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.\n\n"

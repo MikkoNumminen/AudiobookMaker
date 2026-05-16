@@ -35,6 +35,7 @@ from src.cli._common import (
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "sample",
+        aliases=["s"],
         help="Synthesize a ~500 char preview of a book.",
         description=(
             "Convert the first ~500 characters of a book to MP3 as a quick\n"

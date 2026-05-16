@@ -44,6 +44,7 @@ from src.cli._common import (
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "preview",
+        aliases=["p"],
         help="Synthesize text and play it immediately.",
         description=(
             "Synthesize a short text string and play it through the system\n"
