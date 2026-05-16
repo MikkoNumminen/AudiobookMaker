@@ -261,6 +261,55 @@ def _run_inner(
         )
         return EXIT_OK
 
+    # Disk-space preflight — mirrors the GUI check in gui_unified.py.
+    # Skipped on --dry-run (no synthesis, no disk pressure).
+    #
+    # NOTE on double-parse: the call to parse_book below loads the whole
+    # input so we can pass an accurate text_chars to the disk estimator.
+    # The actual synthesis path parses the book again. The trade-off is
+    # accepted today because the estimate is highly sensitive to
+    # text_chars (linear scaling), and a file-size-based heuristic
+    # over-estimates by 100x+ on PDF/EPUB. A future optimization could
+    # cache the ParsedBook on InprocessRequest to avoid the re-parse.
+    try:
+        from src.system_checks import check_output_disk_space
+    except ImportError as exc:
+        # The safety net is gone — make sure the user knows we skipped it.
+        print(
+            f"[preflight] disk-space check unavailable: {exc}; "
+            "proceeding without check.",
+            file=sys.stderr,
+        )
+    else:
+        if sample_text is not None:
+            text_chars = len(sample_text)
+        else:
+            try:
+                from src.synthesis_orchestrator import parse_book
+                text_chars = len(parse_book(input_path).full_text)
+            except Exception as exc:
+                # Parse failed — synthesis will hit the same error and
+                # surface it properly. Skip the preflight loudly so the
+                # user sees that no disk check was performed.
+                print(
+                    f"[preflight] could not estimate disk requirement: {exc}; "
+                    "skipping disk-space check.",
+                    file=sys.stderr,
+                )
+                text_chars = 0
+        if text_chars > 0:
+            ok, free_mb, need_mb = check_output_disk_space(
+                output_path, text_chars, engine_id
+            )
+            if not ok:
+                print(
+                    f"Error: insufficient disk space at {output_path}. "
+                    f"Free: {free_mb:.0f} MB, required (estimate): {need_mb:.0f} MB. "
+                    "Free up space or pass --output to a drive with more free space.",
+                    file=sys.stderr,
+                )
+                return EXIT_MISSING_DEP
+
     # Load engine registry and look up the engine.
     try:
         from src import engine_registry  # noqa: F401
