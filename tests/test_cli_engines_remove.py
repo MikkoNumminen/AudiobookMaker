@@ -255,11 +255,11 @@ class TestEnginesRemovePromptOnStderr:
         assert rc == 3
         assert out.strip() == "", "stdout must be empty on cancellation"
 
-    def test_cancelled_message_on_stderr(self):
-        """The 'Cancelled.' message must appear on stderr — both for
-        explicit-no AND for EOF/KeyboardInterrupt. Matches the
-        packs-remove / update-apply phrasing (was 'Aborted.' before this
-        commit; aligned for consistency with the rest of the CLI)."""
+    def test_cancelled_message_on_stderr_explicit_no(self):
+        """The 'Cancelled.' message must appear on stderr when the user
+        answers 'n' at the prompt. Matches the packs-remove /
+        update-apply phrasing (was 'Aborted.' before this commit;
+        aligned for consistency with the rest of the CLI)."""
         pytest.importorskip("src.engine_installer")
         import src.engine_installer as ei
 
@@ -270,6 +270,25 @@ class TestEnginesRemovePromptOnStderr:
 
         assert rc == 3
         assert "Cancelled" in err
+
+    def test_cancelled_message_on_stderr_on_eof(self):
+        """The 'Cancelled.' message must also appear on stderr when
+        input is closed mid-prompt (EOFError) or Ctrl-C is pressed
+        (KeyboardInterrupt). Same path, same exit code, same wording."""
+        pytest.importorskip("src.engine_installer")
+        import src.engine_installer as ei
+
+        fake = _make_fake_installer()
+        with mock.patch.object(ei, "get_installer", return_value=fake), \
+             mock.patch("builtins.input", side_effect=EOFError):
+            rc, out, err = _run(["engines", "remove", "piper"])
+
+        assert rc == 3
+        assert "Cancelled" in err
+        # The prompt was still rendered (we print before input() blocks)
+        # so stdout must still be empty and stderr must carry the prompt.
+        assert "Remove engine" in err
+        assert out.strip() == ""
 
     def test_yes_flag_no_prompt_anywhere(self):
         """With --yes, no prompt text appears on stdout or stderr."""
