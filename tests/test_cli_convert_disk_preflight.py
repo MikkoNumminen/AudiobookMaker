@@ -72,7 +72,7 @@ def _run_inner_with_mocks(args, *, disk_result, synth_return=EXIT_OK):
         mock.patch(
             "src.app_config.load",
             return_value=mock.MagicMock(
-                engine_id="edge", language="fi", voice_id="", output_mode="single"
+                engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description=""
             ),
         ),
         mock.patch(
@@ -189,7 +189,7 @@ class TestDryRunSkipsPreflight:
             mock.patch(
                 "src.app_config.load",
                 return_value=mock.MagicMock(
-                    engine_id="edge", language="fi", voice_id="", output_mode="single"
+                    engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description=""
                 ),
             ),
             mock.patch(
@@ -249,7 +249,7 @@ class TestParseFailureSkipsPreflightLoudly:
             mock.patch(
                 "src.app_config.load",
                 return_value=mock.MagicMock(
-                    engine_id="edge", language="fi", voice_id="", output_mode="single"
+                    engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description=""
                 ),
             ),
             mock.patch(
@@ -318,7 +318,7 @@ class TestSystemChecksImportFailureLogged:
                 mock.patch(
                     "src.app_config.load",
                     return_value=mock.MagicMock(
-                        engine_id="edge", language="fi", voice_id="", output_mode="single"
+                        engine_id="edge", language="fi", voice_id="", output_mode="single", speed="+0%", voice_description=""
                     ),
                 ),
                 mock.patch(

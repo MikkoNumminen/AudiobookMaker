@@ -461,6 +461,18 @@ Run system health checks and report which engines are ready.
 |------|-------------|
 | `--json` | Emit one check object per line (NDJSON) with fields: name, status, required, detail; followed by a summary object with fields: kind, status, required_missing, exit_code. |
 | `--quiet` | Print only "doctor: OK" or "doctor: FAIL — required components missing". |
+
+---
+
+### `audiobookmaker-cli report-bug`
+
+Build a GitHub 'new issue' URL pre-filled with app version, OS, and active engine, then open it in the default browser.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit one JSON object per line (NDJSON). |
+| `--quiet` | Suppress progress; print only the final result. |
+| `--print` | Print the URL to stdout without opening a browser. |
 <!-- END_GENERATED_REFERENCE -->
 
 ---

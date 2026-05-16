@@ -95,6 +95,7 @@ def _build_parser() -> argparse.ArgumentParser:
         engines,
         packs,
         preview,
+        report_bug,
         sample,
         update,
         voices,
@@ -109,6 +110,7 @@ def _build_parser() -> argparse.ArgumentParser:
     config.add_parser(subparsers)
     update.add_parser(subparsers)
     doctor.add_parser(subparsers)
+    report_bug.add_parser(subparsers)
 
     # Short aliases for the most-used subcommands are declared via the
     # public ``aliases=`` parameter on each subcommand's add_parser()
