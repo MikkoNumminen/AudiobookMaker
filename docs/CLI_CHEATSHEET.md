@@ -141,6 +141,18 @@ audiobookmaker-cli convert mybook.pdf --overwrite skip    # exit 0 if output exi
 audiobookmaker-cli convert mybook.pdf --overwrite fresh   # wipe chunk cache first
 ```
 
+**Chunk size** (Chatterbox only). The Chatterbox engine splits text
+into ~300-character chunks by default (the upstream fluency sweet
+spot). For short inputs where you want a single autoregressive run
+with no chunk boundaries — handy when you're hitting boundary
+hallucinations — raise it so the whole text fits in one chunk:
+```powershell
+audiobookmaker-cli convert short.txt --engine chatterbox_fi --chunk-chars 500
+```
+Edge-TTS and Piper ignore this flag. See
+[english_grandmom.md](english_grandmom.md) for context on when this
+helps and when it doesn't.
+
 **Pipe text or files in.** A `-` in place of the input means "read
 stdin." Binary inputs (`pdf`/`epub`) need `--input-format`:
 ```powershell
