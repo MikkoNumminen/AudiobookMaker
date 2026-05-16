@@ -219,6 +219,9 @@ class InprocessRequest:
     input_text: Optional[str] = None
     reference_audio: Optional[str] = None
     voice_description: Optional[str] = None
+    rate: Optional[str] = None
+    """Speed adjustment in edge-tts notation (e.g. '-25%', '+0%', '+25%',
+    '+50%'). None means use the engine default."""
 
 
 EventSink = Callable[[ProgressEvent], None]
@@ -304,6 +307,7 @@ def run_inprocess_synthesis(
             progress_cb=progress_cb,
             reference_audio=request.reference_audio,
             voice_description=request.voice_description,
+            rate=request.rate,
         )
 
         on_event(ProgressEvent(

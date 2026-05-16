@@ -166,8 +166,8 @@ the same cuDNN DLL into this venv. See
 for the one-line rename that fixes it.
 
 **5. Drop your book in the repo root.** An EPUB, a PDF, or a plain
-`.txt` file will all work. Copy `Rubicon.epub` (or whatever book you
-have) into the `AudiobookMaker/` folder you cloned in step 1.
+`.txt` file will all work. Copy `book.epub` (or whatever book you have)
+into the `AudiobookMaker/` folder you cloned in step 1.
 
 **6. Make an output folder.** The synthesis script doesn't create it
 for you:
@@ -185,8 +185,8 @@ One command produces an MP3.
 Windows (PowerShell — backticks are line-continuations):
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
-    --epub Rubicon.epub `
-    --out out\rubicon.mp3 `
+    --epub book.epub `
+    --out out\book.mp3 `
     --language en `
     --device cuda
 ```
@@ -194,8 +194,8 @@ Windows (PowerShell — backticks are line-continuations):
 Linux (bash — backslashes are line-continuations):
 ```bash
 .venv-chatterbox/bin/python scripts/generate_chatterbox_audiobook.py \
-    --epub Rubicon.epub \
-    --out out/rubicon.mp3 \
+    --epub book.epub \
+    --out out/book.mp3 \
     --language en \
     --device cuda
 ```
@@ -264,7 +264,7 @@ add `--chapters N,M` to synthesize only those chapters:
 
 ```powershell
 .venv-chatterbox\Scripts\python.exe scripts\generate_chatterbox_audiobook.py `
-    --epub Rubicon.epub `
+    --epub book.epub `
     --chapters 10,11 `
     --out out\test.mp3 `
     --language en --device cuda
@@ -274,7 +274,7 @@ To see the chapter list first — so you know which indices are real
 chapters and which are front matter:
 
 ```powershell
-python -c "from src.epub_parser import parse_epub; b = parse_epub('Rubicon.epub'); [print(i, repr(c.title), len(c.content), 'chars') for i, c in enumerate(b.chapters)]"
+python -c "from src.epub_parser import parse_epub; b = parse_epub('book.epub'); [print(i, repr(c.title), len(c.content), 'chars') for i, c in enumerate(b.chapters)]"
 ```
 
 For a PDF, use `src.pdf_parser` and `parse_pdf` instead. The first

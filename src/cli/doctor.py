@@ -35,7 +35,16 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    add_output_mode_flags(p)
+    add_output_mode_flags(
+        p,
+        json_help=(
+            "Emit one check object per line (NDJSON) with fields: "
+            "name, status, required, detail; "
+            "followed by a summary object with fields: "
+            "kind, status, required_missing, exit_code."
+        ),
+        quiet_help='Print only "doctor: OK" or "doctor: FAIL — required components missing".',
+    )
     p.set_defaults(func=run)
 
 

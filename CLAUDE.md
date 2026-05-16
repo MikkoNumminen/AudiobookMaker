@@ -73,7 +73,7 @@ leak the same severity as leaked secrets.
   copyrighted work.
 - **Real author or narrator names.**
 - **Source-file paths that identify a work** (`D:/.../Some_Book.m4b`,
-  `Rubicon_..._Holland,_Tom_2003_Anchor.epub`).
+  `<Book_Title>_<Author>_<Year>_<Publisher>.epub`).
 - **URLs** pointing at third-party copyrighted content.
 - **Character / proper-noun names** drawn from copyrighted works.
 
