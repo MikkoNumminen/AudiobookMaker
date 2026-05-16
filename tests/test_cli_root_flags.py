@@ -111,3 +111,52 @@ class TestLogLevelFlag:
     def test_invalid_log_level_rejected(self, book_txt):
         result = _cli("--log-level", "verbose", "convert", book_txt, "--dry-run")
         assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# T2 — subcommand aliases
+# ---------------------------------------------------------------------------
+
+
+class TestConvertAlias:
+    def test_c_alias_exits_0(self, book_txt):
+        result = _cli("c", book_txt, "--dry-run")
+        assert result.returncode == 0, result.stderr
+
+    def test_c_alias_same_output_as_convert(self, book_txt):
+        r_full = _cli("convert", book_txt, "--dry-run")
+        r_alias = _cli("c", book_txt, "--dry-run")
+        assert r_full.returncode == r_alias.returncode == 0
+        # Both should emit the same dry-run summary text.
+        assert r_full.stdout == r_alias.stdout
+
+
+class TestSampleAlias:
+    def test_s_alias_exits_0(self, book_txt):
+        result = _cli("s", book_txt, "--dry-run")
+        assert result.returncode == 0, result.stderr
+
+    def test_s_alias_same_output_as_sample(self, book_txt):
+        r_full = _cli("sample", book_txt, "--dry-run")
+        r_alias = _cli("s", book_txt, "--dry-run")
+        assert r_full.returncode == r_alias.returncode == 0
+        assert r_full.stdout == r_alias.stdout
+
+
+class TestPreviewAlias:
+    def test_p_alias_exits_0(self):
+        # preview --no-play with a short string should exit 0 even if no
+        # audio device is present (--no-play skips playback).
+        result = _cli("p", "hi", "--no-play")
+        # Accept 0 (success) or 2 (engine not available) or 4 (runtime) —
+        # what matters is the alias was recognised, not returncode 1 from
+        # argparse "invalid choice".
+        assert result.returncode in (0, 2, 4), (
+            f"Unexpected exit code from 'p' alias: {result.returncode}\n{result.stderr}"
+        )
+        assert "invalid choice" not in result.stderr.lower()
+
+    def test_p_alias_same_path_as_preview(self):
+        r_full = _cli("preview", "hi", "--no-play")
+        r_alias = _cli("p", "hi", "--no-play")
+        assert r_full.returncode == r_alias.returncode

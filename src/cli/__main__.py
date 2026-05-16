@@ -110,6 +110,12 @@ def _build_parser() -> argparse.ArgumentParser:
     update.add_parser(subparsers)
     doctor.add_parser(subparsers)
 
+    # Short aliases for the most-used subcommands.
+    _alias_map = subparsers._name_parser_map  # type: ignore[attr-defined]
+    _alias_map["c"] = _alias_map["convert"]
+    _alias_map["s"] = _alias_map["sample"]
+    _alias_map["p"] = _alias_map["preview"]
+
     return parser
 
 
