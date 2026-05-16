@@ -80,6 +80,124 @@ def _get_warn_helper():
 
 
 # ---------------------------------------------------------------------------
+# N4 — _warn_if_long_windows_path
+# ---------------------------------------------------------------------------
+
+
+class TestWarnIfLongWindowsPath:
+    def test_warns_on_windows_with_long_path(self, capsys, monkeypatch):
+        """A 280-char path on win32 must emit a stderr warning."""
+        fn = _get_warn_helper()
+        if fn is None:
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        monkeypatch.setattr(sys, "platform", "win32")
+        long_path = Path("C:/" + "a" * 277)  # 280 chars total
+        assert len(str(long_path)) > 250
+        fn(long_path, "input")
+        err = capsys.readouterr().err
+        assert "Warning" in err
+        assert "MAX_PATH" in err or "260" in err
+
+    def test_no_warning_on_windows_with_short_path(self, capsys, monkeypatch):
+        """A short path on win32 must not emit any warning."""
+        fn = _get_warn_helper()
+        if fn is None:
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        monkeypatch.setattr(sys, "platform", "win32")
+        short_path = Path("C:/books/book.pdf")
+        assert len(str(short_path)) < 250
+        fn(short_path, "input")
+        assert capsys.readouterr().err == ""
+
+    def test_no_warning_on_linux_regardless_of_length(self, capsys, monkeypatch):
+        """Long path on a non-Windows platform must not produce any warning."""
+        fn = _get_warn_helper()
+        if fn is None:
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        monkeypatch.setattr(sys, "platform", "linux")
+        long_path = Path("/" + "a" * 280)
+        fn(long_path, "input")
+        assert capsys.readouterr().err == ""
+
+    def test_no_warning_on_darwin_regardless_of_length(self, capsys, monkeypatch):
+        """Long path on macOS must not produce any warning."""
+        fn = _get_warn_helper()
+        if fn is None:
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        monkeypatch.setattr(sys, "platform", "darwin")
+        long_path = Path("/" + "a" * 280)
+        fn(long_path, "input")
+        assert capsys.readouterr().err == ""
+
+    def test_label_appears_in_warning(self, capsys, monkeypatch):
+        """The label parameter must appear in the warning text."""
+        fn = _get_warn_helper()
+        if fn is None:
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        monkeypatch.setattr(sys, "platform", "win32")
+        long_path = Path("C:/" + "z" * 277)
+        fn(long_path, "output")
+        err = capsys.readouterr().err
+        assert "output" in err
+
+
+# ---------------------------------------------------------------------------
+# N4 — validate_input_path warns but is non-fatal for long paths
+# ---------------------------------------------------------------------------
+
+
+class TestValidateInputPathLongPathWarning:
+    def test_warning_emitted_for_long_path_on_windows(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        """Long input path on Windows must emit a warning but still return the
+        validation result (warning is non-fatal).
+
+        Uses monkeypatching to assert the wire-up from validate_input_path to
+        _warn_if_long_windows_path without depending on path length tricks.
+        Skipped if _warn_if_long_windows_path does not yet exist in _common.
+        """
+        import src.cli._common as _common_mod
+        if not hasattr(_common_mod, "_warn_if_long_windows_path"):
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        monkeypatch.setattr(sys, "platform", "win32")
+        real_file = tmp_path / "book.pdf"
+        real_file.write_bytes(b"%PDF-1.4 fake")
+
+        called_with = {}
+
+        def fake_warn(path: Path, label: str) -> None:
+            called_with["path"] = path
+            called_with["label"] = label
+
+        monkeypatch.setattr(_common_mod, "_warn_if_long_windows_path", fake_warn)
+        rc, msg = validate_input_path(str(real_file))
+        assert rc == EXIT_OK
+        assert called_with.get("label") == "input"
+
+    def test_warning_does_not_abort_valid_path(self, capsys, monkeypatch, tmp_path):
+        """Even when the warning fires (patched to do so), the path still
+        validates successfully.
+
+        Skipped if _warn_if_long_windows_path does not yet exist in _common.
+        """
+        import src.cli._common as _common_mod
+        if not hasattr(_common_mod, "_warn_if_long_windows_path"):
+            pytest.skip("_warn_if_long_windows_path not present in this build")
+        real_file = tmp_path / "book.epub"
+        real_file.write_bytes(b"PK fake epub")
+
+        def always_warn(path: Path, label: str) -> None:
+            print("Warning: forced long-path warning", file=sys.stderr)
+
+        monkeypatch.setattr(_common_mod, "_warn_if_long_windows_path", always_warn)
+        rc, msg = validate_input_path(str(real_file))
+        assert rc == EXIT_OK
+        err = capsys.readouterr().err
+        assert "Warning" in err
+
+
+# ---------------------------------------------------------------------------
 # N1 — setup_cached / setup_total in quiet mode → stderr
 # ---------------------------------------------------------------------------
 
