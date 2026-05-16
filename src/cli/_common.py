@@ -40,15 +40,48 @@ STDIN_INPUT_FORMATS = ("pdf", "epub", "txt")
 # ---------------------------------------------------------------------------
 
 # Env var names per flag:
-#   --engine     AUDIOBOOKMAKER_ENGINE
-#   --language   AUDIOBOOKMAKER_LANGUAGE
-#   --voice      AUDIOBOOKMAKER_VOICE
-#   --output     AUDIOBOOKMAKER_OUTPUT
-#
-# --speed is deferred from v1: the underlying TTSEngine.synthesize()
-# signature does not accept a speed parameter, and adding it would be
-# a base-class change (i.e. business logic outside the CLI layer).
-# Tracked in docs/CLI.md "Deferred from v1".
+#   --engine              AUDIOBOOKMAKER_ENGINE
+#   --language            AUDIOBOOKMAKER_LANGUAGE
+#   --voice               AUDIOBOOKMAKER_VOICE
+#   --output              AUDIOBOOKMAKER_OUTPUT
+#   --speed               AUDIOBOOKMAKER_SPEED
+#   --voice-description   AUDIOBOOKMAKER_VOICE_DESCRIPTION
+
+# Speed keyword → edge-tts rate string mapping (same values as the GUI).
+SPEED_KEYWORD_TO_RATE: dict[str, str] = {
+    "slow":   "-25%",
+    "normal": "+0%",
+    "fast":   "+25%",
+    "xfast":  "+50%",
+}
+
+# Accepted format for a raw rate string in the config / env var: an
+# optional ``+`` or ``-`` sign, one or more digits, and a trailing ``%``.
+# Matches edge-tts's documented rate parameter shape. Anything else is
+# treated as malformed and the call site falls back to "+0%".
+import re as _re
+_RATE_PATTERN = _re.compile(r"^[+-]?\d+%$")
+
+
+def sanitize_rate(raw: Optional[str], *, default: str = "+0%") -> str:
+    """Return ``raw`` if it matches the edge-tts rate format, else
+    ``default``.
+
+    Used to defend against a corrupt config file or a hand-edited env
+    var carrying a bogus rate value (e.g. ``"bogus"`` or ``"fast"``).
+    Both would otherwise be passed straight through to the engine,
+    which would surface an opaque error mid-synthesis.
+
+    ``None`` and the empty string return ``default`` with no warning;
+    they're the natural "field absent" sentinel from the config layer.
+    A non-empty string that fails the regex returns ``default`` — the
+    caller is responsible for logging the substitution if it wants to.
+    """
+    if raw is None or raw == "":
+        return default
+    if _RATE_PATTERN.match(raw):
+        return raw
+    return default
 
 
 def resolve_str(
@@ -77,10 +110,10 @@ def resolve_str(
 
 
 def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --engine, --language, --voice, --output to a parser.
+    """Add --engine, --language, --voice, --output, --speed, --voice-description to a parser.
 
-    These four flags have identical semantics across convert and
-    sample. Each flag documents its env-var override and default so
+    These flags have identical semantics across convert, sample, and
+    preview. Each flag documents its env-var override and default so
     --help is the contract.
     """
     parser.add_argument(
@@ -125,22 +158,58 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
             "Env: AUDIOBOOKMAKER_OUTPUT."
         ),
     )
+    parser.add_argument(
+        "--speed",
+        metavar="KEYWORD",
+        choices=list(SPEED_KEYWORD_TO_RATE.keys()),
+        default=None,
+        help=(
+            "Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), "
+            "xfast (+50%%). Engines that do not support speed control ignore "
+            "this flag. Default from config (GUI Speed setting); fallback: normal. "
+            "Env: AUDIOBOOKMAKER_SPEED."
+        ),
+    )
+    parser.add_argument(
+        "--voice-description",
+        metavar="TEXT",
+        default=None,
+        help=(
+            "Free-text voice style prompt for engines that support it "
+            "(e.g. 'a warm baritone elderly male voice'). Ignored by engines "
+            "that do not support voice descriptions. "
+            "Default from config (GUI Voice style field). "
+            "Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION."
+        ),
+    )
 
 
-def add_output_mode_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --json / -j and --quiet / -q output mode flags to a parser."""
+def add_output_mode_flags(
+    parser: argparse.ArgumentParser,
+    *,
+    json_help: str = "Emit one JSON object per line (NDJSON).",
+    quiet_help: str = "Suppress progress; print only the final result.",
+) -> None:
+    """Add --json / -j and --quiet / -q output mode flags to a parser.
+
+    Each subcommand passes ``json_help`` and ``quiet_help`` that describe
+    its own output shape so --help is accurate for every leaf command.
+    The defaults are intentionally generic and should not be used without
+    per-subcommand overrides. Short flags (``-j`` / ``-q``) are accepted
+    in addition to the long forms for command-line ergonomics.
+    """
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--json", "-j",
         action="store_true",
         default=False,
-        help="Emit one JSON object per line (NDJSON format, ProgressEvent shape).",
+        help=json_help,
     )
     group.add_argument(
         "--quiet", "-q",
         action="store_true",
         default=False,
-        help="Suppress progress; print only the final output path.",
+        help=quiet_help,
     )
 
 

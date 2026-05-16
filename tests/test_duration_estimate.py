@@ -141,9 +141,9 @@ def test_estimate_job_human_strings_are_strings():
     assert isinstance(result["wall_human"], str)
 
 
-# ---------- sanity: Rubicon-scale job ----------
+# ---------- sanity: full-length-novel-scale job ----------
 
-def test_rubicon_scale_sanity():
+def test_novel_scale_sanity():
     # 800k chars, English, chatterbox on cuda
     # Audio: 800_000 / 22.5 = ~35_555 s = ~9.88 h -> about 10 h
     # Wall: audio / 0.85 = ~41_830 s = ~11.6 h -> about 12 h

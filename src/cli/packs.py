@@ -41,23 +41,42 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     sub.required = True
 
     lst = sub.add_parser("list", help="List installed voice packs.")
-    add_output_mode_flags(lst)
+    add_output_mode_flags(
+        lst,
+        json_help=(
+            "Emit one pack object per line (NDJSON) with fields: "
+            "slug, name, language, tier, path."
+        ),
+        quiet_help="Print only pack slugs, one per line.",
+    )
     lst.set_defaults(func=_run_list)
 
     imp = sub.add_parser("import", help="Validate and install a voice pack.")
     imp.add_argument("directory", metavar="DIRECTORY", help="Source pack directory.")
-    add_output_mode_flags(imp)
+    add_output_mode_flags(
+        imp,
+        json_help="Emit a single result object with fields: ok, slug, path.",
+        quiet_help="Print only the installed path on success.",
+    )
     imp.set_defaults(func=_run_import)
 
     rem = sub.add_parser("remove", help="Delete an installed voice pack.")
     rem.add_argument("slug", metavar="SLUG", help="Pack slug (folder name).")
     rem.add_argument("--yes", action="store_true", default=False, help="Skip confirmation prompt.")
-    add_output_mode_flags(rem)
+    add_output_mode_flags(
+        rem,
+        json_help="Emit a single result object with fields: ok, slug.",
+        quiet_help="Suppress the removal confirmation message.",
+    )
     rem.set_defaults(func=_run_remove)
 
     inf = sub.add_parser("info", help="Print metadata for an installed voice pack.")
     inf.add_argument("slug", metavar="SLUG", help="Pack slug (folder name).")
-    add_output_mode_flags(inf)
+    add_output_mode_flags(
+        inf,
+        json_help="Emit a single metadata object (all fields from pack manifest plus slug and path).",
+        quiet_help="Print compact metadata (same as default; --quiet is a no-op for this subcommand).",
+    )
     inf.set_defaults(func=_run_info)
 
 
@@ -184,8 +203,9 @@ def _run_remove(args: argparse.Namespace) -> int:
     if target is None or not target.is_dir():
         return _err(json_mode, f"Voice pack not found: {slug}", EXIT_BAD_INPUT)
     if not (json_mode or args.yes):
+        print(f"Remove voice pack '{slug}'? [y/N] ", end="", flush=True, file=sys.stderr)
         try:
-            answer = input(f"Remove voice pack '{slug}'? [y/N] ").strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED

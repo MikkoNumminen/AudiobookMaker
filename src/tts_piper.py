@@ -514,9 +514,11 @@ class PiperTTSEngine(TTSEngine):
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
         voice_description: Optional[str] = None,
+        rate: Optional[str] = None,
     ) -> None:
-        # Piper does not support voice cloning or voice description; both
-        # parameters are silently ignored for interface compatibility.
+        # Piper does not support voice cloning, voice description, or speed
+        # control via rate; all three parameters are silently ignored for
+        # interface compatibility.
         if not text or not text.strip():
             raise ValueError("Cannot synthesize empty text.")
 
