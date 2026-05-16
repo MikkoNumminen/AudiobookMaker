@@ -251,6 +251,30 @@ def _run_inner(
         )
         return EXIT_OK
 
+    # Disk-space preflight — mirrors the GUI check in gui_unified.py.
+    # Skipped on --dry-run (no synthesis, no disk pressure).
+    try:
+        from src.system_checks import check_output_disk_space
+        if sample_text is not None:
+            text_chars = len(sample_text)
+        else:
+            try:
+                from src.synthesis_orchestrator import parse_book
+                text_chars = len(parse_book(input_path).full_text)
+            except Exception:
+                text_chars = 0
+        ok, free_mb, need_mb = check_output_disk_space(output_path, text_chars, engine_id)
+        if not ok:
+            print(
+                f"Error: insufficient disk space at {output_path}. "
+                f"Free: {free_mb:.0f} MB, required (estimate): {need_mb:.0f} MB. "
+                "Free up space or pass --output to a drive with more free space.",
+                file=sys.stderr,
+            )
+            return EXIT_MISSING_DEP
+    except ImportError:
+        pass  # system_checks not available; skip check silently
+
     # Load engine registry and look up the engine.
     try:
         from src import engine_registry  # noqa: F401
