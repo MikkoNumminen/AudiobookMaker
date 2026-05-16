@@ -44,8 +44,10 @@ audiobookmaker-cli convert mybook.txt --engine chatterbox_fi --language en
 
 1. The CLI loads the **multilingual base Chatterbox model** (not the
    Finnish T3 finetune). The multilingual base speaks English natively.
-2. It loads `assets/voices/grandmom_reference.wav` — a recording of
-   Grandmom speaking Finnish, ~10-15 seconds long.
+2. It loads `assets/voices/grandmom_reference.wav` — a short clip
+   (~10-15 s) of Finnish Grandmom, **synthesized in advance from the
+   Finnish-NLP finetune itself** and bundled with the app. It is not
+   a recording of any person.
 3. The base model is asked to generate English audio **conditioned on
    that reference clip**. The reference is used for voice timbre
    (pitch, formants, vocal character), not for content.
@@ -106,11 +108,12 @@ recording project.
 
 ## Known limitation — Finnish prosody bleed-through
 
-The Grandmom reference clip is, by construction, a recording of Finnish
-speech. When the multilingual base model is conditioned on that
-reference, it copies more than just timbre — it also copies some of the
-**prosody patterns** of Finnish: how sentences are paced, how
-punctuation translates to audio breaks, the rhythm of stressed syllables.
+The Grandmom reference clip is, by construction, a clip of Finnish
+speech (synthesized from the Finnish-NLP finetune). When the
+multilingual base model is conditioned on that reference, it copies
+more than just timbre — it also copies some of the **prosody patterns**
+of Finnish: how sentences are paced, how punctuation translates to
+audio breaks, the rhythm of stressed syllables.
 
 The base model is supposed to override that prosody with English
 patterns when generating English audio, but it does not do so 100%.
@@ -184,11 +187,11 @@ mid-chunk prosody failures — those are intrinsic to the model.
 ### 2. Stronger pause cues in the text
 
 Replace `". "` between sentences with `"... "` or `" — "`. Chatterbox
-treats ellipsis and em-dash as longer perceived pauses than a bare
-period, so prosody often comes out cleaner. Caveat: this changes the
-audio meaning — ellipsis reads as hesitation, em-dash as a deliberate
-break. Use sparingly where prosody matters more than the punctuation's
-semantic feel.
+often (but not always) renders ellipsis and em-dash as longer pauses
+than a bare period — worth trying when prosody on punctuation matters.
+Caveat: this changes the audio meaning — ellipsis reads as hesitation,
+em-dash as a deliberate break. Use sparingly where prosody matters
+more than the punctuation's semantic feel.
 
 ### 3. Re-roll
 
@@ -212,10 +215,12 @@ Two engineering changes would fix this properly:
    synthesis, detect `. ! ?` in the source text, map them to time
    positions in the WAV (via forced alignment or by re-synthesizing
    each sentence separately), and splice ~200 ms of silence at those
-   points. ~30-50 lines of work in
-   [src/synthesis_orchestrator.py](../src/synthesis_orchestrator.py).
-   Fixes the period→pause issue; does not fix the hallucinated-token
-   issue.
+   points. Moderate change in
+   [src/synthesis_orchestrator.py](../src/synthesis_orchestrator.py) —
+   actual size depends on whether forced alignment is used (real
+   dependency + integration) or sentence-level re-synthesis (changes
+   the chunker contract). Fixes the period→pause issue; does not fix
+   the hallucinated-token issue.
 2. **ASR validation + auto-reroll.** After synthesis, run Whisper over
    the output WAV, diff the transcript against the source text, and
    re-roll the chunk if the Word Error Rate exceeds a threshold.
