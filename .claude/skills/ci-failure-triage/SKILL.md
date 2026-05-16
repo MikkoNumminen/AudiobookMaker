@@ -42,6 +42,30 @@ gh run view <run-id> --log-failed
 Capture the first failing step name and the first error line. That pair
 is the symptom you match against the recipe table.
 
+### Phase 1.5 — local env sanity check (fast-path)
+
+Before assuming the failure is CI-specific, run the CLI's `doctor` and
+check whether your local env is even in a state where the tests *could*
+pass:
+
+```bash
+audiobookmaker-cli doctor --json
+```
+
+The terminal line emitted is:
+
+```json
+{"kind": "summary", "status": "pass|fail", "required_missing": [...], "exit_code": 0|2}
+```
+
+If `status` is `fail` and `required_missing` is non-empty, your local
+env is broken in a way that matters — fixing it locally may also be
+the fix for CI (or at least lets you reproduce). If `status` is `pass`,
+the failure is CI-environment-specific and the recipe table below is
+where to look. This is faster than `pytest` for the
+"is-anything-missing" question because it doesn't run the test suite —
+it probes engine availability, ffmpeg, ocrmypdf, etc. in one shot.
+
 ## Phase 2 — match against the recipe table
 
 | # | Symptom (step name + first error line) | Root cause | Fix |
