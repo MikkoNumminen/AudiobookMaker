@@ -54,11 +54,16 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _get_active_engine_id() -> str | None:
-    """Return the active engine id from persisted config, or None."""
+    """Return the active engine id from persisted config, or None.
+
+    Uses the same ``src.app_config.load`` helper every other CLI
+    subcommand uses. The previous version imported a non-existent
+    ``src.user_config`` module and was silently swallowed by the broad
+    ``except``, so the bug-report URL never carried engine context.
+    """
     try:
-        from src.user_config import load_config
-        cfg = load_config()
-        return cfg.get("engine") or None
+        from src.app_config import load
+        return load().engine_id or None
     except Exception:
         return None
 
