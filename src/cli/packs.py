@@ -203,8 +203,9 @@ def _run_remove(args: argparse.Namespace) -> int:
     if target is None or not target.is_dir():
         return _err(json_mode, f"Voice pack not found: {slug}", EXIT_BAD_INPUT)
     if not (json_mode or args.yes):
+        print(f"Remove voice pack '{slug}'? [y/N] ", end="", flush=True, file=sys.stderr)
         try:
-            answer = input(f"Remove voice pack '{slug}'? [y/N] ").strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED
