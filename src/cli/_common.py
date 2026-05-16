@@ -181,6 +181,23 @@ def print_event(event: ProgressEvent, *, json_mode: bool, quiet: bool) -> None:
             print(event.output_path, flush=True)
         elif event.kind == "error":
             print(f"Error: {event.raw_line}", file=sys.stderr, flush=True)
+        elif event.kind == "setup_cached":
+            # Resuming from cache — emit to stderr so script users know
+            # the fast progress is a cache hit, not a first run.
+            cached = event.total_done
+            total = event.total_chunks
+            if total:
+                print(f"Resuming: {cached}/{total} chunks already cached",
+                      file=sys.stderr, flush=True)
+            else:
+                print(f"Resuming: {event.raw_line}", file=sys.stderr, flush=True)
+        elif event.kind == "setup_total":
+            # Total chunk count — emit to stderr so script users see the job size.
+            total = event.total_chunks
+            if total:
+                print(f"Total: {total} chunks", file=sys.stderr, flush=True)
+            else:
+                print(f"Total: {event.raw_line}", file=sys.stderr, flush=True)
         return
 
     # Human-readable mode.

@@ -80,6 +80,79 @@ def _get_warn_helper():
 
 
 # ---------------------------------------------------------------------------
+# N1 — setup_cached / setup_total in quiet mode → stderr
+# ---------------------------------------------------------------------------
+
+
+class TestSetupCachedQuietMode:
+    def test_setup_cached_goes_to_stderr_in_quiet_mode(self, capsys):
+        """setup_cached event must appear on stderr when quiet=True."""
+        event = _make_event(
+            "setup_cached",
+            total_done=215,
+            total_chunks=1043,
+            raw_line="[setup_cached] cached chunks found: 215/1043",
+        )
+        print_event(event, json_mode=False, quiet=True)
+        captured = capsys.readouterr()
+        assert captured.out == "", "stdout must be silent in quiet mode"
+        assert "215" in captured.err
+        assert "1043" in captured.err
+        assert "Resuming" in captured.err
+
+    def test_setup_cached_fallback_when_no_counts(self, capsys):
+        """Fallback to raw_line when total_chunks is 0."""
+        event = _make_event(
+            "setup_cached",
+            total_done=0,
+            total_chunks=0,
+            raw_line="cached chunks found: some",
+        )
+        print_event(event, json_mode=False, quiet=True)
+        captured = capsys.readouterr()
+        assert "Resuming" in captured.err
+        assert "cached chunks found" in captured.err
+
+    def test_setup_total_goes_to_stderr_in_quiet_mode(self, capsys):
+        """setup_total event must appear on stderr when quiet=True."""
+        event = _make_event(
+            "setup_total",
+            total_chunks=500,
+            raw_line="total chunks: 500",
+        )
+        print_event(event, json_mode=False, quiet=True)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "500" in captured.err
+
+    def test_setup_cached_in_human_mode_goes_to_stdout(self, capsys):
+        """Human-readable mode: setup_cached still goes to stdout (unchanged)."""
+        event = _make_event(
+            "setup_cached",
+            raw_line="[setup_cached] cached chunks found: 100/200",
+        )
+        print_event(event, json_mode=False, quiet=False)
+        captured = capsys.readouterr()
+        assert "[setup_cached]" in captured.out
+        assert captured.err == ""
+
+    def test_done_event_still_goes_to_stdout_in_quiet_mode(self, capsys):
+        """done event must still print path to stdout in quiet mode."""
+        event = _make_event("done", output_path="/out/book.mp3")
+        print_event(event, json_mode=False, quiet=True)
+        captured = capsys.readouterr()
+        assert "/out/book.mp3" in captured.out
+
+    def test_other_events_suppressed_in_quiet_mode(self, capsys):
+        """Non-setup, non-done events must be silent in quiet mode."""
+        event = _make_event("chunk", total_done=5, total_chunks=100)
+        print_event(event, json_mode=False, quiet=True)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+
+# ---------------------------------------------------------------------------
 # N8 — short flags -q / -j accepted by the CLI
 # ---------------------------------------------------------------------------
 
