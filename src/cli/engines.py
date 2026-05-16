@@ -242,13 +242,21 @@ def _run_remove(args: argparse.Namespace) -> int:
     # interactively. --quiet alone does NOT bypass it — cosmetic flags must
     # not change destructive behaviour (lesson from M6 / packs remove fix).
     if not (json_mode or yes):
+        # Route the prompt to stderr so it never leaks into a stdout
+        # pipeline (lesson from N5 / packs remove + update apply prompt
+        # fix in PR #49). Cancellation message also stays on stderr to
+        # match packs remove / update apply.
+        print(
+            f"Remove engine '{engine_id}'? [y/N] ",
+            end="", file=sys.stderr, flush=True,
+        )
         try:
-            answer = input(f"Remove engine '{engine_id}'? [y/N] ").strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("\nAborted.", file=sys.stderr)
+            print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED
         if answer not in ("y", "yes"):
-            print("Aborted.", file=sys.stderr)
+            print("Cancelled.", file=sys.stderr)
             return EXIT_CANCELLED
 
     # Every installer in the registry implements remove() on its class
