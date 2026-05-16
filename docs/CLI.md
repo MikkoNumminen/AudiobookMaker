@@ -226,26 +226,7 @@ the auto-generated detail follows.
      renderer (or the pre-commit hook will re-run it for you). -->
 ### `audiobookmaker-cli convert`
 
-Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
-
-| Flag | Description |
-|------|-------------|
-| `INPUT` | Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. When '-' is used, --input-format must also be provided. |
-| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
-| `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
-| `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
-| `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
-| `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
-| `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
-| `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
-| `--dry-run` | Print what would happen without synthesizing. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
-
----
-
-### `audiobookmaker-cli c`
+**Aliases:** `c`
 
 Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
@@ -268,26 +249,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
 ### `audiobookmaker-cli sample`
 
-Convert the first ~500 characters of a book to MP3 as a quick quality check before running the full conversion.
-
-| Flag | Description |
-|------|-------------|
-| `INPUT` | Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. When '-' is used, --input-format must also be provided. |
-| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
-| `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
-| `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
-| `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
-| `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
-| `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
-| `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
-| `--dry-run` | Print what would happen without synthesizing. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
-
----
-
-### `audiobookmaker-cli s`
+**Aliases:** `s`
 
 Convert the first ~500 characters of a book to MP3 as a quick quality check before running the full conversion.
 
@@ -310,22 +272,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 
 ### `audiobookmaker-cli preview`
 
-Synthesize a short text string and play it through the system audio output. Nothing is saved to disk.
-
-| Flag | Description |
-|------|-------------|
-| `TEXT` | The text to speak, or '-' to read text from stdin. |
-| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
-| `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
-| `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
-| `--no-play` | Synthesize only — do not play audio. Prints the tempfile path on stdout. The caller is responsible for deleting the file. |
-| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
-| `--quiet` | Suppress progress; print only the final output path. |
-
----
-
-### `audiobookmaker-cli p`
+**Aliases:** `p`
 
 Synthesize a short text string and play it through the system audio output. Nothing is saved to disk.
 
