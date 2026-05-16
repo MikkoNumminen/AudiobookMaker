@@ -1,0 +1,40 @@
+{
+  "skill_name": "voice-pack-finnish",
+  "evals": [
+    {
+      "id": 1,
+      "name": "short-clip-correct-tier",
+      "prompt": "I have a 90-second Finnish WAV of two people talking. Can you quickly make voice packs for both?",
+      "expected_output": "Assistant asks operator how many speakers they hear and the gender mix before starting any analysis. Then runs ffprobe to confirm under 300 s. Normalizes to 16 kHz mono WAV. Runs run_chunked_analyze with diarizer='ecapa' and num_speakers=2. Validates transcripts per speaker. Takes the few-shot branch: runs voice_pack_package with --tier few_shot --reference for each speaker (no dataset export, no training). Synthesizes a 30 s ear-check sample per speaker using --ref-audio only (no --voice-pack adapter). Places packs in .local/voice_packs/. Does NOT attempt LoRA training. Does NOT install packs to ~/.audiobookmaker.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "long-source-lora-tier",
+      "prompt": "Here is a 45-minute Finnish interview with one host and one guest. I want a high-quality voice pack for the guest.",
+      "expected_output": "Assistant asks speaker count (2) and gender mix before Step 1. Runs ffprobe, sees duration over 300 s, takes the long branch. Chunked analyze with ECAPA, num_speakers=2. Reads speakers.yaml per-speaker totals to pick tier — guest with ~22 min lands in reduced_lora; if guest has >=30 min, full_lora. Validates transcripts (catches potential pyannote-style conflation even under ECAPA). Picks refs with top_k=5 alternates. Runs voice_pack_export, then voice_pack_train, then voice_pack_package with --tier reduced_lora or --tier full_lora and --adapter pointing at the LoRA dir. Ear-check synth uses --voice-pack to load the adapter. Pack stays in .local/voice_packs/.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "non-finnish-source-stops",
+      "prompt": "Here is an English podcast clip of two speakers. Clone these voices.",
+      "expected_output": "Assistant stops. Explains that this skill is Finnish-only — the chunked analyzer's ASR step assumes Finnish, the ear-check model is the Finnish T3 finetune, and there is no English equivalent skill yet. Does not normalize, does not analyze, does not produce a pack. Surfaces the limitation to the user and asks how to proceed (manual ECAPA + English Whisper, or skip the language-specific bits, or wait for an English skill).",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "bad-diarization-recovery",
+      "prompt": "Step 3 transcript validation shows both speaker labels contain the same kind of speech — looks like ECAPA conflated them on this 2-minute Finnish clip. What now?",
+      "expected_output": "Assistant retries run_chunked_analyze with diarizer='pyannote' and re-validates transcripts. If pyannote also produces conflated labels, offers the operator manual ref-segment selection: asks them to pick a timestamp by ear for each speaker, then slices that segment as the reference clip directly using ffmpeg. Does not declare done until transcript validation passes or the operator explicitly accepts the limitation.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "cross-gender-forces-lora",
+      "prompt": "I have a 7-minute Finnish clip of a female speaker. I want to clone her voice — the default Grandmom voice is also female but I want this specific person.",
+      "expected_output": "Assistant notes that 7 min lands in the few_shot tier by the table, but flags that cross-gender targets push toward LoRA. Since target is female and Grandmom (the finetune basin) is also female, few-shot is acceptable here — same-gender same-basin is the case where few-shot works passably. Runs the few-shot branch. Documents the limitation: if the result sounds too close to Grandmom, the only fix is a longer source (>10 min) to qualify for LoRA. Does not silently train a LoRA on the under-tier source.",
+      "files": []
+    }
+  ]
+}

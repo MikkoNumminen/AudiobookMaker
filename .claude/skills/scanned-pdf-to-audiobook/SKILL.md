@@ -57,8 +57,8 @@ them.
   double the wall-clock for no gain. (If you *want* to force OCR for quality
   reasons on a low-quality embedded text layer, that's a separate task and
   should use `ocrmypdf --redo-ocr`, which this skill does not cover.)
-- **Source is an audio file** (the user wants voice cloning, not OCR) — see
-  [voice-clone-finnish](../voice-clone-finnish/SKILL.md).
+- **Source is an audio file** (the user wants a voice pack, not OCR) — see
+  [voice-pack-finnish](../voice-pack-finnish/SKILL.md).
 - **Source is EPUB or `.txt`.**
   [`parse_book`](../../../src/synthesis_orchestrator.py#L45) routes those past
   the OCR path entirely; the `ocr_language` arg is ignored for non-PDF input.
@@ -303,13 +303,48 @@ Same voice / language flags but the full text. Output lands under
 `<stem>/` subdir; the Edge-TTS / text-mode path writes a flat
 `<stem>.mp3`). No `_sample` suffix — the full run is the canonical one.
 
-Estimate ETA from the sample's real-time factor (RTF). A 30-second sample
-that took 10 s wall-clock has RTF ≈ 0.33; a 200 000-char book at ~160
-wpm ≈ 350 minutes of audio × 0.33 RTF ≈ 115 minutes of wall-clock. Tell
-the user the ETA upfront — multi-hour synth runs that nobody warned them
-about are a common annoyance.
+**Dry-run preflight before the long run.** Multi-hour scanned books are
+expensive to start over. Run the CLI's `--dry-run --json` first to
+confirm the resolved engine, voice, output path, output-mode, and rate
+without doing any synthesis. The dry-run also runs the disk-space
+preflight (exit code 2 if the output drive is full), which is exactly
+the failure mode you don't want to discover three hours into a synth:
 
-Surface the final MP3 path when done.
+```powershell
+audiobookmaker-cli convert .local/<stem>.pdf --engine edge `
+  --language fi --dry-run --json
+```
+
+One JSON line comes back. Confirm the `engine`, `voice`, `output_path`,
+and `output_mode` fields match what you expect, then re-invoke without
+`--dry-run` for the actual run.
+
+**Per-chapter output for long scanned books (Edge-TTS only).** A
+500-page scanned book produces one ~10-hour MP3 by default. That's
+hard to navigate. If the source has chapters the parser detected
+(`book.chapters` count > 1 in Step 3's probe), use `--output-mode
+per-chapter` to write one MP3 per chapter under an output directory:
+
+```powershell
+audiobookmaker-cli convert .local/<stem>.pdf --engine edge `
+  --language fi --output-mode per-chapter `
+  --output .local/audiobooks/<stem>/
+```
+
+This is Edge-TTS-only today. Chatterbox / VoxCPM2 will reject the flag
+with an engine-compatibility error at startup — switch the engine or
+drop the flag. The per-chapter path is the right default for long
+non-fiction; one-file mode is fine for short books or fiction the user
+will listen to linearly.
+
+Estimate ETA from the sample's real-time factor (RTF). A 30-second
+sample that took 10 s wall-clock has RTF ≈ 0.33; a 200 000-char book at
+~160 wpm ≈ 350 minutes of audio × 0.33 RTF ≈ 115 minutes of wall-clock.
+Tell the user the ETA upfront — multi-hour synth runs that nobody
+warned them about are a common annoyance.
+
+Surface the final MP3 path (or directory, in per-chapter mode) when
+done.
 
 ## Very long PDFs (300+ pages, 100+ MB)
 
@@ -408,8 +443,8 @@ A 5-second visual scan catches most failures cheaper than a 2-hour synth.
 
 ## What this skill does NOT do
 
-- **Does not train new voice packs.** Voice cloning is a separate runbook —
-  see [voice-clone-finnish](../voice-clone-finnish/SKILL.md).
+- **Does not train new voice packs.** Voice-pack building is a separate
+  runbook — see [voice-pack-finnish](../voice-pack-finnish/SKILL.md).
 - **Does not cut releases of the OCR feature.** Bumping APP_VERSION,
   tagging, and verifying the auto-update SHA-256 contract is the
   [release-cut](../release-cut/SKILL.md) skill.
