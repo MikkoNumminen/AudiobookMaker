@@ -190,22 +190,23 @@ def add_output_mode_flags(
     json_help: str = "Emit one JSON object per line (NDJSON).",
     quiet_help: str = "Suppress progress; print only the final result.",
 ) -> None:
-    """Add --json and --quiet output mode flags to a parser.
+    """Add --json / -j and --quiet / -q output mode flags to a parser.
 
     Each subcommand passes ``json_help`` and ``quiet_help`` that describe
     its own output shape so --help is accurate for every leaf command.
     The defaults are intentionally generic and should not be used without
-    per-subcommand overrides.
+    per-subcommand overrides. Short flags (``-j`` / ``-q``) are accepted
+    in addition to the long forms for command-line ergonomics.
     """
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--json",
+        "--json", "-j",
         action="store_true",
         default=False,
         help=json_help,
     )
     group.add_argument(
-        "--quiet",
+        "--quiet", "-q",
         action="store_true",
         default=False,
         help=quiet_help,
@@ -249,6 +250,23 @@ def print_event(event: ProgressEvent, *, json_mode: bool, quiet: bool) -> None:
             print(event.output_path, flush=True)
         elif event.kind == "error":
             print(f"Error: {event.raw_line}", file=sys.stderr, flush=True)
+        elif event.kind == "setup_cached":
+            # Resuming from cache — emit to stderr so script users know
+            # the fast progress is a cache hit, not a first run.
+            cached = event.total_done
+            total = event.total_chunks
+            if total:
+                print(f"Resuming: {cached}/{total} chunks already cached",
+                      file=sys.stderr, flush=True)
+            else:
+                print(f"Resuming: {event.raw_line}", file=sys.stderr, flush=True)
+        elif event.kind == "setup_total":
+            # Total chunk count — emit to stderr so script users see the job size.
+            total = event.total_chunks
+            if total:
+                print(f"Total: {total} chunks", file=sys.stderr, flush=True)
+            else:
+                print(f"Total: {event.raw_line}", file=sys.stderr, flush=True)
         return
 
     # Human-readable mode.
@@ -369,6 +387,51 @@ def cleanup_stdin_tempfile(path: Optional[str]) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Windows MAX_PATH guard
+# ---------------------------------------------------------------------------
+
+_WINDOWS_PATH_WARN_THRESHOLD = 250
+"""Warn when a resolved path on Windows exceeds this many characters.
+
+Windows MAX_PATH is 260.  We warn at 250 to leave headroom for suffixes
+that synthesis code appends (e.g. ``.tmp``, chapter index digits).
+Output-path checking is a future follow-up — this helper covers the
+input side via :func:`validate_input_path`.
+"""
+
+
+def _warn_if_long_windows_path(path: Path, label: str) -> None:
+    """Print a stderr warning when running on Windows and *path* is long.
+
+    Emits a single warning line when all of the following are true:
+
+    - ``sys.platform == "win32"``
+    - The resolved path string is longer than
+      :data:`_WINDOWS_PATH_WARN_THRESHOLD` characters.
+
+    The warning is non-fatal — callers decide whether to abort or
+    continue.  The *label* argument (e.g. ``"input"`` or ``"output"``)
+    appears in the warning so multi-path callers can distinguish which
+    path triggered it.
+
+    Note: output-path length checking is deferred to a follow-up; only
+    the input side is wired up here.
+    """
+    if sys.platform != "win32":
+        return
+    path_str = str(path)
+    if len(path_str) > _WINDOWS_PATH_WARN_THRESHOLD:
+        print(
+            f"Warning: {label} path is {len(path_str)} characters long "
+            f"(Windows MAX_PATH is 260). I/O may fail on deeply-nested paths. "
+            f"Consider enabling long-path support or moving the file closer to "
+            f"the drive root.",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def validate_input_path(path: str) -> tuple[int, str]:
     """Validate that ``path`` exists and has a supported book extension.
 
@@ -376,11 +439,16 @@ def validate_input_path(path: str) -> tuple[int, str]:
     pass ``~/books/foo.epub`` (Makefile, cron, subprocess.run with
     shell=False) get the same behaviour as an absolute path.
 
+    Emits a stderr warning via :func:`_warn_if_long_windows_path` when
+    the resolved path exceeds :data:`_WINDOWS_PATH_WARN_THRESHOLD`
+    characters on Windows.  The warning is non-fatal.
+
     Returns ``(EXIT_OK, '')`` if valid, or ``(EXIT_BAD_INPUT, message)``
     if invalid. Shared by convert and sample so the validation rules
     stay in one place.
     """
     resolved = Path(path).expanduser()
+    _warn_if_long_windows_path(resolved, "input")
     if not resolved.exists():
         return EXIT_BAD_INPUT, f"input file not found: {resolved}"
     ext = resolved.suffix.lower()
