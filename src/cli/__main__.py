@@ -110,11 +110,10 @@ def _build_parser() -> argparse.ArgumentParser:
     update.add_parser(subparsers)
     doctor.add_parser(subparsers)
 
-    # Short aliases for the most-used subcommands.
-    _alias_map = subparsers._name_parser_map  # type: ignore[attr-defined]
-    _alias_map["c"] = _alias_map["convert"]
-    _alias_map["s"] = _alias_map["sample"]
-    _alias_map["p"] = _alias_map["preview"]
+    # Short aliases for the most-used subcommands are declared via the
+    # public ``aliases=`` parameter on each subcommand's add_parser()
+    # call (convert → c, sample → s, preview → p). No private-API
+    # manipulation needed.
 
     return parser
 
@@ -139,7 +138,13 @@ def main(argv: list[str] | None = None) -> int:
         # -v count: 0 → WARNING, 1 → INFO, 2+ → DEBUG.
         _v = args.verbose or 0
         _level = logging.WARNING if _v == 0 else logging.INFO if _v == 1 else logging.DEBUG
-    logging.basicConfig(level=_level, format="%(levelname)s %(name)s: %(message)s")
+    # force=True so this call wins even if an imported src/ module
+    # already touched the root logger handler list during import.
+    logging.basicConfig(
+        level=_level,
+        format="%(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
     logging.debug("verbosity: %s", logging.getLevelName(_level))
 
     if args.command is None:
