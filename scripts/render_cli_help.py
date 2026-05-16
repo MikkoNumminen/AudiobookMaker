@@ -144,17 +144,28 @@ def _leaf_parsers(
         aliases = all_names[1:]
 
         child_crumb = breadcrumb + [canonical]
-        # Recurse into the child parser.  Nested leaves inherit their
-        # parent's aliases only at the topmost level (no nested aliases
-        # in this codebase today), so the recursion's third element is
-        # the child's own aliases (typically empty).
+        # Recurse into the child parser.  Aliases declared at THIS level
+        # only attach to a leaf that lives directly at this level — i.e.
+        # the recursion returned without descending further.  We detect
+        # that by comparing the returned breadcrumb's length against
+        # `child_crumb`: same length ⇒ the recursion hit the leaf
+        # branch and returned the same breadcrumb (no further nesting).
+        # The length check is more robust than `sub_crumb == child_crumb`
+        # because it survives any future normalization of breadcrumbs
+        # (e.g. tuple-isation) without silently swallowing aliases.
+        #
+        # Known limitation: aliases declared on a non-leaf parent (e.g.
+        # if `engines` itself ever got `aliases=["e"]`) would not
+        # propagate down to `engines list`, `engines install`, etc. —
+        # those leaves would still be tagged with empty alias lists.
+        # No subcommand in this codebase uses nested aliases today, so
+        # the gap is theoretical.  If it ever matters, switch to
+        # passing parent-aliases down into the recursion explicitly.
+        target_depth = len(child_crumb)
         for sub_crumb, sub_parser, sub_aliases in _leaf_parsers(
             choice_parser, child_crumb
         ):
-            # Attach the current level's aliases only if the recursion
-            # didn't descend further — i.e. this IS the leaf for
-            # the alias.  Otherwise aliases stay empty.
-            if sub_crumb == child_crumb:
+            if len(sub_crumb) == target_depth:
                 leaves.append((sub_crumb, sub_parser, aliases))
             else:
                 leaves.append((sub_crumb, sub_parser, sub_aliases))
