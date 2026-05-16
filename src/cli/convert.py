@@ -33,13 +33,16 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     EXIT_RUNTIME,
+    OUTPUT_MODE_CHOICES,
     OVERWRITE_CHOICES,
     SPEED_KEYWORD_TO_RATE,
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    add_synthesis_output_mode_flag,
     cleanup_stdin_tempfile,
     materialize_stdin_to_tempfile,
+    normalize_output_mode,
     print_event,
     resolve_str,
     runner_script_path,
@@ -124,6 +127,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
             "overwrite the output file."
         ),
     )
+    add_synthesis_output_mode_flag(p)
     add_output_mode_flags(
         p,
         json_help=(
@@ -286,6 +290,20 @@ def _run_inner(
     ) or None
     output_flag: Optional[str] = str(Path(output_flag_raw).expanduser()) if output_flag_raw else None
 
+    # Resolve output_mode: flag > env var > config > built-in default.
+    # The config stores "single" / "chapters"; normalise "chapters" to
+    # "per-chapter" so the CLI always uses the canonical choice string.
+    output_mode = resolve_str(
+        getattr(args, "output_mode", None),
+        "AUDIOBOOKMAKER_OUTPUT_MODE",
+        normalize_output_mode(cfg.output_mode),
+        "single",
+    )
+    # Env var or config could still carry the legacy "chapters" token.
+    output_mode = normalize_output_mode(output_mode)
+    if output_mode not in OUTPUT_MODE_CHOICES:
+        output_mode = "single"
+
     ref_audio_raw: Optional[str] = getattr(args, "ref_audio", None)
     ref_audio: Optional[str] = str(Path(ref_audio_raw).expanduser()) if ref_audio_raw else None
     voice_pack_raw: Optional[str] = getattr(args, "voice_pack", None)
@@ -334,6 +352,7 @@ def _run_inner(
             language=language,
             voice_id=voice_id,
             output_path=output_path,
+            output_mode=output_mode,
             rate=rate,
             voice_description=voice_description,
             ref_audio=ref_audio,
@@ -420,6 +439,15 @@ def _run_inner(
             print(f"  Reason: {status.reason}", file=sys.stderr)
         return EXIT_MISSING_DEP
 
+    # Per-chapter compatibility check — fail fast before any heavy load.
+    if output_mode == "per-chapter" and not engine.supports_per_chapter:
+        print(
+            f"Error: engine '{engine_id}' does not support per-chapter output. "
+            "Use --output-mode single or switch to edge.",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
     # Dispatch to the right synthesis path.
     if engine.uses_subprocess:
         return _run_chatterbox(
@@ -442,6 +470,7 @@ def _run_inner(
             language=language,
             voice_id=voice_id,
             output_path=output_path,
+            output_mode=output_mode,
             ref_audio=ref_audio,
             voice_description=voice_description,
             rate=rate,
@@ -459,6 +488,7 @@ def _run_inprocess(
     language: str,
     voice_id: Optional[str],
     output_path: str,
+    output_mode: str = "single",
     ref_audio: Optional[str],
     voice_description: Optional[str],
     rate: Optional[str],
@@ -470,6 +500,7 @@ def _run_inprocess(
 
     if sample_text is not None:
         # Sample path: synthesize the pre-extracted text snippet directly.
+        # Per-chapter mode doesn't apply to samples — always single.
         request = InprocessRequest(
             engine_id=engine_id,
             language=language,
@@ -480,6 +511,7 @@ def _run_inprocess(
             reference_audio=ref_audio,
             voice_description=voice_description,
             rate=rate,
+            output_mode="single",
         )
     else:
         request = InprocessRequest(
@@ -492,6 +524,7 @@ def _run_inprocess(
             reference_audio=ref_audio,
             voice_description=voice_description,
             rate=rate,
+            output_mode=output_mode,
         )
 
     result_code = EXIT_OK
@@ -623,8 +656,9 @@ def _print_dry_run(
     language: str,
     voice_id: Optional[str],
     output_path: str,
-    rate: Optional[str],
-    voice_description: Optional[str],
+    output_mode: str = "single",
+    rate: Optional[str] = None,
+    voice_description: Optional[str] = None,
     ref_audio: Optional[str],
     voice_pack: Optional[str],
     chunk_chars: Optional[int],
@@ -649,6 +683,7 @@ def _print_dry_run(
             "language": language,
             "voice": voice_id,
             "output": output_path,
+            "output_mode": output_mode,
             "rate": rate,
             "voice_description": voice_description,
             "ref_audio": ref_audio,
@@ -664,6 +699,7 @@ def _print_dry_run(
     print(f"  language:   {language}")
     print(f"  voice:      {voice_id or '(engine default)'}")
     print(f"  output:     {output_path}")
+    print(f"  output-mode: {output_mode}")
     if rate:
         print(f"  rate:       {rate}")
     if voice_description:

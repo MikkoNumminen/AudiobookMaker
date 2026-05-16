@@ -236,7 +236,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
 | `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
 | `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
@@ -245,6 +245,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
 | `--overwrite MODE` | What to do when output already exists. 'replace' (default): overwrite the output file, reuse cached chunks — same as today's behaviour. 'skip': exit 0 immediately if the output file exists; nothing is synthesized. Useful in batch loops. 'fresh': delete the chunk cache before starting so the run begins clean; overwrite the output file. |
+| `--output-mode MODE` | Output mode: 'single' (one combined MP3) or 'per-chapter' (one MP3 per chapter in a directory). Per-chapter is currently only supported with the Edge-TTS engine. Default from config; fallback: single. Env: AUDIOBOOKMAKER_OUTPUT_MODE. |
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path (or directory in per-chapter mode). |
 
@@ -262,7 +263,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
 | `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
 | `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
@@ -271,6 +272,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
 | `--overwrite MODE` | What to do when the sample output already exists. 'replace' (default): overwrite. 'skip': exit 0 immediately without synthesizing. 'fresh': delete the chunk cache before starting. |
+| `--output-mode MODE` | Output mode: 'single' (one combined MP3) or 'per-chapter' (one MP3 per chapter in a directory). Per-chapter is currently only supported with the Edge-TTS engine. Default from config; fallback: single. Env: AUDIOBOOKMAKER_OUTPUT_MODE. |
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path. |
 
@@ -288,7 +290,7 @@ Synthesize a short text string and play it through the system audio output. Noth
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
-| `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
+| `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
 | `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
 | `--no-play` | Synthesize only — do not play audio. Prints the tempfile path on stdout. The caller is responsible for deleting the file. |

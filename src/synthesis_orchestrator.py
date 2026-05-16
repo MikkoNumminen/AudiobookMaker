@@ -219,6 +219,11 @@ class InprocessRequest:
     input_text: Optional[str] = None
     reference_audio: Optional[str] = None
     voice_description: Optional[str] = None
+    output_mode: str = "single"
+    """'single' — one combined MP3 at ``output_path``.
+    'per-chapter' — one MP3 per chapter; ``output_path`` is the
+    directory that receives ``01_<chapter>.mp3``, ``02_...``, etc.
+    """
     rate: Optional[str] = None
     """Speed adjustment in edge-tts notation (e.g. '-25%', '+0%', '+25%',
     '+50%'). None means use the engine default."""
@@ -264,6 +269,7 @@ def run_inprocess_synthesis(
             book = parse_book(request.pdf_path)
             text = book.full_text
         else:
+            book = None
             text = request.input_text or ""
 
         if not text:
@@ -282,39 +288,110 @@ def run_inprocess_synthesis(
             raw_line=f"Synthesizing ({len(text)} chars)...",
         ))
 
-        # Resolve output path. Fall back to <default_output_dir>/output.mp3
-        # so a caller that forgot to pick one still gets something.
-        out = (
-            Path(request.output_path)
-            if request.output_path
-            else default_output_dir() / "output.mp3"
-        )
-        out.parent.mkdir(parents=True, exist_ok=True)
+        if request.output_mode == "per-chapter":
+            # Per-chapter path: synthesize each chapter as its own MP3.
+            # output_path is treated as a directory.
+            out_dir = (
+                Path(request.output_path)
+                if request.output_path
+                else default_output_dir() / "chapters"
+            )
+            out_dir.mkdir(parents=True, exist_ok=True)
 
-        def progress_cb(current: int, total: int, msg: str = "") -> None:
+            # Build chapter list: use the parsed book's chapters when
+            # available; fall back to a single synthetic chapter so the
+            # per-chapter path works for plain-text input_mode too.
+            if book is not None and book.chapters:
+                chapters = [(ch.title or f"Chapter {ch.index + 1}", ch.content)
+                            for ch in book.chapters]
+            else:
+                chapters = [("Track 1", text)]
+
+            chapter_total = len(chapters)
+            for idx, (title, content) in enumerate(chapters):
+                safe_title = "".join(
+                    c if c.isalnum() or c in " -_" else "_" for c in title
+                )
+                out_path = out_dir / f"{idx + 1:02d}_{safe_title}.mp3"
+
+                on_event(ProgressEvent(
+                    kind="chapter_start",
+                    raw_line=f"Chapter {idx + 1}/{chapter_total}: {title}",
+                    chapter_idx=idx,
+                    chapter_total=chapter_total,
+                ))
+
+                def progress_cb(
+                    current: int, total: int, msg: str = "",
+                    _idx: int = idx, _chapter_total: int = chapter_total,
+                ) -> None:
+                    on_event(ProgressEvent(
+                        kind="chunk",
+                        total_done=current,
+                        total_chunks=total,
+                        raw_line=msg or f"Chunk {current}/{total}",
+                        chapter_idx=_idx,
+                        chapter_total=_chapter_total,
+                    ))
+
+                engine.synthesize(
+                    text=content,
+                    output_path=str(out_path),
+                    voice_id=voice_id,
+                    language=request.language,
+                    progress_cb=progress_cb,
+                    reference_audio=request.reference_audio,
+                    voice_description=request.voice_description,
+                    rate=request.rate,
+                )
+
+                on_event(ProgressEvent(
+                    kind="chapter_done",
+                    output_path=str(out_path),
+                    raw_line=f"Saved chapter {idx + 1}: {out_path}",
+                    chapter_idx=idx,
+                    chapter_total=chapter_total,
+                ))
+
             on_event(ProgressEvent(
-                kind="chunk",
-                total_done=current,
-                total_chunks=total,
-                raw_line=msg or f"Chunk {current}/{total}",
+                kind="done",
+                output_path=str(out_dir),
+                raw_line=f"Saved: {out_dir} ({chapter_total} chapters)",
             ))
 
-        engine.synthesize(
-            text=text,
-            output_path=str(out),
-            voice_id=voice_id,
-            language=request.language,
-            progress_cb=progress_cb,
-            reference_audio=request.reference_audio,
-            voice_description=request.voice_description,
-            rate=request.rate,
-        )
+        else:
+            # Single-file path (default).
+            out = (
+                Path(request.output_path)
+                if request.output_path
+                else default_output_dir() / "output.mp3"
+            )
+            out.parent.mkdir(parents=True, exist_ok=True)
 
-        on_event(ProgressEvent(
-            kind="done",
-            output_path=str(out),
-            raw_line=f"Saved: {out}",
-        ))
+            def progress_cb(current: int, total: int, msg: str = "") -> None:  # type: ignore[misc]
+                on_event(ProgressEvent(
+                    kind="chunk",
+                    total_done=current,
+                    total_chunks=total,
+                    raw_line=msg or f"Chunk {current}/{total}",
+                ))
+
+            engine.synthesize(
+                text=text,
+                output_path=str(out),
+                voice_id=voice_id,
+                language=request.language,
+                progress_cb=progress_cb,
+                reference_audio=request.reference_audio,
+                voice_description=request.voice_description,
+                rate=request.rate,
+            )
+
+            on_event(ProgressEvent(
+                kind="done",
+                output_path=str(out),
+                raw_line=f"Saved: {out}",
+            ))
 
     except Exception as exc:
         on_event(ProgressEvent(kind="error", raw_line=str(exc)))

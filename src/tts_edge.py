@@ -44,6 +44,7 @@ class EdgeTTSEngine(TTSEngine):
     requires_gpu = False
     requires_internet = True
     supports_voice_cloning = False
+    supports_per_chapter = True
 
     # --------------------------------------------------------------------- #
     # Status

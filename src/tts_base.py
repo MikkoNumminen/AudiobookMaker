@@ -110,6 +110,13 @@ class TTSEngine(ABC):
     ``uses_subprocess = True`` must raise from ``synthesize()`` — their
     real work happens through the bridge runner."""
 
+    supports_per_chapter: ClassVar[bool] = False
+    """True when the engine can produce one MP3 per chapter (per-chapter
+    output mode).  Only Edge-TTS overrides this to ``True`` today.
+    The GUI shows a "per-chapter not supported" notice when this is
+    ``False`` and the user picks that mode; the CLI returns
+    ``EXIT_BAD_INPUT`` with an actionable error message."""
+
     # --- instance methods; subclasses must implement ---
 
     @abstractmethod
