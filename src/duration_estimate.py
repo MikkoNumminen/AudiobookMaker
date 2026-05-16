@@ -6,8 +6,9 @@ and real RTF measurements are available.
 
 Rationale for the numbers
 -------------------------
-- Based on the v7 Finnish audiobook run and the Rubicon Route-B clip
-  (723 chars -> 32 s audio == ~22 chars/s in English with Chatterbox).
+- Based on the v7 Finnish audiobook run and a 723-char English Route-B
+  reference clip (723 chars -> 32 s audio == ~22 chars/s in English with
+  Chatterbox).
 - Chatterbox RTF 0.85 on RTX 3080 Ti comes from observed
   ``[routeB] chunk 1/3 14.2s synth 10.6s audio`` logs (synth/audio ratio
   ~1.3 -> effective RTF ~0.75, rounded to 0.85 for slightly pessimistic

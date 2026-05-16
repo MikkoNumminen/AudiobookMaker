@@ -50,9 +50,9 @@ class TestPassAMetadataStrip:
 
     def test_copyright_stripped(self):
         out = _pass_a_metadata_strip(
-            "© 2003 Tom Holland. The book begins."
+            "© 2023 Sample Author. The book begins."
         )
-        assert "2003" not in out
+        assert "2023" not in out
         assert "begins" in out
 
     def test_all_rights_reserved_stripped(self):
@@ -66,7 +66,7 @@ class TestPassAMetadataStrip:
         assert once == twice
 
     def test_no_metadata_passes_through(self):
-        text = "Caesar crossed the Rubicon."
+        text = "The morning fog lifted slowly over the harbour."
         assert _pass_a_metadata_strip(text) == text
 
     def test_empty_string(self):
