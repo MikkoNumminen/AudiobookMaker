@@ -23,6 +23,7 @@ from src.cli._common import (
     EXIT_BAD_INPUT,
     EXIT_INTERNAL,
     EXIT_OK,
+    OVERWRITE_CHOICES,
     STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
@@ -94,6 +95,18 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         default=False,
         help="Print what would happen without synthesizing.",
+    )
+    p.add_argument(
+        "--overwrite",
+        metavar="MODE",
+        choices=list(OVERWRITE_CHOICES),
+        default="replace",
+        help=(
+            "What to do when the sample output already exists. "
+            "'replace' (default): overwrite. "
+            "'skip': exit 0 immediately without synthesizing. "
+            "'fresh': delete the chunk cache before starting."
+        ),
     )
     add_output_mode_flags(
         p,

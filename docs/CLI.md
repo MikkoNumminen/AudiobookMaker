@@ -244,6 +244,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
+| `--overwrite MODE` | What to do when output already exists. 'replace' (default): overwrite the output file, reuse cached chunks — same as today's behaviour. 'skip': exit 0 immediately if the output file exists; nothing is synthesized. Useful in batch loops. 'fresh': delete the chunk cache before starting so the run begins clean; overwrite the output file. |
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path (or directory in per-chapter mode). |
 
@@ -269,6 +270,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
 | `--dry-run` | Print what would happen without synthesizing. |
+| `--overwrite MODE` | What to do when the sample output already exists. 'replace' (default): overwrite. 'skip': exit 0 immediately without synthesizing. 'fresh': delete the chunk cache before starting. |
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path. |
 
@@ -589,6 +591,7 @@ Event kinds:
 | `chapter_done` | A chapter finished |
 | `full_done` | All chapters merged into the final MP3 |
 | `done` | Synthesis complete; `output_path` is set |
+| `skipped` | `--overwrite skip` short-circuited the run because `output_path` already existed; no synthesis happened, `output_path` is set to the existing file |
 | `error` | A recoverable error; `raw_line` has the message |
 | `exit` | Subprocess exited; `returncode` is set |
 

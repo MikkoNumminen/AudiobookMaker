@@ -36,6 +36,21 @@ STDIN_INPUT_FORMATS = ("pdf", "epub", "txt")
 """File formats acceptable for the ``-`` (stdin) sentinel on convert/sample."""
 
 # ---------------------------------------------------------------------------
+# --overwrite mode — shared by convert and sample
+# ---------------------------------------------------------------------------
+
+OVERWRITE_CHOICES = ("replace", "skip", "fresh")
+"""Accepted values for ``--overwrite`` on convert and sample.
+
+- ``replace`` (default) — current behaviour: overwrite an existing output
+  file, reuse cached chunks. Preserves existing scripts.
+- ``skip``    — if the final output file already exists, exit 0 immediately
+  without synthesizing. Useful in batch loops.
+- ``fresh``   — delete the chunked cache directory before starting so the
+  run begins clean; overwrite the output file if it exists.
+"""
+
+# ---------------------------------------------------------------------------
 # Config precedence: CLI flag > env var > config.json > default
 # ---------------------------------------------------------------------------
 
