@@ -276,6 +276,7 @@ class _FakeEngine(TTSEngine):
     def synthesize(
         self, text, output_path, voice_id, language,
         progress_cb=None, reference_audio=None, voice_description=None,
+        rate=None,
     ) -> None:
         type(self).calls.append({
             "text": text,
@@ -284,6 +285,7 @@ class _FakeEngine(TTSEngine):
             "language": language,
             "reference_audio": reference_audio,
             "voice_description": voice_description,
+            "rate": rate,
         })
         if progress_cb is not None:
             progress_cb(1, 2, "chunk 1")

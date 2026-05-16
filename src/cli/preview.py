@@ -21,10 +21,12 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 from src.cli._common import (
     EXIT_BAD_INPUT,
@@ -32,6 +34,7 @@ from src.cli._common import (
     EXIT_MISSING_DEP,
     EXIT_OK,
     EXIT_RUNTIME,
+    SPEED_KEYWORD_TO_RATE,
     add_common_synthesis_flags,
     add_output_mode_flags,
     resolve_str,
@@ -41,6 +44,7 @@ from src.cli._common import (
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "preview",
+        aliases=["p"],
         help="Synthesize text and play it immediately.",
         description=(
             "Synthesize a short text string and play it through the system\n"
@@ -73,7 +77,17 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
             "The caller is responsible for deleting the file."
         ),
     )
-    add_output_mode_flags(p)
+    add_output_mode_flags(
+        p,
+        json_help=(
+            "Emit one ProgressEvent per line (NDJSON); "
+            "see docs/CLI.md for the event schema."
+        ),
+        quiet_help=(
+            "Suppress progress; print only the tempfile path (with --no-play) "
+            "or nothing (when audio is played and the file is deleted)."
+        ),
+    )
     p.set_defaults(func=run)
 
 
@@ -148,6 +162,38 @@ def run(args: argparse.Namespace) -> int:
         cfg.voice_id,
         "",
     ) or None
+    speed_keyword = resolve_str(
+        getattr(args, "speed", None),
+        "AUDIOBOOKMAKER_SPEED",
+        "",
+        "",
+    ) or None
+    if speed_keyword is not None:
+        rate: Optional[str] = SPEED_KEYWORD_TO_RATE.get(speed_keyword)
+        if rate is None:
+            print(
+                f"Error: invalid --speed value '{speed_keyword}'. "
+                f"Choose from: {', '.join(SPEED_KEYWORD_TO_RATE)}.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+    else:
+        # See convert.run() for the rationale on sanitize_rate.
+        from src.cli._common import sanitize_rate
+        raw_cfg_speed = cfg.speed or ""
+        rate = sanitize_rate(raw_cfg_speed, default="+0%")
+        if raw_cfg_speed and rate != raw_cfg_speed:
+            print(
+                f"[config] ignoring malformed speed value {raw_cfg_speed!r}; "
+                "falling back to '+0%'.",
+                file=sys.stderr,
+            )
+    voice_description: Optional[str] = resolve_str(
+        getattr(args, "voice_description", None),
+        "AUDIOBOOKMAKER_VOICE_DESCRIPTION",
+        cfg.voice_description,
+        "",
+    ) or None
 
     # Load engine registry and look up the engine.
     try:
@@ -209,6 +255,8 @@ def run(args: argparse.Namespace) -> int:
             voice_id=voice_id,
             language=language,
             progress_cb=_on_progress,
+            voice_description=voice_description,
+            rate=rate,
         )
     except KeyboardInterrupt:
         _delete_temp(tmp_path)
@@ -220,7 +268,9 @@ def run(args: argparse.Namespace) -> int:
 
     if no_play:
         # Hand the file to the caller; they own it.
-        print(tmp_path, flush=True)
+        # Shell-quote the path so callers can safely eval/use it even
+        # when the tempdir contains spaces (common on Windows/macOS).
+        print(shlex.quote(str(tmp_path)), flush=True)
         return EXIT_OK
 
     # Play the clip and wait for it to finish.

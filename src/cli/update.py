@@ -56,7 +56,17 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Check whether a newer version is available.",
         description="Query GitHub Releases and report whether this build is current.",
     )
-    add_output_mode_flags(chk)
+    add_output_mode_flags(
+        chk,
+        json_help=(
+            "Emit a single object with fields: "
+            "current_version, latest_version, update_available, release_url."
+        ),
+        quiet_help=(
+            "Suppress detail; print only the latest version when an update is "
+            "available, or nothing when already up to date."
+        ),
+    )
     chk.set_defaults(func=_run_check)
 
     # update apply
@@ -75,7 +85,15 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=False,
         help="Skip the confirmation prompt and apply immediately.",
     )
-    add_output_mode_flags(apl)
+    add_output_mode_flags(
+        apl,
+        json_help=(
+            "Emit one progress object per line; "
+            "the final object reports current_version, latest_version, "
+            "installer_path, release_url, and status."
+        ),
+        quiet_help="Suppress progress; print only the new version on success.",
+    )
     apl.set_defaults(func=_run_apply)
 
 

@@ -126,6 +126,7 @@ class ChatterboxFiEngine(TTSEngine):
         progress_cb: Optional[ProgressCallback] = None,
         reference_audio: Optional[str] = None,
         voice_description: Optional[str] = None,
+        rate: Optional[str] = None,
     ) -> None:
         """Not callable directly — dispatch via the subprocess bridge."""
         raise RuntimeError(
