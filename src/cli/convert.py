@@ -20,6 +20,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json as _json
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -41,6 +43,21 @@ from src.cli._common import (
     runner_script_path,
     validate_input_path,
 )
+
+# ---------------------------------------------------------------------------
+# --overwrite choices
+# ---------------------------------------------------------------------------
+
+OVERWRITE_CHOICES = ("replace", "skip", "fresh")
+"""Accepted values for ``--overwrite`` on convert and sample.
+
+- ``replace`` (default) — current behaviour: overwrite an existing output
+  file, reuse cached chunks. Preserves existing scripts.
+- ``skip``    — if the final output file already exists, exit 0 immediately
+  without synthesizing. Useful in batch loops.
+- ``fresh``   — delete the chunked cache directory before starting so the
+  run begins clean; overwrite the output file if it exists.
+"""
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -103,6 +120,21 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         default=False,
         help="Print what would happen without synthesizing.",
+    )
+    p.add_argument(
+        "--overwrite",
+        metavar="MODE",
+        choices=list(OVERWRITE_CHOICES),
+        default="replace",
+        help=(
+            "What to do when output already exists. "
+            "'replace' (default): overwrite the output file, reuse cached chunks — "
+            "same as today's behaviour. "
+            "'skip': exit 0 immediately if the output file exists; nothing is synthesized. "
+            "Useful in batch loops. "
+            "'fresh': delete the chunk cache before starting so the run begins clean; "
+            "overwrite the output file."
+        ),
     )
     add_output_mode_flags(p)
     p.set_defaults(func=run)
@@ -223,6 +255,9 @@ def _run_inner(
     voice_pack: Optional[str] = str(Path(voice_pack_raw).expanduser()) if voice_pack_raw else None
     chunk_chars: Optional[int] = getattr(args, "chunk_chars", None)
 
+    # Resolve overwrite mode (default: replace — preserves legacy behaviour).
+    overwrite: str = getattr(args, "overwrite", "replace") or "replace"
+
     # Resolve output path.
     try:
         from src.synthesis_orchestrator import suggest_output_path
@@ -235,6 +270,25 @@ def _run_inner(
     except Exception as exc:
         print(f"Error resolving output path: {exc}", file=sys.stderr)
         return EXIT_INTERNAL
+
+    # --overwrite skip: bail out early if the output already exists.
+    if overwrite == "skip" and Path(output_path).exists():
+        if json_mode:
+            print(
+                _json.dumps({"kind": "skipped", "output_path": output_path}),
+                flush=True,
+            )
+        elif not quiet:
+            print(f"Skipped: output already exists: {output_path}", flush=True)
+        else:
+            print(output_path, flush=True)
+        return EXIT_OK
+
+    # --overwrite fresh: wipe the chunk cache so synthesis starts clean.
+    if overwrite == "fresh":
+        cache_dir = Path(output_path).parent / ".chunks"
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir)
 
     if dry_run:
         _print_dry_run(

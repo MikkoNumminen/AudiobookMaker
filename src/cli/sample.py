@@ -30,6 +30,7 @@ from src.cli._common import (
     materialize_stdin_to_tempfile,
     validate_input_path,
 )
+from src.cli.convert import OVERWRITE_CHOICES
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -93,6 +94,18 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         default=False,
         help="Print what would happen without synthesizing.",
+    )
+    p.add_argument(
+        "--overwrite",
+        metavar="MODE",
+        choices=list(OVERWRITE_CHOICES),
+        default="replace",
+        help=(
+            "What to do when the sample output already exists. "
+            "'replace' (default): overwrite. "
+            "'skip': exit 0 immediately without synthesizing. "
+            "'fresh': delete the chunk cache before starting."
+        ),
     )
     add_output_mode_flags(p)
     p.set_defaults(func=run)
