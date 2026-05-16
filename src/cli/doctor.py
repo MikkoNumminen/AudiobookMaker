@@ -170,9 +170,25 @@ def run(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
+    exit_code = EXIT_MISSING_DEP if any_required_missing else EXIT_OK
+
     if json_mode:
         for check in checks:
             print(json.dumps(check), flush=True)
+        # Emit a terminal summary line so consumers get pass/fail without
+        # having to aggregate every per-check row themselves.
+        required_missing = [
+            c["name"]
+            for c in checks
+            if c.get("required") and c.get("status") in ("missing", "not_found", "unavailable", "error")
+        ]
+        summary = {
+            "kind": "summary",
+            "status": "fail" if any_required_missing else "pass",
+            "required_missing": required_missing,
+            "exit_code": exit_code,
+        }
+        print(json.dumps(summary), flush=True)
     elif not quiet:
         _print_table(checks)
     else:
@@ -182,7 +198,7 @@ def run(args: argparse.Namespace) -> int:
         else:
             print("doctor: OK", flush=True)
 
-    return EXIT_MISSING_DEP if any_required_missing else EXIT_OK
+    return exit_code
 
 
 def _print_table(checks: list[dict]) -> None:

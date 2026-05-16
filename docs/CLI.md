@@ -230,13 +230,14 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 
 | Flag | Description |
 |------|-------------|
-| `INPUT` | Path to a PDF, EPUB, or TXT file. |
+| `INPUT` | Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. When '-' is used, --input-format must also be provided. |
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
 | `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
+| `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
 | `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
@@ -252,13 +253,14 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 
 | Flag | Description |
 |------|-------------|
-| `INPUT` | Path to a PDF, EPUB, or TXT file. |
+| `INPUT` | Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. When '-' is used, --input-format must also be provided. |
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
 | `--speed KEYWORD` | Playback speed. One of: slow (-25%%), normal (+0%%), fast (+25%%), xfast (+50%%). Engines that do not support speed control ignore this flag. Default from config (GUI Speed setting); fallback: normal. Env: AUDIOBOOKMAKER_SPEED. |
 | `--voice-description TEXT` | Free-text voice style prompt for engines that support it (e.g. 'a warm baritone elderly male voice'). Ignored by engines that do not support voice descriptions. Default from config (GUI Voice style field). Env: AUDIOBOOKMAKER_VOICE_DESCRIPTION. |
+| `--input-format FMT` | File format when reading from stdin ('-'). Required when INPUT is '-'; not valid otherwise. Choices: pdf, epub, txt. |
 | `--ref-audio PATH` | Reference audio file for voice-cloning engines. |
 | `--voice-pack PATH` | Path to a voice pack directory (Chatterbox only). |
 | `--chunk-chars N` | Characters per synthesis chunk (Chatterbox only; default 300). |
@@ -274,7 +276,7 @@ Synthesize a short text string and play it through the system audio output. Noth
 
 | Flag | Description |
 |------|-------------|
-| `TEXT` | The text to speak. |
+| `TEXT` | The text to speak, or '-' to read text from stdin. |
 | `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
@@ -327,6 +329,8 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `ID` | Engine id to remove. |
 | `--yes` | Skip confirmation. |
+| `--json` | Emit one JSON object per line (NDJSON format, ProgressEvent shape). |
+| `--quiet` | Suppress progress; print only the final output path. |
 
 ---
 

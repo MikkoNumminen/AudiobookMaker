@@ -63,7 +63,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "text",
         metavar="TEXT",
-        help="The text to speak.",
+        help="The text to speak, or '-' to read text from stdin.",
     )
     add_common_synthesis_flags(p)
     p.add_argument(
@@ -85,7 +85,33 @@ def run(args: argparse.Namespace) -> int:
     quiet: bool = getattr(args, "quiet", False)
     no_play: bool = getattr(args, "no_play", False)
 
-    text: str = args.text
+    raw_text: str = args.text
+
+    if raw_text == "-":
+        # Stdin sentinel — read text from stdin.
+        if sys.stdin.isatty():
+            print(
+                "Error: stdin is a terminal — pipe data in, or pass a file path.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        try:
+            # Reconfigure stdin to UTF-8 for consistent decoding on all platforms.
+            try:
+                sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, OSError):
+                pass
+            raw_text = sys.stdin.read()
+        except Exception as exc:
+            print(f"Error reading from stdin: {exc}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        # Strip trailing newlines but preserve internal structure.
+        raw_text = raw_text.rstrip("\r\n")
+        if not raw_text.strip():
+            print("Error: empty input from stdin.", file=sys.stderr)
+            return EXIT_BAD_INPUT
+
+    text: str = raw_text
     if not text or not text.strip():
         print("Error: text must not be empty.", file=sys.stderr)
         return EXIT_BAD_INPUT

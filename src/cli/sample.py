@@ -15,6 +15,7 @@ Exit codes: same as convert (0/1/2/3/4/5).
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 from pathlib import Path
 
@@ -22,8 +23,11 @@ from src.cli._common import (
     EXIT_BAD_INPUT,
     EXIT_INTERNAL,
     EXIT_OK,
+    STDIN_INPUT_FORMATS,
     add_common_synthesis_flags,
     add_output_mode_flags,
+    cleanup_stdin_tempfile,
+    materialize_stdin_to_tempfile,
     validate_input_path,
 )
 
@@ -48,9 +52,23 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "input",
         metavar="INPUT",
-        help="Path to a PDF, EPUB, or TXT file.",
+        help=(
+            "Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. "
+            "When '-' is used, --input-format must also be provided."
+        ),
     )
     add_common_synthesis_flags(p)
+    p.add_argument(
+        "--input-format",
+        metavar="FMT",
+        default=None,
+        choices=list(STDIN_INPUT_FORMATS),
+        help=(
+            "File format when reading from stdin ('-'). "
+            "Required when INPUT is '-'; not valid otherwise. "
+            "Choices: pdf, epub, txt."
+        ),
+    )
     p.add_argument(
         "--ref-audio",
         metavar="PATH",
@@ -81,7 +99,46 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    input_path = str(Path(args.input).expanduser())
+    raw_input: str = args.input
+
+    if raw_input == "-":
+        # Stdin sentinel: validate preconditions, materialize bytes to a
+        # scratch tempfile via the shared helper, then proceed as if the
+        # user had passed that file path directly. We work on a *copy* of
+        # ``args`` so the caller's Namespace isn't mutated (callers may
+        # re-use it; mutation would be a subtle footgun).
+        input_format = getattr(args, "input_format", None)
+        if input_format is None:
+            print(
+                "Error: --input-format is required when INPUT is '-' (stdin). "
+                "Choices: pdf, epub, txt.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        if sys.stdin.isatty():
+            print(
+                "Error: stdin is a terminal — pipe data in, or pass a file path.",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        stdin_tempfile, err_code, err_msg = materialize_stdin_to_tempfile(input_format)
+        if stdin_tempfile is None:
+            print(f"Error: {err_msg}", file=sys.stderr)
+            return err_code
+        # Build a non-mutating copy with the resolved path. ``input_format``
+        # is cleared so convert.run() doesn't re-reject the now-real path.
+        args_copy = copy.copy(args)
+        args_copy.input = stdin_tempfile
+        args_copy.input_format = None
+        try:
+            if getattr(args_copy, "dry_run", False):
+                from src.cli import convert
+                return convert.run(args_copy, sample_text="(dry-run sample)")
+            return _run_sample_from_path(args_copy, input_path=stdin_tempfile)
+        finally:
+            cleanup_stdin_tempfile(stdin_tempfile)
+
+    input_path = str(Path(raw_input).expanduser())
 
     # Validate input file via the shared helper so the rules stay in
     # one place across convert and sample.
@@ -95,6 +152,12 @@ def run(args: argparse.Namespace) -> int:
         # sample_text doesn't matter since nothing is synthesized.
         from src.cli import convert
         return convert.run(args, sample_text="(dry-run sample)")
+
+    return _run_sample_from_path(args, input_path=input_path)
+
+
+def _run_sample_from_path(args: argparse.Namespace, *, input_path: str) -> int:
+    """Extract and synthesize a sample from an already-validated file path."""
 
     # Read and extract the sample text from the input file.
     try:

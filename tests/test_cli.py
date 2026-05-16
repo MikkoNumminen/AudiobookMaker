@@ -266,19 +266,24 @@ class TestDoctor:
         assert lines, "expected at least one JSON line from doctor --json"
         for line in lines:
             obj = json.loads(line)
+            if obj.get("kind") == "summary":
+                # summary line has a different shape — validated elsewhere
+                continue
             assert "name" in obj
             assert "status" in obj
 
     def test_json_has_ffmpeg_check(self):
         result = _cli("doctor", "--json")
         lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
-        names = [json.loads(l)["name"] for l in lines]
+        objs = [json.loads(l) for l in lines]
+        names = [o["name"] for o in objs if o.get("kind") != "summary"]
         assert "ffmpeg" in names
 
     def test_json_has_gpu_check(self):
         result = _cli("doctor", "--json")
         lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
-        names = [json.loads(l)["name"] for l in lines]
+        objs = [json.loads(l) for l in lines]
+        names = [o["name"] for o in objs if o.get("kind") != "summary"]
         assert "gpu" in names
 
 
