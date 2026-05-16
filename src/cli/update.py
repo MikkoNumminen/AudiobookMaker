@@ -202,15 +202,17 @@ def _run_apply(args: argparse.Namespace) -> int:
 
     # Prompt unless --yes.
     if not yes:
+        print(
+            f"Download and install v{info.latest_version}? [y/N] ",
+            end="", flush=True, file=sys.stderr,
+        )
         try:
-            answer = input(
-                f"Download and install v{info.latest_version}? [y/N] "
-            ).strip().lower()
+            answer = input().strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.", file=sys.stderr)
             return EXIT_CANCELLED
         if answer not in ("y", "yes"):
-            print("Cancelled.")
+            print("Cancelled.", file=sys.stderr)
             return EXIT_CANCELLED
 
     if not json_mode:

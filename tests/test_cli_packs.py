@@ -300,6 +300,63 @@ class TestPacksRemove:
 
 
 # ---------------------------------------------------------------------------
+# Prompt-on-stderr regression tests (N5)
+# ---------------------------------------------------------------------------
+
+
+class TestPacksRemovePromptOnStderr:
+    """The confirmation prompt must go to stderr, not stdout.
+
+    A user piping `packs remove SLUG | jq` must not see prompt text in
+    the JSON pipe.  Both the prompt text and the cancellation message
+    must land on stderr only.
+    """
+
+    def test_prompt_on_stderr_not_stdout(self, tmp_path):
+        """Prompt text must appear on stderr, not stdout."""
+        _make_fake_pack(tmp_path, "prompt_target")
+        rc, out, err = _run(tmp_path, "remove", "prompt_target", input_str="n")
+        assert rc == 3, "declining must return EXIT_CANCELLED"
+        assert "Remove voice pack" not in out, "prompt must not leak to stdout"
+        assert "Remove voice pack" in err, "prompt must appear on stderr"
+
+    def test_stdout_empty_on_cancel(self, tmp_path):
+        """stdout must be empty when the user cancels."""
+        _make_fake_pack(tmp_path, "cancel_target")
+        rc, out, err = _run(tmp_path, "remove", "cancel_target", input_str="n")
+        assert rc == 3
+        assert out.strip() == "", "stdout must be empty on cancellation"
+
+    def test_cancelled_message_on_stderr(self, tmp_path):
+        """The 'Cancelled.' message must appear on stderr."""
+        _make_fake_pack(tmp_path, "cancel_msg_target")
+        rc, out, err = _run(tmp_path, "remove", "cancel_msg_target", input_str="n")
+        assert rc == 3
+        assert "Cancelled" in err
+
+    def test_yes_flag_no_prompt_anywhere(self, tmp_path):
+        """With --yes, no prompt text must appear on stdout or stderr."""
+        import src.cli.packs as packs_mod
+
+        _make_fake_pack(tmp_path, "yes_target")
+        with mock.patch.object(packs_mod, "_packs_dir", return_value=tmp_path):
+            stdout_buf = StringIO()
+            stderr_buf = StringIO()
+            input_called = mock.Mock(side_effect=AssertionError("input() must not be called with --yes"))
+            parser, _ = _make_packs_parser(tmp_path)
+            with (
+                mock.patch("sys.stdout", stdout_buf),
+                mock.patch("sys.stderr", stderr_buf),
+                mock.patch("builtins.input", input_called),
+            ):
+                parsed = parser.parse_args(["packs", "remove", "yes_target", "--yes"])
+                rc = parsed.func(parsed)
+        assert rc == 0
+        assert "Remove voice pack" not in stdout_buf.getvalue()
+        assert "Remove voice pack" not in stderr_buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
 # Path-traversal regression tests
 # ---------------------------------------------------------------------------
 
