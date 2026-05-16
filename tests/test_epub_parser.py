@@ -159,6 +159,11 @@ class TestParseEpubBasic:
         This is a hand-crafted regression test so the contract is
         enforced in CI; the opt-in real-EPUB suite also exercises the
         same path on real-world content when a tester sets the env var.
+
+        The replacement character is spelled ``\\ufffd`` rather than as a
+        literal so the test source stays unambiguous in code-review
+        tools, editors, and diff viewers that render U+FFFD with their
+        own glyph.
         """
         path = _make_epub(
             [
@@ -166,7 +171,7 @@ class TestParseEpubBasic:
                     "c1.xhtml",
                     "Replacement Chapter",
                     "<p>"
-                    + ("Hello�world. The fog � over the harbour. " * 8)
+                    + ("Hello\ufffdworld. The fog \ufffd over the harbour. " * 8)
                     + "</p>",
                 ),
             ]
@@ -176,7 +181,7 @@ class TestParseEpubBasic:
         # out the degenerate "all chapters dropped" failure mode.
         assert book.chapters, "parser dropped every chapter"
         for ch in book.chapters:
-            assert "�" not in ch.content, (
+            assert "\ufffd" not in ch.content, (
                 f"Replacement char leaked into chapter {ch.index} {ch.title!r}"
             )
 
