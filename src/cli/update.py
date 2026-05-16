@@ -105,13 +105,22 @@ def _is_frozen() -> bool:
 
 def _run_check(args: argparse.Namespace) -> int:
     json_mode: bool = getattr(args, "json", False)
+    quiet: bool = getattr(args, "quiet", False)
 
     try:
         from src.auto_updater import APP_VERSION, check_for_update
         info = check_for_update(APP_VERSION)
     except Exception as exc:
-        print(f"Error checking for update: {exc}", file=sys.stderr)
-        return EXIT_INTERNAL
+        reason = str(exc).strip() or type(exc).__name__
+        if json_mode:
+            print(json.dumps({
+                "kind": "error",
+                "error": reason,
+                "exit_code": EXIT_RUNTIME,
+            }), flush=True)
+        elif not quiet:
+            print(f"update check failed: {reason}", file=sys.stderr)
+        return EXIT_RUNTIME
 
     release_url = _release_url(info.latest_version) if info.available else ""
 
