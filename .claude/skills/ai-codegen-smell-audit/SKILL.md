@@ -422,6 +422,36 @@ skill.>
 6. **Stop.** This skill is read-only. Fixes happen on a follow-up
    branch the user opens by hand.
 
+## Lightweight CI companion
+
+The full skill needs an LLM to apply the calibration rules (trust
+boundaries, documented intent, density thresholds). CI cannot run a
+model, so a deterministic subset runs on every push to `master` and
+weekly via cron:
+
+- **Workflow:** [`.github/workflows/codegen-smell-audit.yml`](../../../.github/workflows/codegen-smell-audit.yml)
+- **Script:** [`scripts/check_codegen_smells.py`](../../../scripts/check_codegen_smells.py)
+
+The CI subset covers four of the ten checks — the ones that survive
+pure grep without semantic reasoning:
+
+- `phantom-todos` and `swallowed-errors` are **gating** (job fails
+  if `src/` grows any new hits — both are zero today, so the gate is
+  green on day one).
+- `defensive-checks-for-impossible-cases` and `over-typed-primitives`
+  are **warnings** (reported in the step summary, do not fail the
+  job — they have too many edge cases to gate on without a model).
+
+The remaining six checks need the full LLM-driven skill to apply
+calibration. Run it by hand (or from this skill) when you want the
+full pass.
+
+The CI gate is intentionally minimal — its job is to catch
+regressions, not to grade code. False positives waste developer
+attention; the script's docstring documents every exclusion (owner-
+tagged TODOs, `typing` imports, `T | None` parameters, etc.) so the
+reader can audit what's actually being checked.
+
 ## Failure modes of this skill
 
 Honest list — the auditor should know these going in:
@@ -449,6 +479,29 @@ Honest list — the auditor should know these going in:
   smell shapes are most stable. Rust / Go / Swift findings will
   skew toward `generic-names` and `swallowed-errors` (the two most
   language-agnostic checks).
+- **CI subset is necessarily narrow.** The 4-check CI gate (see
+  "Lightweight CI companion" above) can only enforce patterns that
+  don't need semantic judgement. Six of the ten checks are
+  LLM-only — they will not catch regressions on their own; the
+  human-invoked full pass remains the canonical check.
+
+## Schema-level enforcement
+
+The skill's `evals/evals.json` schema is validated by
+[`tests/test_skill_evals.py`](../../../tests/test_skill_evals.py),
+which runs as part of the project test suite (pre-commit + CI).
+The test walks every `.claude/skills/*/evals/evals.json` and asserts:
+
+- `skill_name` matches the parent directory name (catches copy-paste
+  forks where the slug never got updated)
+- `evals` is a non-empty list
+- Every entry has `id` (unique int), `name` (unique kebab-case
+  string), `prompt` (non-empty), `expected_output` (non-empty), and
+  a `files` list
+
+So a malformed eval file fails the test suite, not silently at
+audit time. The schema is intentionally small — it catches drift,
+it does not validate semantic content.
 
 ## Calibration against this repo (`src/`)
 
@@ -463,10 +516,10 @@ the auditor can open and see the pattern.
 | Check | Verdict on this repo | Concrete hit (when grounded) |
 |---|---|---|
 | defensive-checks-for-impossible-cases | **NO HITS** | No function-parameter type guard that contradicts its annotation found in a sampled sweep — kept because the check is grounded in generated code generally and will fire on fresh AI diffs |
-| stylistic-drift-within-file | **GROUNDED** | `src/cleanup.py:106` uses `os.path.getsize(os.path.join(...))` while the rest of the same file builds paths via `Path()` (verified) |
+| stylistic-drift-within-file | **GROUNDED (fixed in PR #67)** | `src/cleanup.py:106` used `os.path.getsize(os.path.join(...))` while the rest of the same file built paths via `Path()`; rewritten to `(Path(root) / f).stat().st_size` and confirmed in the 2026-05-17-v2 second-run audit |
 | paraphrase-comments | **NO HITS** | None found — codebase has been human-reviewed |
 | single-use-helpers | **MIXED** | No clean false-positive, no clean true-positive in samples — needs full call-graph analysis to confirm either way |
-| generic-names-in-domain-context | **GROUNDED** | `src/auto_updater.py:253` `data = json.loads(...)` for a GitHub release response — subsequent code reads `data.get("tag_name")`, `data.get("assets", [])` (verified) |
+| generic-names-in-domain-context | **GROUNDED (fixed in PR #67)** | `src/auto_updater.py:253` had `data = json.loads(...)` for a GitHub release response — subsequent code read `data.get("tag_name")`, `data.get("assets", [])`. Renamed to `release_data` across the six reads in `check_for_update`; confirmed in the 2026-05-17-v2 second-run audit |
 | swallowed-errors | **NO HITS** | Bare `except: pass` is absent in `src/` — only `except PermissionError:` and similar typed handlers — kept because the check fires on fresh generated code |
 | mirror-tests | **NO HITS** | Sampled `test_tts_normalizer_fi.py`, `test_tts_audio.py`, `test_cleanup.py`, `test_tts_chunking.py` — all assert real behaviour |
 | phantom-todos | **NO HITS** | Zero `# TODO` / `# FIXME` in `src/` |
@@ -488,6 +541,16 @@ call-graph analysis for single-use-helpers, structural similarity
 analysis across modules for duplicated-helpers, function-signature
 parsing for defensive-checks — would likely surface more grounded
 hits. The 2/10 number is a floor, not a ceiling.
+
+**Second-run verification (2026-05-17, post-PR #67).** A second
+audit ran the same 4-parallel-sub-agent pattern against `src/` after
+both first-run findings were fixed. Both citations now point at
+clean code (`(Path(root) / f).stat().st_size` and `release_data =
+json.loads(...)` respectively), and the second-run sweep produced
+zero new findings across all ten checks. Track record so far: one
+audit found two real smells; the fix held; the second audit
+confirmed it. Full second-run report at
+[`docs/audits/ai-smell-2026-05-17-v2.md`](../../../docs/audits/ai-smell-2026-05-17-v2.md).
 
 **One pattern observed in `src/` that is NOT in the ten checks** —
 a candidate for a future check once it shows up across multiple
