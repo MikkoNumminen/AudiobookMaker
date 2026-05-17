@@ -381,7 +381,7 @@ audiobookmaker-cli engines install chatterbox_fi
 **Example:**
 
 ```bash
-audiobookmaker-cli engines remove voxcpm2 --yes
+audiobookmaker-cli engines remove piper --yes
 ```
 
 ---
@@ -445,7 +445,7 @@ audiobookmaker-cli packs import ./mypack/
 **Example:**
 
 ```bash
-audiobookmaker-cli packs remove myvoice --yes
+audiobookmaker-cli packs remove mypack --yes
 ```
 
 ---
@@ -461,7 +461,7 @@ audiobookmaker-cli packs remove myvoice --yes
 **Example:**
 
 ```bash
-audiobookmaker-cli packs info myvoice
+audiobookmaker-cli packs info mypack
 ```
 
 ---

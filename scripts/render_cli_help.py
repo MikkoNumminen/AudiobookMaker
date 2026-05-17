@@ -49,6 +49,34 @@ _CLI_MD = _REPO_ROOT / "docs" / "CLI.md"
 _BEGIN_MARKER = "<!-- BEGIN_GENERATED_REFERENCE -->"
 _END_MARKER = "<!-- END_GENERATED_REFERENCE -->"
 
+# One canonical example per subcommand. Keys are the breadcrumb path
+# (the same list that becomes `audiobookmaker-cli <crumb...>`). Every
+# leaf parser surfaced by `_leaf_parsers` must have an entry — the
+# renderer test `test_every_subcommand_has_example` enforces this so
+# that adding a new subcommand without an example fails the suite.
+_EXAMPLES: dict[tuple[str, ...], str] = {
+    ("convert",): 'audiobookmaker-cli convert mybook.pdf --engine edge --language en',
+    ("sample",): 'audiobookmaker-cli sample mybook.epub --engine chatterbox_fi --language fi',
+    ("preview",): 'audiobookmaker-cli preview "This is a quick preview."',
+    ("voices", "list"): 'audiobookmaker-cli voices list --language fi',
+    ("engines", "list"): 'audiobookmaker-cli engines list --installed-only',
+    ("engines", "install"): 'audiobookmaker-cli engines install chatterbox_fi',
+    ("engines", "remove"): 'audiobookmaker-cli engines remove piper --yes',
+    ("engines", "check"): 'audiobookmaker-cli engines check chatterbox_fi',
+    ("packs", "list"): 'audiobookmaker-cli packs list',
+    ("packs", "import"): 'audiobookmaker-cli packs import ./mypack/',
+    ("packs", "remove"): 'audiobookmaker-cli packs remove mypack --yes',
+    ("packs", "info"): 'audiobookmaker-cli packs info mypack',
+    ("config", "show"): 'audiobookmaker-cli config show engine_id',
+    ("config", "set"): 'audiobookmaker-cli config set engine_id piper',
+    ("config", "reset"): 'audiobookmaker-cli config reset engine_id',
+    ("config", "path"): 'audiobookmaker-cli config path',
+    ("update", "check"): 'audiobookmaker-cli update check',
+    ("update", "apply"): 'audiobookmaker-cli update apply --yes',
+    ("doctor",): 'audiobookmaker-cli doctor',
+    ("report-bug",): 'audiobookmaker-cli report-bug --print',
+}
+
 # ---------------------------------------------------------------------------
 # Parser introspection helpers
 # ---------------------------------------------------------------------------
@@ -91,35 +119,6 @@ def _render_flag_table(parser: argparse.ArgumentParser) -> str:
     for token, desc in rows:
         lines.append(f"| {token} | {desc} |")
     return "\n".join(lines) + "\n"
-
-
-# One canonical example per subcommand. Keys are the breadcrumb path
-# (the same list that becomes `audiobookmaker-cli <crumb...>`). Every
-# leaf parser surfaced by `_leaf_parsers` must have an entry — the
-# renderer test `test_every_subcommand_has_example` enforces this so
-# that adding a new subcommand without an example fails the suite.
-_EXAMPLES: dict[tuple[str, ...], str] = {
-    ("convert",): 'audiobookmaker-cli convert mybook.pdf --engine edge --language en',
-    ("sample",): 'audiobookmaker-cli sample mybook.epub --engine chatterbox_fi --language fi',
-    ("preview",): 'audiobookmaker-cli preview "This is a quick preview."',
-    ("voices", "list"): 'audiobookmaker-cli voices list --language fi',
-    ("engines", "list"): 'audiobookmaker-cli engines list --installed-only',
-    ("engines", "install"): 'audiobookmaker-cli engines install chatterbox_fi',
-    ("engines", "remove"): 'audiobookmaker-cli engines remove voxcpm2 --yes',
-    ("engines", "check"): 'audiobookmaker-cli engines check chatterbox_fi',
-    ("packs", "list"): 'audiobookmaker-cli packs list',
-    ("packs", "import"): 'audiobookmaker-cli packs import ./mypack/',
-    ("packs", "remove"): 'audiobookmaker-cli packs remove myvoice --yes',
-    ("packs", "info"): 'audiobookmaker-cli packs info myvoice',
-    ("config", "show"): 'audiobookmaker-cli config show engine_id',
-    ("config", "set"): 'audiobookmaker-cli config set engine_id piper',
-    ("config", "reset"): 'audiobookmaker-cli config reset engine_id',
-    ("config", "path"): 'audiobookmaker-cli config path',
-    ("update", "check"): 'audiobookmaker-cli update check',
-    ("update", "apply"): 'audiobookmaker-cli update apply --yes',
-    ("doctor",): 'audiobookmaker-cli doctor',
-    ("report-bug",): 'audiobookmaker-cli report-bug --print',
-}
 
 
 def _render_example(crumb: list[str]) -> str:

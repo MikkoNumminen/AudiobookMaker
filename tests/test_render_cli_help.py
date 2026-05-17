@@ -114,6 +114,16 @@ def test_every_subcommand_has_example():
         f"{sorted(stale_example)}. Remove from scripts/render_cli_help.py."
     )
 
+    # Every example string itself must be non-empty and start with the
+    # canonical CLI command — guards against accidental empty values
+    # or partial pastes (e.g. dropping the binary name).
+    for crumb, ex in _EXAMPLES.items():
+        assert ex.strip(), f"Empty example for {crumb}"
+        assert ex.startswith("audiobookmaker-cli "), (
+            f"Example for {crumb} should start with 'audiobookmaker-cli ', "
+            f"got: {ex!r}"
+        )
+
 
 def test_stdout_contains_example_blocks():
     """The rendered block must include at least one **Example:** code
