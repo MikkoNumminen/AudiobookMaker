@@ -151,6 +151,24 @@ class TestLegacyEngineIdMigration:
         on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
         assert on_disk["engine_id"] == "chatterbox_grandmom"
 
+    def test_legacy_config_engine_id_actually_resolves_engine(self, tmp_config) -> None:
+        # End-to-end smoke for the migration + alias contract: write a
+        # config with the legacy id on disk, load() it, then feed the
+        # loaded engine id back into the registry. The engine must
+        # resolve to a real instance — i.e. the GUI / orchestrator code
+        # that does ``get_engine(config.engine_id)`` after ``load()``
+        # would actually get an engine, not None.
+        from src.tts_base import get_engine
+
+        legacy_raw = {"engine_id": "chatterbox_fi", "language": "en"}
+        (tmp_config / "config.json").write_text(json.dumps(legacy_raw), encoding="utf-8")
+
+        cfg = load()
+        engine = get_engine(cfg.engine_id)
+
+        assert engine is not None
+        assert engine.id == "chatterbox_grandmom"
+
     def test_save_roundtrip_with_new_fields(self, tmp_config) -> None:
         original = UserConfig(
             engine_id="piper",

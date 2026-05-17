@@ -24,7 +24,7 @@ import sys
 # Always available — these three are the officially supported engines.
 from src import tts_edge  # noqa: F401  (registers EdgeTTSEngine)
 from src import tts_piper  # noqa: F401  (registers PiperTTSEngine)
-from src import tts_chatterbox_bridge  # noqa: F401  (registers ChatterboxFiEngine)
+from src import tts_chatterbox_bridge  # noqa: F401  (registers ChatterboxEngine)
 
 # VoxCPM2 is a developer-only engine — it depends on torch and a GPU
 # that we don't want to pull into frozen installs. Skip it when running

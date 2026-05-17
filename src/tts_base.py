@@ -236,18 +236,34 @@ def register_alias(old_id: str, new_id: str) -> None:
     in :func:`list_engines` / :func:`registered_ids` — they are pure
     lookup redirects so user configs and scripts that still reference an
     old name keep working without churn.
+
+    Re-registering the same alias mapping (same ``old_id`` and ``new_id``
+    pair) is idempotent and succeeds quietly. Attempting to point an
+    existing alias at a *different* target raises ``ValueError`` so the
+    failure is loud instead of silently overwriting.
     """
     if not old_id or not new_id:
         raise ValueError("Both old_id and new_id must be non-empty")
-    if old_id == new_id:
-        raise ValueError(f"Alias '{old_id}' cannot map to itself")
+    # Check canonical-id collision before the self-loop check so the
+    # more specific error fires first when both apply (e.g. someone
+    # calls ``register_alias("dummy", "dummy")`` with "dummy" already
+    # canonical — they get told "already a canonical engine id", not
+    # the less actionable "cannot map to itself").
     if old_id in _REGISTRY:
         raise ValueError(
             f"Cannot register '{old_id}' as alias — it is already a canonical engine id"
         )
+    if old_id == new_id:
+        raise ValueError(f"Alias '{old_id}' cannot map to itself")
     if new_id not in _REGISTRY:
         raise ValueError(
             f"Cannot alias '{old_id}' to '{new_id}' — '{new_id}' is not a registered engine"
+        )
+    existing = _ALIASES.get(old_id)
+    if existing is not None and existing != new_id:
+        raise ValueError(
+            f"Alias '{old_id}' is already registered as alias for "
+            f"'{existing}'; cannot rebind to '{new_id}'"
         )
     _ALIASES[old_id] = new_id
 

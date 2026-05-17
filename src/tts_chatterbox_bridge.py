@@ -42,16 +42,16 @@ _CHATTERBOX_LANG_TAGS = {
 
 
 @register_engine
-class ChatterboxFiEngine(TTSEngine):
+class ChatterboxEngine(TTSEngine):
     """Metadata-only Chatterbox engine; real work runs via the bridge.
 
-    Class is still named ``ChatterboxFiEngine`` for historical reasons —
-    the canonical engine id is now ``chatterbox_grandmom``, reflecting
-    that the same machinery serves both Finnish (T3 finetune) and
-    English (multilingual base + bundled Grandmom reference clip).
-    The legacy id ``chatterbox_fi`` is registered as an alias below so
-    existing user configs, env vars, scripts, and release/update paths
-    keep working without churn.
+    Serves both Finnish (T3 finetune, no reference clip) and English
+    (multilingual base + bundled Grandmom reference WAV, Route B v2)
+    — the language router inside the subprocess decides at runtime.
+    Canonical engine id is ``chatterbox_grandmom``. The legacy id
+    ``chatterbox_fi`` is registered as an alias below so existing
+    user configs, env vars, scripts, and release/update paths keep
+    working without churn.
     """
 
     id = "chatterbox_grandmom"

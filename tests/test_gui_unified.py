@@ -423,14 +423,14 @@ class TestChunkCharsVisibility:
 
     def test_chunk_chars_shown_for_chatterbox(self, app):
         """When the user flips back to Chatterbox the spinbox returns."""
-        from src.tts_chatterbox_bridge import ChatterboxFiEngine
+        from src.tts_chatterbox_bridge import ChatterboxEngine
 
         # clean_registry wipes the registry between tests, and the module-
         # scoped _shared_app's _engine_display_to_id can go stale if an
         # earlier test populated it. Re-register Chatterbox and rebuild
         # the engine map so this test doesn't depend on ordering.
         if "chatterbox_grandmom" not in _REGISTRY:
-            _REGISTRY["chatterbox_grandmom"] = ChatterboxFiEngine
+            _REGISTRY["chatterbox_grandmom"] = ChatterboxEngine
         app._populate_engine_list()
         app.update_idletasks()
 

@@ -252,6 +252,30 @@ class TestEngineAliases:
         with pytest.raises(ValueError, match="already registered as an alias"):
             register_engine(CollidingEngine)
 
+    def test_alias_idempotent_when_target_matches(self, clean_registry) -> None:
+        # Registering the same (old, new) pair twice must succeed
+        # quietly — modules that re-import (e.g. during a test that
+        # reloads engine_registry) should not crash on the second pass.
+        register_engine(_DummyEngine)
+        register_alias("legacy_dummy", "dummy")
+        register_alias("legacy_dummy", "dummy")  # second call, same target
+        assert canonical_engine_id("legacy_dummy") == "dummy"
+
+    def test_alias_rebind_to_different_target_rejected(self, clean_registry) -> None:
+        # Silently overwriting an existing alias mapping is a footgun:
+        # two callers each "fixing" the same legacy id to a different
+        # target would clobber each other depending on import order.
+        # Force the conflict to surface loudly instead.
+        register_engine(_DummyEngine)  # id='dummy'
+
+        class OtherEngine(_DummyEngine):
+            id = "other"
+
+        register_engine(OtherEngine)
+        register_alias("legacy_dummy", "dummy")
+        with pytest.raises(ValueError, match="cannot rebind"):
+            register_alias("legacy_dummy", "other")  # different target
+
 
 def test_chatterbox_grandmom_alias_back_compat() -> None:
     """The production rename: ``chatterbox_fi`` is an alias of
