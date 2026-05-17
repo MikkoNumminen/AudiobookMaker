@@ -124,18 +124,19 @@ Some Finnish rhythm leaks through. Observable symptoms:
   often runs sentences together with shorter terminal pauses.
   English Grandmom inherits this and sometimes blurs `"...up. Want
   to know more?"` into `"...upwant to know more"` with no break.
-- **Specific cursed word: sentence-final "up."** Reproduced
-  deterministically across multiple runs on 2026-05-17 — the word
-  `"up"` at sentence-final position consistently fails: the model
-  slurs through the period and, on many runs, hallucinates a filler
-  token before the next sentence. Tested with two different next
-  sentences (`". Want to know more?"` and `". To learn more..."`)
+- **Specific failure word: sentence-final "up."** Reproduced
+  consistently in two runs on 2026-05-17 — the word `"up"` at
+  sentence-final position fails: the model consistently slurs
+  through the period; often (but not always) also hallucinates a
+  filler token before the next sentence. Tested with two different
+  next sentences (`". Want to know more?"` and `". To learn more..."`)
   and got the same shape of failure both times. Replacing the
   closing sentence with any non-"up" ending (`"I am not joking."`,
-  `"Yes, really."`) cleared the artifact on the first try. So this
-  is a word-level deterministic failure, not random
-  non-determinism. Workaround: before running an English synth,
-  scan the text for sentence-final `"up."` and reword.
+  `"Yes, really."`) cleared the artifact on the first try in both
+  variants. The evidence is consistent with a word-level failure
+  rather than random non-determinism, though the sample size is
+  small. Workaround: before running an English synth, scan the
+  text for sentence-final `"up."` and reword.
 - **Question/exclamation prosody is muted.** The Finnish reference
   rarely contains heavy question-pitch rises or exclamation
   emphasis, so the English output reads as more level than a
