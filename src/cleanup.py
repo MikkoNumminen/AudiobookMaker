@@ -103,7 +103,7 @@ def _dir_size_mb(directory: Path) -> float:
         for root, _dirs, files in os.walk(directory):
             for f in files:
                 try:
-                    total += os.path.getsize(os.path.join(root, f))
+                    total += (Path(root) / f).stat().st_size
                 except OSError:
                     pass
     except OSError:
