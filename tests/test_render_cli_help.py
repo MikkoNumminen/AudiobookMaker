@@ -86,6 +86,56 @@ def test_stdout_contains_flag_table():
     assert "| `--" in result.stdout
 
 
+def test_every_subcommand_has_example():
+    """Every leaf subcommand surfaced in the generated reference must
+    have a registered example. This is the contract guaranteeing the
+    rendered docs/CLI.md ships an example for every command — adding
+    a new subcommand without an _EXAMPLES entry must fail the suite."""
+    sys.path.insert(0, str(_REPO_ROOT))
+    try:
+        from scripts.render_cli_help import _EXAMPLES, _leaf_parsers
+        from src.cli.__main__ import _build_parser
+    finally:
+        sys.path.pop(0)
+
+    leaves = _leaf_parsers(_build_parser(), [])
+    leaf_crumbs = {tuple(crumb) for crumb, _parser, _aliases in leaves}
+    registered = set(_EXAMPLES.keys())
+
+    missing_example = leaf_crumbs - registered
+    stale_example = registered - leaf_crumbs
+
+    assert not missing_example, (
+        f"Subcommands without an _EXAMPLES entry: {sorted(missing_example)}. "
+        f"Add an example to scripts/render_cli_help.py and re-render docs/CLI.md."
+    )
+    assert not stale_example, (
+        f"_EXAMPLES entries that don't match any current subcommand: "
+        f"{sorted(stale_example)}. Remove from scripts/render_cli_help.py."
+    )
+
+    # Every example string itself must be non-empty and start with the
+    # canonical CLI command — guards against accidental empty values
+    # or partial pastes (e.g. dropping the binary name).
+    for crumb, ex in _EXAMPLES.items():
+        assert ex.strip(), f"Empty example for {crumb}"
+        assert ex.startswith("audiobookmaker-cli "), (
+            f"Example for {crumb} should start with 'audiobookmaker-cli ', "
+            f"got: {ex!r}"
+        )
+
+
+def test_stdout_contains_example_blocks():
+    """The rendered block must include at least one **Example:** code
+    block. This is the smoke check for the renderer-side change; the
+    contract check is `test_every_subcommand_has_example`."""
+    result = _run(["--stdout"])
+    assert result.returncode == 0
+    assert "**Example:**" in result.stdout
+    # Example bodies should be inside fenced bash blocks
+    assert "```bash\naudiobookmaker-cli" in result.stdout
+
+
 # ---------------------------------------------------------------------------
 # --check with real docs/CLI.md
 # ---------------------------------------------------------------------------

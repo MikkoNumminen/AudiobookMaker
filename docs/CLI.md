@@ -249,6 +249,12 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path (or directory in per-chapter mode). |
 
+**Example:**
+
+```bash
+audiobookmaker-cli convert mybook.pdf --engine edge --language en
+```
+
 ---
 
 ### `audiobookmaker-cli sample`
@@ -276,6 +282,12 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the final output path. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli sample mybook.epub --engine chatterbox_fi --language fi
+```
+
 ---
 
 ### `audiobookmaker-cli preview`
@@ -297,6 +309,12 @@ Synthesize a short text string and play it through the system audio output. Noth
 | `--json` | Emit one ProgressEvent per line (NDJSON); see docs/CLI.md for the event schema. |
 | `--quiet` | Suppress progress; print only the tempfile path (with --no-play) or nothing (when audio is played and the file is deleted). |
 
+**Example:**
+
+```bash
+audiobookmaker-cli preview "This is a quick preview."
+```
+
 ---
 
 ### `audiobookmaker-cli voices list`
@@ -310,6 +328,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit one voice object per line (NDJSON) with fields: engine, id, language, gender, display_name. |
 | `--quiet` | Print only voice ids, one per line. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli voices list --language fi
+```
+
 ---
 
 ### `audiobookmaker-cli engines list`
@@ -319,6 +343,12 @@ List voices across all engines, or filtered by engine / language.
 | `--installed-only` | Only show engines that are currently available. |
 | `--json` | Emit one engine object per line (NDJSON) with fields: id, display_name, available, reason. |
 | `--quiet` | Print only engine ids, one per line. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli engines list --installed-only
+```
 
 ---
 
@@ -331,6 +361,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit one progress object per line (NDJSON) with fields: kind, step, total_steps, step_label, percent, message, error, done. |
 | `--quiet` | Suppress progress; print only the final result. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli engines install chatterbox_fi
+```
+
 ---
 
 ### `audiobookmaker-cli engines remove`
@@ -342,6 +378,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit a single result object with fields: ok, id. Also bypasses the interactive confirmation prompt. |
 | `--quiet` | Suppress the removal confirmation message. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli engines remove piper --yes
+```
+
 ---
 
 ### `audiobookmaker-cli engines check`
@@ -352,6 +394,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit a single check object with fields: id, display_name, available, reason. |
 | `--quiet` | Suppress detail; print only "available" or nothing (uses exit code). |
 
+**Example:**
+
+```bash
+audiobookmaker-cli engines check chatterbox_fi
+```
+
 ---
 
 ### `audiobookmaker-cli packs list`
@@ -360,6 +408,12 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `--json` | Emit one pack object per line (NDJSON) with fields: slug, name, language, tier, path. |
 | `--quiet` | Print only pack slugs, one per line. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli packs list
+```
 
 ---
 
@@ -370,6 +424,12 @@ List voices across all engines, or filtered by engine / language.
 | `DIRECTORY` | Source pack directory. |
 | `--json` | Emit a single result object with fields: ok, slug, path. |
 | `--quiet` | Print only the installed path on success. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli packs import ./mypack/
+```
 
 ---
 
@@ -382,6 +442,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit a single result object with fields: ok, slug. |
 | `--quiet` | Suppress the removal confirmation message. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli packs remove mypack --yes
+```
+
 ---
 
 ### `audiobookmaker-cli packs info`
@@ -392,6 +458,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit a single metadata object (all fields from pack manifest plus slug and path). |
 | `--quiet` | Print compact metadata (same as default; --quiet is a no-op for this subcommand). |
 
+**Example:**
+
+```bash
+audiobookmaker-cli packs info mypack
+```
+
 ---
 
 ### `audiobookmaker-cli config show`
@@ -401,6 +473,12 @@ List voices across all engines, or filtered by engine / language.
 | `KEY` | Field name to show. Omit to show all fields. |
 | `--json` | Emit the entire config as a single JSON object (or a one-key object when KEY is given). |
 | `--quiet` | Print one key=value line per field with shell-safe quoting (or the bare value when KEY is given). |
+
+**Example:**
+
+```bash
+audiobookmaker-cli config show engine_id
+```
 
 ---
 
@@ -413,6 +491,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit a single result object with fields: key, value. |
 | `--quiet` | Suppress output; exit code indicates success. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli config set engine_id piper
+```
+
 ---
 
 ### `audiobookmaker-cli config reset`
@@ -423,6 +507,12 @@ List voices across all engines, or filtered by engine / language.
 | `--json` | Emit a single result object with fields: key, value (or status for full reset). |
 | `--quiet` | Suppress output; exit code indicates success. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli config reset engine_id
+```
+
 ---
 
 ### `audiobookmaker-cli config path`
@@ -431,6 +521,12 @@ List voices across all engines, or filtered by engine / language.
 |------|-------------|
 | `--json` | Emit a single object with field: path. |
 | `--quiet` | Print only the config file path (same as default; --quiet is a no-op here). |
+
+**Example:**
+
+```bash
+audiobookmaker-cli config path
+```
 
 ---
 
@@ -442,6 +538,12 @@ Query GitHub Releases and report whether this build is current.
 |------|-------------|
 | `--json` | Emit a single object with fields: current_version, latest_version, update_available, release_url. |
 | `--quiet` | Suppress detail; print only the latest version when an update is available, or nothing when already up to date. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli update check
+```
 
 ---
 
@@ -455,6 +557,12 @@ Download the latest installer, verify its SHA-256, and run it.
 | `--json` | Emit one progress object per line; the final object reports current_version, latest_version, installer_path, release_url, and status. |
 | `--quiet` | Suppress progress; print only the new version on success. |
 
+**Example:**
+
+```bash
+audiobookmaker-cli update apply --yes
+```
+
 ---
 
 ### `audiobookmaker-cli doctor`
@@ -465,6 +573,12 @@ Run system health checks and report which engines are ready.
 |------|-------------|
 | `--json` | Emit one check object per line (NDJSON) with fields: name, status, required, detail; followed by a summary object with fields: kind, status, required_missing, exit_code. |
 | `--quiet` | Print only "doctor: OK" or "doctor: FAIL — required components missing". |
+
+**Example:**
+
+```bash
+audiobookmaker-cli doctor
+```
 
 ---
 
@@ -477,6 +591,12 @@ Build a GitHub 'new issue' URL pre-filled with app version, OS, and active engin
 | `--json` | Emit one JSON object per line (NDJSON). |
 | `--quiet` | Suppress progress; print only the final result. |
 | `--print` | Print the URL to stdout without opening a browser. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli report-bug --print
+```
 <!-- END_GENERATED_REFERENCE -->
 
 ---
