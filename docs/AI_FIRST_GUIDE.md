@@ -78,12 +78,12 @@ Why not in the repo:
   machine-specific paths.
 
 The migration pattern: **when a memory note matures into stable
-project knowledge, move it into tracked docs.** Examples already
-landed: the English Grandmom *"up." failure-word* observation was a
-memory note ([`project_english_grandmom_up_trigger.md`](../C:\Users\vandr\.claude\projects\d--koodaamista-AudiobookMaker\memory\project_english_grandmom_up_trigger.md)
-on the original author's machine), and it now lives in
+project knowledge, move it into tracked docs.** Example already
+landed: the English Grandmom *"up." failure-word* observation was
+originally a per-session memory note; it now lives in
 [`docs/english_grandmom.md`](english_grandmom.md) where every
-contributor can see it.
+contributor can see it without needing the original author's memory
+file.
 
 ### 3. Skills — committed runbooks for repeated multi-step work
 
@@ -102,15 +102,16 @@ A skill earns its keep when:
   a force-push to scrub a leak, a stuck GPU).
 
 A skill does **not** earn its keep when the workflow is one CLI
-command + `--help`. The current 13 skills are the result of
-deliberate consolidation; resist adding more without a real failure
-pattern to encode.
+command + `--help`. The current 13 in-repo skills (plus a handful of
+Claude Code builtins like `simplify`, `loop`, `schedule`) are the
+result of deliberate consolidation; resist adding more without a
+real failure pattern to encode.
 
-Skill index:
+Skill index (in-repo):
 
 | Category | Skills |
 |---|---|
-| Code quality | [`audit`](../.claude/skills/audit/SKILL.md), [`audit-followup`](../.claude/skills/audit-followup/SKILL.md), [`simplify`](../.claude/skills/simplify/SKILL.md) (builtin) |
+| Code quality | [`audit`](../.claude/skills/audit/SKILL.md), [`audit-followup`](../.claude/skills/audit-followup/SKILL.md) |
 | Git hygiene | [`commit-then-scan`](../.claude/skills/commit-then-scan/SKILL.md), [`copyright-scan`](../.claude/skills/copyright-scan/SKILL.md), [`pre-push-scan`](../.claude/skills/pre-push-scan/SKILL.md) |
 | Release / CI | [`release-cut`](../.claude/skills/release-cut/SKILL.md), [`release-bundle-audit`](../.claude/skills/release-bundle-audit/SKILL.md), [`ci-failure-triage`](../.claude/skills/ci-failure-triage/SKILL.md) |
 | Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`scanned-pdf-to-audiobook`](../.claude/skills/scanned-pdf-to-audiobook/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
