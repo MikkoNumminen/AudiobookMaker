@@ -509,13 +509,17 @@ class PiperInstaller(EngineInstaller):
 class ChatterboxInstaller(EngineInstaller):
     """Installs Chatterbox-Finnish: Python 3.11 + venv + torch + models + patch."""
 
-    engine_id = "chatterbox_fi"
+    engine_id = "chatterbox_grandmom"
     # Single Chatterbox install handles BOTH the Finnish Isoäiti voice
     # (T3 finetune) and the English Grandmom voice (base multilingual
     # model + bundled reference clip). Same persona, two pipelines —
     # see memory/project_isoaiti_finnish_grandmom.md. Label reflects
     # that the install covers both languages so users do not look for
-    # a separate "Chatterbox English" entry.
+    # a separate "Chatterbox English" entry. The canonical engine id
+    # was renamed from ``chatterbox_fi`` to ``chatterbox_grandmom`` on
+    # 2026-05-17 because the ``_fi`` suffix misled users into thinking
+    # the engine was Finnish-only — the alias in tts_chatterbox_bridge.py
+    # keeps the old id working for back-compat.
     display_name = "Chatterbox (Isoäiti + Grandmom)"
 
     def __init__(self, venv_path: Optional[Path] = None) -> None:
@@ -575,7 +579,7 @@ class ChatterboxInstaller(EngineInstaller):
         venv at a non-default path (D-drive dev install, sibling-of-exe
         bundle, ``CHATTERBOX_PYTHON`` override) is still removable via
         the CLI. Without this, the engines list would say "available"
-        and ``engines remove chatterbox_fi`` would refuse with
+        and ``engines remove chatterbox_grandmom`` would refuse with
         "not installed" — a confusing UX gap.
         """
         import shutil as _shutil
@@ -1085,12 +1089,20 @@ class ChatterboxInstaller(EngineInstaller):
 
 
 def get_installer(engine_id: str) -> Optional[EngineInstaller]:
-    """Return an installer for the given engine, or None if none exists."""
+    """Return an installer for the given engine (resolving aliases), or None.
+
+    Engine ids are canonicalised through the registry alias map before
+    lookup, so legacy ids like ``chatterbox_fi`` still resolve to the
+    current ChatterboxInstaller. Add new installers under their
+    canonical id only; alias entries are surfaced automatically.
+    """
+    from src.tts_base import canonical_engine_id
+
     installers = {
         "piper": PiperInstaller,
-        "chatterbox_fi": ChatterboxInstaller,
+        "chatterbox_grandmom": ChatterboxInstaller,
     }
-    cls = installers.get(engine_id)
+    cls = installers.get(canonical_engine_id(engine_id))
     return cls() if cls else None
 
 

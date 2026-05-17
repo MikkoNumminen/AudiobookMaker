@@ -20,7 +20,7 @@ def _parse(url: str) -> tuple[str, dict[str, str]]:
 def test_builds_github_issues_new_url():
     url = build_bug_report_url(
         app_version="3.9.1",
-        engine_id="chatterbox_fi",
+        engine_id="chatterbox_grandmom",
         os_platform="Windows-11",
     )
     base, qs = _parse(url)
@@ -32,7 +32,7 @@ def test_builds_github_issues_new_url():
 def test_title_includes_version():
     url = build_bug_report_url(
         app_version="3.9.1",
-        engine_id="chatterbox_fi",
+        engine_id="chatterbox_grandmom",
         os_platform="Windows-11",
     )
     _, qs = _parse(url)
@@ -42,14 +42,14 @@ def test_title_includes_version():
 def test_body_includes_version_os_and_engine():
     url = build_bug_report_url(
         app_version="3.9.1",
-        engine_id="chatterbox_fi",
+        engine_id="chatterbox_grandmom",
         os_platform="Windows-11-10.0.26200",
     )
     _, qs = _parse(url)
     body = qs["body"]
     assert "v3.9.1" in body
     assert "Windows-11-10.0.26200" in body
-    assert "chatterbox_fi" in body
+    assert "chatterbox_grandmom" in body
 
 
 def test_missing_engine_renders_as_none_placeholder():
@@ -78,7 +78,7 @@ def test_os_platform_defaults_to_platform_platform(monkeypatch):
     )
     url = build_bug_report_url(
         app_version="3.9.1",
-        engine_id="chatterbox_fi",
+        engine_id="chatterbox_grandmom",
     )
     _, qs = _parse(url)
     assert "FakeOS-1.0" in qs["body"]

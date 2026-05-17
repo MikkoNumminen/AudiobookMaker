@@ -20,10 +20,10 @@ import urllib.request
 import pytest
 
 # Eagerly populate the engine registry so every test sees the full
-# engine set. Without this import, ``get_engine("chatterbox_fi")`` etc.
+# engine set. Without this import, ``get_engine("chatterbox_grandmom")`` etc.
 # return None in tests that do not themselves import the engine modules.
 from src import engine_registry  # noqa: F401
-from src.tts_base import _REGISTRY
+from src.tts_base import _ALIASES, _REGISTRY
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +33,16 @@ from src.tts_base import _REGISTRY
 
 @pytest.fixture
 def clean_registry():
-    """Isolate each test from the real engine registry."""
+    """Isolate each test from the real engine registry (and alias map)."""
     saved = dict(_REGISTRY)
+    saved_aliases = dict(_ALIASES)
     _REGISTRY.clear()
+    _ALIASES.clear()
     yield
     _REGISTRY.clear()
+    _ALIASES.clear()
     _REGISTRY.update(saved)
+    _ALIASES.update(saved_aliases)
 
 
 # ---------------------------------------------------------------------------

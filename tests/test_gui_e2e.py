@@ -43,8 +43,8 @@ def _shared_app():
         _REGISTRY["edge"] = EdgeTTSEngine
     if "piper" not in _REGISTRY:
         _REGISTRY["piper"] = PiperTTSEngine
-    if "chatterbox_fi" not in _REGISTRY:
-        _REGISTRY["chatterbox_fi"] = ChatterboxFiEngine
+    if "chatterbox_grandmom" not in _REGISTRY:
+        _REGISTRY["chatterbox_grandmom"] = ChatterboxFiEngine
 
     instance = UnifiedApp()
     instance.update_idletasks()
@@ -71,8 +71,8 @@ def app(_shared_app, clean_registry):
         _REGISTRY["edge"] = EdgeTTSEngine
     if "piper" not in _REGISTRY:
         _REGISTRY["piper"] = PiperTTSEngine
-    if "chatterbox_fi" not in _REGISTRY:
-        _REGISTRY["chatterbox_fi"] = ChatterboxFiEngine
+    if "chatterbox_grandmom" not in _REGISTRY:
+        _REGISTRY["chatterbox_grandmom"] = ChatterboxFiEngine
 
     _shared_app.update_idletasks()
     return _shared_app
@@ -317,7 +317,7 @@ class TestKieliVoiceInteraction:
         assert voices_fi != voices_en
 
     def test_chatterbox_grandmom_visible_for_both_languages(self, app, _reset_kieli_after) -> None:
-        # Force a chatterbox_fi entry into the engine map regardless of
+        # Force a chatterbox_grandmom entry into the engine map regardless of
         # whether the dev machine actually has the venv installed — the
         # voice-list refresh path is what we're testing. The entry has
         # to be re-applied after each Kieli change because
@@ -332,7 +332,7 @@ class TestKieliVoiceInteraction:
         fake_label = "test-chatterbox"
 
         def _force_chatterbox() -> None:
-            app._engine_display_to_id[fake_label] = "chatterbox_fi"
+            app._engine_display_to_id[fake_label] = "chatterbox_grandmom"
             app._engine_cb.configure(
                 values=list(app._engine_display_to_id.keys())
             )
@@ -723,7 +723,7 @@ class TestLogColoring:
 
     def test_plain_line_has_no_severity_tag(self, app):
         app._clear_log()
-        app._append_log("Setup: engine=chatterbox_fi")
+        app._append_log("Setup: engine=chatterbox_grandmom")
         app.update_idletasks()
         tags = _tags_at_end(app._log_text)
         assert "log_warning" not in tags
@@ -1029,7 +1029,7 @@ class TestVoicePackImport:
         # Switch to Chatterbox so pack voices surface in the dropdown.
         chatterbox_display = next(
             (d for d, eid in app._engine_display_to_id.items()
-             if eid == "chatterbox_fi"),
+             if eid == "chatterbox_grandmom"),
             None,
         )
         if chatterbox_display is None:

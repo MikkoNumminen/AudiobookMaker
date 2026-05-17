@@ -200,6 +200,12 @@ class TTSEngine(ABC):
 
 _REGISTRY: dict[str, type[TTSEngine]] = {}
 
+# Back-compat alias map: maps an old/legacy engine id to its current
+# canonical id. ``get_engine`` and ``canonical_engine_id`` follow these
+# transparently. Aliases are intended for renames that must not break
+# existing user configs, env vars, scripts, or release/update paths.
+_ALIASES: dict[str, str] = {}
+
 
 def register_engine(engine_cls: type[TTSEngine]) -> type[TTSEngine]:
     """Decorator / function to register an engine class.
@@ -214,13 +220,53 @@ def register_engine(engine_cls: type[TTSEngine]) -> type[TTSEngine]:
         raise ValueError(f"{engine_cls.__name__} must define a non-empty 'id'")
     if engine_cls.id in _REGISTRY:
         raise ValueError(f"Engine id '{engine_cls.id}' already registered")
+    if engine_cls.id in _ALIASES:
+        raise ValueError(
+            f"Engine id '{engine_cls.id}' is already registered as an alias"
+        )
     _REGISTRY[engine_cls.id] = engine_cls
     return engine_cls
 
 
+def register_alias(old_id: str, new_id: str) -> None:
+    """Register a back-compat alias so queries for ``old_id`` transparently
+    resolve to the engine registered under ``new_id``.
+
+    The canonical engine MUST already be registered. Aliases never appear
+    in :func:`list_engines` / :func:`registered_ids` — they are pure
+    lookup redirects so user configs and scripts that still reference an
+    old name keep working without churn.
+    """
+    if not old_id or not new_id:
+        raise ValueError("Both old_id and new_id must be non-empty")
+    if old_id == new_id:
+        raise ValueError(f"Alias '{old_id}' cannot map to itself")
+    if old_id in _REGISTRY:
+        raise ValueError(
+            f"Cannot register '{old_id}' as alias — it is already a canonical engine id"
+        )
+    if new_id not in _REGISTRY:
+        raise ValueError(
+            f"Cannot alias '{old_id}' to '{new_id}' — '{new_id}' is not a registered engine"
+        )
+    _ALIASES[old_id] = new_id
+
+
+def canonical_engine_id(engine_id: str) -> str:
+    """Resolve any alias to its canonical engine id.
+
+    If ``engine_id`` is already canonical or unknown, it is returned
+    unchanged. This is the right function to call when normalizing a
+    config field, environment variable, or CLI argument before
+    persisting it.
+    """
+    return _ALIASES.get(engine_id, engine_id)
+
+
 def get_engine(engine_id: str) -> Optional[TTSEngine]:
-    """Return an engine instance by id, or None if unknown."""
-    cls = _REGISTRY.get(engine_id)
+    """Return an engine instance by id (or alias), or None if unknown."""
+    canonical = canonical_engine_id(engine_id)
+    cls = _REGISTRY.get(canonical)
     return cls() if cls else None
 
 
@@ -228,11 +274,14 @@ def list_engines() -> list[TTSEngine]:
     """Return one fresh instance of every registered engine.
 
     Engines are returned in registration order, which by convention means
-    Edge-TTS first (default), then Piper, then GPU engines.
+    Edge-TTS first (default), then Piper, then GPU engines. Aliases are
+    not surfaced here — only canonical ids.
     """
     return [cls() for cls in _REGISTRY.values()]
 
 
 def registered_ids() -> list[str]:
-    """Return the ids of all registered engines in registration order."""
+    """Return the canonical ids of all registered engines in registration
+    order. Aliases are not included; use :func:`canonical_engine_id` to
+    resolve an alias to its canonical id."""
     return list(_REGISTRY.keys())

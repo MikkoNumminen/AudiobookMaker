@@ -429,17 +429,17 @@ class TestChunkCharsVisibility:
         # scoped _shared_app's _engine_display_to_id can go stale if an
         # earlier test populated it. Re-register Chatterbox and rebuild
         # the engine map so this test doesn't depend on ordering.
-        if "chatterbox_fi" not in _REGISTRY:
-            _REGISTRY["chatterbox_fi"] = ChatterboxFiEngine
+        if "chatterbox_grandmom" not in _REGISTRY:
+            _REGISTRY["chatterbox_grandmom"] = ChatterboxFiEngine
         app._populate_engine_list()
         app.update_idletasks()
 
         target_display = None
         for display, eid in app._engine_display_to_id.items():
-            if eid == "chatterbox_fi":
+            if eid == "chatterbox_grandmom":
                 target_display = display
                 break
-        assert target_display is not None, "chatterbox_fi must be in the map"
+        assert target_display is not None, "chatterbox_grandmom must be in the map"
         app._engine_cb.set(target_display)
         app._refresh_voice_list()
         app.update_idletasks()

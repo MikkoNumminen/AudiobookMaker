@@ -56,13 +56,13 @@ def test_wall_time_piper_fast():
 
 def test_wall_time_chatterbox_cuda():
     # RTF 0.85: 60 s audio -> ~70.6 s wall
-    wall = estimate_wall_time(60.0, "chatterbox_fi", "cuda")
+    wall = estimate_wall_time(60.0, "chatterbox_grandmom", "cuda")
     assert wall == pytest.approx(60.0 / 0.85)
 
 
 def test_wall_time_chatterbox_cpu_is_much_larger():
-    gpu = estimate_wall_time(60.0, "chatterbox_fi", "cuda")
-    cpu = estimate_wall_time(60.0, "chatterbox_fi", "cpu")
+    gpu = estimate_wall_time(60.0, "chatterbox_grandmom", "cuda")
+    cpu = estimate_wall_time(60.0, "chatterbox_grandmom", "cpu")
     assert cpu > gpu * 10  # 20x penalty
 
 
@@ -130,8 +130,8 @@ def test_estimate_job_keys():
 
 
 def test_estimate_job_internally_consistent():
-    # wall_seconds ~= audio_seconds / RTF  (RTF 0.85 for chatterbox_fi)
-    result = estimate_job(10_000, "chatterbox_fi", "en", "cuda")
+    # wall_seconds ~= audio_seconds / RTF  (RTF 0.85 for chatterbox_grandmom)
+    result = estimate_job(10_000, "chatterbox_grandmom", "en", "cuda")
     assert result["wall_seconds"] == pytest.approx(result["audio_seconds"] / 0.85)
 
 
@@ -147,7 +147,7 @@ def test_novel_scale_sanity():
     # 800k chars, English, chatterbox on cuda
     # Audio: 800_000 / 22.5 = ~35_555 s = ~9.88 h -> about 10 h
     # Wall: audio / 0.85 = ~41_830 s = ~11.6 h -> about 12 h
-    result = estimate_job(800_000, "chatterbox_fi", "en", "cuda")
+    result = estimate_job(800_000, "chatterbox_grandmom", "en", "cuda")
     audio_h = result["audio_seconds"] / 3600.0
     wall_h = result["wall_seconds"] / 3600.0
     assert 9.0 < audio_h < 11.0, f"audio ~{audio_h:.2f} h, expected ~10 h"

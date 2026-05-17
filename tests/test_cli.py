@@ -178,7 +178,7 @@ class TestEnginesList:
         result = _cli("engines", "list")
         output = result.stdout + result.stderr
         # The three production engines must appear.
-        for engine_id in ("edge", "piper", "chatterbox_fi"):
+        for engine_id in ("edge", "piper", "chatterbox_grandmom"):
             assert engine_id in output, f"'{engine_id}' not in engines list output"
 
     def test_json_mode_parseable(self):

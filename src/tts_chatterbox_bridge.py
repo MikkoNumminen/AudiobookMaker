@@ -26,6 +26,7 @@ from src.tts_base import (
     ProgressCallback,
     TTSEngine,
     Voice,
+    register_alias,
     register_engine,
 )
 
@@ -42,9 +43,18 @@ _CHATTERBOX_LANG_TAGS = {
 
 @register_engine
 class ChatterboxFiEngine(TTSEngine):
-    """Metadata-only Chatterbox engine; real work runs via the bridge."""
+    """Metadata-only Chatterbox engine; real work runs via the bridge.
 
-    id = "chatterbox_fi"
+    Class is still named ``ChatterboxFiEngine`` for historical reasons —
+    the canonical engine id is now ``chatterbox_grandmom``, reflecting
+    that the same machinery serves both Finnish (T3 finetune) and
+    English (multilingual base + bundled Grandmom reference clip).
+    The legacy id ``chatterbox_fi`` is registered as an alias below so
+    existing user configs, env vars, scripts, and release/update paths
+    keep working without churn.
+    """
+
+    id = "chatterbox_grandmom"
     display_name = "Chatterbox — Isoäiti + Grandmom (paras laatu, NVIDIA)"
     description = (
         "Offline, paras laatu. Kesto ~1–2 h NVIDIA-koneella."
@@ -74,7 +84,7 @@ class ChatterboxFiEngine(TTSEngine):
                     "in the Settings panel\n"
                     "(Asetukset-paneelin \"Asenna moottoreita…\"-painikkeesta), "
                     "or via the CLI:\n"
-                    "  audiobookmaker engines install chatterbox_fi"
+                    "  audiobookmaker engines install chatterbox_grandmom"
                 ),
             )
         repo_root = Path(__file__).resolve().parent.parent
@@ -134,3 +144,13 @@ class ChatterboxFiEngine(TTSEngine):
             "must check engine.uses_subprocess and route through "
             "ChatterboxRunner instead of calling synthesize()."
         )
+
+
+# Back-compat alias: the engine id was ``chatterbox_fi`` before the
+# English-mode router landed (PR #ad9791f, 2026-04-15). The canonical
+# id is now ``chatterbox_grandmom`` since the same machinery serves
+# both Finnish (T3 finetune) and English (multilingual base + bundled
+# Grandmom reference clip). Existing user configs, env vars, scripts,
+# CLI invocations, and the auto-update path keep using the old name
+# transparently via this alias.
+register_alias("chatterbox_fi", "chatterbox_grandmom")

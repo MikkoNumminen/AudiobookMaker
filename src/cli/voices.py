@@ -46,7 +46,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "--engine",
         metavar="ID",
         default=None,
-        help="Filter to voices of a specific engine (e.g. edge, piper, chatterbox_fi).",
+        help="Filter to voices of a specific engine (e.g. edge, piper, chatterbox_grandmom).",
     )
     lst.add_argument(
         "--language",

@@ -183,11 +183,15 @@ def estimate_synthesis_size_mb(text_chars: int, engine_id: str = "edge") -> floa
     """
     if text_chars <= 0:
         return 0.0
+    # Canonicalise legacy engine ids (e.g. ``chatterbox_fi`` → ``chatterbox_grandmom``)
+    # before lookup so back-compat alias callers don't fall through to the 2000-byte
+    # default that would underestimate Chatterbox runs.
+    from src.tts_base import canonical_engine_id
     per_char_bytes = {
         "edge": 520,            # ~2x safety for edge MP3 output
         "piper": 6000,          # WAV temps + MP3 output
-        "chatterbox_fi": 8000,  # WAV temps + MP3 + book-size overhead
-    }.get(engine_id, 2000)
+        "chatterbox_grandmom": 8000,  # WAV temps + MP3 + book-size overhead
+    }.get(canonical_engine_id(engine_id), 2000)
     return (text_chars * per_char_bytes) / (1024 * 1024)
 
 
