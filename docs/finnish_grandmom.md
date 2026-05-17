@@ -94,7 +94,7 @@ Two pieces of project-specific code make this work:
    "audiobook-grade" output.
 2. **The Chatterbox bridge language router
    ([`src/tts_chatterbox_bridge.py`](../src/tts_chatterbox_bridge.py)).**
-   The same `chatterbox_fi` engine handles both Finnish (T3 finetune,
+   The same `chatterbox_grandmom` engine handles both Finnish (T3 finetune,
    no reference) and English (multilingual base + reference clip).
    The router picks the path by the `--language` flag.
 

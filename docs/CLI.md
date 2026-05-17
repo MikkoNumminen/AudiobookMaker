@@ -87,10 +87,10 @@ id is `grandmom` for both — only `--language` differs:
 
 ```bash
 # Finnish Grandmom (Isoäiti)
-audiobookmaker-cli convert book.txt --engine chatterbox_fi --language fi
+audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --language fi
 
 # English Grandmom voice
-audiobookmaker-cli convert book.txt --engine chatterbox_fi --language en
+audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --language en
 ```
 
 ### 2. A/B test engines with `sample`
@@ -177,7 +177,7 @@ Install a pack you built (or downloaded) with `packs import`, then pass it to
 audiobookmaker-cli packs import /path/to/my_voice_pack/
 
 # Use it in a conversion (pack name or full path both work)
-audiobookmaker-cli convert book.txt --engine chatterbox_fi --voice-pack my_voice_pack
+audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --voice-pack my_voice_pack
 ```
 
 `packs import` copies the pack into the app's pack store and validates its
@@ -215,7 +215,7 @@ the auto-generated detail follows.
 | `doctor` | Run system health checks and report engine readiness |
 
 > **GPU required for Chatterbox.**
-> `engines install chatterbox_fi` requires an NVIDIA GPU with at least 6 GB
+> `engines install chatterbox_grandmom` requires an NVIDIA GPU with at least 6 GB
 > VRAM and a CUDA 12-compatible driver. On Mac or on machines without an
 > NVIDIA GPU, the install command will refuse to run. All other engines
 > (`edge`, `piper`) work without a GPU.
@@ -669,8 +669,8 @@ in a process supervisor to override config without editing the JSON file.
 
 Highest priority wins:
 
-1. Command-line flag (e.g. `--engine chatterbox_fi`)
-2. Environment variable (e.g. `AUDIOBOOKMAKER_ENGINE=chatterbox_fi`)
+1. Command-line flag (e.g. `--engine chatterbox_grandmom`)
+2. Environment variable (e.g. `AUDIOBOOKMAKER_ENGINE=chatterbox_grandmom`)
 3. Persisted config (`~/.audiobookmaker/config.json`)
 4. Built-in default (`edge` for engine, `fi` for language)
 
@@ -807,7 +807,7 @@ Each module exposes `add_parser(subparsers)` and stores `run` as the
 
 Edge-TTS and Piper run in-process via `synthesis_orchestrator.run_inprocess_synthesis()`.
 
-Chatterbox (`chatterbox_fi`) runs as a subprocess because it requires a
+Chatterbox (`chatterbox_grandmom`) runs as a subprocess because it requires a
 separate virtualenv with PyTorch and an NVIDIA GPU. `convert.py` detects
 which path to take via `engine.uses_subprocess` and dispatches accordingly.
 The `preview` subcommand does not support subprocess engines — use `sample`
