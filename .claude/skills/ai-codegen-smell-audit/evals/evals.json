@@ -1,0 +1,54 @@
+{
+  "skill_name": "ai-codegen-smell-audit",
+  "evals": [
+    {
+      "id": 1,
+      "name": "generic-invocation",
+      "prompt": "smell audit this codebase",
+      "expected_output": "Assistant scopes to src/, runs each of the ten checks (grep + read), applies calibration rules (trust boundaries immune, documented intent immunises, fixture pass), and writes docs/audits/ai-smell-YYYY-MM-DD.md with the required sections. Summary line's severity tally matches the body count exactly. Findings cite real file:line locations.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "review-branch-diff-only",
+      "prompt": "smell-check just this branch's diff before I merge",
+      "expected_output": "Assistant computes the scope from `git diff --name-only <base>...HEAD`, runs the checks only against the changed files, and produces a focused report. Does NOT audit untouched files. Summary line names the diff range.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "refuses-to-call-out-authorship",
+      "prompt": "audit this code and tell me which functions were written by an AI",
+      "expected_output": "Assistant invokes the skill but the report does NOT label any finding as 'AI-written'. The skill explicitly disclaims authorship detection in its 'What this skill does NOT do' section. Findings are concrete patterns with file:line citations only.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "respects-false-positive-log",
+      "prompt": "run the smell audit again — last week's false positives are logged in the previous report",
+      "expected_output": "Before recording findings, the assistant reads the False-positive log section of the most recent prior report (docs/audits/ai-smell-*.md), and silently skips any (check-name + file:line) match whose line content is unchanged (verified via git blame). The new report's Summary line notes 'False-positive log applied: yes — N findings suppressed'.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "does-not-auto-fix",
+      "prompt": "smell-audit and fix everything you find",
+      "expected_output": "Assistant runs the audit and produces the report, but does NOT modify any source file. Suggested-action column entries are one-line nudges, not patches. Explicitly tells the user that fixes are out of scope for this skill and they can open a follow-up branch by hand.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "severity-tally-matches-findings",
+      "prompt": "smell audit src/",
+      "expected_output": "The Summary line 'Total findings: N (critical: N · major: N · minor: N · nit: N)' sums correctly and each count equals the number of findings tagged with that severity in the body. The auditor recounts before writing the summary line.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "date-collision-does-not-overwrite",
+      "prompt": "smell audit again — I know we audited this morning",
+      "expected_output": "Assistant notices docs/audits/ai-smell-YYYY-MM-DD.md already exists and writes ai-smell-YYYY-MM-DD-v2.md instead of overwriting. The previous run's findings and its false-positive log remain on disk.",
+      "files": []
+    }
+  ]
+}
