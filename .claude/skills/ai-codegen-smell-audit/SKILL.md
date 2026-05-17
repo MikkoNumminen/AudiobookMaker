@@ -453,11 +453,12 @@ Honest list — the auditor should know these going in:
 ## Calibration against this repo (`src/`)
 
 This calibration ran on AudiobookMaker's `src/` tree as part of the
-skill's initial build (2026-05-17). It is the evidence the ten
-checks are grounded. **Citations were verified by spot-reading each
-cited line in the working tree on 2026-05-17**, not by grep alone —
-any "GROUNDED" row below names a specific line the auditor can open
-and see the pattern.
+skill's initial build (2026-05-17). It is the empirical evidence we
+have on the checks against this repo today — not a claim that all
+ten checks are grounded here. **Citations were verified by
+spot-reading each cited line in the working tree on 2026-05-17**,
+not by grep alone — any "GROUNDED" row below names a specific line
+the auditor can open and see the pattern.
 
 | Check | Verdict on this repo | Concrete hit (when grounded) |
 |---|---|---|
