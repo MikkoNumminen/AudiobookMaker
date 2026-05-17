@@ -92,7 +92,7 @@ DLG_ERROR_TITLE = "Virhe"
 DLG_DONE_TITLE = "Valmis"
 
 ENGINE_INFO = {
-    "chatterbox_fi": (
+    "chatterbox_grandmom": (
         "Offline, paras laatu. Kesto ~1–2 h NVIDIA-koneella. "
         "Katso pika-aloitus ohjeesta."
     ),
@@ -271,7 +271,8 @@ class LauncherApp(tk.Tk):
         """Update the info label to match the currently-selected engine."""
         label = self._engine_var.get()
         engine_id = self._engine_id_for_label(label)
-        info = ENGINE_INFO.get(engine_id, "")
+        from src.tts_base import canonical_engine_id
+        info = ENGINE_INFO.get(canonical_engine_id(engine_id), "")
         self._engine_info_var.set(info)
 
     def _engine_id_for_label(self, label: str) -> str:

@@ -37,7 +37,7 @@ text and prosody.
 When you run:
 
 ```powershell
-audiobookmaker-cli convert mybook.txt --engine chatterbox_fi --language en
+audiobookmaker-cli convert mybook.txt --engine chatterbox_grandmom --language en
 ```
 
 …here is what happens behind the scenes:
@@ -200,7 +200,7 @@ than your chunk size, the entire text is synthesized as one
 autoregressive run with no chunk boundaries to defend.
 
 ```powershell
-audiobookmaker-cli convert short_text.txt --engine chatterbox_fi `
+audiobookmaker-cli convert short_text.txt --engine chatterbox_grandmom `
   --language en --chunk-chars 500
 ```
 
@@ -224,7 +224,7 @@ different audio on different runs. If a run hallucinates, wiping the
 chunk cache and re-rolling fixes it about half the time:
 
 ```powershell
-audiobookmaker-cli convert mytext.txt --engine chatterbox_fi `
+audiobookmaker-cli convert mytext.txt --engine chatterbox_grandmom `
   --language en --overwrite fresh
 ```
 

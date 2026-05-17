@@ -1333,7 +1333,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         :meth:`_resolve_voice_pack` can map the pick back to a concrete
         ``VoicePack`` and hand the reference audio to the synthesiser.
         """
-        if getattr(engine, "id", "") != "chatterbox_fi":
+        if getattr(engine, "id", "") != "chatterbox_grandmom":
             return []
         tag = self._s("voice_pack_tag")
         out: list[Voice] = []
@@ -1561,7 +1561,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Chatterbox is the active pick. Keeps the engine-bar honest: if a
         # widget is visible, the engine actually uses it.
         engine_id = self._current_engine_id()
-        chunk_visible = engine_id == "chatterbox_fi"
+        chunk_visible = engine_id == "chatterbox_grandmom"
         for attr in ("_chunk_chars_label", "_chunk_chars_spin"):
             widget = getattr(self, attr, None)
             if widget is None:
@@ -1816,7 +1816,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # If the active engine is Chatterbox, jump straight to the newly
         # imported pack so the user doesn't have to re-open the dropdown.
         engine = self._current_engine()
-        if engine is not None and getattr(engine, "id", "") == "chatterbox_fi":
+        if engine is not None and getattr(engine, "id", "") == "chatterbox_grandmom":
             target_name = f"{pack.display_name} ({self._s('voice_pack_tag')})"
             values = list(self._voice_cb.cget("values"))
             if target_name in values:

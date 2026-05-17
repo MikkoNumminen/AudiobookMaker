@@ -93,7 +93,7 @@ flowchart TD
     R[_REGISTRY<br/>src/tts_base.py] -->|register_engine| E[EdgeTTSEngine]
     R -->|register_engine| P[PiperTTSEngine]
     R -->|register_engine| V[VoxCPMTTSEngine]
-    R -->|register_engine<br/>uses_subprocess=True| C[ChatterboxFiEngine]
+    R -->|register_engine<br/>uses_subprocess=True| C[ChatterboxEngine]
     Base[TTSEngine<br/>abstract base] --- E
     Base --- P
     Base --- V

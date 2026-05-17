@@ -160,7 +160,7 @@ def add_common_synthesis_flags(parser: argparse.ArgumentParser) -> None:
         metavar="ID",
         default=None,
         help=(
-            "TTS engine to use (e.g. edge, piper, chatterbox_fi). "
+            "TTS engine to use (e.g. edge, piper, chatterbox_grandmom). "
             "Default from config; fallback: edge. "
             "Env: AUDIOBOOKMAKER_ENGINE."
         ),

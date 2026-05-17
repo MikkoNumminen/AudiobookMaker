@@ -111,7 +111,7 @@ class TestPiperInstaller:
 class TestChatterboxInstaller:
     def test_engine_metadata(self) -> None:
         inst = ChatterboxInstaller()
-        assert inst.engine_id == "chatterbox_fi"
+        assert inst.engine_id == "chatterbox_grandmom"
         assert inst.display_name == "Chatterbox (Isoäiti + Grandmom)"
 
     def test_get_steps_returns_five(self) -> None:
@@ -602,7 +602,7 @@ class TestRegistry:
         assert isinstance(inst, PiperInstaller)
 
     def test_get_installer_chatterbox(self) -> None:
-        inst = get_installer("chatterbox_fi")
+        inst = get_installer("chatterbox_grandmom")
         assert isinstance(inst, ChatterboxInstaller)
 
     def test_get_installer_unknown(self) -> None:
@@ -612,7 +612,7 @@ class TestRegistry:
         installers = list_installable()
         assert len(installers) == 2
         engine_ids = {i.engine_id for i in installers}
-        assert engine_ids == {"piper", "chatterbox_fi"}
+        assert engine_ids == {"piper", "chatterbox_grandmom"}
 
 
 # ---------------------------------------------------------------------------
@@ -693,7 +693,7 @@ class TestPiperInstallerRemove:
 
 
 class TestChatterboxInstallerRemove:
-    """The CLI's `engines remove chatterbox_fi` flow ends up calling this."""
+    """The CLI's `engines remove chatterbox_grandmom` flow ends up calling this."""
 
     def test_returns_false_when_nothing_to_remove(self, tmp_path, monkeypatch) -> None:
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv_absent")

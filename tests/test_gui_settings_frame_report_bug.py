@@ -41,7 +41,7 @@ def test_report_a_bug_opens_github_issue_url(monkeypatch):
         "webbrowser.open", lambda url, *a, **kw: opened.append(url) or True
     )
 
-    inst = _make_instance(engine_id="chatterbox_fi")
+    inst = _make_instance(engine_id="chatterbox_grandmom")
     UnifiedApp._report_a_bug(inst)
 
     assert len(opened) == 1, "webbrowser.open must be called exactly once"
@@ -56,7 +56,7 @@ def test_report_a_bug_opens_github_issue_url(monkeypatch):
     body = qs.get("body", "")
     assert "OS:" in body
     assert "platform" in body.lower() or "Environment" in body
-    assert "chatterbox_fi" in body
+    assert "chatterbox_grandmom" in body
     assert f"v{APP_VERSION}" in qs.get("title", "")
 
 

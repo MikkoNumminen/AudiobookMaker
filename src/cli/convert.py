@@ -5,7 +5,7 @@ Usage:
 
 Routes to the correct synthesis path:
 - In-process engines (edge, piper, voxcpm): call run_inprocess_synthesis().
-- Subprocess engine (chatterbox_fi): build a ChatterboxRunner via
+- Subprocess engine (chatterbox_grandmom): build a ChatterboxRunner via
   build_chatterbox_runner(), pump its event queue, await completion.
 
 Exit codes:

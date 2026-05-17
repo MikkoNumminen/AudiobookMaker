@@ -26,7 +26,7 @@ def build_bug_report_url(
 
     Args:
         app_version: The running app's version string (e.g. ``"3.9.1"``).
-        engine_id: Active engine id (e.g. ``"chatterbox_fi"``) or
+        engine_id: Active engine id (e.g. ``"chatterbox_grandmom"``) or
             ``None`` / empty string if no engine is selected.
         os_platform: Platform description, defaults to
             ``platform.platform()``. Overridable for tests.

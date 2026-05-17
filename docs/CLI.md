@@ -87,10 +87,10 @@ id is `grandmom` for both — only `--language` differs:
 
 ```bash
 # Finnish Grandmom (Isoäiti)
-audiobookmaker-cli convert book.txt --engine chatterbox_fi --language fi
+audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --language fi
 
 # English Grandmom voice
-audiobookmaker-cli convert book.txt --engine chatterbox_fi --language en
+audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --language en
 ```
 
 ### 2. A/B test engines with `sample`
@@ -177,7 +177,7 @@ Install a pack you built (or downloaded) with `packs import`, then pass it to
 audiobookmaker-cli packs import /path/to/my_voice_pack/
 
 # Use it in a conversion (pack name or full path both work)
-audiobookmaker-cli convert book.txt --engine chatterbox_fi --voice-pack my_voice_pack
+audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --voice-pack my_voice_pack
 ```
 
 `packs import` copies the pack into the app's pack store and validates its
@@ -215,7 +215,7 @@ the auto-generated detail follows.
 | `doctor` | Run system health checks and report engine readiness |
 
 > **GPU required for Chatterbox.**
-> `engines install chatterbox_fi` requires an NVIDIA GPU with at least 6 GB
+> `engines install chatterbox_grandmom` requires an NVIDIA GPU with at least 6 GB
 > VRAM and a CUDA 12-compatible driver. On Mac or on machines without an
 > NVIDIA GPU, the install command will refuse to run. All other engines
 > (`edge`, `piper`) work without a GPU.
@@ -233,7 +233,7 @@ Convert a book file (PDF, EPUB, or TXT) to an MP3 audiobook.
 | Flag | Description |
 |------|-------------|
 | `INPUT` | Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. When '-' is used, --input-format must also be provided. |
-| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
+| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_grandmom). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
@@ -266,7 +266,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 | Flag | Description |
 |------|-------------|
 | `INPUT` | Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. When '-' is used, --input-format must also be provided. |
-| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
+| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_grandmom). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
@@ -285,7 +285,7 @@ Convert the first ~500 characters of a book to MP3 as a quick quality check befo
 **Example:**
 
 ```bash
-audiobookmaker-cli sample mybook.epub --engine chatterbox_fi --language fi
+audiobookmaker-cli sample mybook.epub --engine chatterbox_grandmom --language fi
 ```
 
 ---
@@ -299,7 +299,7 @@ Synthesize a short text string and play it through the system audio output. Noth
 | Flag | Description |
 |------|-------------|
 | `TEXT` | The text to speak, or '-' to read text from stdin. |
-| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_fi). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
+| `--engine ID` | TTS engine to use (e.g. edge, piper, chatterbox_grandmom). Default from config; fallback: edge. Env: AUDIOBOOKMAKER_ENGINE. |
 | `--language LANG` | Language code (e.g. fi, en). The Language picker in the GUI exposes fi + en; other codes route through to the engine, which will reject anything it doesn't speak. Default from config; fallback: auto-detect from locale. Env: AUDIOBOOKMAKER_LANGUAGE. |
 | `--voice ID` | Voice id (engine-specific). Default: engine's default voice for the chosen language. Env: AUDIOBOOKMAKER_VOICE. |
 | `--output PATH` | Output MP3 path. With --output-mode per-chapter this is a directory that receives one MP3 per chapter; with the default --output-mode single it is a single MP3 file. Default: <output_dir>/<book-stem>.mp3. Env: AUDIOBOOKMAKER_OUTPUT. |
@@ -323,7 +323,7 @@ List voices across all engines, or filtered by engine / language.
 
 | Flag | Description |
 |------|-------------|
-| `--engine ID` | Filter to voices of a specific engine (e.g. edge, piper, chatterbox_fi). |
+| `--engine ID` | Filter to voices of a specific engine (e.g. edge, piper, chatterbox_grandmom). |
 | `--language LANG` | Filter to voices for a specific language (fi or en). |
 | `--json` | Emit one voice object per line (NDJSON) with fields: engine, id, language, gender, display_name. |
 | `--quiet` | Print only voice ids, one per line. |
@@ -356,7 +356,7 @@ audiobookmaker-cli engines list --installed-only
 
 | Flag | Description |
 |------|-------------|
-| `ID` | Engine id (e.g. piper, chatterbox_fi). |
+| `ID` | Engine id (e.g. piper, chatterbox_grandmom). |
 | `--yes` | Skip prompts. |
 | `--json` | Emit one progress object per line (NDJSON) with fields: kind, step, total_steps, step_label, percent, message, error, done. |
 | `--quiet` | Suppress progress; print only the final result. |
@@ -364,7 +364,7 @@ audiobookmaker-cli engines list --installed-only
 **Example:**
 
 ```bash
-audiobookmaker-cli engines install chatterbox_fi
+audiobookmaker-cli engines install chatterbox_grandmom
 ```
 
 ---
@@ -397,7 +397,7 @@ audiobookmaker-cli engines remove piper --yes
 **Example:**
 
 ```bash
-audiobookmaker-cli engines check chatterbox_fi
+audiobookmaker-cli engines check chatterbox_grandmom
 ```
 
 ---
@@ -669,8 +669,8 @@ in a process supervisor to override config without editing the JSON file.
 
 Highest priority wins:
 
-1. Command-line flag (e.g. `--engine chatterbox_fi`)
-2. Environment variable (e.g. `AUDIOBOOKMAKER_ENGINE=chatterbox_fi`)
+1. Command-line flag (e.g. `--engine chatterbox_grandmom`)
+2. Environment variable (e.g. `AUDIOBOOKMAKER_ENGINE=chatterbox_grandmom`)
 3. Persisted config (`~/.audiobookmaker/config.json`)
 4. Built-in default (`edge` for engine, `fi` for language)
 
@@ -807,7 +807,7 @@ Each module exposes `add_parser(subparsers)` and stores `run` as the
 
 Edge-TTS and Piper run in-process via `synthesis_orchestrator.run_inprocess_synthesis()`.
 
-Chatterbox (`chatterbox_fi`) runs as a subprocess because it requires a
+Chatterbox (`chatterbox_grandmom`) runs as a subprocess because it requires a
 separate virtualenv with PyTorch and an NVIDIA GPU. `convert.py` detects
 which path to take via `engine.uses_subprocess` and dispatches accordingly.
 The `preview` subcommand does not support subprocess engines — use `sample`

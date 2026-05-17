@@ -215,7 +215,7 @@ class SynthMixin(_Base):
         self._chatterbox_runner = plan.runner
         self._append_log(f"Input: {plan.input_label}")
         self._append_log(f"Output: {plan.out_dir}")
-        self._append_log("Engine: chatterbox_fi")
+        self._append_log("Engine: chatterbox_grandmom")
 
         try:
             plan.runner.start()

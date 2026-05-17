@@ -202,12 +202,12 @@ class TestEstimateSynthesisSize:
 
     def test_edge_tts_smaller_than_chatterbox(self) -> None:
         edge = estimate_synthesis_size_mb(10_000, "edge")
-        cbox = estimate_synthesis_size_mb(10_000, "chatterbox_fi")
+        cbox = estimate_synthesis_size_mb(10_000, "chatterbox_grandmom")
         assert cbox > edge
 
     def test_full_book_chatterbox_is_hundreds_of_mb(self) -> None:
         # 65k chars ~= 4h Finnish audiobook
-        mb = estimate_synthesis_size_mb(65_000, "chatterbox_fi")
+        mb = estimate_synthesis_size_mb(65_000, "chatterbox_grandmom")
         assert 400 < mb < 1000
 
     def test_scales_linearly_with_chars(self) -> None:
@@ -240,7 +240,7 @@ class TestCheckOutputDiskSpace:
         fake_usage = MagicMock(total=1000 * 1024**3, free=1 * 1024**2)
         with patch("src.system_checks.shutil.disk_usage", return_value=fake_usage):
             ok, free_mb, need_mb = check_output_disk_space(
-                "/some/path", 65_000, "chatterbox_fi",
+                "/some/path", 65_000, "chatterbox_grandmom",
             )
         assert ok is False
         assert need_mb > free_mb

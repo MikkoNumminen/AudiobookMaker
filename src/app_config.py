@@ -89,6 +89,16 @@ def load() -> UserConfig:
     # entries so a stale config file can't crash the app.
     allowed = set(UserConfig.__dataclass_fields__.keys())
     filtered = {k: v for k, v in raw.items() if k in allowed and isinstance(v, (str, bool))}
+
+    # Normalise legacy engine ids (e.g. ``chatterbox_fi`` → ``chatterbox_grandmom``)
+    # on read so the rest of the app only ever sees canonical names. The
+    # registry alias keeps queries working either way, but writing the
+    # canonical form back to disk on the next save drains the legacy
+    # value out of user files without manual migration.
+    if "engine_id" in filtered:
+        from src.tts_base import canonical_engine_id
+        filtered["engine_id"] = canonical_engine_id(filtered["engine_id"])
+
     return UserConfig(**filtered)
 
 

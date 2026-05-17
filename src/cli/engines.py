@@ -60,7 +60,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
     # engines install <id>
     ins = sub.add_parser("install", help="Download and install a TTS engine.")
-    ins.add_argument("engine_id", metavar="ID", help="Engine id (e.g. piper, chatterbox_fi).")
+    ins.add_argument("engine_id", metavar="ID", help="Engine id (e.g. piper, chatterbox_grandmom).")
     ins.add_argument("--yes", action="store_true", default=False, help="Skip prompts.")
     add_output_mode_flags(
         ins,

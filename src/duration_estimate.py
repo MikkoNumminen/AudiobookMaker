@@ -38,7 +38,7 @@ _CHARS_PER_SECOND_AUDIO = {
 _ENGINE_RTF = {
     "edge": 5.0,             # cloud, single-thread GUI call
     "piper": 6.0,            # CPU, Finnish onnx model
-    "chatterbox_fi": 0.85,   # RTX 3080 Ti baseline, slightly pessimistic
+    "chatterbox_grandmom": 0.85,   # RTX 3080 Ti baseline, slightly pessimistic
     "voxcpm2": 1.0,          # GPU-dependent, rough
 }
 
@@ -75,7 +75,11 @@ def estimate_wall_time(audio_seconds: float, engine_id: str, device: str = "cuda
     """
     if audio_seconds <= 0:
         return 0.0
-    rtf = _ENGINE_RTF.get(engine_id)
+    # Canonicalise legacy engine ids (e.g. ``chatterbox_fi`` → ``chatterbox_grandmom``)
+    # before lookup so the dict keys can stay on the canonical names without
+    # losing accuracy for callers passing a back-compat alias.
+    from src.tts_base import canonical_engine_id
+    rtf = _ENGINE_RTF.get(canonical_engine_id(engine_id))
     if rtf is None:
         return audio_seconds * 2.0
     wall = audio_seconds / rtf

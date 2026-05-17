@@ -112,6 +112,63 @@ class TestSave:
         with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
             save(UserConfig())  # should not raise
 
+
+class TestLegacyEngineIdMigration:
+    """``load()`` normalises legacy engine ids on read so existing
+    user configs that still name ``chatterbox_fi`` get rewritten to
+    ``chatterbox_grandmom`` the next time the GUI saves.
+
+    The alias in ``src/tts_chatterbox_bridge.py`` keeps queries
+    working either way; this migration just drains the old name out of
+    on-disk configs over time without manual intervention.
+    """
+
+    def test_load_normalises_legacy_chatterbox_fi(self, tmp_config) -> None:
+        # Simulate an old config file written before the rename.
+        legacy_raw = {"engine_id": "chatterbox_fi", "language": "fi"}
+        (tmp_config / "config.json").write_text(json.dumps(legacy_raw), encoding="utf-8")
+
+        loaded = load()
+        assert loaded.engine_id == "chatterbox_grandmom"
+        assert loaded.language == "fi"
+
+    def test_load_passes_through_canonical_chatterbox_grandmom(self, tmp_config) -> None:
+        canonical_raw = {"engine_id": "chatterbox_grandmom", "language": "en"}
+        (tmp_config / "config.json").write_text(json.dumps(canonical_raw), encoding="utf-8")
+
+        loaded = load()
+        assert loaded.engine_id == "chatterbox_grandmom"
+
+    def test_save_after_legacy_load_writes_canonical_to_disk(self, tmp_config) -> None:
+        # The full migration loop: read legacy → in-memory canonical →
+        # save → the on-disk file now has the canonical name.
+        legacy_raw = {"engine_id": "chatterbox_fi"}
+        cfg_path = tmp_config / "config.json"
+        cfg_path.write_text(json.dumps(legacy_raw), encoding="utf-8")
+
+        save(load())
+
+        on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
+        assert on_disk["engine_id"] == "chatterbox_grandmom"
+
+    def test_legacy_config_engine_id_actually_resolves_engine(self, tmp_config) -> None:
+        # End-to-end smoke for the migration + alias contract: write a
+        # config with the legacy id on disk, load() it, then feed the
+        # loaded engine id back into the registry. The engine must
+        # resolve to a real instance — i.e. the GUI / orchestrator code
+        # that does ``get_engine(config.engine_id)`` after ``load()``
+        # would actually get an engine, not None.
+        from src.tts_base import get_engine
+
+        legacy_raw = {"engine_id": "chatterbox_fi", "language": "en"}
+        (tmp_config / "config.json").write_text(json.dumps(legacy_raw), encoding="utf-8")
+
+        cfg = load()
+        engine = get_engine(cfg.engine_id)
+
+        assert engine is not None
+        assert engine.id == "chatterbox_grandmom"
+
     def test_save_roundtrip_with_new_fields(self, tmp_config) -> None:
         original = UserConfig(
             engine_id="piper",
