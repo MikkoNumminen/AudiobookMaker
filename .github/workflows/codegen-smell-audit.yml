@@ -1,0 +1,44 @@
+name: Codegen smell (lightweight grep pass)
+
+# Runs the greppable subset of the `ai-codegen-smell-audit` skill on
+# every push to master and once a week. The full skill needs an LLM to
+# apply calibration rules (trust boundaries, documented intent, house
+# style); this workflow runs only the four checks whose pure-grep form
+# has a low enough false-positive rate to be useful in CI. See
+# `scripts/check_codegen_smells.py` for the gating vs. warning split
+# and the false-positive notes per check.
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Mondays 06:00 UTC — a quiet hour, surfaces drift introduced by
+    # the previous week's merges before the new week starts.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  grep-pass:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run lightweight grep pass
+        # Script has no third-party deps — pure stdlib. Writes the
+        # markdown report to $GITHUB_STEP_SUMMARY so the Actions UI
+        # shows the table inline. Exit code is non-zero only when a
+        # gating check (phantom-todos, bare swallowed-errors) has
+        # any hit; warning-tier hits (defensive None checks,
+        # over-typed primitives) are listed but never fail the job.
+        run: |
+          python scripts/check_codegen_smells.py \
+            --root src \
+            --summary "$GITHUB_STEP_SUMMARY"
