@@ -66,21 +66,32 @@ produced the Finnish one? Two real obstacles:
 **1. Chatterbox does not synthesize voices from text descriptions.**
 
 You cannot tell Chatterbox *"warm elderly female narrator, slight
-rasp, audiobook pacing"* and get a voice from those words. That
-feature exists in some other TTS systems (Bark, certain Tortoise
-variants, our `--voice-description` flag for VoxCPM2) but not in
-Chatterbox. Chatterbox voice character comes from one of three
-sources only:
+rasp, audiobook pacing"* and get a voice from those words. Chatterbox
+voice character comes from one of three sources only:
 
 - The finetune's emergent default voice (no reference, no LoRA).
 - A reference audio clip used at inference time (zero-shot cloning).
 - A LoRA adapter trained on real audio (the voice-pack pipeline).
 
+**This app already supports description-prompted voices — just
+through a different engine.** The **VoxCPM2** engine (dev-only,
+NVIDIA GPU required) accepts free-text voice descriptions via the
+`--voice-description` flag and steers the output toward whatever
+character you describe. So a description-prompted English voice in
+the spirit of Grandmom — *"warm elderly female narrator, slight
+rasp, audiobook pacing"* — is possible right now, just not on the
+Chatterbox engine. See the
+[VoxCPM2 section in the README](../README.md#voxcpm2-developer-install-only-nvidia-gpu)
+for install steps and honest expectations. (Description prompts work
+for broad characteristics — gender, age, tone — and are weaker on
+specific cross-language accents.)
+
 So if you wanted an "English Grandmom" character that comes for free
-with the model, you would need to **finetune the multilingual base on
-English audio data**, the same way Finnish-NLP finetuned it on Finnish.
-The model's post-finetune default voice would then become whatever
-character emerges from that English data.
+**with the Chatterbox engine specifically**, you would need to
+**finetune the multilingual base on English audio data**, the same
+way Finnish-NLP finetuned it on Finnish. The model's post-finetune
+default voice would then become whatever character emerges from that
+English data.
 
 **2. The post-finetune default would not be Finnish Grandmom.**
 
