@@ -12,7 +12,7 @@ For the English-mode counterpart, see
 that ties the two together, see the auto-memory note
 `project_isoaiti_finnish_grandmom.md`.
 
-## How Finnish Grandmom was created — short version
+## How Finnish Grandmom was created
 
 **Nobody recorded her.** Finnish Grandmom is the **default voice the
 [Finnish-NLP/Chatterbox-Finnish](https://huggingface.co/Finnish-NLP/Chatterbox-Finnish)
@@ -121,21 +121,23 @@ Finnish Grandmom does not have those specific issues because:
 What Finnish Grandmom **does** struggle with is its own set of
 language-specific failures: certain rare words, technical vocabulary,
 foreign loan words, names with non-Finnish letterforms, and edge
-cases in the normalizer. These are tracked separately.
+cases in the normalizer. See the next section.
 
 ## Known Finnish-specific failures
 
 When Finnish Grandmom mispronounces a word, the canonical place to log
-it is [docs/pronunciation_corpus_fi.md](pronunciation_corpus_fi.md) —
-the project's pronunciation corpus. Each entry records the input word,
-what the model said instead, and (where known) which normalizer pass
-should have caught it. This corpus is the evidence base for the next
-round of normalizer fixes; it is updated whenever a tester (Turo is
-the canonical external one) reports a mispronunciation.
+it is `docs/pronunciation_corpus_fi.md` — the project's pronunciation
+corpus. The file is created on first use by the
+[`pronunciation-corpus-add` skill](../.claude/skills/pronunciation-corpus-add/SKILL.md),
+so on a fresh checkout it does not exist yet; it appears as soon as
+the first mispronunciation is appended. Each entry records the input
+word, what the model said instead, and (where known) which
+normalizer pass should have caught it. This corpus is the evidence
+base for the next round of normalizer fixes; it is updated whenever a
+tester (Turo is the canonical external one) reports a mispronunciation.
 
-The skill [`.claude/skills/pronunciation-corpus-add/`](../.claude/skills/pronunciation-corpus-add/SKILL.md)
-encodes the appending ritual so the corpus stays in a structured form
-that patterns across reports are visible at a glance.
+The skill encodes the appending ritual so the corpus stays in a
+structured form that patterns across reports are visible at a glance.
 
 If you hit a mispronunciation, log it. Don't silently re-synth — the
 corpus is more valuable than any single fixed file.
@@ -169,8 +171,8 @@ For the voice-pack pipeline (analyze → export → train → package), see
   [`src/tts_chatterbox_bridge.py`](../src/tts_chatterbox_bridge.py).
 - Engine installer that fetches the Finnish-NLP model on first use:
   [`src/engine_installer.py`](../src/engine_installer.py).
-- Pronunciation corpus:
-  [`docs/pronunciation_corpus_fi.md`](pronunciation_corpus_fi.md).
+- Pronunciation corpus: `docs/pronunciation_corpus_fi.md` (created on
+  first use by the `pronunciation-corpus-add` skill — see above).
 
 ## See also
 
