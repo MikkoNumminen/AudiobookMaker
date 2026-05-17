@@ -30,12 +30,13 @@ with a clear smell example and a clear legitimate example. If a
 finding cannot meet that bar, it does not appear.
 
 The skill is grounded against this repo (see "Calibration against
-src/" below). On AudiobookMaker's `src/` tree, the high-signal checks
-are `defensive-checks-for-impossible-cases`, `generic-names-in-
-domain-context`, `swallowed-errors`, and `stylistic-drift-within-file`.
-Several of the ten checks find little in this repo because the code
-has had human review pass over it — that is the expected baseline; the
-skill becomes more useful on fresh AI-heavy diffs.
+src/" below). On AudiobookMaker's `src/` tree, two checks turn up
+verified hits — `stylistic-drift-within-file` and `generic-names-in-
+domain-context`. The remaining eight either find nothing here
+(this codebase has had careful human review) or are mixed/unclear
+pending finer analysis. That is the expected baseline; the skill
+becomes more useful on fresh AI-heavy diffs that have not yet been
+hand-reviewed.
 
 ## When to invoke
 
@@ -89,7 +90,8 @@ upgrade or downgrade severity per finding when context warrants.
 
 - **Pattern.** `if x is None:` or `isinstance(x, T)` guards on
   function parameters whose type annotation already excludes the
-  guarded value. Grep: `def \w+\([^)]*: \w+[^=]*\)[^:]*:\s*\n\s+if\s+\w+\s+is\s+None`.
+  guarded value. Grep (requires multiline mode — `rg -U` or
+  `grep -Pz`): `def \w+\([^)]*: \w+[^=]*\)[^:]*:\s*\n\s+if\s+\w+\s+is\s+None`.
 - **Why.** Adds noise, suggests the contract is uncertain, and trains
   callers to pass `None` "just in case" because the function tolerates
   it. Type system loses its meaning.
@@ -260,7 +262,7 @@ upgrade or downgrade severity per finding when context warrants.
   whether the TODO is still relevant, and the cost compounds.
 - **Smell example.** `# TODO: handle Unicode edge cases`
 - **Legitimate example.** `# TODO(numminen, 2026-Q3): remove the
-  legacy chatterbox_fi alias after two release cycles — issue #87`
+  legacy chatterbox_fi alias after two release cycles — issue #<n>`
 - **Severity default.** Nit. Upgrade to Minor if there are more
   than 5 phantom TODOs in one file (signals a backlog disguised as
   code).
@@ -347,7 +349,7 @@ Report structure (exact headings, in order):
 ## Summary
 - Commit audited: `<git rev-parse HEAD>` on branch `<git branch --show-current>`
 - Scope: <files / directories / branch diff>
-- Total findings: N (major: N · minor: N · nit: N)
+- Total findings: N (critical: N · major: N · minor: N · nit: N)
 - False-positive log applied: <yes — N findings suppressed | no — first run>
 
 ## Findings
@@ -359,6 +361,9 @@ Report structure (exact headings, in order):
 | ... | | | | |
 
 ## Findings by severity
+
+### Critical
+- ...
 
 ### Major
 - [src/foo.py:120](src/foo.py#L120) — `except Exception: pass` swallows write errors silently. (swallowed-errors)
@@ -449,49 +454,55 @@ Honest list — the auditor should know these going in:
 
 This calibration ran on AudiobookMaker's `src/` tree as part of the
 skill's initial build (2026-05-17). It is the evidence the ten
-checks are grounded.
+checks are grounded. **Citations were verified by reading the
+referenced lines** — any "GROUNDED" row below names a specific line
+the auditor can open and see the pattern.
 
 | Check | Verdict on this repo | Concrete hit (when grounded) |
 |---|---|---|
-| defensive-checks-for-impossible-cases | **GROUNDED** | `src/fi_loanwords.py:56` (module-level bool guard) |
-| stylistic-drift-within-file | **GROUNDED** | `src/cleanup.py` (mixed quote / docstring conventions) |
-| paraphrase-comments | **DROP for this repo** | None found — codebase has been human-reviewed |
-| single-use-helpers | **MIXED** | No clean false-positive, no clean true-positive — needs call-graph analysis |
-| generic-names-in-domain-context | **GROUNDED** | `src/auto_updater.py:253` (`data` for GitHub release JSON) |
-| swallowed-errors | **GROUNDED (rare)** | `src/tts_audio.py:35` — context-acceptable; bare `except: pass` is otherwise absent |
+| defensive-checks-for-impossible-cases | **NO HITS** | No function-parameter type guard that contradicts its annotation found in a sampled sweep — kept because the check is grounded in generated code generally and will fire on fresh AI diffs |
+| stylistic-drift-within-file | **GROUNDED** | `src/cleanup.py:106` uses `os.path.getsize(os.path.join(...))` while the rest of the same file builds paths via `Path()` (verified) |
+| paraphrase-comments | **NO HITS** | None found — codebase has been human-reviewed |
+| single-use-helpers | **MIXED** | No clean false-positive, no clean true-positive in samples — needs full call-graph analysis to confirm either way |
+| generic-names-in-domain-context | **GROUNDED** | `src/auto_updater.py:253` `data = json.loads(...)` for a GitHub release response — subsequent code reads `data.get("tag_name")`, `data.get("assets", [])` (verified) |
+| swallowed-errors | **NO HITS** | Bare `except: pass` is absent in `src/` — only `except PermissionError:` and similar typed handlers — kept because the check fires on fresh generated code |
 | mirror-tests | **NO HITS** | Sampled `test_tts_normalizer_fi.py`, `test_tts_audio.py`, `test_cleanup.py`, `test_tts_chunking.py` — all assert real behaviour |
-| phantom-todos | **DROP for this repo** | Zero `# TODO` / `# FIXME` in `src/` |
-| duplicated-helpers | **UNCLEAR** | `tts_normalizer_fi.py` has many similar regex builders, but they are intentionally distinct passes |
-| over-typed-primitives | **DROP for this repo** | No `Literal` / `NewType` / `TypedDict` overuse — codebase uses plain dataclasses |
+| phantom-todos | **NO HITS** | Zero `# TODO` / `# FIXME` in `src/` |
+| duplicated-helpers | **UNCLEAR** | `tts_normalizer_fi.py` has many similar regex builders, but they are intentionally distinct passes — would need cross-module similarity analysis to confirm |
+| over-typed-primitives | **NO HITS** | No `Literal` / `NewType` / `TypedDict` overuse — codebase uses plain dataclasses |
 
-**Calibration verdict.** 4 checks are grounded on this codebase (1,
-2, 5, 6); 3 produce no signal here (3, 8, 10) but are kept because
-they are grounded against generated code generally — they will fire
-on a fresh AI diff that has not been hand-reviewed; 3 are mixed /
-unclear and require care (4, 7, 9).
+**Calibration verdict.** Only 2 of the 10 checks turn up verified
+hits in `src/` today (stylistic-drift, generic-names). The other 8
+either find nothing here (the codebase has been hand-reviewed) or
+are mixed/unclear pending finer analysis. The "NO HITS" checks stay
+in the skill because they are grounded against LLM-codegen
+*generally* — they target patterns documented in independent reviews
+of generated code and will fire on a fresh AI diff that has not
+been hand-reviewed. This skill is most useful on those diffs, not on
+a codebase that has already had careful human review.
+
+**Honest caveat.** A more aggressive calibration sweep — full
+call-graph analysis for single-use-helpers, structural similarity
+analysis across modules for duplicated-helpers, function-signature
+parsing for defensive-checks — would likely surface more grounded
+hits. The 2/10 number is a floor, not a ceiling.
 
 **Patterns observed in `src/` that are NOT in the ten checks** —
-candidates for future additions:
+candidates for future additions, verified by reading the cited
+lines:
 
 - **`__post_init__` clamping on frozen dataclasses.** Example:
-  `src/voice_pack/expression.py:72–78`. Pattern: a `frozen=True`
-  dataclass with a `__post_init__` that uses `object.__setattr__`
-  to clamp a value. Real signal of "I wanted validation but did
-  not want to write a `__init__`". Possible future check
-  `post-init-mutation-workaround`.
-- **`Path(__file__).parent.parent / "data"` traversal.** Fragile
-  under refactoring. Example: `src/fi_loanwords.py:27`. Possible
-  future check `fragile-relative-traversal`.
-- **URL / format-string drift in one module.** Mixing
-  `.format()`, f-string, and `+` concatenation for URLs in the
-  same module. Example: `src/tts_piper.py:62–66`. Already partly
-  covered by check 2 but worth calling out as its own sub-pattern.
+  `src/voice_pack/expression.py:72-78`. A `frozen=True` dataclass
+  whose `__post_init__` uses `object.__setattr__` to clamp values
+  rather than validate or raise. Signal of "I wanted validation but
+  did not want to write a custom `__init__`." Possible future
+  check `post-init-mutation-workaround`.
 
-These are notes, not new checks — adding them now would inflate the
-checklist before they have been validated against multiple repos.
-The "Patterns observed but not in the checklist" section in the
-report exists exactly so future runs can accumulate evidence for
-new checks before the skill grows.
+This is a single observation, not a check yet — adding it to the
+checklist now would inflate the skill before the pattern has been
+seen across multiple repos. The "Patterns observed but not in the
+checklist" section in the report exists exactly so future runs can
+accumulate evidence before the skill grows.
 
 ## Things NOT to do
 
