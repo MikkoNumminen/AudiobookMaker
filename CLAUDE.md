@@ -247,3 +247,23 @@ Read `docs/CONVENTIONS.md` for the full list. Highlights:
 - Keep `cleanup.py` current when changing install/output paths
 - Auto-update guarantees: SHA-256 in release notes + sidecar asset
 - Maximize test coverage, enforce in CI, no shipping without passing tests
+
+## Fresh-clone setup for AI sessions
+
+If a session is operating on a freshly-cloned repo (no `.git/hooks/pre-commit`
+yet), run `bash scripts/install-hooks.sh` once. This wires the project's
+pre-commit hook into `.git/hooks/` — without it, commits skip the
+`docs/CLI.md` sync check and the test suite. The hook content lives at
+`scripts/pre-commit` and is version-controlled; the install script
+symlinks (or copies, on filesystems without symlink support) it into
+place.
+
+## AI-first surface (contributor-facing)
+
+The contributor-facing explanation of how this project uses Claude Code
+lives in `docs/AI_FIRST_GUIDE.md`. It walks through the four pillars
+(this CLAUDE.md, auto-memory, skills, tests), the memory-to-docs
+migration pattern, and the minimum viable shape for adopting the same
+approach in another project. When a memory note matures into stable
+project knowledge, migrate it into tracked docs (`docs/<topic>.md`)
+rather than leaving it as per-user memory.

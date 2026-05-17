@@ -255,6 +255,14 @@ pip install voxcpm
 
 Several GB of model weights download on first use.
 
+Install the git hooks (CLI-doc sync check + test runner on every commit):
+
+```bash
+bash scripts/install-hooks.sh
+```
+
+On Windows, run this from Git Bash (ships with Git for Windows). Without this step, your local commits skip the project's guardrails — they will still land but they will break things (stale `docs/CLI.md`, untested code).
+
 Run tests:
 
 ```bash
@@ -264,6 +272,12 @@ pytest tests/
 A handful of tests skip automatically when `ffmpeg` isn't on PATH (audio export tests). To run all tests, install ffmpeg first.
 
 See [BUILDING.md](BUILDING.md) for full Windows installer build instructions.
+
+### Working with Claude Code / other AI assistants
+
+This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.md), runbooks in [`.claude/skills/`](.claude/skills/), auto-generated CLI reference, contract tests that catch drift. If you use Claude Code on this repo (or want to copy the pattern to your own project), read [docs/AI_FIRST_GUIDE.md](docs/AI_FIRST_GUIDE.md) — it explains how the four pillars (project rules, auto-memory, skills, tests) interlock.
+
+The project mascot is a goat 🐐 — appears in the application icon.
 
 ## Upstream contribution
 
