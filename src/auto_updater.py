@@ -250,9 +250,9 @@ def check_for_update(current_version: str) -> UpdateInfo:
         req.add_header("Accept", "application/vnd.github+json")
 
         with urlopen(req, timeout=API_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            release_data = json.loads(resp.read().decode("utf-8"))
 
-        tag: str = data.get("tag_name", "")
+        tag: str = release_data.get("tag_name", "")
         latest_version = tag.lstrip("vV").strip()
         if not latest_version:
             logger.warning("GitHub release has no tag_name")
@@ -261,19 +261,19 @@ def check_for_update(current_version: str) -> UpdateInfo:
         if _parse_version(latest_version) <= _parse_version(current_version):
             return _no_update(current_version)
 
-        asset = _find_exe_asset(data.get("assets", []))
+        asset = _find_exe_asset(release_data.get("assets", []))
         if asset is None:
             logger.warning("No .exe asset found in latest release")
             return _no_update(current_version)
 
-        sha256 = _extract_sha256(data.get("body", ""))
+        sha256 = _extract_sha256(release_data.get("body", ""))
         # Fallback: the release author may have published the sidecar
         # `.exe.sha256` asset without (or before) editing the body. Both
         # paths are equally trustworthy because the release author
         # authenticates either edit.
         if not sha256:
             sidecar = _find_sha256_sidecar_asset(
-                data.get("assets", []), asset.get("name", "")
+                release_data.get("assets", []), asset.get("name", "")
             )
             if sidecar is not None:
                 sha256 = _fetch_sidecar_sha256(sidecar, current_version)
@@ -287,7 +287,7 @@ def check_for_update(current_version: str) -> UpdateInfo:
             current_version=current_version,
             latest_version=latest_version,
             download_url=asset["browser_download_url"],
-            release_notes=data.get("body", ""),
+            release_notes=release_data.get("body", ""),
             asset_size_bytes=asset.get("size", 0),
             sha256=sha256 or "",
         )
