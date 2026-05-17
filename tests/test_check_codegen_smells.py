@@ -16,9 +16,14 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 
-from check_codegen_smells import (  # noqa: E402  (sys.path manipulation above)
+# Make `scripts/` importable as a package — matches the convention
+# used by tests/test_render_cli_help.py for the analog CLI-render
+# script.
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from scripts.check_codegen_smells import (  # noqa: E402
     scan_defensive_none,
     scan_over_typed,
     scan_phantom_todos,
@@ -237,7 +242,7 @@ def test_full_run_against_src_is_clean() -> None:
     """The CI gate must be green on `src/` today. If a future commit
     adds a phantom-todo or bare-except-pass to src/, this test fails
     locally before pre-commit, not just in CI."""
-    from check_codegen_smells import run_checks
+    from scripts.check_codegen_smells import run_checks
 
     src = _REPO_ROOT / "src"
     assert src.is_dir(), f"src/ not found at {src}"
