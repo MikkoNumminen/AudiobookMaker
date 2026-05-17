@@ -34,7 +34,10 @@ Warning (printed in the summary, does not fail the job):
   body line is ``if <param> is None`` where the parameter's type
   annotation does not include ``None`` / ``Optional``. Grep cannot
   reliably parse Python type expressions, so this check emits
-  occurrences and lets a human triage.
+  occurrences and lets a human triage. Known limitation: the check
+  only fires when ``if x is None`` is the literal first line of the
+  function body. A docstring or any other statement before the guard
+  escapes detection — this is the price of not parsing the AST.
 * ``over-typed-primitives`` — counts uses of ``NewType(``, ``Literal[``,
   and ``TypedDict`` in src/. A handful is fine; a sudden spike is
   worth a look. Explicitly excluded: the ``typing`` import line itself
@@ -264,7 +267,7 @@ def run_checks(root: Path) -> list[CheckResult]:
 
 def render_report(root: Path, results: list[CheckResult]) -> str:
     lines: list[str] = []
-    lines.append(f"# Codegen smell — lightweight grep pass")
+    lines.append("# Codegen smell — lightweight grep pass")
     lines.append("")
     lines.append(f"Scope: `{root}` (recursive `.py` files).")
     lines.append("")

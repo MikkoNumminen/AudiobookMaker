@@ -485,7 +485,7 @@ Honest list — the auditor should know these going in:
   LLM-only — they will not catch regressions on their own; the
   human-invoked full pass remains the canonical check.
 
-## Schema-level enforcement
+## Eval-schema test
 
 The skill's `evals/evals.json` schema is validated by
 [`tests/test_skill_evals.py`](../../../tests/test_skill_evals.py),
