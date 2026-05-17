@@ -308,12 +308,12 @@ AudiobookMaker/
 │   ├── ffmpeg_path.py             # Runtime ffmpeg path helper for bundled builds
 │   └── main.py                    # Application entry point
 ├── scripts/                       # CLI tools, voice sample recorder, voice-pack pipeline
-├── tests/                         # Unit tests (2000+)
+├── tests/                         # Unit tests (2400+)
 ├── docs/                          # Architecture, CLI, OCR, conventions, audits
 ├── installer/                     # Inno Setup script
-├── .github/workflows/             # CI: build Windows installer and publish releases
+├── .github/workflows/             # CI: build Windows installer, publish releases, run codegen-smell gate
 ├── assets/                        # Icon and other resources
-├── .claude/skills/                # Reusable procedures for the project (see docs/SKILLS_AUDIT.md)
+├── .claude/skills/                # Reusable procedures for the project (see docs/AI_FIRST_GUIDE.md)
 └── requirements.txt
 ```
 
