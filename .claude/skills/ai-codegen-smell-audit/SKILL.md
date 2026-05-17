@@ -454,9 +454,10 @@ Honest list — the auditor should know these going in:
 
 This calibration ran on AudiobookMaker's `src/` tree as part of the
 skill's initial build (2026-05-17). It is the evidence the ten
-checks are grounded. **Citations were verified by reading the
-referenced lines** — any "GROUNDED" row below names a specific line
-the auditor can open and see the pattern.
+checks are grounded. **Citations were verified by spot-reading each
+cited line in the working tree on 2026-05-17**, not by grep alone —
+any "GROUNDED" row below names a specific line the auditor can open
+and see the pattern.
 
 | Check | Verdict on this repo | Concrete hit (when grounded) |
 |---|---|---|
@@ -487,22 +488,17 @@ analysis across modules for duplicated-helpers, function-signature
 parsing for defensive-checks — would likely surface more grounded
 hits. The 2/10 number is a floor, not a ceiling.
 
-**Patterns observed in `src/` that are NOT in the ten checks** —
-candidates for future additions, verified by reading the cited
-lines:
-
-- **`__post_init__` clamping on frozen dataclasses.** Example:
-  `src/voice_pack/expression.py:72-78`. A `frozen=True` dataclass
-  whose `__post_init__` uses `object.__setattr__` to clamp values
-  rather than validate or raise. Signal of "I wanted validation but
-  did not want to write a custom `__init__`." Possible future
-  check `post-init-mutation-workaround`.
-
-This is a single observation, not a check yet — adding it to the
-checklist now would inflate the skill before the pattern has been
-seen across multiple repos. The "Patterns observed but not in the
-checklist" section in the report exists exactly so future runs can
-accumulate evidence before the skill grows.
+**One pattern observed in `src/` that is NOT in the ten checks** —
+a candidate for a future check once it shows up across multiple
+repos: `src/voice_pack/expression.py:72-78` has a `frozen=True`
+dataclass whose `__post_init__` uses `object.__setattr__` to clamp
+values rather than validate or raise. Signal of "I wanted validation
+but did not want to write a custom `__init__`." A future check
+`post-init-mutation-workaround` could target this, but a single
+observation in a single repo is not enough evidence to promote it.
+The "Patterns observed but not in the checklist" section in the
+report exists exactly so future runs accumulate that evidence
+before the skill grows.
 
 ## Things NOT to do
 

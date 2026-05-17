@@ -40,7 +40,7 @@
       "id": 6,
       "name": "severity-tally-matches-findings",
       "prompt": "smell audit src/",
-      "expected_output": "The Summary line 'Total findings: N (major: N · minor: N · nit: N)' sums correctly and each count equals the number of findings tagged with that severity in the body. The auditor recounts before writing the summary line.",
+      "expected_output": "The Summary line 'Total findings: N (critical: N · major: N · minor: N · nit: N)' sums correctly and each count equals the number of findings tagged with that severity in the body. The auditor recounts before writing the summary line.",
       "files": []
     },
     {
