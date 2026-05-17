@@ -67,7 +67,7 @@ Local neural TTS that runs entirely on CPU. After the first voice download (~60 
 
 The interesting one. Chatterbox is an open-source neural TTS from Resemble AI; `Finnish-NLP/Chatterbox-Finnish` is a Finnish fine-tune by the Finnish-NLP organization. Together they produce the best Finnish voice quality in this app — close to commercial audiobook quality on prepared text — and they support voice cloning from a short reference clip.
 
-**How end users get Chatterbox.** The model weights (~15 GB) aren't bundled into the installer — they would balloon it past usability. Instead, open the app, click **Install engines…** in the Settings panel, and the GUI downloads the Chatterbox venv and the Finnish-NLP model on demand. After that initial setup, Chatterbox works fully offline. The default voice is **Grandmom** (Isoäiti in the app), a warm elderly speaker.
+**How end users get Chatterbox.** The model weights (~15 GB) aren't bundled into the installer — they would balloon it past usability. Instead, open the app, click **Install engines…** in the Settings panel, and the GUI downloads the Chatterbox venv and the Finnish-NLP model on demand. After that initial setup, Chatterbox works fully offline. The default voice is **Grandmom** (Isoäiti in the app), a warm elderly speaker — nobody recorded her; she's the natural default of the upstream Finnish-NLP finetune. How Grandmom is produced in each language is documented in two companion docs: [docs/finnish_grandmom.md](docs/finnish_grandmom.md) (Isoäiti — Finnish T3 finetune default voice + 16-pass Finnish normalizer) and [docs/english_grandmom.md](docs/english_grandmom.md) (Route B v2 — multilingual base + Grandmom reference WAV, plus known prosody quirks).
 
 **How developers get voice cloning.** The voice-cloning pipeline that produces a custom voice pack from a sample of your own voice (analyze → export → train → package) lives in `scripts/voice_pack_*.py` and is **dev-only** — it needs a `HF_TOKEN` and a Python environment with CUDA. See [docs/DEVELOPER_SETUP.md](docs/DEVELOPER_SETUP.md). The GUI consumes the resulting voice packs via its **Import voice pack…** button; it does not produce them.
 
@@ -165,6 +165,7 @@ If you don't trust an unsigned installer (a reasonable default), build it yourse
 - **"One MP3 per chapter" works only with Edge-TTS currently.** Piper, Chatterbox, and VoxCPM2 produce a single combined MP3.
 - **GPU engines need an NVIDIA card with ~8 GB VRAM and CUDA 12+.** No CPU fallback exists. On unsupported machines, these engines show as unavailable in the dropdown and the rest of the app keeps working normally.
 - **Voice cloning quality depends on the reference clip.** A noisy reference produces a noisy clone. The audio preflight check exists for a reason; don't bypass it.
+- **English Grandmom can mishandle certain prosodic transitions.** The reference clip for the English path is Finnish, so some Finnish rhythm leaks into the English output — periods don't always produce English-style pauses, and sentence-final words like `"up."` can trigger slurred transitions or hallucinated filler tokens. Workarounds: raise `--chunk-chars` to force single-chunk synthesis, or reword to avoid the trigger words. Full details: [docs/english_grandmom.md](docs/english_grandmom.md).
 
 ## Command-line use
 
@@ -218,7 +219,7 @@ cat poem.txt | audiobookmaker-cli preview -
 curl -s https://example.com/book.epub | audiobookmaker-cli convert - --input-format epub
 ```
 
-**Tune the synthesis without touching config.** All synthesis subcommands take `--speed {slow,normal,fast,xfast}` (Edge-TTS), `--voice-description "..."` (engines that accept free-text style), and `--output-mode {single,per-chapter}` (per-chapter writes one MP3 per chapter into a directory; Edge-TTS only today).
+**Tune the synthesis without touching config.** All synthesis subcommands take `--speed {slow,normal,fast,xfast}` (Edge-TTS), `--voice-description "..."` (engines that accept free-text style), `--output-mode {single,per-chapter}` (per-chapter writes one MP3 per chapter into a directory; Edge-TTS only today), and `--chunk-chars N` (Chatterbox only; raise above the default 300 to force short inputs into one autoregressive run when you're chasing chunk-boundary glitches — see [docs/english_grandmom.md](docs/english_grandmom.md)).
 
 **Batch-loop control.** `--overwrite skip` exits 0 immediately if the output file already exists; `--overwrite fresh` wipes the chunk cache and starts over.
 
