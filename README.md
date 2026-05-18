@@ -277,6 +277,31 @@ See [BUILDING.md](BUILDING.md) for full Windows installer build instructions.
 
 This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.md), runbooks in [`.claude/skills/`](.claude/skills/), auto-generated CLI reference, contract tests that catch drift. If you use Claude Code on this repo (or want to copy the pattern to your own project), read [docs/AI_FIRST_GUIDE.md](docs/AI_FIRST_GUIDE.md) — it explains how the four pillars (project rules, auto-memory, skills, tests) interlock.
 
+#### Skill catalog (audited 2026-05-19)
+
+14 in-repo skills under `.claude/skills/`. Per-session cost when not invoked: ~30 tokens each (catalog entry only). Per-invocation cost: the SKILL.md body loads. Below is a skeptical four-reviewer audit's verdict on which skills are paying rent.
+
+**Body size** is the per-invocation load. **Saves/inv** is the rough order-of-magnitude tokens saved versus an agent re-deriving the workflow from first principles (negative when the skill mostly restates CLAUDE.md rules that auto-load anyway). **Usage** is rough 90-day evidence (artefacts on disk, commit log, tool runs).
+
+| Skill | Body | Saves/inv | 90-day usage | Verdict |
+|---|---|---|---|---|
+| [`ai-codegen-smell-audit`](.claude/skills/ai-codegen-smell-audit/SKILL.md) | ~7.3k | ~5–6k | 2 audits + heavy iteration | **KEEP** — load-bearing, non-derivable taxonomy |
+| [`audit`](.claude/skills/audit/SKILL.md) | ~4.3k | ~3–4k | 2 reports landed | **TRIM** — drop JS/Rust/Go tool tables on a Python-only repo |
+| [`audit-followup`](.claude/skills/audit-followup/SKILL.md) | ~1.6k | net negative | 0 invocations | **RETIRE** — never used; workflow trivially rederivable |
+| [`ci-failure-triage`](.claude/skills/ci-failure-triage/SKILL.md) | ~1.9k | ~1k | 22 `fix(ci):` commits | **KEEP** — high recurrence; ordering is non-obvious |
+| [`commit-then-scan`](.claude/skills/commit-then-scan/SKILL.md) | ~1.6k | NEGATIVE | 0 invocations | **RETIRE** — duplicates CLAUDE.md rules that auto-load every session |
+| [`copyright-scan`](.claude/skills/copyright-scan/SKILL.md) | ~3.1k | ~3k | 0 invocations | **TRIM** to ~600t — keep allow-list + decision tree, drop runbook |
+| [`pre-push-scan`](.claude/skills/pre-push-scan/SKILL.md) | ~2.1k | NEGATIVE | 0 invocations | **RETIRE** — restates CLAUDE.md rules + delegates to copyright-scan |
+| [`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md) | ~1.8k | ~1.5k → 0 | corpus file empty today | **KEEP provisional** — re-audit after 10 entries land; corpus format then self-documents |
+| [`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md) | ~4.5k | ~3.5k | 1 use (its own birth) | **TRIM** to a 30-line pointer; the `.spec` already self-documents |
+| [`release-cut`](.claude/skills/release-cut/SKILL.md) | ~1.7k | load-bearing | 20 releases in 90d | **KEEP** — auto-update is P0; ritual ordering not in CLAUDE.md |
+| [`scanned-pdf-to-audiobook`](.claude/skills/scanned-pdf-to-audiobook/SKILL.md) | ~5.9k | NEGATIVE | 0 invocations | **RETIRE or add evals** — no evals.json + derivable from [docs/OCR_FALLBACK.md](docs/OCR_FALLBACK.md) |
+| [`voice-pack-finnish`](.claude/skills/voice-pack-finnish/SKILL.md) | ~6.2k | ~5–8k | 2 packs + ~60 probe runs | **KEEP** — encodes empirical scar tissue (pyannote/ECAPA fallback) not in any CLI `--help` |
+| [`work-session`](.claude/skills/work-session/SKILL.md) | ~1.7k | ~2k | TODO.md actively used | **KEEP** — coordinates the 4-session parallel-Claude protocol |
+| [`worktree-launch`](.claude/skills/worktree-launch/SKILL.md) | ~1.5k | ~0.8k | 63 active worktrees | **TRIM** — dedupe vs CLAUDE.md's "isolation is a hint" section; keep slot-picking |
+
+**Net:** 6 KEEP, 4 TRIM, 4 RETIRE. Acting on every verdict shrinks the skill surface from ~45k tokens to ~25k tokens — about 45% smaller — without losing load-bearing safeguards. Caveat — verdicts are from a single audit pass by four parallel sub-reviewers on 2026-05-19; previous PR cycles in this repo have shown that even adversarial sub-reviewers miss things on the first try, so treat as input, not final policy.
+
 The project mascot is a goat 🐐 — appears in the application icon.
 
 ## Upstream contribution
