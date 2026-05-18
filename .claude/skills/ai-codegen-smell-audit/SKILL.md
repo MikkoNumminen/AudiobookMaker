@@ -525,7 +525,7 @@ the auditor can open and see the pattern.
 | paraphrase-comments | **NO HITS** | None found — codebase has been human-reviewed |
 | single-use-helpers | **MIXED** | No clean false-positive, no clean true-positive in samples — needs full call-graph analysis to confirm either way |
 | generic-names-in-domain-context | **GROUNDED (fixed in PR #67)** | `src/auto_updater.py:253` had `data = json.loads(...)` for a GitHub release response — subsequent code read `data.get("tag_name")`, `data.get("assets", [])`. Renamed to `release_data` across the six reads in `check_for_update`; confirmed in the 2026-05-17-v2 second-run audit |
-| swallowed-errors | **PATTERN PRESENT, CALIBRATION-IMMUNE** | `except Exception: pass` and `except Exception: return <default>` shapes exist in `src/`, but each is exempted by the *documented intent* calibration rule: `src/engine_registry.py:36-37` (optional-import swallow, preceded by an explicit comment block); `src/engine_installer.py:795-796` (best-effort subprocess kill cleanup, inside an outer error handler); `src/app_config.py:29-30` (locale fallback, rationale in the function docstring). Bare `except:` (no exception type) is genuinely absent. The first-pass calibration claimed "NO HITS" — that was wrong on the literal pattern but right on the net audit outcome; this entry was rewritten 2026-05-19 after a post-merge skeptical review caught the misclaim |
+| swallowed-errors | **PATTERN WIDESPREAD, SAMPLED CALIBRATION-IMMUNE** | `except Exception: pass` and `except Exception: return <default>` shapes appear at ~40 sites across ~20 files in `src/` (desktop GUI + optional-import + subprocess teardown make these common). Three sampled and confirmed calibration-immune: `src/engine_registry.py:36-37` (optional-import swallow, preceded by an explicit comment block); `src/engine_installer.py:795-796` (best-effort subprocess kill cleanup, inside an outer error handler); `src/app_config.py:29-30` (locale fallback, rationale in the function docstring). Bare `except:` (no exception type) is genuinely absent. A full enumeration was NOT done — the sample is illustrative, not exhaustive, and some unsampled sites may lack a rationale comment. The first-pass calibration claimed "NO HITS" outright — that was wrong on the literal pattern; this entry was rewritten 2026-05-19 after a post-merge skeptical review surfaced the misclaim, and tightened further the same day after a second adversarial pass revealed the original correction undercounted by ~10x |
 | mirror-tests | **NO HITS** | Sampled `test_tts_normalizer_fi.py`, `test_tts_audio.py`, `test_cleanup.py`, `test_tts_chunking.py` — all assert real behaviour |
 | phantom-todos | **NO HITS** | Zero `# TODO` / `# FIXME` in `src/` |
 | duplicated-helpers | **UNCLEAR** | `tts_normalizer_fi.py` has many similar regex builders, but they are intentionally distinct passes — would need cross-module similarity analysis to confirm |
@@ -552,14 +552,18 @@ audit ran the same 4-parallel-sub-agent pattern against `src/` after
 both first-run findings were fixed. Both citations now point at
 clean code (`(Path(root) / f).stat().st_size` and `release_data =
 json.loads(...)` respectively). The second-run sweep reported zero
-new findings on the other nine checks. A skeptical post-merge
-review on 2026-05-19 then surfaced the `swallowed-errors` calibration
-misclaim documented in the table above — so the honest summary is
-that the audit cycle works (it caught its own blind spot once a
-fresh reviewer cross-checked), not that the codebase produced zero
-hits across all ten checks every time. This is one repo over two
-days; the calibration table is one data point, not validated empirics.
-Full second-run report at
+new findings on the other nine checks. Two later skeptical
+re-reviews on 2026-05-19 surfaced additional misses that neither
+self-review caught: the `swallowed-errors` calibration row was wrong
+on the literal pattern (now corrected, see table above), and the
+first correction undercounted the affected sites ~10x. Honest
+summary: the self-review loop did NOT catch its own blind spots —
+**external skeptical re-review** is what surfaced both misclaims.
+That review pattern (re-audit after merge by a different agent) is
+now part of the AI-first cadence documented in
+[`docs/AI_FIRST_GUIDE.md`](../../../docs/AI_FIRST_GUIDE.md). This is
+one repo over a few days; the calibration table is one data point,
+not validated empirics. Full second-run report at
 [`docs/audits/ai-smell-2026-05-17-v2.md`](../../../docs/audits/ai-smell-2026-05-17-v2.md).
 
 **One pattern observed in `src/` that is NOT in the ten checks** —
