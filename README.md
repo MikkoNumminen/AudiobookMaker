@@ -311,7 +311,7 @@ AudiobookMaker/
 ├── tests/                         # Unit tests (2400+)
 ├── docs/                          # Architecture, CLI, OCR, conventions, audits
 ├── installer/                     # Inno Setup script
-├── .github/workflows/             # CI: build Windows installer, publish releases, run codegen-smell gate
+├── .github/workflows/             # CI: build Windows installer, publish releases, run lightweight codegen-smell checks (4 greppable: 2 gating, 2 warn-only)
 ├── assets/                        # Icon and other resources
 ├── .claude/skills/                # Reusable procedures for the project (see docs/AI_FIRST_GUIDE.md)
 └── requirements.txt

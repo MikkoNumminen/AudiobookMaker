@@ -78,16 +78,23 @@ from pathlib import Path
 # --- Patterns -------------------------------------------------------
 
 # Phantom TODO: a TODO/FIXME/XXX/HACK comment without either an owner
-# tag (parentheses right after the keyword) or an issue link (#123)
-# anywhere on the same line. Examples:
+# tag (`(name, date)` or `@name`) or an issue link (`#123` after a
+# space or paren) on the same line. Examples:
 #   "# TODO: handle unicode"            → phantom (no owner, no link)
-#   "# TODO(numminen, 2026-Q3): drop"   → OK (owner tag present)
+#   "# TODO(numminen, 2026-Q3): drop"   → OK (paren-style owner tag)
+#   "# TODO @numminen: drop"            → OK (@-style owner tag)
 #   "# TODO drop legacy alias (#42)"    → OK (issue link present)
+# The `#42` link regex requires whitespace or `(` before the `#` so
+# the obvious bypass `step#1` (no space) does not silently mark a
+# phantom TODO as legitimate. Heuristic trade-off: prose with a
+# whitespace-prefixed `#N` token (e.g. `step #1 first`) still
+# qualifies as a "legitimate" issue link to this regex — fixing that
+# would also reject reasonable prose like `see #42 for context`.
 _PHANTOM_TODO_KEYWORD = re.compile(
     r"(?P<prefix>#\s*)(?P<kw>TODO|FIXME|XXX|HACK)\b(?P<rest>[^\n]*)",
 )
-_OWNER_TAG = re.compile(r"^\s*\([^)]+\)")
-_ISSUE_LINK = re.compile(r"#\d+\b")
+_OWNER_TAG = re.compile(r"^\s*(\([^)]+\)|@[A-Za-z][\w.\-]*)")
+_ISSUE_LINK = re.compile(r"(?:^|[\s(])#\d+\b")
 
 
 # Bare except + immediate swallow. Matches:
@@ -95,34 +102,46 @@ _ISSUE_LINK = re.compile(r"#\d+\b")
 #         pass
 #     except BaseException:
 #         return None
+#     except: pass                 ← single-line form, both branches OK
+# Also tolerates blank lines and comment lines between the handler
+# header and the swallowing statement on the multi-line form, so the
+# bypass `except:\n    # silence\n    pass` is still caught.
 # Does NOT match ``except Exception:`` — see module docstring for why.
 _BARE_EXCEPT_SWALLOW = re.compile(
-    r"^(?P<indent>\s*)except(\s+BaseException(\s+as\s+\w+)?)?\s*:\s*\n"
-    r"(?P=indent)\s+(pass|return(\s+None)?)\s*(\#[^\n]*)?$",
+    r"^(?P<indent>\s*)except(\s+BaseException(\s+as\s+\w+)?)?\s*:"
+    r"(?:\s*\n(?:(?P=indent)[ \t]+\#[^\n]*\n|[ \t]*\n)*(?P=indent)\s+|[ \t]+)"
+    r"(pass|return(\s+None)?)\s*(\#[^\n]*)?$",
     re.MULTILINE,
 )
 
 
 # Defensive ``is None`` check on a parameter whose annotation does NOT
-# include ``None`` / ``Optional``. The annotation-includes-None test is
-# best-effort: we look at the literal substring of the parameter list.
+# include ``None`` / ``Optional``. The header pattern below only finds
+# `def NAME(`; the matching `)` is located by ``_walk_to_balanced``
+# below, which handles arbitrarily-nested parens in default values
+# (e.g. ``def f(x=foo(bar(baz())))``) that a regex cannot.
 # False positives this still emits:
 #   * type aliases that resolve to Optional but don't say "None" in the
 #     annotation (rare in this repo)
 #   * defensive checks at documented trust boundaries (the SKILL says
 #     to immunise these with a comment — grep can't see the comment
 #     cheaply, so we let the warning fire and let a human dismiss it)
-_DEFENSIVE_NONE_CHECK = re.compile(
-    r"^def\s+\w+\s*\((?P<params>[^)]*)\)\s*(->\s*[^:]+)?:\s*\n"
-    r"\s+if\s+(?P<arg>\w+)\s+is\s+None\b",
-    re.MULTILINE,
+_DEF_HEADER = re.compile(r"^def\s+\w+\s*\(", re.MULTILINE)
+_DEF_BODY_FIRST_GUARD = re.compile(r"\s+if\s+(?P<arg>\w+)\s+is\s+None\b")
+_DEF_HEADER_TAIL = re.compile(r"\s*(->\s*[^:]+)?:\s*\n")
+
+
+# Over-typed primitives. Word-boundary-anchored so ``class MyTypedDict:``
+# does NOT trip the ``TypedDict`` rule, and inline comments containing
+# ``NewType(`` style references are stripped before matching. String
+# literals containing these names will still false-positive — that is
+# a documented limitation; the warning tier never gates so the cost is
+# only a noisier step summary.
+_OVERTYPE_PATTERNS = (
+    re.compile(r"\bNewType\("),
+    re.compile(r"\bLiteral\["),
+    re.compile(r"\bTypedDict\b"),
 )
-
-
-# Over-typed primitives. We grep for the constructor name itself; the
-# ``typing`` import line is excluded because that's where these names
-# legitimately appear once per file.
-_OVERTYPE_CONSTRUCTS = ("NewType(", "Literal[", "TypedDict")
 _TYPING_IMPORT_LINE = re.compile(r"^\s*(from\s+typing\s+import|import\s+typing)\b")
 
 
@@ -185,26 +204,88 @@ def scan_swallowed_errors(text: str, path: Path) -> list[Finding]:
     return hits
 
 
+def _extract_param_annotation(params: str, arg: str) -> str | None:
+    """Return the type annotation of ``arg`` inside a parameter list,
+    or ``None`` if the parameter has no annotation.
+
+    The naive ``\\b{arg}\\s*:\\s*([^,]+)`` regex fails on annotations
+    that themselves contain commas (``Dict[str, int]``,
+    ``Callable[[int, int], None]``, ``Tuple[int, ...]``) — it stops at
+    the first comma. This helper walks the string with a manual
+    bracket counter so the annotation is captured up to the next
+    top-level comma (or the end of the parameter list).
+    """
+    pat = re.compile(rf"\b{re.escape(arg)}\s*:\s*")
+    m = pat.search(params)
+    if not m:
+        return None
+    start = m.end()
+    depth = 0
+    for i in range(start, len(params)):
+        ch = params[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                return params[start:i]
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return params[start:i]
+    return params[start:]
+
+
+def _walk_to_balanced(text: str, start: int) -> int | None:
+    """Given that ``text[start - 1] == '('``, return the index of the
+    matching ``)`` — or ``None`` if no balanced close exists.
+
+    Required because a regex-only param-list capture (``[^)]*`` or
+    similar) cannot handle nested parens in default values like
+    ``f(x=foo(bar()))``. The bracket counter handles arbitrary depth.
+    """
+    depth = 1
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
 def scan_defensive_none(text: str, path: Path) -> list[Finding]:
     hits: list[Finding] = []
-    for m in _DEFENSIVE_NONE_CHECK.finditer(text):
-        params = m.group("params")
-        arg = m.group("arg")
-        # Find the slice of ``params`` that names ``arg``. If the
-        # annotation on that slice mentions None or Optional, the
-        # guard is legitimate.
-        arg_pat = re.compile(rf"\b{re.escape(arg)}\s*:\s*([^,]+)")
-        am = arg_pat.search(params)
-        if am:
-            annotation = am.group(1)
-            if "None" in annotation or "Optional" in annotation:
-                continue
-        else:
+    for m in _DEF_HEADER.finditer(text):
+        # Walk forward from the opening paren to find the matching
+        # close. The header-only regex above lets us sidestep the
+        # nested-paren limitations of pure-regex param-list capture.
+        params_end = _walk_to_balanced(text, m.end())
+        if params_end is None:
+            continue
+        params = text[m.end():params_end]
+        # Skip any return-type annotation, the trailing colon, and the
+        # newline ending the header line.
+        tail = _DEF_HEADER_TAIL.match(text, params_end + 1)
+        if tail is None:
+            continue
+        body = _DEF_BODY_FIRST_GUARD.match(text, tail.end())
+        if body is None:
+            continue
+        arg = body.group("arg")
+        annotation = _extract_param_annotation(params, arg)
+        if annotation is None:
             # Parameter has no type annotation at all — not a smell
             # we can confirm by grep. Skip.
             continue
+        if "None" in annotation or "Optional" in annotation:
+            # Annotation already admits None — the guard is legitimate.
+            continue
         lineno = text.count("\n", 0, m.start()) + 1
-        snippet = text[m.start():m.end()].splitlines()[0].strip()[:120]
+        snippet_end = body.end()
+        snippet = text[m.start():snippet_end].splitlines()[0].strip()[:120]
         hits.append(
             Finding(
                 check="defensive-checks-for-impossible-cases",
@@ -221,8 +302,12 @@ def scan_over_typed(text: str, path: Path) -> list[Finding]:
     for lineno, line in enumerate(text.splitlines(), start=1):
         if _TYPING_IMPORT_LINE.match(line):
             continue
-        for token in _OVERTYPE_CONSTRUCTS:
-            if token in line:
+        # Strip inline comments. A `#` inside a string literal will be
+        # truncated too — documented as a known false-negative shape;
+        # the warning tier never gates, so the cost is bounded.
+        code, _, _ = line.partition("#")
+        for pat in _OVERTYPE_PATTERNS:
+            if pat.search(code):
                 hits.append(
                     Finding(
                         check="over-typed-primitives",

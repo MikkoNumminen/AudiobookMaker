@@ -36,8 +36,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SKILLS_ROOT = _REPO_ROOT / ".claude" / "skills"
 
 # kebab-case: lowercase letters / digits, hyphen-separated, no leading
-# or trailing hyphen, no double hyphens.
-_KEBAB_CASE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+# or trailing hyphen, no double hyphens. The first character must be a
+# letter — pure-digit slugs like "0" or "123" are almost always a
+# copy-paste of the eval's `id` field and rarely what was intended.
+_KEBAB_CASE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 
 
 def _discover_evals_files() -> list[Path]:
