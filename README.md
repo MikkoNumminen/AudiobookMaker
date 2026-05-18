@@ -36,7 +36,7 @@ https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/english_
 
 Four TTS engines, each with different tradeoffs:
 
-| Engine | Quality | Offline | GPU | Voice cloning | Best for |
+| Engine | Quality | Offline | GPU | Custom voice | Best for |
 |---|---|---|---|---|---|
 | **Edge-TTS** | Excellent | No | No | No | Default. Fast, free, great Finnish voices. |
 | **Piper** | Good | Yes | No | No | Privacy-sensitive content, no internet, older machines. |
@@ -65,7 +65,7 @@ Local neural TTS that runs entirely on CPU. After the first voice download (~60 
 
 ### Chatterbox + Finnish-NLP/Chatterbox-Finnish (NVIDIA GPU)
 
-The interesting one. Chatterbox is an open-source neural TTS from Resemble AI; `Finnish-NLP/Chatterbox-Finnish` is a Finnish fine-tune by the Finnish-NLP organization. Together they produce the best Finnish voice quality in this app — close to commercial audiobook quality on prepared text — and they support voice cloning from a short reference clip.
+The interesting one. Chatterbox is an open-source neural TTS from Resemble AI; `Finnish-NLP/Chatterbox-Finnish` is a Finnish fine-tune by the Finnish-NLP organization. Together they produce the best Finnish voice quality in this app — close to commercial audiobook quality on prepared text — and the engine supports **reference-clip voice imitation** at synthesis time (no training step).
 
 **How end users get Chatterbox.** The model weights (~15 GB) aren't bundled into the installer — they would balloon it past usability. Instead, open the app, click **Install engines…** in the Settings panel, and the GUI downloads the Chatterbox venv and the Finnish-NLP model on demand. After that initial setup, Chatterbox works fully offline. The default voice is **Grandmom** (Isoäiti in the app), a warm elderly speaker — nobody recorded her; she's the natural default of the upstream Finnish-NLP finetune. How Grandmom is produced in each language is documented in two companion docs: [docs/finnish_grandmom.md](docs/finnish_grandmom.md) (Isoäiti — Finnish T3 finetune default voice + 16-pass Finnish normalizer) and [docs/english_grandmom.md](docs/english_grandmom.md) (Route B v2 — multilingual base + Grandmom reference WAV, plus known prosody quirks).
 
@@ -80,13 +80,13 @@ The interesting one. Chatterbox is an open-source neural TTS from Resemble AI; `
 
 Open-source neural TTS from OpenBMB. Supports 30 languages including Finnish, runs locally, and offers two features the others don't:
 
-- **Zero-shot voice cloning** from a short reference audio clip.
+- **Reference-clip voice imitation (zero-shot)** — drop in a short audio sample and the engine narrates in that voice. Inference-time only; no training step, no voice pack produced.
 - **Voice design** — describe the desired voice in natural language (e.g. `warm baritone elderly male`) and the model steers toward that description.
 
 **Honest expectations:**
 
 - A/B tested against Chatterbox-Finnish and Edge-TTS Noora on real text. **For Finnish, Chatterbox sounds better** — it's the production choice for Finnish audiobooks. **For English the gap is small** and depends on the voice and the source text; both are listenable. Try a sample chapter on each before committing to a long book — listening tests are cheap and your ears are the final judge.
-- Voice description prompts work for broad characteristics (gender, age, tone). Specific ethnic accents across language boundaries (e.g. "African American accent reading Finnish") are well outside what any current open-source multilingual TTS handles reliably. For stronger persona matching, use voice cloning with a reference clip.
+- Voice description prompts work for broad characteristics (gender, age, tone). Specific ethnic accents across language boundaries (e.g. "African American accent reading Finnish") are well outside what any current open-source multilingual TTS handles reliably. For stronger persona matching, use the reference-clip voice imitation feature.
 
 To install:
 
@@ -128,7 +128,7 @@ Nothing else to install for the basic flow. Edge-TTS and Piper work out of the b
 
 **Already have an older version?** The app checks for updates automatically. When a new version is available, a banner appears at the top of the window — click **Update now** and the app handles the download, SHA-256 verification, and reinstall. No manual downloads, no installer prompts.
 
-For **Chatterbox** voice cloning, open the GUI and click **Install engines…** in the Settings panel. The app downloads the Chatterbox venv + Finnish-NLP model on demand (one-time ~15 GB). After that it works fully offline.
+For **Chatterbox** (Grandmom voice, imported voice packs, reference-clip voice imitation), open the GUI and click **Install engines…** in the Settings panel. The app downloads the Chatterbox venv + Finnish-NLP model on demand (one-time ~15 GB). After that it works fully offline.
 
 For **VoxCPM2** or the dev-only voice-cloning pipeline (analyze / export / train / package), use the [Development setup](#development-setup) instead.
 
@@ -164,7 +164,7 @@ If you don't trust an unsigned installer (a reasonable default), build it yourse
 - **PDF cleanup heuristics aren't perfect.** Multi-column academic papers, unusual layouts, and PDFs with embedded tables can break them. Run **Make sample** on one chapter before committing to a 400-page book.
 - **"One MP3 per chapter" works only with Edge-TTS currently.** Piper, Chatterbox, and VoxCPM2 produce a single combined MP3.
 - **GPU engines need an NVIDIA card with ~8 GB VRAM and CUDA 12+.** No CPU fallback exists. On unsupported machines, these engines show as unavailable in the dropdown and the rest of the app keeps working normally.
-- **Voice cloning quality depends on the reference clip.** A noisy reference produces a noisy clone. The audio preflight check exists for a reason; don't bypass it.
+- **Reference-clip quality matters.** A noisy reference produces a noisy result — true for both the dev-only voice-cloning pipeline (which trains a voice pack from a recording) and the GUI's reference-clip voice imitation (Chatterbox / VoxCPM2, which uses the clip at synthesis time). The audio preflight check exists for a reason; don't bypass it.
 - **English Grandmom can mishandle certain prosodic transitions.** The reference clip for the English path is Finnish, so some Finnish rhythm leaks into the English output — periods don't always produce English-style pauses, and sentence-final words like `"up."` can trigger slurred transitions or hallucinated filler tokens. Workarounds: raise `--chunk-chars` to force single-chunk synthesis, or reword to avoid the trigger words. Full details: [docs/english_grandmom.md](docs/english_grandmom.md).
 
 ## Command-line use
