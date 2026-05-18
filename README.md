@@ -300,7 +300,7 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 | [`work-session`](.claude/skills/work-session/SKILL.md) | ~1.7k | ~2k | TODO.md actively used | **KEEP** — coordinates the 4-session parallel-Claude protocol |
 | [`worktree-launch`](.claude/skills/worktree-launch/SKILL.md) | ~1.5k | ~0.8k | 63 active worktrees | **TRIM** — dedupe vs CLAUDE.md's "isolation is a hint" section; keep slot-picking |
 
-**Net:** 6 KEEP, 4 TRIM, 4 RETIRE. Acting on the verdicts shrinks the skill surface from ~64KB to ~30KB without losing load-bearing safeguards. Caveat — verdicts are from a single audit pass by four parallel sub-reviewers on 2026-05-19; previous PR cycles in this repo have shown that even adversarial sub-reviewers miss things on the first try, so treat as input, not final policy.
+**Net:** 6 KEEP, 4 TRIM, 4 RETIRE. Acting on every verdict shrinks the skill surface from ~45k tokens to ~25k tokens — about 45% smaller — without losing load-bearing safeguards. Caveat — verdicts are from a single audit pass by four parallel sub-reviewers on 2026-05-19; previous PR cycles in this repo have shown that even adversarial sub-reviewers miss things on the first try, so treat as input, not final policy.
 
 The project mascot is a goat 🐐 — appears in the application icon.
 
