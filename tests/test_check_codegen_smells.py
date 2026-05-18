@@ -68,10 +68,24 @@ class TestScanPhantomTodos:
         hits = scan_phantom_todos(text, _DUMMY)
         assert hits == []
 
+    def test_at_owner_tagged_todo_skipped(self) -> None:
+        # `@owner` style owner tag — common alternative to `(name, date)`.
+        text = "# TODO @numminen: drop legacy alias\n"
+        hits = scan_phantom_todos(text, _DUMMY)
+        assert hits == []
+
     def test_issue_link_todo_skipped(self) -> None:
         text = "# TODO drop legacy alias (#42)\n"
         hits = scan_phantom_todos(text, _DUMMY)
         assert hits == []
+
+    def test_incidental_hash_number_does_not_count_as_link(self) -> None:
+        # Prose like "step #1" inside a TODO must NOT silently mark
+        # the TODO as legitimate — the link must follow whitespace or
+        # `(`.
+        text = "# TODO step#1 first\n"
+        hits = scan_phantom_todos(text, _DUMMY)
+        assert len(hits) == 1
 
     def test_word_todo_in_running_text_not_flagged(self) -> None:
         # "todo" inside a sentence-shaped comment is not a phantom TODO
@@ -131,6 +145,31 @@ class TestScanSwallowedErrors:
         hits = scan_swallowed_errors(text, _DUMMY)
         assert hits == []
 
+    def test_comment_between_handler_and_pass_still_flagged(self) -> None:
+        # Bypass shape from the post-merge audit: a comment between
+        # `except:` and `pass` previously defeated the regex. Must
+        # still flag.
+        text = "try:\n    do()\nexcept:\n    # silence the warning\n    pass\n"
+        hits = scan_swallowed_errors(text, _DUMMY)
+        assert len(hits) == 1
+
+    def test_blank_line_between_handler_and_pass_still_flagged(self) -> None:
+        text = "try:\n    do()\nexcept:\n\n    pass\n"
+        hits = scan_swallowed_errors(text, _DUMMY)
+        assert len(hits) == 1
+
+    def test_multiple_comments_between_handler_and_pass_still_flagged(self) -> None:
+        text = (
+            "try:\n"
+            "    do()\n"
+            "except:\n"
+            "    # reason 1\n"
+            "    # reason 2\n"
+            "    pass\n"
+        )
+        hits = scan_swallowed_errors(text, _DUMMY)
+        assert len(hits) == 1
+
 
 # ---------------------------------------------------------------------------
 # scan_defensive_none
@@ -183,6 +222,35 @@ class TestScanDefensiveNone:
         hits = scan_defensive_none(text, _DUMMY)
         assert hits == []
 
+    def test_dict_annotation_with_comma_not_misread(self) -> None:
+        # Bypass shape from the post-merge audit: the old `[^,]+`
+        # annotation extractor truncated at the first comma. A
+        # `Dict[str, int]` annotation should be parsed as the full
+        # type, not as `Dict[str` — and since the type does not admit
+        # None, an actual `is None` guard on it IS a smell.
+        text = "def f(m: Dict[str, int]) -> int:\n    if m is None:\n        return 0\n"
+        hits = scan_defensive_none(text, _DUMMY)
+        assert len(hits) == 1
+
+    def test_callable_annotation_with_internal_commas_skipped(self) -> None:
+        # A `Callable[[int, int], None]` annotation contains commas and
+        # contains `None`. The annotation explicitly admits None, so
+        # the guard is legitimate — must NOT be flagged.
+        text = (
+            "def f(cb: Callable[[int, int], None]) -> int:\n"
+            "    if cb is None:\n"
+            "        return 0\n"
+        )
+        hits = scan_defensive_none(text, _DUMMY)
+        assert hits == []
+
+    def test_tuple_annotation_with_ellipsis_not_misread(self) -> None:
+        # `Tuple[int, ...]` has a comma but no None — guard should
+        # still flag.
+        text = "def f(t: Tuple[int, ...]) -> int:\n    if t is None:\n        return 0\n"
+        hits = scan_defensive_none(text, _DUMMY)
+        assert len(hits) == 1
+
 
 # ---------------------------------------------------------------------------
 # scan_over_typed
@@ -229,6 +297,22 @@ class TestScanOverTyped:
         text = 'A = NewType("A", str)  # NewType again here\n'
         hits = scan_over_typed(text, _DUMMY)
         assert len(hits) == 1
+
+    def test_my_typed_dict_class_NOT_flagged(self) -> None:
+        # Bypass shape from the post-merge audit: a class whose name
+        # ends in `TypedDict` (e.g. `MyTypedDict`) is a perfectly
+        # ordinary domain class. Word-boundary anchoring means it must
+        # not trip the `TypedDict` rule.
+        text = "class MyTypedDict:\n    pass\n"
+        hits = scan_over_typed(text, _DUMMY)
+        assert hits == []
+
+    def test_inline_comment_with_newtype_substring_NOT_flagged(self) -> None:
+        # `# uses NewType( style` is prose, not over-typed Python.
+        # Inline comments should be stripped before scanning.
+        text = "x = 1  # uses NewType( style\n"
+        hits = scan_over_typed(text, _DUMMY)
+        assert hits == []
 
 
 # ---------------------------------------------------------------------------
