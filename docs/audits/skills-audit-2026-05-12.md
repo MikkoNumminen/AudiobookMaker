@@ -1,5 +1,15 @@
 # Skills audit — what we have and what we still need
 
+> **Re-audited 2026-05-19** — three of this audit's recommended additions
+> (`commit-then-scan` P0, `pre-push-scan` P0, `audit-followup` P1) were
+> retired after a fresh skeptical re-audit found that the workflows they
+> encoded duplicated CLAUDE.md rules that auto-load every workspace, and
+> that the skills themselves had zero recorded invocations. The fourth
+> retiree (`scanned-pdf-to-audiobook`) is mentioned in this document as
+> existing context, not a recommendation. See `README.md` "Skill catalog"
+> + PR #72 (audit) + PR #73 (retirements) for the reversal. Read this
+> document as the **original recommendation, not current policy**.
+
 This file is a one-time audit. It looks at every recurring AudiobookMaker
 workflow that benefits from a fixed, written procedure, and asks two
 questions:

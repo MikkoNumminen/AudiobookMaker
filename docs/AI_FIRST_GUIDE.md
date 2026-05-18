@@ -102,19 +102,22 @@ A skill earns its keep when:
   a force-push to scrub a leak, a stuck GPU).
 
 A skill does **not** earn its keep when the workflow is one CLI
-command + `--help`. The current 14 in-repo skills (plus a handful of
-Claude Code builtins like `simplify`, `loop`, `schedule`) are the
-result of deliberate consolidation; resist adding more without a
-real failure pattern to encode.
+command + `--help`, or when it restates CLAUDE.md rules that
+auto-load every session. The current 10 in-repo skills (plus a
+handful of Claude Code builtins like `simplify`, `loop`, `schedule`)
+are the survivors of a 2026-05-19 audit that retired four skills
+for those exact failure modes (see `README.md` "Skill catalog" for
+the audit verdicts). Resist adding more without a real failure
+pattern to encode.
 
 Skill index (in-repo):
 
 | Category | Skills |
 |---|---|
-| Code quality | [`audit`](../.claude/skills/audit/SKILL.md), [`audit-followup`](../.claude/skills/audit-followup/SKILL.md), [`ai-codegen-smell-audit`](../.claude/skills/ai-codegen-smell-audit/SKILL.md) |
-| Git hygiene | [`commit-then-scan`](../.claude/skills/commit-then-scan/SKILL.md), [`copyright-scan`](../.claude/skills/copyright-scan/SKILL.md), [`pre-push-scan`](../.claude/skills/pre-push-scan/SKILL.md) |
+| Code quality | [`audit`](../.claude/skills/audit/SKILL.md), [`ai-codegen-smell-audit`](../.claude/skills/ai-codegen-smell-audit/SKILL.md) |
+| Git hygiene | [`copyright-scan`](../.claude/skills/copyright-scan/SKILL.md) |
 | Release / CI | [`release-cut`](../.claude/skills/release-cut/SKILL.md), [`release-bundle-audit`](../.claude/skills/release-bundle-audit/SKILL.md), [`ci-failure-triage`](../.claude/skills/ci-failure-triage/SKILL.md) |
-| Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`scanned-pdf-to-audiobook`](../.claude/skills/scanned-pdf-to-audiobook/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
+| Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
 | Multi-session | [`work-session`](../.claude/skills/work-session/SKILL.md), [`worktree-launch`](../.claude/skills/worktree-launch/SKILL.md) |
 
 ### 4. Tests — regression guardrails the next session can't sidestep
@@ -191,8 +194,8 @@ When you add code that the next session should know about:
 - **Cross-session learning the user wants remembered** → auto-memory
   (per-user, not tracked).
 
-Resist the urge to add a skill for everything. The current 14 are the
-ones that pay rent.
+Resist the urge to add a skill for everything. The current 10 are the
+ones that pay rent (post-2026-05-19 audit).
 
 ## Where this pattern came from / could go
 

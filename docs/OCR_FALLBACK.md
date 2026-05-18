@@ -1,9 +1,9 @@
 # OCR fallback for scanned PDFs
 
-> **Operational runbook:** for the step-by-step "user handed me a scanned PDF, how do I turn it into an audiobook" flow, see the
-> [`scanned-pdf-to-audiobook`](../.claude/skills/scanned-pdf-to-audiobook/SKILL.md)
-> skill. This document is the architectural side of the same feature — what
-> the code does and why; the skill is what to actually run.
+> This document covers both the **architectural side** (what the code does and
+> why) and the **operational side** (how to actually run the conversion for a
+> scanned PDF). For a short user-facing recipe see section *"Operational
+> recipe"* near the end of the file.
 
 ## 1. What this feature does
 
@@ -267,10 +267,12 @@ ocrmypdf is a synchronous Python call inside `_run_ocr_fallback`. If
 the user kills the process, the partial output PDF is deleted by the
 `except` branch ([pdf_parser.py:368](../src/pdf_parser.py#L368)). No
 per-page checkpointing — restart re-OCRs from page 1. For multi-hour
-sources, the operational runbook (see the
-[scanned-pdf-to-audiobook skill](../.claude/skills/scanned-pdf-to-audiobook/SKILL.md))
-splits OCR into its own dedicated step so a synth-time crash doesn't
-cost the OCR pass.
+sources, split OCR into its own dedicated step so a synth-time crash
+doesn't cost the OCR pass: run OCR explicitly first (e.g. via
+`ocrmypdf` on the command line, or any pre-OCR'd PDF you supply),
+then feed the already-OCR'd PDF into `audiobookmaker-cli convert`,
+which will skip the OCR fallback because PyMuPDF can now extract
+text directly.
 
 ## 11. Known deferred work
 
