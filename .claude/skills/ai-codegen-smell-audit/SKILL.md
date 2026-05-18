@@ -92,6 +92,11 @@ upgrade or downgrade severity per finding when context warrants.
   function parameters whose type annotation already excludes the
   guarded value. Grep (requires multiline mode — `rg -U` or
   `grep -Pz`): `def \w+\([^)]*: \w+[^=]*\)[^:]*:\s*\n\s+if\s+\w+\s+is\s+None`.
+  **Known grep limitation:** this pattern only matches when the
+  `is None` check is the literal first body line. A docstring or any
+  other prefix statement defeats it — for the general case you need
+  an AST parse, not grep. The CI script
+  (`scripts/check_codegen_smells.py`) shares the same limitation.
 - **Why.** Adds noise, suggests the contract is uncertain, and trains
   callers to pass `None` "just in case" because the function tolerates
   it. Type system loses its meaning.
@@ -520,7 +525,7 @@ the auditor can open and see the pattern.
 | paraphrase-comments | **NO HITS** | None found — codebase has been human-reviewed |
 | single-use-helpers | **MIXED** | No clean false-positive, no clean true-positive in samples — needs full call-graph analysis to confirm either way |
 | generic-names-in-domain-context | **GROUNDED (fixed in PR #67)** | `src/auto_updater.py:253` had `data = json.loads(...)` for a GitHub release response — subsequent code read `data.get("tag_name")`, `data.get("assets", [])`. Renamed to `release_data` across the six reads in `check_for_update`; confirmed in the 2026-05-17-v2 second-run audit |
-| swallowed-errors | **NO HITS** | Bare `except: pass` is absent in `src/` — only `except PermissionError:` and similar typed handlers — kept because the check fires on fresh generated code |
+| swallowed-errors | **PATTERN PRESENT, CALIBRATION-IMMUNE** | `except Exception: pass` and `except Exception: return <default>` shapes exist in `src/`, but each is exempted by the *documented intent* calibration rule: `src/engine_registry.py:36-37` (optional-import swallow, preceded by an explicit comment block); `src/engine_installer.py:795-796` (best-effort subprocess kill cleanup, inside an outer error handler); `src/app_config.py:29-30` (locale fallback, rationale in the function docstring). Bare `except:` (no exception type) is genuinely absent. The first-pass calibration claimed "NO HITS" — that was wrong on the literal pattern but right on the net audit outcome; this entry was rewritten 2026-05-19 after a post-merge skeptical review caught the misclaim |
 | mirror-tests | **NO HITS** | Sampled `test_tts_normalizer_fi.py`, `test_tts_audio.py`, `test_cleanup.py`, `test_tts_chunking.py` — all assert real behaviour |
 | phantom-todos | **NO HITS** | Zero `# TODO` / `# FIXME` in `src/` |
 | duplicated-helpers | **UNCLEAR** | `tts_normalizer_fi.py` has many similar regex builders, but they are intentionally distinct passes — would need cross-module similarity analysis to confirm |
@@ -546,10 +551,15 @@ hits. The 2/10 number is a floor, not a ceiling.
 audit ran the same 4-parallel-sub-agent pattern against `src/` after
 both first-run findings were fixed. Both citations now point at
 clean code (`(Path(root) / f).stat().st_size` and `release_data =
-json.loads(...)` respectively), and the second-run sweep produced
-zero new findings across all ten checks. Track record so far: one
-audit found two real smells; the fix held; the second audit
-confirmed it. Full second-run report at
+json.loads(...)` respectively). The second-run sweep reported zero
+new findings on the other nine checks. A skeptical post-merge
+review on 2026-05-19 then surfaced the `swallowed-errors` calibration
+misclaim documented in the table above — so the honest summary is
+that the audit cycle works (it caught its own blind spot once a
+fresh reviewer cross-checked), not that the codebase produced zero
+hits across all ten checks every time. This is one repo over two
+days; the calibration table is one data point, not validated empirics.
+Full second-run report at
 [`docs/audits/ai-smell-2026-05-17-v2.md`](../../../docs/audits/ai-smell-2026-05-17-v2.md).
 
 **One pattern observed in `src/` that is NOT in the ten checks** —
