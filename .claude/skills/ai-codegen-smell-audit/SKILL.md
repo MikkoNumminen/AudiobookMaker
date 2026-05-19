@@ -411,6 +411,22 @@ skill.>
    before recording. Pattern-matching is a starter; the read
    confirms the smell shape matches and applies calibration rules.
 
+   **Fan out by default.** Dispatch parallel `Agent` calls with
+   `subagent_type: "Explore"` — one agent per 2–3 checks — in a
+   single message. Suggested bundles: `{1, 2}` (defensive +
+   stylistic-drift), `{3, 4}` (paraphrase + single-use), `{5, 6, 7}`
+   (generic names + swallowed + mirror tests), `{8, 9, 10}` (phantom
+   TODOs + duplicated helpers + over-typed). Each agent reports
+   findings in the standard table-row format and the main run
+   merges them, then applies the false-positive log and severity
+   recount **after** all agents return. Agents do not need to
+   consult the false-positive log themselves; the main run filters
+   merged findings in step 3. If any agent fails or returns an
+   error, the main run re-attempts that bundle serially rather than
+   dropping the missing checks silently. Only fall back to fully
+   serial per-check grep when the scope is one small file
+   (≤200 LOC) and the parallel overhead would dominate.
+
 3. **Apply the false-positive log.** Before recording a finding, look
    at the previous report's "False-positive log" section. If a
    matching `<check-name>` at `<file:line>` was dismissed and the

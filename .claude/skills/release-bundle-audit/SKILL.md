@@ -82,6 +82,14 @@ The 2026-05-11 audit cut the uncompressed bundle 786 MB → 568 MB
 
 ### Phase 0 — static spec inventory (report-only, no edits)
 
+**Fan out by default.** Dispatch one `Agent` call with
+`subagent_type: "Explore"` per spec file (`audiobookmaker.spec` and
+`audiobookmaker_launcher.spec`) in a single message. Each agent
+enumerates the same checklist below for its assigned spec
+independently. Merge the per-spec tables into one Phase-0 report
+before stopping for the user. If either agent fails, re-run that
+spec serially rather than reporting a half-table.
+
 For both `audiobookmaker.spec` and `audiobookmaker_launcher.spec`,
 enumerate:
 
@@ -129,6 +137,29 @@ Report total size, top 30 size offenders, presence/absence of each
 suspect package. **Stop and wait.**
 
 ### Phase 2 — reachability vs. presence (report-only)
+
+**Fan out by default.** Dispatch parallel `Agent` calls with
+`subagent_type: "Explore"`, one per major dependency group.
+Bucket by *shared reachability tree* so two agents don't both
+read the same files: `{torch, transformers, chatterbox,
+faster-whisper, pyannote}` is one bundle — every member's
+reachability in this repo lands in the torch subtree, so tracing
+them together avoids duplicate reads. (Note: upstream
+`faster-whisper` is CTranslate2-based and does not depend on
+torch; the inclusion here is because this repo's wrapper
+`src/voice_pack/asr.py` imports torch for a CUDA-availability
+probe (line 74), which is enough to pull the torch tree into the
+reachability trace for that engine.) `onnxruntime`, `piper`, and
+`PIL` each get their own bundle (distinct DLL trees, distinct
+reachability). The catch-all bundle covers the remaining engines
+(`espeak`, `kokoro`, and any new engine added since this skill was
+last revised). Each agent traces reachability for its assigned
+packages from `src/main.py` under `sys.frozen is True` and reports
+one row of the reachability table. Merge into the consolidated
+Phase-2 report before stopping. If any agent fails, re-run that
+bundle serially rather than reporting a half-table. **Do not
+parallelise across phases** — Phase 3 (build + smoke test) is
+strictly sequential.
 
 Trace imports from `src/main.py` under the assumption `sys.frozen is
 True`. For Audiobookmaker:
