@@ -161,6 +161,17 @@ are intentionally terse so the subagent stays focused on grepping,
 citing, and returning. Each caps the reply at ~400 words to keep the
 aggregate digestible.
 
+**Every template ends with this calibration line — do not omit it,
+since the 2026-05-19 audit produced 18 false positives out of 39
+because subagents skipped the context-read step:**
+
+> Before recording a finding, read 5–10 lines of surrounding code
+> in the cited file. If the pattern is already guarded
+> (`try/except` a few lines below, validation earlier, documented
+> intent in a docstring, single-threaded by construction), drop
+> it silently. The Calibration section in `SKILL.md` lists the
+> recurring false-positive patterns from prior audits.
+
 #### 1. Resource lifecycle
 ```
 Your task is to audit the codebase for resource lifecycle bugs — file handles, subprocesses, tempfiles, network sockets, and GUI widgets that are created but not reliably released.
@@ -331,6 +342,51 @@ were unavailable and why ("not on PATH" / "no config detected" /
 - **Severity tally must match the findings list.** If the summary
   says "critical: 7" the body must contain exactly seven findings
   tagged `critical`. Recount before writing the summary line.
+
+## Calibration — patterns that over-flag
+
+The 2026-05-19 audit produced 39 raw findings; on follow-up
+re-reading, **18 were false positives** — almost half. Each
+subagent must apply these calibration rules before recording a
+finding, or the next audit will repeat the same noise.
+
+- **Tkinter is single-threaded.** Flags on `gui_*` classes
+  (`_synth_running`, `_cancel_requested`, `_listening`, etc.) are
+  mutated only from main-thread event handlers. Do not flag them
+  as concurrency races unless you can name a specific worker thread
+  that reads or writes them. The variable's initialization site
+  (`self._foo = False` in `__init__`) is *never* a race site.
+- **`stderr=subprocess.STDOUT` redirects stderr into one pipe.** The
+  finally block does not need to close stderr separately.
+- **`customtkinter.CTkImage` materializes PIL data** via an internal
+  resize, so a bare `Image.open()` passed to it is reclaimable
+  immediately after construction. Not a leak in CPython.
+- **`errors="replace"` is documented intent** if the surrounding
+  docstring or a comment explains why the U+FFFD replacement is
+  acceptable downstream (the cleaning pipeline strips them, the
+  fallback is for Windows ANSI shortcut recovery, etc.). Read the
+  docstring before flagging.
+- **`Popen` for "open this folder in the OS file manager"** is fire-
+  and-forget by design (`xdg-open` / `open` self-terminate in
+  milliseconds). Flag only if the parent stores the handle and
+  fails to release it; bare anonymous Popen is fine. Adding
+  `start_new_session=True` is a nice-to-have, not a bug.
+- **`dict[key]` followed by `except KeyError`** within a few lines
+  is not an unguarded indexing — read the surrounding `try`/`except`
+  before flagging KeyError risks.
+- **Already-validated input.** Before flagging "missing bounds
+  check" or "no format validation", scan the same function for
+  `if returncode == 0`, `if len(parts) >= 3`, `if key in data`
+  guards. The audit subagent's grep finds the line in isolation;
+  the validation lives a few lines above.
+- **TOCTOU on per-call tempfiles** (`tempfile.mkdtemp` /
+  `NamedTemporaryFile`) is not a race when no other thread or
+  process can touch the path. Flag only if you can name the second
+  actor.
+
+Add to this list whenever a future audit catches a recurring false
+positive. The list is the audit's calibration substrate — without
+it, each pass re-discovers the same noise.
 
 ## Follow-up workflow (short version)
 
