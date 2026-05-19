@@ -640,7 +640,19 @@ def _run_chatterbox(
 
     except KeyboardInterrupt:
         plan.runner.cancel()
-        plan.runner.join(timeout=10.0)
+        try:
+            plan.runner.join(timeout=10.0)
+        except RuntimeError as exc:
+            # plan.runner.join() now surfaces daemon-thread crashes as
+            # RuntimeError (launcher_bridge change). During cancel
+            # cleanup, a bridge-thread crash is interesting but must not
+            # override the user's cancel intent — surface to stderr and
+            # still return EXIT_CANCELLED so shell scripts that key off
+            # 130 / SIGINT semantics behave as expected.
+            print(
+                f"Note: chatterbox bridge thread crashed during cancel: {exc}",
+                file=sys.stderr,
+            )
         return EXIT_CANCELLED
     except Exception as exc:
         print(f"Unexpected error: {exc}", file=sys.stderr)

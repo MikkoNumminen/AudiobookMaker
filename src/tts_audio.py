@@ -220,11 +220,17 @@ def combine_audio_files(
             str(output_path),
         ]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+        # 3 h upper bound: ffmpeg concat is mostly file-copy speed (seconds
+        # to a few minutes even for 10 h sources). 3 h is generous enough
+        # that no legitimate run ever hits it, while still bounded so a
+        # malformed concat.txt or stuck ffmpeg cannot freeze the convert
+        # pipeline indefinitely.
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             creationflags=creationflags,
+            timeout=3 * 60 * 60,
         )
         if proc.returncode != 0:
             stderr = proc.stderr.strip() or proc.stdout.strip() or "(no output)"

@@ -506,8 +506,15 @@ class TestReaderLoopFinallyClose:
 
     def test_exception_in_loop_body_still_closes_pipe(self) -> None:
         """If the parser raises inside the for-loop the pipe must still
-        be closed by the finally block. This is the exact invariant
-        called out in the installer/subprocess audit."""
+        be closed by the finally block, the exception must be stashed
+        on `state.reader_error` so `join()` can surface it, and a
+        synthetic error event must be queued so the GUI poll loop sees
+        something instead of starving.
+
+        The reader runs in a daemon thread — re-raising into nothing
+        would silently kill the thread and hang the GUI forever. The
+        2026-05-19 audit caught that and the fix moved the contract
+        to: never raise, but stash + signal."""
 
         class _ExplodingParser:
             @staticmethod
@@ -521,9 +528,20 @@ class TestReaderLoopFinallyClose:
             ["[setup] total chunks to synthesize: 5\n"],
             parser_override=_ExplodingParser(),
         )
-        with pytest.raises(RuntimeError, match="parser blew up"):
-            runner._reader_loop(_ExplodingParser())
+        # No longer raises into the (daemon) caller — must return
+        # normally and stash the exception.
+        runner._reader_loop(_ExplodingParser())
         assert pipe.closed is True
+        assert isinstance(runner._state.reader_error, RuntimeError)
+        assert "parser blew up" in str(runner._state.reader_error)
+        # The synthetic error event lets the GUI poll loop unstuck.
+        queued = []
+        while not runner._state.event_queue.empty():
+            queued.append(runner._state.event_queue.get_nowait())
+        assert any(
+            ev.kind == "error" and "reader thread crashed" in ev.raw_line
+            for ev in queued
+        )
 
 
 # ---------------------------------------------------------------------------

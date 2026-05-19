@@ -710,7 +710,16 @@ class VoiceRecorderDialog:
         proc = self._play_process
         if proc is not None:
             try:
-                proc.wait()
+                # 1 hour is a generous upper bound — voice samples are
+                # seconds to a minute. Bounded so a hung ffplay cannot
+                # tie up the daemon thread until interpreter exit.
+                proc.wait(timeout=3600)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
             except Exception:
                 pass
         self._dlg.after(0, self._on_play_done)

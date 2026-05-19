@@ -255,6 +255,13 @@ class _RunnerState:
     event_queue: queue.Queue = field(default_factory=queue.Queue)
     tail: deque = field(default_factory=lambda: deque(maxlen=500))
     done: threading.Event = field(default_factory=threading.Event)
+    # Captured exception from the reader/waiter daemon threads. If a
+    # daemon dies on an unexpected OSError mid-readline, the event
+    # queue would otherwise starve silently. join() reads this and
+    # re-raises so the caller knows the run was aborted by a thread
+    # crash rather than completing cleanly.
+    reader_error: Optional[BaseException] = None
+    waiter_error: Optional[BaseException] = None
 
 
 class ChatterboxRunner:
@@ -412,11 +419,22 @@ class ChatterboxRunner:
         return list(self._state.tail)[-n:]
 
     def join(self, timeout: Optional[float] = None) -> None:
-        """Wait for reader + waiter threads to finish."""
+        """Wait for reader + waiter threads to finish.
+
+        Surfaces any exception that crashed the reader or waiter
+        daemon as a ``RuntimeError`` so callers cannot silently
+        believe the run completed cleanly when a thread died.
+        """
         if self._state.reader is not None:
             self._state.reader.join(timeout=timeout)
         if self._state.waiter is not None:
             self._state.waiter.join(timeout=timeout)
+        err = self._state.reader_error or self._state.waiter_error
+        if err is not None:
+            which = "reader" if self._state.reader_error else "waiter"
+            raise RuntimeError(
+                f"chatterbox runner {which} thread crashed: {err!r}"
+            ) from err
 
     # ------------------------------------------------------------------
     # Internal threads
@@ -440,6 +458,24 @@ class ChatterboxRunner:
                 self._state.tail.append(line)
                 ev = parser.parse(line)
                 self._state.event_queue.put(ev)
+        except BaseException as exc:
+            # Daemon threads die silently by default — without this catch,
+            # an OSError mid-readline (closed pipe, partial UTF-8 sequence,
+            # OS-level EIO on the read fd) would kill the reader, leave
+            # the event queue starving, and the GUI's poll loop would
+            # spin on `finished == False` forever. Stash the exception
+            # for join() to surface, and push a synthetic error event so
+            # the immediate UI loop sees something instead of nothing.
+            self._state.reader_error = exc
+            try:
+                self._state.event_queue.put(
+                    ProgressEvent(
+                        kind="error",
+                        raw_line=f"[bridge] reader thread crashed: {exc!r}",
+                    )
+                )
+            except Exception:
+                pass  # event queue itself broken; nothing more we can do
         finally:
             if proc.stdout is not None:
                 try:
@@ -465,21 +501,49 @@ class ChatterboxRunner:
         # so the launcher always reaches the "exit" event and the GUI
         # never spins on a ghost runner.
         try:
-            rc = proc.wait(timeout=self._SHUTDOWN_WAIT_S)
-        except subprocess.TimeoutExpired:
-            proc.terminate()
             try:
-                rc = proc.wait(timeout=self._TERMINATE_GRACE_S)
+                rc = proc.wait(timeout=self._SHUTDOWN_WAIT_S)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                rc = proc.wait()
-        # Reader finishes on stdout EOF, which happens as the child exits.
-        if self._state.reader is not None:
-            self._state.reader.join(timeout=5.0)
-        self._state.event_queue.put(
-            ProgressEvent(kind="exit", returncode=rc)
-        )
-        self._state.done.set()
+                proc.terminate()
+                try:
+                    rc = proc.wait(timeout=self._TERMINATE_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    # After kill() the OS reaps quickly; 5s is a safety net
+                    # so a kernel-level zombie window cannot wedge the
+                    # GUI's shutdown thread indefinitely.
+                    try:
+                        rc = proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        rc = -9  # treat as forced-kill exit code
+            # Reader finishes on stdout EOF, which happens as the child exits.
+            if self._state.reader is not None:
+                self._state.reader.join(timeout=5.0)
+            self._state.event_queue.put(
+                ProgressEvent(kind="exit", returncode=rc)
+            )
+        except BaseException as exc:
+            # Daemon thread silent-death guard, matching _reader_loop.
+            # If proc.wait() raises something we did not anticipate
+            # (e.g. ProcessLookupError on a really racy shutdown), the
+            # exit event is never queued and the GUI hangs. Stash the
+            # exception for join() and push a synthetic exit event with
+            # a fault rc so the GUI loop can drain.
+            self._state.waiter_error = exc
+            try:
+                self._state.event_queue.put(
+                    ProgressEvent(
+                        kind="exit",
+                        returncode=-1,
+                        raw_line=(
+                            f"[bridge] waiter thread crashed: {exc!r}"
+                        ),
+                    )
+                )
+            except Exception:
+                pass
+        finally:
+            self._state.done.set()
 
 
 # ---------------------------------------------------------------------------
