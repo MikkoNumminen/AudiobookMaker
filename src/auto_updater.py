@@ -137,9 +137,17 @@ def _fetch_sidecar_sha256(
         req = Request(url)
         req.add_header("User-Agent", f"AudiobookMaker/{current_version}")
         with urlopen(req, timeout=SIDECAR_TIMEOUT) as resp:
-            payload = resp.read(512).decode("ascii", errors="replace")
+            raw = resp.read(512)
     except (URLError, OSError) as exc:
-        logger.debug("Sidecar SHA-256 fetch failed: %s", exc)
+        logger.warning("Sidecar SHA-256 fetch failed (network): %s", exc)
+        return None
+    try:
+        payload = raw.decode("ascii", errors="strict")
+    except UnicodeDecodeError as exc:
+        logger.warning(
+            "Sidecar SHA-256 payload was not ASCII; refusing to substitute "
+            "garbage characters (%s). Treating as no sidecar.", exc
+        )
         return None
     match = re.search(r"\b([0-9a-fA-F]{64})\b", payload)
     if not match:
@@ -282,11 +290,20 @@ def check_for_update(current_version: str) -> UpdateInfo:
                         "Recovered SHA-256 from sidecar asset (release notes lacked one)"
                     )
 
+        download_url = asset.get("browser_download_url")
+        if not download_url:
+            logger.warning(
+                "Release asset %r has no browser_download_url; "
+                "treating as no update",
+                asset.get("name", "<unnamed>"),
+            )
+            return _no_update(current_version)
+
         return UpdateInfo(
             available=True,
             current_version=current_version,
             latest_version=latest_version,
-            download_url=asset["browser_download_url"],
+            download_url=download_url,
             release_notes=release_data.get("body", ""),
             asset_size_bytes=asset.get("size", 0),
             sha256=sha256 or "",
@@ -348,8 +365,6 @@ def download_update(
                 with open(dest, "wb") as fp:
                     while True:
                         if cancel_event and cancel_event.is_set():
-                            fp.close()
-                            dest.unlink(missing_ok=True)
                             raise RuntimeError("Download cancelled")
 
                         chunk = resp.read(CHUNK_SIZE)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -160,6 +161,27 @@ class TestCheckForUpdate:
         assert info.current_version == "2.0.0"
 
     @patch("src.auto_updater.urlopen")
+    def test_asset_without_browser_download_url_returns_not_available(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="SHA-256: " + "a" * 64,
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "size": 1000,
+                },
+            ],
+        )
+        mock_urlopen.return_value = api_response
+
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+        assert info.current_version == "2.0.0"
+
+    @patch("src.auto_updater.urlopen")
     def test_no_exe_asset_returns_not_available(self, mock_urlopen: MagicMock) -> None:
         mock_urlopen.return_value = _mock_github_response(
             tag="v3.0.0",
@@ -308,6 +330,55 @@ class TestSidecarSha256Fallback:
 
         assert info.available is True
         assert info.sha256 == ""
+
+    @patch("src.auto_updater.urlopen")
+    def test_sidecar_non_ascii_payload_does_not_corrupt_to_replacement_chars(
+        self, mock_urlopen: MagicMock, caplog
+    ) -> None:
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        binary_garbage = _mock_download_response(
+            b"\xff\xfe\x80\x81 garbage bytes from misconfigured CDN \xc3\x28"
+        )
+        mock_urlopen.side_effect = [api_response, binary_garbage]
+
+        with caplog.at_level(logging.WARNING, logger="src.auto_updater"):
+            info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.sha256 == ""
+        # The fix's distinguishing behaviour: non-ASCII payloads must
+        # raise UnicodeDecodeError (caught and re-emitted as a WARNING
+        # log line) instead of silently substituting U+FFFD. Under the
+        # old `errors="replace"` code, no WARNING log was emitted and
+        # `info.sha256 == ""` would still hold — that assertion alone
+        # cannot distinguish the fix from the bug. This caplog check
+        # is the actual fix-verifier.
+        assert any(
+            "not ASCII" in record.getMessage()
+            and record.levelno == logging.WARNING
+            for record in caplog.records
+        ), (
+            "Expected a WARNING log naming the non-ASCII payload; "
+            "old errors=replace code silently substituted U+FFFD "
+            "and never logged."
+        )
 
     @patch("src.auto_updater.urlopen")
     def test_sidecar_network_error_returns_empty(
