@@ -381,7 +381,13 @@ def _run_subprocess(
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    proc.wait()
+                    # After kill() the OS will reap quickly; 5s is a
+                    # safety net against a kernel-level zombie window
+                    # on shared CI machines.
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
                 raise InterruptedError("Cancelled")
 
         proc.wait(timeout=timeout)
@@ -785,13 +791,18 @@ class ChatterboxInstaller(EngineInstaller):
                         proc.wait(timeout=10)
                     except subprocess.TimeoutExpired:
                         proc.kill()
-                        proc.wait()
+                        # After kill() the OS reaps quickly; bound so a
+                        # zombie window cannot freeze the install flow.
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            pass
                     return f"Smoke test timed out after {_SMOKE_TEST_TIMEOUT_S}s"
             proc.wait(timeout=10)
         except Exception as exc:
             try:
                 proc.kill()
-                proc.wait()
+                proc.wait(timeout=5)
             except Exception:
                 pass
             return f"Smoke test could not run: {exc}"

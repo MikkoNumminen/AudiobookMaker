@@ -472,7 +472,13 @@ class ChatterboxRunner:
                 rc = proc.wait(timeout=self._TERMINATE_GRACE_S)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                rc = proc.wait()
+                # After kill() the OS reaps quickly; 5s is a safety net
+                # so a kernel-level zombie window cannot wedge the
+                # GUI's shutdown thread indefinitely.
+                try:
+                    rc = proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    rc = -9  # treat as forced-kill exit code
         # Reader finishes on stdout EOF, which happens as the child exits.
         if self._state.reader is not None:
             self._state.reader.join(timeout=5.0)
