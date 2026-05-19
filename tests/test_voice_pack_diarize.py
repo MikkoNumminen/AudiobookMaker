@@ -122,6 +122,61 @@ class _BrokenModule:
         raise RuntimeError(f"broken attribute access: {name}")
 
 
+def test_hf_token_shim_runs_body_exactly_once_under_concurrent_callers(
+    monkeypatch,
+):
+    """Concurrent first-callers must not both run the patch body.
+
+    Without the module-level lock the check-then-set pattern raced:
+    thread A read `_HF_TOKEN_SHIM_APPLIED == False`, thread B read
+    the same, both entered the body, both replaced `hf_hub_download`
+    with a wrapper closing over the *previous* binding — second
+    wrapper called first wrapper, every real call paid two argument-
+    translation layers. The lock + double-check inside guarantees
+    the body runs exactly once.
+    """
+    import threading
+    from src.voice_pack import diarize as diarize_mod
+
+    # Fake huggingface_hub so the shim can patch something.
+    fake_hub = types.ModuleType("huggingface_hub")
+    real_download = lambda *a, **k: None  # noqa: E731
+    fake_hub.hf_hub_download = real_download  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    # Reset idempotency flag so the shim actually runs.
+    monkeypatch.setattr(diarize_mod, "_HF_TOKEN_SHIM_APPLIED", False)
+
+    start = threading.Barrier(8)
+
+    def runner() -> None:
+        start.wait()
+        diarize_mod._apply_hf_token_shim()
+
+    threads = [threading.Thread(target=runner) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # If the body ran twice, the patched download would be a wrapper-
+    # around-a-wrapper. The shim closes over `original`, which was
+    # captured BEFORE the assignment. After exactly one patch,
+    # `fake_hub.hf_hub_download` is the wrapper closing over
+    # `real_download`; after two patches it would close over the
+    # first wrapper. Inspect the closure to verify only one layer.
+    patched = fake_hub.hf_hub_download
+    assert patched is not real_download, "shim must have patched once"
+    closure_vars = {
+        cell.cell_contents
+        for cell in (patched.__closure__ or ())
+    }
+    assert real_download in closure_vars, (
+        "shim wrapped the real function exactly once; if double-wrapped, "
+        "the closure would point at the first wrapper, not the real fn"
+    )
+
+
 def test_hf_token_shim_logs_when_module_patch_fails(monkeypatch, caplog):
     """Installed modules that raise on attribute access must not silently
     break the shim — a debug log per skipped module now records why."""
