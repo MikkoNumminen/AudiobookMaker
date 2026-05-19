@@ -72,6 +72,38 @@ Before every `git commit`:
    else.
 3. Commit.
 
+## AI-readable files — no subjective user-state characterization
+
+Any file in this repo that AI tooling reads — `CLAUDE.md`, anything
+under `.claude/`, anything under `docs/`, audit reports, READMEs,
+SKILL.md files, etc. — must not characterize the user's emotional
+state, frustrations, or reactions. References to "the user" stay
+neutral and behavioural.
+
+**Allowed** (neutral preference and behavioural records):
+
+- "per user direction on 2026-05-20, the rule was narrowed"
+- "the user prefers small commits"
+- "the user has been strict about <specific named rule>"
+- "user reported a bug in the conversion pipeline"
+
+**Forbidden** (subjective characterization of internal state):
+
+- "user was furious about the regression"
+- "user got frustrated with the slow build"
+- "user seemed annoyed by the slip"
+- "user appeared displeased / angry / mad / upset"
+
+The user manages their own state. Saving subjective characterizations
+into AI-readable artifacts shapes future AI behaviour in ways the
+user neither requested nor benefits from. Stick to neutral preference
+records and verifiable behavioural records.
+
+The same principle applies to local auto-memory files even though
+they live outside this repo — they are AI-readable for future
+sessions, and the rule against subjective user-state characterization
+is project-wide, not just repo-wide.
+
 ## No third-party copyrighted material in the repo — P0
 
 Voice-cloning and audiobook R&D uses copyrighted books, audiobooks, and
