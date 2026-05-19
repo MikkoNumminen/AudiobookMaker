@@ -290,11 +290,20 @@ def check_for_update(current_version: str) -> UpdateInfo:
                         "Recovered SHA-256 from sidecar asset (release notes lacked one)"
                     )
 
+        download_url = asset.get("browser_download_url")
+        if not download_url:
+            logger.warning(
+                "Release asset %r has no browser_download_url; "
+                "treating as no update",
+                asset.get("name", "<unnamed>"),
+            )
+            return _no_update(current_version)
+
         return UpdateInfo(
             available=True,
             current_version=current_version,
             latest_version=latest_version,
-            download_url=asset["browser_download_url"],
+            download_url=download_url,
             release_notes=release_data.get("body", ""),
             asset_size_bytes=asset.get("size", 0),
             sha256=sha256 or "",

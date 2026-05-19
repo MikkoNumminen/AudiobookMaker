@@ -160,6 +160,27 @@ class TestCheckForUpdate:
         assert info.current_version == "2.0.0"
 
     @patch("src.auto_updater.urlopen")
+    def test_asset_without_browser_download_url_returns_not_available(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="SHA-256: " + "a" * 64,
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "size": 1000,
+                },
+            ],
+        )
+        mock_urlopen.return_value = api_response
+
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+        assert info.current_version == "2.0.0"
+
+    @patch("src.auto_updater.urlopen")
     def test_no_exe_asset_returns_not_available(self, mock_urlopen: MagicMock) -> None:
         mock_urlopen.return_value = _mock_github_response(
             tag="v3.0.0",
