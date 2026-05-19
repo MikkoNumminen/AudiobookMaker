@@ -286,17 +286,17 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 | Skill | Body | Saves/inv | 90-day usage | Verdict |
 |---|---|---|---|---|
 | [`ai-codegen-smell-audit`](.claude/skills/ai-codegen-smell-audit/SKILL.md) | ~7.3k | ~5–6k | 2 audits + heavy iteration | **KEEP** — load-bearing, non-derivable taxonomy |
-| [`audit`](.claude/skills/audit/SKILL.md) | ~4.3k | ~3–4k | 2 reports landed | **TRIM** — drop JS/Rust/Go tool tables on a Python-only repo |
+| [`audit`](.claude/skills/audit/SKILL.md) | ~4.1k | ~3–4k | 3 reports landed | **TRIMMED 2026-05-20** — dropped JS/Rust/Go tool tables; Python-only now |
 | [`ci-failure-triage`](.claude/skills/ci-failure-triage/SKILL.md) | ~1.9k | ~1k | 22 `fix(ci):` commits | **KEEP** — high recurrence; ordering is non-obvious |
 | [`copyright-scan`](.claude/skills/copyright-scan/SKILL.md) | ~3.1k | ~3k | 0 invocations | **TRIM** to ~600t — keep allow-list + decision tree, drop runbook |
 | [`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md) | ~1.8k | ~1.5k → 0 | corpus file empty today | **KEEP provisional** — re-audit after 10 entries land; corpus format then self-documents |
-| [`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md) | ~4.5k | ~3.5k | 1 use (its own birth) | **TRIM** to a 30-line pointer; the `.spec` already self-documents |
+| [`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md) | ~3.8k | ~3k | 1 use (its own birth) | **TRIMMED 2026-05-20** — cut verbose prose; kept exclude list verbatim, gotchas, and decision criteria |
 | [`release-cut`](.claude/skills/release-cut/SKILL.md) | ~1.7k | load-bearing | 20 releases in 90d | **KEEP** — auto-update is P0; ritual ordering not in CLAUDE.md |
 | [`voice-pack-finnish`](.claude/skills/voice-pack-finnish/SKILL.md) | ~6.2k | ~5–8k | 2 packs + ~60 probe runs | **KEEP** — encodes empirical scar tissue (pyannote/ECAPA fallback) not in any CLI `--help` |
 | [`work-session`](.claude/skills/work-session/SKILL.md) | ~1.7k | ~2k | TODO.md actively used | **KEEP** — coordinates the 4-session parallel-Claude protocol |
-| [`worktree-launch`](.claude/skills/worktree-launch/SKILL.md) | ~1.5k | ~0.8k | 63 active worktrees | **TRIM** — dedupe vs CLAUDE.md's "isolation is a hint" section; keep slot-picking |
+| [`worktree-launch`](.claude/skills/worktree-launch/SKILL.md) | ~1.0k | ~0.8k | 63 active worktrees | **TRIMMED 2026-05-20** — deduped vs CLAUDE.md's "isolation is a hint" section; kept slot-picking, branch/worktree creation, cleanup |
 
-**Net after retirement:** 6 KEEP, 4 TRIM. Skill surface dropped from ~45k tokens (14 skills) to ~34k tokens (10 skills). Acting on the four TRIM verdicts would shrink further to ~25k tokens. Audit verdicts are from a single pass on 2026-05-19; prior PR cycles in this repo have shown even adversarial sub-reviewers miss things on the first try, so verdicts on the surviving skills remain input, not final policy.
+**Net after retirement + trims:** 6 KEEP, 3 TRIMMED 2026-05-20, 1 TRIM deferred (`copyright-scan` — gitignored, trim happens locally only). Skill surface dropped from ~45k tokens (14 skills) → ~34k tokens (10 skills, PR #73 retirements) → ~31k tokens (this round's three trims). Acting on the deferred `copyright-scan` trim would shrink further to ~28k tokens. Audit verdicts are from a single pass on 2026-05-19; prior PR cycles in this repo have shown even adversarial sub-reviewers miss things on the first try, so verdicts on the surviving skills remain input, not final policy.
 
 The project mascot is a goat 🐐 — appears in the application icon.
 

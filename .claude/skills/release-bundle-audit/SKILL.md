@@ -11,72 +11,35 @@ excludes. Apply spec-only fixes on a `chore/release-bundle-size` branch.
 
 ## Why this skill exists
 
-Auto-update has to actually fit inside the user's patience. The
-installer is the lifeline (see [release-cut](../release-cut/SKILL.md));
-a 200 MB installer that takes 10 minutes to download will be skipped,
-which means existing users stay on a broken version forever.
-
-Over time the bundle accreted dead weight that nobody noticed because
-the build "worked":
-
-- A `_find_ffplay()` helper got merged with a Listen-button design that
-  later switched to pygame. The helper survived as dead code; ffplay.exe
-  (~195 MB raw) kept shipping for every release.
-- Pillow's PyInstaller hook bundled ~46 ImagePlugin modules and their
-  native sidecar DLLs — including `_avif.cp311-win_amd64.pyd` (7.6 MB) —
-  even though the app only loads PNG (icons) and ICO (window icon).
-- Piper shipped `tashkeel/` (4.6 MB Arabic diacritizer) and a Chinese
-  phonemizer the engine never invokes.
-- `onnxruntime/transformers|tools|quantization|backend|datasets` —
-  training-time toolchains that Piper's inference path never touches.
-- `ctranslate2/cudnn64_9.dll` had a hand-filter in the spec from a past
-  incident, but the *rest* of ctranslate2 would have shipped if it ever
-  landed in site-packages — there was no top-level exclude.
-
-The 2026-05-11 audit cut the uncompressed bundle 786 MB → 568 MB
-(−218 MB, −27.7%) with **only** `.spec` file edits.
+Installers above ~200 MB get skipped by users on slow connections, which
+strands them on a broken release. Bundles accrete dead weight silently:
+ffplay.exe surviving a Listen-button rewrite to pygame (~195 MB), the
+full Pillow ImagePlugin set including `_avif`/`_webp` (~10 MB) when the
+app only renders PNG and ICO, Piper's Arabic/Chinese phonemizers, the
+ONNX training toolchains. The 2026-05-11 audit cut **786 MB → 568 MB
+(−27.7%)** with `.spec`-only edits.
 
 ## When to invoke
 
-- "Why is the installer so big?"
-- "Audit the .spec files"
-- "Shrink the .exe / installer"
-- "Shake out unused deps before release"
-- "Is `<package>` actually needed at runtime?"
-- After a contributor adds a new engine, GUI feature, or post-install
-  venv — the reachability set may have shifted.
-- Before any release tagged on a new minor version. Patch releases
-  inherit prior audit findings; minor releases are where new accidental
-  bloat tends to land.
+"Why is the installer so big?" / "audit the .spec files" / "shrink the
+.exe" / "is `<package>` actually needed at runtime?" — and routinely
+before any release tagged on a new minor version, since new bloat
+tends to land in minor bumps.
 
-## When NOT to invoke
-
-- Bundle works fine, user reports a runtime crash — that's a debugging
-  task, not a sizing audit.
-- ffmpeg.exe binary itself is too big — that's a CI-workflow change
-  (switch GPL build to LGPL, or build a custom audio-only ffmpeg), not
-  a spec-only change. Flag for the user but don't try to fix here.
-- Auto-update SHA-256 broken — see [release-cut](../release-cut/SKILL.md).
-- "Make the splash faster" — that's a UX change, not a bundle change.
+Do not invoke for: ffmpeg.exe size complaints (CI-workflow change, not
+.spec), auto-update SHA-256 issues (see
+[release-cut](../release-cut/SKILL.md)), or splash-speed UX work.
 
 ## Constraints (hard rules)
 
-- **No code changes outside the two `.spec` files.** The audit relies on
-  the existing `sys.frozen` guards as ground truth for reachability. If
-  a guard is missing for a feature that should be dev-only, that's a
-  separate code-change task — surface it to the user, don't fix it
-  inside this skill.
-- **Do not modify `sys.frozen` checks, the CI workflows, or any code
-  under `src/`.** Spec-only.
-- **One commit per spec file.** `audiobookmaker.spec` and
-  `audiobookmaker_launcher.spec` change for the same reason but stay in
-  separate commits so a revert can target just one if a regression
-  surfaces. No squashing.
-- **Conventional Commits.** `build(spec): …` is the right prefix (the
-  change rebuilds packaging output). Avoid `chore:` — `chore(spec):`
-  doesn't communicate the intent.
-- **Branch name: `chore/release-bundle-size`.** Reused across audits; if
-  the branch already exists on origin, append a suffix (`-2`, `-rc2`).
+- **Spec-only.** No code changes outside the two `.spec` files. If a
+  missing `sys.frozen` guard would land a feature in frozen that
+  shouldn't be there, surface it — do not fix here.
+- **One commit per spec file**, never squashed (revert granularity).
+- **Conventional Commits:** `build(spec): …` — not `chore`, since the
+  change rebuilds packaging output.
+- **Branch name:** `chore/release-bundle-size`. Suffix `-2`, `-rc2` if
+  the branch is already on origin.
 
 ## Workflow
 
@@ -138,28 +101,21 @@ suspect package. **Stop and wait.**
 
 ### Phase 2 — reachability vs. presence (report-only)
 
-**Fan out by default.** Dispatch parallel `Agent` calls with
-`subagent_type: "Explore"`, one per major dependency group.
-Bucket by *shared reachability tree* so two agents don't both
-read the same files: `{torch, transformers, chatterbox,
-faster-whisper, pyannote}` is one bundle — every member's
-reachability in this repo lands in the torch subtree, so tracing
-them together avoids duplicate reads. (Note: upstream
-`faster-whisper` is CTranslate2-based and does not depend on
-torch; the inclusion here is because this repo's wrapper
-`src/voice_pack/asr.py` imports torch for a CUDA-availability
-probe (line 74), which is enough to pull the torch tree into the
-reachability trace for that engine.) `onnxruntime`, `piper`, and
-`PIL` each get their own bundle (distinct DLL trees, distinct
-reachability). The catch-all bundle covers the remaining engines
-(`espeak`, `kokoro`, and any new engine added since this skill was
-last revised). Each agent traces reachability for its assigned
-packages from `src/main.py` under `sys.frozen is True` and reports
-one row of the reachability table. Merge into the consolidated
-Phase-2 report before stopping. If any agent fails, re-run that
-bundle serially rather than reporting a half-table. **Do not
-parallelise across phases** — Phase 3 (build + smoke test) is
-strictly sequential.
+**Fan out by default.** Dispatch parallel `Agent` calls
+(`subagent_type: "Explore"`) by *shared reachability tree* so two
+agents don't read the same files:
+
+- `{torch, transformers, chatterbox, faster-whisper, pyannote}` —
+  one bundle (in this repo, `src/voice_pack/asr.py:74` imports torch
+  for a CUDA probe, pulling faster-whisper into the torch tree).
+- `onnxruntime`, `piper`, `PIL` — one bundle each (distinct DLL
+  trees).
+- catch-all — remaining engines (`espeak`, `kokoro`, etc.).
+
+Each agent traces reachability for its assigned packages from
+`src/main.py` under `sys.frozen is True` and reports one row of the
+reachability table. Merge before stopping. Re-run failing bundles
+serially. Phase 3 (build + smoke test) is strictly sequential.
 
 Trace imports from `src/main.py` under the assumption `sys.frozen is
 True`. For Audiobookmaker:
@@ -304,49 +260,29 @@ because PIL itself is already excluded.
 #### 3g. Build, smoke-test, measure
 
 ```bash
-# Bash (Git Bash on Windows):
 rm -rf dist/AudiobookMaker build/audiobookmaker
 python -m PyInstaller --clean --noconfirm audiobookmaker.spec
 du -sh dist/AudiobookMaker
 ```
 
-Or in PowerShell:
+PyInstaller takes 5–15 minutes per build on Windows. Run in background
+and watch for `dist/AudiobookMaker/AudiobookMaker.exe` to appear.
 
-```powershell
-Remove-Item -Recurse -Force dist/AudiobookMaker, build/audiobookmaker -ErrorAction SilentlyContinue
-python -m PyInstaller --clean --noconfirm audiobookmaker.spec
-"{0:N1} MB" -f ((Get-ChildItem -Recurse dist/AudiobookMaker | Measure-Object -Property Length -Sum).Sum / 1MB)
-```
+Then run the full smoke test (all steps required to pass):
 
-PyInstaller takes 5–15 minutes per build on a typical Windows dev
-machine. Run in background and watch for `dist/AudiobookMaker/AudiobookMaker.exe`
-to appear rather than tailing logs.
+1. Launch `AudiobookMaker.exe` — main window renders, no error popup.
+2. Load any PDF; `.local/` (gitignored) usually has dev samples.
+3. Edge-TTS + Finnish voice (Noora) + default speed → click Listen,
+   audio plays.
+4. Convert PDF → MP3 to a temp dir.
+5. Repeat 3–4 with Piper.
+6. Engine dropdown shows no VoxCPM2 or Chatterbox cloning (Chatterbox
+   SYNTHESIS is OK — post-install venv engine).
+7. Quit cleanly via window close.
 
-Then run the smoke test from the audit prompt, all steps required to
-pass:
-
-1. Launch `dist/AudiobookMaker/AudiobookMaker.exe` — main window
-   renders, no error popup.
-2. Load a small sample PDF. The repo's `.local/` directory (gitignored)
-   typically contains user-supplied PDFs; if not, any PDF on disk works
-   — the audit doesn't care about content, only that the parser path
-   runs.
-3. Select Edge-TTS, default Finnish voice (Noora), default speed.
-4. Click the Listen / Preview button (label is "Esikuuntele" in Finnish
-   UI, "Preview" in English) — audio plays.
-5. Convert the loaded PDF to MP3, output to `./out/` (dev mode) or any
-   temp dir.
-6. Repeat steps 3–5 with Piper instead of Edge-TTS.
-7. Confirm the engine dropdown does NOT show VoxCPM2 or Chatterbox
-   cloning options (Chatterbox SYNTHESIS may still appear — that is
-   the post-install venv engine, which is correct).
-8. Quit cleanly via the window close button.
-
-A 10-second alive-after-launch check is a useful sanity check, but
-**does not substitute for the full smoke test**. Be explicit in the PR
-description about which checks you ran vs. which need a human.
-
-If any step fails, revert the last exclude and re-test.
+A 10-second alive check is *not* a smoke test substitute. Be explicit
+in the PR description about ran vs needs-a-human. If any step fails,
+revert the last exclude and re-test.
 
 #### 3h. Commit per spec, push, open PR
 
