@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -357,8 +358,7 @@ class TestSidecarSha256Fallback:
         )
         mock_urlopen.side_effect = [api_response, binary_garbage]
 
-        import logging as _logging
-        with caplog.at_level(_logging.WARNING, logger="src.auto_updater"):
+        with caplog.at_level(logging.WARNING, logger="src.auto_updater"):
             info = check_for_update("2.0.0")
 
         assert info.available is True
@@ -372,7 +372,7 @@ class TestSidecarSha256Fallback:
         # is the actual fix-verifier.
         assert any(
             "not ASCII" in record.getMessage()
-            and record.levelno == _logging.WARNING
+            and record.levelno == logging.WARNING
             for record in caplog.records
         ), (
             "Expected a WARNING log naming the non-ASCII payload; "
