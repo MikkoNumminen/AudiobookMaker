@@ -3078,9 +3078,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if sys.platform == "win32":
             os.startfile(folder)  # type: ignore[attr-defined]
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(folder)])
+            # start_new_session detaches the child from our process group
+            # so it (a) survives GUI shutdown and (b) is reaped by init,
+            # not left as a zombie hanging off this Python interpreter.
+            subprocess.Popen(["open", str(folder)], start_new_session=True)
         else:
-            subprocess.Popen(["xdg-open", str(folder)])
+            subprocess.Popen(
+                ["xdg-open", str(folder)], start_new_session=True
+            )
 
     # ------------------------------------------------------------------
     # Log panel

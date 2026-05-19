@@ -639,13 +639,17 @@ class App(tk.Tk):
 
             try:
                 if platform.system() == "Darwin":
-                    subprocess.Popen(["open", path])
+                    # start_new_session detaches the child so it survives
+                    # GUI shutdown and is reaped by init.
+                    subprocess.Popen(["open", path], start_new_session=True)
                 elif platform.system() == "Windows":
                     import os as _os
 
                     _os.startfile(path)  # type: ignore[attr-defined]
                 else:
-                    subprocess.Popen(["xdg-open", path])
+                    subprocess.Popen(
+                        ["xdg-open", path], start_new_session=True
+                    )
             except Exception:
                 pass  # Best-effort; user can still find the file via the status line.
 
