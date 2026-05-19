@@ -310,6 +310,38 @@ class TestSidecarSha256Fallback:
         assert info.sha256 == ""
 
     @patch("src.auto_updater.urlopen")
+    def test_sidecar_non_ascii_payload_does_not_corrupt_to_replacement_chars(
+        self, mock_urlopen: MagicMock
+    ) -> None:
+        api_response = _mock_github_response(
+            tag="v3.0.0",
+            body="No SHA in body",
+            assets=[
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe",
+                    "browser_download_url": "https://example.com/dl.exe",
+                    "size": 1000,
+                },
+                {
+                    "name": "AudiobookMaker-Setup-3.0.0.exe.sha256",
+                    "browser_download_url": (
+                        "https://example.com/dl.exe.sha256"
+                    ),
+                    "size": 80,
+                },
+            ],
+        )
+        binary_garbage = _mock_download_response(
+            b"\xff\xfe\x80\x81 garbage bytes from misconfigured CDN \xc3\x28"
+        )
+        mock_urlopen.side_effect = [api_response, binary_garbage]
+
+        info = check_for_update("2.0.0")
+
+        assert info.available is True
+        assert info.sha256 == ""
+
+    @patch("src.auto_updater.urlopen")
     def test_sidecar_network_error_returns_empty(
         self, mock_urlopen: MagicMock
     ) -> None:

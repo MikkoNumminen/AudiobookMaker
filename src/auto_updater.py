@@ -137,9 +137,17 @@ def _fetch_sidecar_sha256(
         req = Request(url)
         req.add_header("User-Agent", f"AudiobookMaker/{current_version}")
         with urlopen(req, timeout=SIDECAR_TIMEOUT) as resp:
-            payload = resp.read(512).decode("ascii", errors="replace")
+            raw = resp.read(512)
     except (URLError, OSError) as exc:
-        logger.debug("Sidecar SHA-256 fetch failed: %s", exc)
+        logger.warning("Sidecar SHA-256 fetch failed (network): %s", exc)
+        return None
+    try:
+        payload = raw.decode("ascii", errors="strict")
+    except UnicodeDecodeError as exc:
+        logger.warning(
+            "Sidecar SHA-256 payload was not ASCII; refusing to substitute "
+            "garbage characters (%s). Treating as no sidecar.", exc
+        )
         return None
     match = re.search(r"\b([0-9a-fA-F]{64})\b", payload)
     if not match:
