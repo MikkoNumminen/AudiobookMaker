@@ -77,9 +77,42 @@ the other Claudes.
 
 ## Phase 5 — verify isolation, then clean up
 
-After the agent finishes (or is stopped), run the post-run
-verification documented in CLAUDE.md's "Worktree isolation is a hint"
-section. On a clean tree, proceed to cleanup:
+CLAUDE.md's "Worktree isolation is a hint" section covers the *why*
+and the basic verification. This phase adds the operational
+procedure for handling a leak when other sessions may have
+unrelated WIP in the same tree.
+
+After the agent finishes (or is stopped), run `git status` inside
+the **main** checkout — not the worktree:
+
+```bash
+git -C <main-repo-path> status
+```
+
+If files the agent touched appear modified here, isolation leaked.
+Diagnose and repair, **never** with a blanket operation:
+
+1. List the leaked files:
+   ```bash
+   git -C <main-repo-path> diff --name-only
+   ```
+2. For each leaked file, check whether another session has staged
+   or unstaged changes to the same path. If yes, **stop and ask
+   the user** before touching it — a blanket revert would
+   silently discard another Claude's WIP.
+3. For files no other session is editing, use a surgical revert:
+   ```bash
+   git -C <main-repo-path> checkout HEAD -- <leaked-file>
+   ```
+4. Re-run `git status` to confirm the main tree is clean.
+
+**Forbidden tools for fixing a leak:** `git stash`, `git restore .`,
+`git checkout .`, `git reset --hard`. All four are blanket
+operations that discard WIP from sessions that had nothing to do
+with the leak.
+
+Once `git status` in the main checkout is clean, proceed to
+cleanup:
 
 ```bash
 git -C <main-repo-path> worktree remove .claude/worktrees/<branch>
