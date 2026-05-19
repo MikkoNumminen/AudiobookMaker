@@ -190,6 +190,8 @@ severity ∈ {critical, high, medium, low}.
 
 Do not fabricate. Every finding must cite a real file:line you can point at in the working tree.
 
+Before recording a finding, read 5–10 lines of surrounding code in the cited file. Drop silently if the pattern is already guarded: `try/except` a few lines below, validation upstream, documented intent in a docstring, single-threaded by construction (e.g. Tkinter event handlers), `stderr=subprocess.STDOUT` collapses two pipes into one, etc. Half of all findings in prior audits were false positives because subagents skipped this read.
+
 Cap your report at ~400 words.
 ```
 
@@ -210,6 +212,8 @@ Output format — one line per finding, exact template:
 severity ∈ {critical, high, medium, low}.
 
 Do not fabricate. Every finding must cite a real file:line you can point at in the working tree.
+
+Before recording a finding, read 5–10 lines of surrounding code in the cited file. Drop silently if the pattern is already guarded: `try/except` a few lines below, validation upstream, documented intent in a docstring, single-threaded by construction (e.g. Tkinter event handlers), `stderr=subprocess.STDOUT` collapses two pipes into one, etc. Half of all findings in prior audits were false positives because subagents skipped this read.
 
 Cap your report at ~400 words.
 ```
@@ -232,6 +236,8 @@ severity ∈ {critical, high, medium, low}.
 
 Do not fabricate. Every finding must cite a real file:line you can point at in the working tree.
 
+Before recording a finding, read 5–10 lines of surrounding code in the cited file. Drop silently if the pattern is already guarded: `try/except` a few lines below, validation upstream, documented intent in a docstring, single-threaded by construction (e.g. Tkinter event handlers), `stderr=subprocess.STDOUT` collapses two pipes into one, etc. Half of all findings in prior audits were false positives because subagents skipped this read.
+
 Cap your report at ~400 words.
 ```
 
@@ -253,6 +259,8 @@ severity ∈ {critical, high, medium, low}.
 
 Do not fabricate. Every finding must cite a real file:line you can point at in the working tree.
 
+Before recording a finding, read 5–10 lines of surrounding code in the cited file. Drop silently if the pattern is already guarded: `try/except` a few lines below, validation upstream, documented intent in a docstring, single-threaded by construction (e.g. Tkinter event handlers), `stderr=subprocess.STDOUT` collapses two pipes into one, etc. Half of all findings in prior audits were false positives because subagents skipped this read.
+
 Cap your report at ~400 words.
 ```
 
@@ -273,6 +281,8 @@ Output format — one line per finding, exact template:
 severity ∈ {critical, high, medium, low}.
 
 Do not fabricate. Every finding must cite a real file:line you can point at in the working tree.
+
+Before recording a finding, read 5–10 lines of surrounding code in the cited file. Drop silently if the pattern is already guarded: `try/except` a few lines below, validation upstream, documented intent in a docstring, single-threaded by construction (e.g. Tkinter event handlers), `stderr=subprocess.STDOUT` collapses two pipes into one, etc. Half of all findings in prior audits were false positives because subagents skipped this read.
 
 Cap your report at ~400 words.
 ```
