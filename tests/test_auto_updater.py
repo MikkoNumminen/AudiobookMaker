@@ -332,7 +332,7 @@ class TestSidecarSha256Fallback:
 
     @patch("src.auto_updater.urlopen")
     def test_sidecar_non_ascii_payload_does_not_corrupt_to_replacement_chars(
-        self, mock_urlopen: MagicMock
+        self, mock_urlopen: MagicMock, caplog
     ) -> None:
         api_response = _mock_github_response(
             tag="v3.0.0",
@@ -357,10 +357,28 @@ class TestSidecarSha256Fallback:
         )
         mock_urlopen.side_effect = [api_response, binary_garbage]
 
-        info = check_for_update("2.0.0")
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="src.auto_updater"):
+            info = check_for_update("2.0.0")
 
         assert info.available is True
         assert info.sha256 == ""
+        # The fix's distinguishing behaviour: non-ASCII payloads must
+        # raise UnicodeDecodeError (caught and re-emitted as a WARNING
+        # log line) instead of silently substituting U+FFFD. Under the
+        # old `errors="replace"` code, no WARNING log was emitted and
+        # `info.sha256 == ""` would still hold — that assertion alone
+        # cannot distinguish the fix from the bug. This caplog check
+        # is the actual fix-verifier.
+        assert any(
+            "not ASCII" in record.getMessage()
+            and record.levelno == _logging.WARNING
+            for record in caplog.records
+        ), (
+            "Expected a WARNING log naming the non-ASCII payload; "
+            "old errors=replace code silently substituted U+FFFD "
+            "and never logged."
+        )
 
     @patch("src.auto_updater.urlopen")
     def test_sidecar_network_error_returns_empty(
