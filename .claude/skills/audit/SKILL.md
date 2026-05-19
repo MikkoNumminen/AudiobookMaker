@@ -49,42 +49,27 @@ language, and prior audit coverage.
 
 ### Phase 1 — static analysis (best effort)
 
-1. Detect primary language(s) from repo root:
-   - `package.json` or `tsconfig.json` → JS/TS (TS if `tsconfig.json` present or `.ts`/`.tsx` files exist)
-   - `Cargo.toml` → Rust
-   - `go.mod` → Go
-   - `pyproject.toml`, `requirements.txt`, `setup.py`, or `*.py` files → Python
-   - Multi-language repos: run the tool set for every detected language.
-   - No known language detected: note it in the report and skip Phase 1 entirely. Do not guess.
+AudiobookMaker is a Python project. Run these tools in order; for
+each: try it, capture stdout+stderr+exit code, skip cleanly if not
+on PATH ("not on PATH" / "not installed" / "detected but no config")
+and never fabricate output.
 
-2. For each detected language, run the tools below in order. For every tool: try it, capture stdout+stderr+exit code. If the binary is not on PATH or not installed, skip it cleanly and record it under "Skipped" with a one-line reason (`not on PATH`, `not installed`, or `detected but no config`). Never fabricate output for a skipped tool.
+1. `ruff check .`
+2. `mypy .`
+3. `bandit -r src/`
+4. `vulture src/`
 
-   **Python**
-   1. `ruff check .`
-   2. `mypy .`
-   3. `bandit -r <src-root>/`
-   4. `vulture <src-root>/`
+Summarise results:
+- **Ran:** tool → pass / N findings (top categories)
+- **Skipped:** tool → reason
+- Quote at most the 5 highest-signal findings per tool; link to file:line.
 
-   **JS/TS**
-   1. `npx eslint .`
-   2. `npx tsc --noEmit` (TS projects only)
-   3. `npm audit`
+Phase 1 is read-only triage — fixes land later once the full picture
+is in hand.
 
-   **Rust**
-   1. `cargo clippy --all-targets --all-features -- -D warnings`
-   2. `cargo audit`
-
-   **Go**
-   1. `golangci-lint run ./...`
-   2. `staticcheck ./...`
-   3. `govulncheck ./...`
-
-3. Summarise results per language:
-   - **Ran:** tool → pass / N findings (top categories)
-   - **Skipped:** tool → reason
-   - Quote at most the 5 highest-signal findings per tool; link to file:line.
-
-4. Do not fix anything in this phase. Phase 1 is read-only triage — fixes land in a later phase once the full picture is in hand.
+If this skill is ever re-used on a multi-language repo, add the
+relevant linter set inline; this checked-in list is Python-only
+because the repo is Python-only.
 
 ### Phase 2 — five parallel subagents
 
