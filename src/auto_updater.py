@@ -348,8 +348,6 @@ def download_update(
                 with open(dest, "wb") as fp:
                     while True:
                         if cancel_event and cancel_event.is_set():
-                            fp.close()
-                            dest.unlink(missing_ok=True)
                             raise RuntimeError("Download cancelled")
 
                         chunk = resp.read(CHUNK_SIZE)
