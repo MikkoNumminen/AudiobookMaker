@@ -419,9 +419,13 @@ skill.>
    TODOs + duplicated helpers + over-typed). Each agent reports
    findings in the standard table-row format and the main run
    merges them, then applies the false-positive log and severity
-   recount **after** all agents return. Only fall back to serial
-   per-check grep when the scope is one small file (≤200 LOC) and
-   the parallel overhead would dominate.
+   recount **after** all agents return. Agents do not need to
+   consult the false-positive log themselves; the main run filters
+   merged findings in step 3. If any agent fails or returns an
+   error, the main run re-attempts that bundle serially rather than
+   dropping the missing checks silently. Only fall back to fully
+   serial per-check grep when the scope is one small file
+   (≤200 LOC) and the parallel overhead would dominate.
 
 3. **Apply the false-positive log.** Before recording a finding, look
    at the previous report's "False-positive log" section. If a
