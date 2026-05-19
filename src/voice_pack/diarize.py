@@ -22,10 +22,24 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
+
+# Guards the three "apply shim" functions below. Each shim mutates the
+# global module table (`sys.modules`, `torch.load`, or speechbrain
+# internals) and sets its own `_*_SHIM_APPLIED` flag. Without this lock,
+# two worker threads calling diarize.run() in parallel could both observe
+# `_*_APPLIED == False`, both do the patch, and double-wrap the function —
+# the second wrap calls the first wrap, which calls the real function, so
+# every `hf_hub_download` / `torch.load` call after that pays two
+# argument-translation layers and (more importantly) the `original`
+# captured in the second closure points at the already-wrapped version,
+# which can hide bugs in the wrapper. Acquire-then-double-check keeps
+# the fast path lock-free.
+_SHIM_LOCK = threading.Lock()
 
 # Dev-time: pull HF_TOKEN from a repo-root .env if available. This keeps
 # the module working when imported directly (e.g. from a REPL or a test
@@ -100,39 +114,45 @@ def _apply_hf_token_shim() -> None:
     global _HF_TOKEN_SHIM_APPLIED
     if _HF_TOKEN_SHIM_APPLIED:
         return
-    import sys as _sys
+    with _SHIM_LOCK:
+        if _HF_TOKEN_SHIM_APPLIED:
+            return
+        import sys as _sys
 
-    import huggingface_hub  # type: ignore[import-not-found]
+        import huggingface_hub  # type: ignore[import-not-found]
 
-    original = huggingface_hub.hf_hub_download
+        original = huggingface_hub.hf_hub_download
 
-    def _download_with_token_alias(*args: Any, **kwargs: Any) -> Any:
-        if "use_auth_token" in kwargs and "token" not in kwargs:
-            kwargs["token"] = kwargs.pop("use_auth_token")
-        else:
-            kwargs.pop("use_auth_token", None)
-        return original(*args, **kwargs)
+        def _download_with_token_alias(*args: Any, **kwargs: Any) -> Any:
+            if "use_auth_token" in kwargs and "token" not in kwargs:
+                kwargs["token"] = kwargs.pop("use_auth_token")
+            else:
+                kwargs.pop("use_auth_token", None)
+            return original(*args, **kwargs)
 
-    # Patch the canonical binding.
-    huggingface_hub.hf_hub_download = _download_with_token_alias
+        # Patch the canonical binding.
+        huggingface_hub.hf_hub_download = _download_with_token_alias
 
-    # Also patch any modules that already did ``from huggingface_hub import
-    # hf_hub_download`` before this shim ran. pyannote.audio.core.pipeline is
-    # the one we actually need, but patching every cached copy is cheap.
-    for mod in list(_sys.modules.values()):
-        if mod is None:
-            continue
-        try:
-            if getattr(mod, "hf_hub_download", None) is original:
-                setattr(mod, "hf_hub_download", _download_with_token_alias)
-        except Exception as exc:  # noqa: BLE001 - best-effort patch
-            module_name = getattr(mod, "__name__", repr(mod))
-            logger.debug(
-                "HF token patch skipped for module %r: %s", module_name, exc
-            )
-            continue
+        # Also patch any modules that already did ``from huggingface_hub
+        # import hf_hub_download`` before this shim ran.
+        # pyannote.audio.core.pipeline is the one we actually need, but
+        # patching every cached copy is cheap.
+        for mod in list(_sys.modules.values()):
+            if mod is None:
+                continue
+            try:
+                if getattr(mod, "hf_hub_download", None) is original:
+                    setattr(mod, "hf_hub_download", _download_with_token_alias)
+            except Exception as exc:  # noqa: BLE001 - best-effort patch
+                module_name = getattr(mod, "__name__", repr(mod))
+                logger.debug(
+                    "HF token patch skipped for module %r: %s",
+                    module_name,
+                    exc,
+                )
+                continue
 
-    _HF_TOKEN_SHIM_APPLIED = True
+        _HF_TOKEN_SHIM_APPLIED = True
 
 
 _TORCH_LOAD_SHIM_APPLIED = False
@@ -156,18 +176,22 @@ def _apply_torch_load_shim() -> None:
     global _TORCH_LOAD_SHIM_APPLIED
     if _TORCH_LOAD_SHIM_APPLIED:
         return
-    import torch  # type: ignore[import-not-found]
+    with _SHIM_LOCK:
+        if _TORCH_LOAD_SHIM_APPLIED:
+            return
+        import torch  # type: ignore[import-not-found]
 
-    original = torch.load
+        original = torch.load
 
-    def _load_weights_only_false(*args: Any, **kwargs: Any) -> Any:
-        # Force-override: lightning_fabric.cloud_io passes weights_only=True
-        # explicitly, so setdefault is not enough — we have to clobber it.
-        kwargs["weights_only"] = False
-        return original(*args, **kwargs)
+        def _load_weights_only_false(*args: Any, **kwargs: Any) -> Any:
+            # Force-override: lightning_fabric.cloud_io passes
+            # weights_only=True explicitly, so setdefault is not
+            # enough — we have to clobber it.
+            kwargs["weights_only"] = False
+            return original(*args, **kwargs)
 
-    torch.load = _load_weights_only_false  # type: ignore[assignment]
-    _TORCH_LOAD_SHIM_APPLIED = True
+        torch.load = _load_weights_only_false  # type: ignore[assignment]
+        _TORCH_LOAD_SHIM_APPLIED = True
 
 
 _SPEECHBRAIN_LAZY_SHIM_APPLIED = False
@@ -193,29 +217,32 @@ def _apply_speechbrain_lazy_shim() -> None:
     global _SPEECHBRAIN_LAZY_SHIM_APPLIED
     if _SPEECHBRAIN_LAZY_SHIM_APPLIED:
         return
-    try:
-        from speechbrain.utils import importutils as _imputils  # type: ignore[import-not-found]
-    except ImportError:
-        # speechbrain not installed → nothing to patch, and pyannote will
-        # fail later with a clearer error. Mark applied so we don't retry.
-        _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
-        return
-
-    LazyModule = getattr(_imputils, "LazyModule", None)
-    if LazyModule is None:
-        _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
-        return
-
-    original_ensure = LazyModule.ensure_module
-
-    def _ensure_module_softfail(self, stacklevel=1):  # type: ignore[no-untyped-def]
+    with _SHIM_LOCK:
+        if _SPEECHBRAIN_LAZY_SHIM_APPLIED:
+            return
         try:
-            return original_ensure(self, stacklevel + 1)
-        except ImportError as exc:  # noqa: BLE001 - we want broad catch here
-            raise AttributeError(str(exc)) from exc
+            from speechbrain.utils import importutils as _imputils  # type: ignore[import-not-found]
+        except ImportError:
+            # speechbrain not installed → nothing to patch, and pyannote will
+            # fail later with a clearer error. Mark applied so we don't retry.
+            _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
+            return
 
-    LazyModule.ensure_module = _ensure_module_softfail  # type: ignore[assignment]
-    _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
+        LazyModule = getattr(_imputils, "LazyModule", None)
+        if LazyModule is None:
+            _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
+            return
+
+        original_ensure = LazyModule.ensure_module
+
+        def _ensure_module_softfail(self, stacklevel=1):  # type: ignore[no-untyped-def]
+            try:
+                return original_ensure(self, stacklevel + 1)
+            except ImportError as exc:  # noqa: BLE001 - broad catch wanted
+                raise AttributeError(str(exc)) from exc
+
+        LazyModule.ensure_module = _ensure_module_softfail  # type: ignore[assignment]
+        _SPEECHBRAIN_LAZY_SHIM_APPLIED = True
 
 
 def _resolve_device(device: str) -> str:
