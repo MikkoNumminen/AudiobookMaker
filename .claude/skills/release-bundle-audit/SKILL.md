@@ -82,6 +82,13 @@ The 2026-05-11 audit cut the uncompressed bundle 786 MB → 568 MB
 
 ### Phase 0 — static spec inventory (report-only, no edits)
 
+**Fan out by default.** Dispatch one `Agent` call with
+`subagent_type: "Explore"` per spec file (`audiobookmaker.spec` and
+`audiobookmaker_launcher.spec`) in a single message. Each agent
+enumerates the same checklist below for its assigned spec
+independently. Merge the per-spec tables into one Phase-0 report
+before stopping for the user.
+
 For both `audiobookmaker.spec` and `audiobookmaker_launcher.spec`,
 enumerate:
 
@@ -129,6 +136,17 @@ Report total size, top 30 size offenders, presence/absence of each
 suspect package. **Stop and wait.**
 
 ### Phase 2 — reachability vs. presence (report-only)
+
+**Fan out by default.** Dispatch parallel `Agent` calls with
+`subagent_type: "Explore"`, one per major dependency group — for
+this repo: `{torch, transformers, chatterbox}`, `onnxruntime`,
+`piper`, `PIL`, and a catch-all bucket for the remaining engines
+(`espeak`, `kokoro`, `faster-whisper`, `pyannote`, etc.). Each
+agent traces reachability for its assigned packages from
+`src/main.py` under `sys.frozen is True` and reports one row of
+the reachability table. Merge into the consolidated Phase-2
+report before stopping. **Do not parallelise across phases** —
+Phase 3 (build + smoke test) is strictly sequential.
 
 Trace imports from `src/main.py` under the assumption `sys.frozen is
 True`. For Audiobookmaker:
