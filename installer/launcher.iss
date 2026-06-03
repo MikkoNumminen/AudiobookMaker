@@ -148,7 +148,7 @@ Name: "{userdesktop}\{#MyAppName}"; \
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""& {{ \
         New-Item -ItemType Directory -Force -Path '{userappdata}\AudiobookMaker\piper_voices\fi_FI-harri-medium' | Out-Null; \
-        $base = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/fi/fi_FI/harri/medium/'; \
+        $base = 'https://huggingface.co/rhasspy/piper-voices/resolve/b710b0ba0740da88dc36e1ab8fa6b310d43a3a48/fi/fi_FI/harri/medium/'; \
         foreach ($f in @('fi_FI-harri-medium.onnx','fi_FI-harri-medium.onnx.json')) {{ \
             $dst = Join-Path '{userappdata}\AudiobookMaker\piper_voices\fi_FI-harri-medium' $f; \
             if (-not (Test-Path $dst)) {{ Invoke-WebRequest -Uri ($base + $f) -OutFile $dst -UseBasicParsing }} \

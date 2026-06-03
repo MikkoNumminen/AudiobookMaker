@@ -458,7 +458,10 @@ PIPER_VOICE_FILES = [
     "fi_FI-harri-medium.onnx.json",
 ]
 PIPER_VOICE_BASE_URL = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+    # Pinned to an immutable commit SHA (was floating `main`): an upstream
+    # reorg of the voice tree can no longer change what this downloads.
+    "https://huggingface.co/rhasspy/piper-voices/resolve/"
+    "b710b0ba0740da88dc36e1ab8fa6b310d43a3a48/"
     "fi/fi_FI/harri/medium/"
 )
 PIPER_VOICE_DIR_NAME = "fi_FI-harri-medium"
