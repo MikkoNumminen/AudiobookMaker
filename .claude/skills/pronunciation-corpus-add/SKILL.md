@@ -121,9 +121,10 @@ Common mis-categorisations:
 git pull --ff-only origin master
 ```
 
-Open `docs/pronunciation_corpus_fi.md`, append the new block at the
-bottom of the "Entries" section (chronological order — newest last),
-save.
+Read the tail of `docs/pronunciation_corpus_fi.md` (last 60 lines is
+enough — you only need the existing entry count and the insertion
+point). Append the new block at the bottom of the "Entries" section
+(chronological order — newest last), save.
 
 Pre-commit hook treats docs-only commits as test-skip, so the
 commit is fast:
@@ -139,8 +140,9 @@ subject short — the block itself carries the detail.
 
 ### 4. Batch multiple reports
 
-If the user pastes 5 reports at once, append all 5 entries in one
-commit with a single subject:
+If the user pastes multiple reports at once (cap at ~10 per session;
+ask to split if more), append all entries in one commit with a single
+subject:
 
 ```
 docs(corpus): log 5 new mispronunciations from current test book

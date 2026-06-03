@@ -62,7 +62,7 @@ git checkout master
 git pull --ff-only origin master
 ```
 
-Re-read [TODO.md](../../../TODO.md) before committing anything, per the
+Re-read `TODO.md` (repo root, `limit=60`) before committing anything, per the
 project's shared-board protocol.
 
 ### Step 3 — bump all three version strings together

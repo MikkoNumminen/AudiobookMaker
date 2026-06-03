@@ -55,8 +55,10 @@ Do not `git pull --rebase` — rebase is never done in this repo without
 explicit per-operation approval from the user. A fast-forward merge is
 safe and loud.
 
-Then read `TODO.md` **in full**, not just the backlog. Another Claude
-may have just pushed a status change.
+Then read `TODO.md` (limit=120 lines is usually enough; read more only
+if the file is clearly truncated mid-section), paying attention to
+the status board and "In Progress" — not just the backlog. Another
+Claude may have just pushed a status change.
 
 ### 2. Pick
 
@@ -115,10 +117,9 @@ worktree directory and `git -C <worktree-path> ...` for git ops.
 
 ### 5. Work
 
-Normal dev loop inside the worktree. Re-read `TODO.md` before **every
-commit** (via `git -C <main-repo-path> pull --ff-only origin master`
-piped into a fresh read) so you notice when another Claude finishes
-something that affects your task.
+Normal dev loop inside the worktree. Before each commit, pull master
+and skim `TODO.md` (limit=80 lines; status board + "In Progress" only)
+to notice when another Claude finishes something that affects your task.
 
 ## Pausing mid-task
 

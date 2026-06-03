@@ -407,9 +407,12 @@ skill.>
    compute the file list via `git diff --name-only <base>...HEAD`.
 
 2. **Per check, grep + read.** For each of the ten checks, run the
-   pattern listed and read the surrounding context (5–10 lines)
-   before recording. Pattern-matching is a starter; the read
-   confirms the smell shape matches and applies calibration rules.
+   pattern listed and read the surrounding context (5–10 lines,
+   `Read(limit=80)` per hit) before recording. Pattern-matching is
+   a starter; the read confirms the smell shape matches and applies
+   calibration rules. Cap at 10 file reads per check — if grep
+   returns more hits than that, sample the first 10 and note the
+   total count.
 
    **Fan out by default.** Dispatch parallel `Agent` calls with
    `subagent_type: "Explore"` — one agent per 2–3 checks — in a
@@ -421,11 +424,13 @@ skill.>
    merges them, then applies the false-positive log and severity
    recount **after** all agents return. Agents do not need to
    consult the false-positive log themselves; the main run filters
-   merged findings in step 3. If any agent fails or returns an
-   error, the main run re-attempts that bundle serially rather than
-   dropping the missing checks silently. Only fall back to fully
-   serial per-check grep when the scope is one small file
-   (≤200 LOC) and the parallel overhead would dominate.
+   merged findings in step 3. Each agent must stop after reading at
+   most 10 files per check; do not follow imports or spelunk into
+   dependencies. If any agent fails or returns an error, the main
+   run re-attempts that bundle serially rather than dropping the
+   missing checks silently. Only fall back to fully serial per-check
+   grep when the scope is one small file (≤200 LOC) and the parallel
+   overhead would dominate.
 
 3. **Apply the false-positive log.** Before recording a finding, look
    at the previous report's "False-positive log" section. If a
