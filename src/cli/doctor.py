@@ -177,6 +177,53 @@ def run(args: argparse.Namespace) -> int:
         })
 
     # ------------------------------------------------------------------
+    # 5b. Chatterbox venv health — import + version-drift probe
+    # ------------------------------------------------------------------
+    # check_status() above is presence-only (it must stay cheap). A venv can
+    # exist yet fail to load because its package versions drifted — most often
+    # a transformers newer than chatterbox-tts==0.1.7 targets, which surfaces
+    # only as the cryptic "Could not import module 'LlamaModel'" at synth time.
+    # Probe the venv here so doctor catches that and names the drifted package.
+    try:
+        from src.launcher_bridge import resolve_chatterbox_python
+        venv_py = resolve_chatterbox_python()
+    except Exception:  # noqa: BLE001 — never let probe setup break doctor
+        venv_py = None
+    if venv_py is not None:
+        try:
+            from src import version_manifest
+            health = version_manifest.probe_venv(venv_py, timeout=60)
+        except Exception as exc:  # noqa: BLE001
+            checks.append({
+                "name": "engine:chatterbox_grandmom:health",
+                "status": "error",
+                "required": False,
+                "detail": f"Health probe could not run: {exc}",
+            })
+        else:
+            if health.healthy:
+                health_status = "ok"
+                health_detail = (
+                    "Chatterbox venv imports and matches the pinned versions."
+                )
+            elif health.probe_failed:
+                # Could not determine health — report but do not claim broken.
+                health_status = "unavailable"
+                health_detail = health.summary()
+            else:
+                health_status = "error"
+                health_detail = (
+                    health.summary()
+                    + " Repair: audiobookmaker engines repair chatterbox_grandmom"
+                )
+            checks.append({
+                "name": "engine:chatterbox_grandmom:health",
+                "status": health_status,
+                "required": False,
+                "detail": health_detail,
+            })
+
+    # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
     exit_code = EXIT_MISSING_DEP if any_required_missing else EXIT_OK
