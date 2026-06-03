@@ -9,6 +9,7 @@ everything is mocked.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -300,6 +301,19 @@ class TestAppendChunkStats:
 # Not strictly related to the 4h-onset fix but ensures the silence-trim
 # regression guard didn't get reverted.
 # ---------------------------------------------------------------------------
+
+
+class TestFinnishModelRevisionPin:
+    def test_revision_is_a_pinned_commit_sha(self) -> None:
+        """The Finnish model must be fetched at an immutable commit SHA, not a
+        moving branch — otherwise an upstream rename of the exact T3/ref files
+        silently breaks synthesis (the rotated-URL failure class)."""
+        rev = gca.FINNISH_REVISION
+        assert isinstance(rev, str)
+        assert re.fullmatch(r"[0-9a-f]{40}", rev), (
+            f"FINNISH_REVISION must be a 40-hex commit SHA, not {rev!r} "
+            "(a branch like 'main' would defeat the pin)"
+        )
 
 
 class TestVadConstants:
