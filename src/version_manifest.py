@@ -91,8 +91,9 @@ class Drift:
 class VenvHealth:
     """Result of probing a Chatterbox venv."""
 
-    ok: bool = False
-    """True iff torch + chatterbox imported successfully."""
+    ok: Optional[bool] = False
+    """Import result: True/False when a deep probe ran, None when only the
+    cheap version check ran (imports not tested)."""
 
     import_error: Optional[str] = None
     """The raw import failure (e.g. the LlamaModel message), if any."""
@@ -105,23 +106,26 @@ class VenvHealth:
 
     @property
     def healthy(self) -> bool:
-        return self.ok and not self.drift and self.probe_failed is None
+        # ok is False only when a deep probe actually failed to import; None
+        # (cheap check, imports not tested) is not a failure on its own.
+        return self.probe_failed is None and not self.drift and self.ok is not False
 
     def summary(self) -> str:
         if self.probe_failed:
             return f"Engine health probe could not run: {self.probe_failed}"
-        if not self.ok:
+        drift_str = "; ".join(d.describe() for d in self.drift)
+        if self.ok is False:
             base = "Chatterbox engine venv is broken — it could not load."
             if self.drift:
-                base += " Drifted packages: " + "; ".join(
-                    d.describe() for d in self.drift
-                )
+                base += f" Drifted packages: {drift_str}"
             elif self.import_error:
                 base += f" ({self.import_error})"
             return base
         if self.drift:
-            return "Chatterbox engine loads but package versions drifted: " + \
-                "; ".join(d.describe() for d in self.drift)
+            return (
+                "Chatterbox engine package versions drifted from the pinned "
+                f"set: {drift_str}"
+            )
         return "Chatterbox engine venv is healthy."
 
 
@@ -160,11 +164,12 @@ def compare(
     return drift
 
 
-# Probe run inside the venv's interpreter. Reports installed versions (via
-# importlib.metadata, which works even when the package fails to import) plus
-# whether the engine class loads at all — the same import the smoke test and
-# the synthesis runner do.
-_PROBE_TEMPLATE = r"""
+# Probe run inside the venv's interpreter. The head reports installed versions
+# via importlib.metadata (cheap — works even when a package fails to import and
+# does NOT pull torch). The import step is appended only for a deep probe; it
+# loads the engine class the same way the smoke test and synthesis runner do,
+# which imports torch and is the slow part.
+_PROBE_HEAD = r"""
 import importlib.metadata as _m, json as _j
 def _ver(_n):
     for _c in (_n, _n.replace("_", "-"), _n.replace("-", "_")):
@@ -174,22 +179,36 @@ def _ver(_n):
             pass
     return None
 _names = {names!r}
-_out = {{"import_ok": False, "import_error": None, "installed": {{}}}}
+_out = {{"import_ok": None, "import_error": None, "installed": {{}}}}
 for _n in _names:
     _out["installed"][_n] = _ver(_n)
+"""
+
+# Appended only when deep=True. Not .format()-ed, so its braces are literal.
+_PROBE_IMPORT = """
 try:
     import torch  # noqa
     import torchaudio  # noqa
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa
     _out["import_ok"] = True
 except Exception as _e:
-    _out["import_error"] = "{{}}: {{}}".format(type(_e).__name__, _e)
-print(_j.dumps(_out))
+    _out["import_ok"] = False
+    _out["import_error"] = "{}: {}".format(type(_e).__name__, _e)
 """
 
+_PROBE_TAIL = "print(_j.dumps(_out))\n"
 
-def build_probe_code(names: list[str]) -> str:
-    return _PROBE_TEMPLATE.format(names=names)
+
+def build_probe_code(names: list[str], *, deep: bool = True) -> str:
+    """Build the venv probe. ``deep`` appends the (slow) torch+chatterbox import.
+
+    With ``deep=False`` the probe only reads installed versions — no torch
+    import — so callers like ``doctor`` stay fast.
+    """
+    code = _PROBE_HEAD.format(names=names)
+    if deep:
+        code += _PROBE_IMPORT
+    return code + _PROBE_TAIL
 
 
 def parse_probe_output(stdout: str) -> Optional[dict]:
@@ -217,14 +236,21 @@ def probe_venv(
     *,
     timeout: int = PROBE_TIMEOUT_S,
     path: Path = REQUIREMENTS_FILE,
+    deep: bool = True,
 ) -> VenvHealth:
-    """Probe a Chatterbox venv for import health + version drift.
+    """Probe a Chatterbox venv for version drift, and (deep only) import health.
+
+    With ``deep=True`` (default) the probe also loads the engine class — the
+    authoritative "does it actually import" check, but slow because it pulls
+    torch. With ``deep=False`` it only compares installed versions to the pins
+    (fast, no torch); ``VenvHealth.ok`` is then ``None`` (imports not tested).
+    Use the cheap mode where latency matters (e.g. ``doctor``).
 
     Spawns ``venv_python -c <probe>`` and classifies the result. Never
     raises — every failure mode is folded into the returned VenvHealth.
     """
     pinned = pinned_versions(path)
-    code = build_probe_code(_raw_requirement_names(path))
+    code = build_probe_code(_raw_requirement_names(path), deep=deep)
     try:
         proc = subprocess.run(
             [str(venv_python), "-c", code],
@@ -247,7 +273,7 @@ def probe_venv(
     installed_raw = payload.get("installed", {}) or {}
     installed = {_normalize(k): v for k, v in installed_raw.items()}
     return VenvHealth(
-        ok=bool(payload.get("import_ok")),
+        ok=bool(payload.get("import_ok")) if deep else None,
         import_error=payload.get("import_error"),
         drift=compare(pinned, installed),
     )

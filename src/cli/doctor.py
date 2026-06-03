@@ -192,7 +192,11 @@ def run(args: argparse.Namespace) -> int:
     if venv_py is not None:
         try:
             from src import version_manifest
-            health = version_manifest.probe_venv(venv_py, timeout=60)
+            # Cheap mode: compare installed versions to the pins without
+            # importing torch (~2s), so `doctor` stays fast. Version drift is
+            # the cause of the reported breakage; a deeper import probe would
+            # add ~10-15s to every doctor run for little extra signal.
+            health = version_manifest.probe_venv(venv_py, timeout=20, deep=False)
         except Exception as exc:  # noqa: BLE001
             checks.append({
                 "name": "engine:chatterbox_grandmom:health",
@@ -201,15 +205,15 @@ def run(args: argparse.Namespace) -> int:
                 "detail": f"Health probe could not run: {exc}",
             })
         else:
-            if health.healthy:
-                health_status = "ok"
-                health_detail = (
-                    "Chatterbox venv imports and matches the pinned versions."
-                )
-            elif health.probe_failed:
+            if health.probe_failed:
                 # Could not determine health — report but do not claim broken.
                 health_status = "unavailable"
                 health_detail = health.summary()
+            elif health.healthy:
+                health_status = "ok"
+                health_detail = (
+                    "Chatterbox venv versions match the pinned set."
+                )
             else:
                 health_status = "error"
                 health_detail = (

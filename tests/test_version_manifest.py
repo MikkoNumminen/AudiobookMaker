@@ -186,6 +186,62 @@ def test_build_probe_code_compiles() -> None:
     # Must be syntactically valid so the subprocess does not crash on parse.
     compile(code, "<probe>", "exec")
     assert "import_ok" in code
+    # Deep (default) includes the engine import.
+    assert "import torch" in code
+
+
+def test_build_probe_code_cheap_omits_torch_import() -> None:
+    code = vm.build_probe_code(["transformers"], deep=False)
+    compile(code, "<probe>", "exec")
+    assert "import torch" not in code
+    assert "chatterbox" not in code.lower()
+    # Still reports the field (as None) so parsing stays uniform.
+    assert "import_ok" in code
+
+
+# ---------------------------------------------------------------------------
+# probe_venv cheap mode (deep=False) — the doctor fast path
+# ---------------------------------------------------------------------------
+
+
+def test_probe_venv_cheap_mode_does_not_import_torch(tmp_path: Path) -> None:
+    reqs = _write_reqs(tmp_path, "transformers==5.2.0\ntokenizers==0.22.2\n")
+    payload = {
+        "import_ok": None,
+        "import_error": None,
+        "installed": {"transformers": "5.4.0", "tokenizers": "0.22.2"},
+    }
+    captured: dict[str, str] = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["code"] = cmd[2]  # [python, "-c", code]
+        return _completed(json.dumps(payload))
+
+    with patch.object(vm.subprocess, "run", side_effect=_fake_run):
+        health = vm.probe_venv("py.exe", path=reqs, deep=False)
+
+    # The probe the venv runs must be the cheap one — no torch import.
+    assert "import torch" not in captured["code"]
+    # ok is None (imports were not tested) but drift is still computed.
+    assert health.ok is None
+    assert any(d.package == "transformers" for d in health.drift)
+    assert health.healthy is False  # transformers drifted from the pin
+
+
+def test_probe_venv_cheap_mode_healthy_when_versions_match(tmp_path: Path) -> None:
+    reqs = _write_reqs(tmp_path, "transformers==5.2.0\n")
+    payload = {
+        "import_ok": None,
+        "import_error": None,
+        "installed": {"transformers": "5.2.0"},
+    }
+    with patch.object(vm.subprocess, "run", return_value=_completed(json.dumps(payload))):
+        health = vm.probe_venv("py.exe", path=reqs, deep=False)
+    assert health.ok is None
+    assert health.drift == []
+    # No drift + imports-not-tested still counts as healthy for the cheap check.
+    assert health.healthy is True
+    assert "healthy" in health.summary()
 
 
 # ---------------------------------------------------------------------------
