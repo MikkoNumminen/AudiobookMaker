@@ -400,5 +400,10 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='audiobookmaker',  # output folder: dist/audiobookmaker/
+    # Output folder: dist/audiobookmaker_cli/. Must NOT be 'audiobookmaker' —
+    # on case-insensitive Windows that collides with the main app's
+    # dist/AudiobookMaker/ from audiobookmaker.spec, and PyInstaller's COLLECT
+    # then aborts with "output directory is not empty". The exe inside stays
+    # audiobookmaker.exe (see EXE name= above).
+    name='audiobookmaker_cli',
 )
