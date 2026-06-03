@@ -366,3 +366,4 @@ The voice cloning capability in this project is a tool. Tools can be used well o
 Cloning someone's voice without consent is harmful and illegal in many jurisdictions, regardless of what's technically possible. The bar for "yes, this is fine" is higher than "I really want to do this." If you're unsure, ask first or use Edge-TTS instead.
 
 The voice-cloning **pipeline** (analyze → train → package) is intentionally kept out of the end-user installer. This isn't a packaging accident — it's a choice. The people most likely to do real harm are those who download a one-click installer and click around; the people most likely to do useful work are those willing to set up Python, install CUDA, read a README, and record their own voice. The friction is on purpose. The GUI consumes the resulting voice packs but does not produce them.
+
