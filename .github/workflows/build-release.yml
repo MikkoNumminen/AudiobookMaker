@@ -282,8 +282,9 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $zipName = "AudiobookMaker-CLI-$version-windows-x64.zip"
-          # dist/audiobookmaker/ is the COLLECT output folder from the spec.
-          Compress-Archive -Path dist/audiobookmaker/* -DestinationPath $zipName
+          # dist/audiobookmaker_cli/ is the COLLECT output folder from the spec
+          # (named to avoid a case-insensitive clash with dist/AudiobookMaker/).
+          Compress-Archive -Path dist/audiobookmaker_cli/* -DestinationPath $zipName
           Write-Host "Packaged: $zipName"
           "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         shell: pwsh
