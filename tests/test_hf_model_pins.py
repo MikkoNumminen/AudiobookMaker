@@ -77,3 +77,19 @@ def test_finnish_prefetch_matches_runner_revision() -> None:
         "so the install populates exactly the revision synthesis requests "
         f"(prefetch={finnish}, runner={gca.FINNISH_REVISION})"
     )
+
+
+def _extract_const(path: Path, name: str):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{name} not found in {path}")
+
+
+def test_dev_script_finnish_revision_matches_runner() -> None:
+    # The dev helper duplicates the Finnish constants; keep its pin in sync.
+    rev = _extract_const(_REPO_ROOT / "dev_chatterbox_fi.py", "FINNISH_REVISION")
+    assert rev == gca.FINNISH_REVISION

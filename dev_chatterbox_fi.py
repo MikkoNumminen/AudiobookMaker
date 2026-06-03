@@ -51,6 +51,9 @@ from pathlib import Path
 FINNISH_REPO = "Finnish-NLP/Chatterbox-Finnish"
 FINNISH_T3_FILE = "models/best_finnish_multilingual_cp986.safetensors"
 FINNISH_REF_WAV = "samples/reference_finnish.wav"
+# Immutable revision pin — keep in sync with FINNISH_REVISION in
+# scripts/generate_chatterbox_audiobook.py.
+FINNISH_REVISION = "d15775e1788055e67f49dfc6da402021e51bd0f0"
 
 # Fallback sentence if no --text is provided and no PDF is readable.
 # Intentionally covers Finnish gemination, long vowels, and a foreign
@@ -490,14 +493,18 @@ def main() -> int:
     else:
         print(f"Fetching reference Finnish voice from {FINNISH_REPO}…")
         t0 = time.time()
-        ref_wav_path = hf_hub_download(FINNISH_REPO, FINNISH_REF_WAV)
+        ref_wav_path = hf_hub_download(
+            FINNISH_REPO, FINNISH_REF_WAV, revision=FINNISH_REVISION
+        )
         print(f"  fetched in {time.time() - t0:.1f}s")
     print(f"  ref wav: {ref_wav_path}")
 
     if args.finnish_finetune:
         print(f"Fetching Finnish T3 finetune from {FINNISH_REPO}…")
         t0 = time.time()
-        fi_ckpt_path = hf_hub_download(FINNISH_REPO, FINNISH_T3_FILE)
+        fi_ckpt_path = hf_hub_download(
+            FINNISH_REPO, FINNISH_T3_FILE, revision=FINNISH_REVISION
+        )
         print(f"  fetched in {time.time() - t0:.1f}s")
         print(f"  T3 ckpt: {fi_ckpt_path}")
         print("Swapping Finnish T3 weights into the multilingual engine…")
