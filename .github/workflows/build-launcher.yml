@@ -56,7 +56,7 @@ jobs:
       - name: Install launcher build dependencies
         run: |
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller==6.8.0  # keep in sync with requirements.txt
         shell: bash
 
       - name: Run tests
@@ -71,10 +71,12 @@ jobs:
 
       - name: Download ffmpeg
         env:
-          FFMPEG_RELEASE: autobuild-2026-05-09-13-18
-          FFMPEG_ZIP: ffmpeg-n7.1.4-win64-gpl-7.1.zip
-          FFMPEG_SHA256: ede52efc5f25536f2db428ed407d9e8020367858d50536e100f6e497282a9a4b
-          FFMPEG_DIR: ffmpeg-n7.1.4-win64-gpl-7.1
+          # Keep in sync with build-release.yml. BtbN rotates (deletes) old
+          # autobuilds, so the previous pin (2026-05-09) 404s.
+          FFMPEG_RELEASE: autobuild-2026-06-03-14-37
+          FFMPEG_ZIP: ffmpeg-n7.1.4-9-gc06af95f12-win64-gpl-7.1.zip
+          FFMPEG_SHA256: 305f5ac85ab794431fd32c724a30e2a8638b54fee6d2d983233685d937ccb9c7
+          FFMPEG_DIR: ffmpeg-n7.1.4-9-gc06af95f12-win64-gpl-7.1
         run: |
           curl -L -o ffmpeg.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_ZIP}"
           echo "${FFMPEG_SHA256}  ffmpeg.zip" | sha256sum -c -
@@ -86,7 +88,7 @@ jobs:
       - name: Create placeholder icon if missing
         run: |
           if [ ! -f assets/icon.ico ]; then
-            pip install Pillow
+            pip install Pillow==12.2.0  # keep in sync with requirements.txt
             python -c "
           from PIL import Image
           img = Image.new('RGBA', (256, 256), (52, 101, 164, 255))
@@ -191,7 +193,9 @@ jobs:
         # an artifact (downloadable from the Actions tab) but skip
         # the release step entirely.
         if: startsWith(github.ref, 'refs/tags/launcher-v')
-        uses: softprops/action-gh-release@v2
+        # Pinned to a commit SHA (was @v2): this third-party action publishes
+        # the release, so an upstream tag re-point can't change what runs.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
           name: AudiobookMaker Launcher ${{ steps.version.outputs.VERSION }}
           tag_name: ${{ github.ref_name }}
