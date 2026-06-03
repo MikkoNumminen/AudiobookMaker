@@ -389,8 +389,11 @@ jobs:
         if: github.event_name == 'push'
         run: |
           $content = Get-Content release_notes.md -Raw
-          # GUI installer SHA (consumed by the auto-updater)
-          if (-not ($content -match '(?i)^SHA-256:\s*[0-9a-f]{64}' )) {
+          # GUI installer SHA (consumed by the auto-updater). The `m` flag is
+          # required: $content is the whole file as one string, so `^` without
+          # multiline anchors to the start of the DOCUMENT, but the SHA-256
+          # line sits near the end. Without `m` this guard can never pass.
+          if (-not ($content -match '(?im)^SHA-256:\s*[0-9a-f]{64}' )) {
             Write-Error "release_notes.md is missing the GUI installer SHA-256 line — refusing to publish. Auto-update would break for every existing user."
             exit 1
           }
