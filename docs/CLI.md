@@ -200,6 +200,7 @@ the auto-generated detail follows.
 | `voices list` | List all voices across installed engines, with optional filters |
 | `engines list` | List all registered TTS engines and their availability |
 | `engines install ID` | Download and install a TTS engine |
+| `engines repair ID` | Repair a broken/drifted engine by force-reinstalling its pinned versions |
 | `engines remove ID` | Remove an installed engine's assets |
 | `engines check ID` | Report whether a specific engine is ready to use |
 | `packs list` | List installed voice packs |
@@ -365,6 +366,23 @@ audiobookmaker-cli engines list --installed-only
 
 ```bash
 audiobookmaker-cli engines install chatterbox_grandmom
+```
+
+---
+
+### `audiobookmaker-cli engines repair`
+
+| Flag | Description |
+|------|-------------|
+| `ID` | Engine id (e.g. chatterbox_grandmom). |
+| `--yes` | Skip prompts. |
+| `--json` | Emit one progress object per line (NDJSON) with fields: kind, step, total_steps, step_label, percent, message, error, done. |
+| `--quiet` | Suppress progress; print only the final result. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli engines repair chatterbox_grandmom
 ```
 
 ---

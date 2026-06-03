@@ -1,0 +1,69 @@
+# Canonical pinned dependency set for the Chatterbox TTS engine venv.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The Chatterbox engine venv must be REPRODUCIBLE. Pinning only the top
+# package (chatterbox-tts) and letting its dependency tree float lets pip
+# resolve whatever is latest/cached on the user's machine at install time.
+# When pip lands a `transformers` newer than the validated one, the
+# (older, pinned) chatterbox-tts calls a changed/removed transformers API
+# and the load fails at runtime with the cryptic, generic error:
+#
+#     Could not import module 'LlamaModel'. Are this object's
+#     requirements defined correctly?
+#
+# That message is the transformers `_LazyModule` wrapper hiding the real
+# version-mismatch failure. It only fires when the model loads — never at
+# install — so a broken venv ships silently. Pinning the whole runtime
+# chain closes that hole: every install resolves to the same versions, and
+# a plain reinstall force-downgrades an already-drifted venv back to these
+# exact pins.
+#
+# SINGLE SOURCE OF TRUTH
+# ----------------------
+# Both install paths must install exactly this set:
+#   * the in-app "Install engines" button  -> src/engine_installer.py
+#   * the Inno Setup wizard post-install    -> installer/post_install_chatterbox.py
+# A parity test (tests/test_chatterbox_requirements.py) asserts this file
+# and both installers' PIP_PACKAGES_MAIN lists stay identical, so they can
+# never drift apart again.
+#
+# BUMP POLICY
+# -----------
+# Raising ANY pin here requires, in order:
+#   1. A successful end-to-end smoke synth on the new versions.
+#   2. Refresh the dev freeze (pip freeze of the working venv).
+#   3. Update this file AND both PIP_PACKAGES_MAIN lists in the same change.
+#
+# torch / torchaudio are deliberately NOT in this file. They install
+# separately via the CUDA wheel index (--index-url) so chatterbox-tts's
+# resolver treats torch as already satisfied and does not pull the CPU
+# wheel. See TORCH_WHEEL_VERSION / TORCH_CUDA_INDEX in both installers.
+
+# --- engine ---
+chatterbox-tts==0.1.7
+
+# --- the load-bearing chain (the LlamaModel failure lives here) ---
+transformers==5.2.0
+tokenizers==0.22.2
+
+# --- chatterbox-tts direct dependencies that otherwise float ---
+numpy==1.26.4
+diffusers==0.29.0
+librosa==0.11.0
+conformer==0.3.2
+s3tokenizer==0.3.0
+omegaconf==2.3.0
+resemble-perth==1.0.1
+pykakasi==2.3.0
+pyloudnorm==0.2.0
+safetensors==0.5.3
+huggingface_hub==1.10.1
+
+# --- runner + voice-pack companions (named explicitly by the installers) ---
+silero-vad==6.2.1
+pydub==0.25.1
+num2words==0.5.14
+PyMuPDF==1.27.2.2
+peft==0.19.1
+accelerate==1.13.0

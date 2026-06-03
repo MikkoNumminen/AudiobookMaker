@@ -1,8 +1,9 @@
-"""engines subcommand — list, install, remove, and check TTS engines.
+"""engines subcommand — list, install, repair, remove, and check TTS engines.
 
 Usage:
     audiobookmaker engines list             [--installed-only] [--json] [--quiet]
     audiobookmaker engines install <id>     [--yes] [--json] [--quiet]
+    audiobookmaker engines repair  <id>     [--yes] [--json] [--quiet]
     audiobookmaker engines remove  <id>     [--yes] [--json] [--quiet]
     audiobookmaker engines check   <id>
 
@@ -71,6 +72,23 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         quiet_help="Suppress progress; print only the final result.",
     )
     ins.set_defaults(func=_run_install)
+
+    # engines repair <id>
+    rep = sub.add_parser(
+        "repair",
+        help="Repair a broken/drifted engine by force-reinstalling its pins.",
+    )
+    rep.add_argument("engine_id", metavar="ID", help="Engine id (e.g. chatterbox_grandmom).")
+    rep.add_argument("--yes", action="store_true", default=False, help="Skip prompts.")
+    add_output_mode_flags(
+        rep,
+        json_help=(
+            "Emit one progress object per line (NDJSON) with fields: "
+            "kind, step, total_steps, step_label, percent, message, error, done."
+        ),
+        quiet_help="Suppress progress; print only the final result.",
+    )
+    rep.set_defaults(func=_run_repair)
 
     # engines remove <id>
     rem = sub.add_parser("remove", help="Remove an installed TTS engine's assets.")
@@ -162,6 +180,23 @@ def _print_engines_table(rows: list[dict]) -> None:
 
 
 def _run_install(args: argparse.Namespace) -> int:
+    return _run_install_or_repair(args, repair=False)
+
+
+def _run_repair(args: argparse.Namespace) -> int:
+    return _run_install_or_repair(args, repair=True)
+
+
+def _run_install_or_repair(args: argparse.Namespace, *, repair: bool) -> int:
+    """Shared install/repair driver.
+
+    ``repair`` selects ``installer.force_reinstall`` (force the pinned
+    versions back into a drifted venv) over ``installer.install`` and adjusts
+    the user-facing verb. Exit codes and event shape are identical for both so
+    scripts can treat them the same.
+    """
+    verb = "Repair" if repair else "Install"
+    verb_ing = "Repairing" if repair else "Installing"
     engine_id: str = args.engine_id
     json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
@@ -197,7 +232,7 @@ def _run_install(args: argparse.Namespace) -> int:
             print(f"Missing prerequisite: {issue}", file=sys.stderr)
         return EXIT_MISSING_DEP
 
-    _emit(f"Installing engine '{engine_id}'...")
+    _emit(f"{verb_ing} engine '{engine_id}'...")
 
     error_holder: list[str] = []
     cancel_event = threading.Event()
@@ -224,20 +259,21 @@ def _run_install(args: argparse.Namespace) -> int:
             elif prog.message:
                 print(f"  {prog.message}", flush=True)
 
+    runner = installer.force_reinstall if repair else installer.install
     try:
-        installer.install(_progress, cancel_event)
+        runner(_progress, cancel_event)
     except InterruptedError:
-        print("Install cancelled.", file=sys.stderr)
+        print(f"{verb} cancelled.", file=sys.stderr)
         return EXIT_CANCELLED
     except Exception as exc:
-        print(f"Install failed: {exc}", file=sys.stderr)
+        print(f"{verb} failed: {exc}", file=sys.stderr)
         return EXIT_MISSING_DEP
 
     if error_holder:
-        print(f"Install failed: {error_holder[-1]}", file=sys.stderr)
+        print(f"{verb} failed: {error_holder[-1]}", file=sys.stderr)
         return EXIT_MISSING_DEP
 
-    _emit(f"Engine '{engine_id}' installed successfully.")
+    _emit(f"Engine '{engine_id}' {'repaired' if repair else 'installed'} successfully.")
     return EXIT_OK
 
 

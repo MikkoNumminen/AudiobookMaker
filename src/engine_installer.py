@@ -39,19 +39,44 @@ PYTHON_INSTALLER_SIZE_MB = 25
 TORCH_WHEEL_VERSION = "2.6.0"
 TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 
+# Pinned dependency chain for the Chatterbox engine venv. This MUST stay
+# identical to installer/requirements-chatterbox.txt and the matching list
+# in installer/post_install_chatterbox.py — tests/test_chatterbox_requirements.py
+# enforces parity so the two install paths can never drift apart again.
+#
+# Every entry is pinned on purpose: a floating transformers (or any other
+# link in this chain) is what produced the silent "Could not import module
+# 'LlamaModel'" engine-load failures. See the requirements file's header for
+# the full rationale and bump policy. torch / torchaudio install separately
+# via TORCH_CUDA_INDEX so chatterbox-tts's resolver does not pull the CPU
+# wheel — keep them out of this list.
 PIP_PACKAGES_MAIN = [
-    "chatterbox-tts",
-    "safetensors",
-    "num2words",
-    "silero-vad",
-    "pydub",
-    "PyMuPDF",
-    "huggingface_hub",
+    "chatterbox-tts==0.1.7",
+    # The load-bearing chain (the LlamaModel failure lives here).
+    "transformers==5.2.0",
+    "tokenizers==0.22.2",
+    # chatterbox-tts direct dependencies that otherwise float.
+    "numpy==1.26.4",
+    "diffusers==0.29.0",
+    "librosa==0.11.0",
+    "conformer==0.3.2",
+    "s3tokenizer==0.3.0",
+    "omegaconf==2.3.0",
+    "resemble-perth==1.0.1",
+    "pykakasi==2.3.0",
+    "pyloudnorm==0.2.0",
+    "safetensors==0.5.3",
+    "huggingface_hub==1.10.1",
+    # Runner companions.
+    "silero-vad==6.2.1",
+    "pydub==0.25.1",
+    "num2words==0.5.14",
+    "PyMuPDF==1.27.2.2",
     # Voice-pack LoRA training (scripts/voice_pack_train.py). Adds ~6 MB
     # on top of the ~5 GB Chatterbox stack; listed here so training does
     # not fail with NotImplementedError on a fresh install.
-    "peft",
-    "accelerate",
+    "peft==0.19.1",
+    "accelerate==1.13.0",
 ]
 
 HF_REPOS = [
@@ -252,6 +277,20 @@ class EngineInstaller(ABC):
         Must push InstallProgress events via progress_cb. Must check
         cancel_event between steps and abort cleanly if set.
         """
+
+    def force_reinstall(
+        self,
+        progress_cb: ProgressCallback,
+        cancel_event: threading.Event,
+    ) -> None:
+        """Reinstall the engine to repair a broken/partial install.
+
+        Default is a plain reinstall — adequate for engines whose assets are
+        self-contained. Engines whose pip dependency tree can drift (e.g.
+        Chatterbox, where a too-new transformers breaks model loading)
+        override this to force the pinned versions back into place.
+        """
+        self.install(progress_cb, cancel_event)
 
 
 # ---------------------------------------------------------------------------
@@ -618,11 +657,32 @@ class ChatterboxInstaller(EngineInstaller):
             return True
         return False
 
-    def install(
+    def force_reinstall(
         self,
         progress_cb: ProgressCallback,
         cancel_event: threading.Event,
     ) -> None:
+        """Repair a drifted Chatterbox venv by force-reinstalling the pins.
+
+        The venv is reused (not deleted) but the main pip step runs with
+        ``--force-reinstall`` so a transformers that drifted past the pin is
+        replaced, and the smoke test re-verifies the engine loads.
+        """
+        self.install(progress_cb, cancel_event, force=True)
+
+    def install(
+        self,
+        progress_cb: ProgressCallback,
+        cancel_event: threading.Event,
+        force: bool = False,
+    ) -> None:
+        """Install the Chatterbox engine.
+
+        ``force`` re-runs the main pip step with ``--force-reinstall`` so an
+        existing, drifted venv is pulled back to the pinned versions even when
+        pip would otherwise consider a package "already satisfied". Used by
+        :meth:`force_reinstall` (the ``engines repair`` path).
+        """
         total = 6
 
         # Step 1: Python 3.11
@@ -653,7 +713,7 @@ class ChatterboxInstaller(EngineInstaller):
                 message="Tämä voi kestää 15-30 minuuttia...",
             )
         )
-        self._pip_install(venv_py, progress_cb, cancel_event)
+        self._pip_install(venv_py, progress_cb, cancel_event, force=force)
 
         if cancel_event.is_set():
             return
@@ -946,8 +1006,15 @@ class ChatterboxInstaller(EngineInstaller):
         venv_py: Path,
         progress_cb: ProgressCallback,
         cancel_event: threading.Event,
+        force: bool = False,
     ) -> None:
-        """Install torch + chatterbox packages."""
+        """Install torch + chatterbox packages.
+
+        ``force`` adds ``--force-reinstall`` to the main package step so a
+        drifted venv is repaired (a too-new transformers is pulled back to the
+        pin). torch is left untouched — it is pinned by version and a forced
+        re-download of the multi-GB CUDA wheel is never what repair needs.
+        """
         # Upgrade pip.
         _run_subprocess(
             [str(venv_py), "-m", "pip", "install", "--upgrade", "pip"],
@@ -982,8 +1049,14 @@ class ChatterboxInstaller(EngineInstaller):
             return
 
         # Main packages.
+        main_cmd = [str(venv_py), "-m", "pip", "install"]
+        if force:
+            # Repair: re-pin the whole set even if pip thinks it is satisfied,
+            # so a drifted transformers is replaced by the pinned version.
+            main_cmd.append("--force-reinstall")
+        main_cmd += PIP_PACKAGES_MAIN
         result = _run_subprocess(
-            [str(venv_py), "-m", "pip", "install", *PIP_PACKAGES_MAIN],
+            main_cmd,
             progress_cb=progress_cb,
             step=3,
             total_steps=5,
