@@ -39,19 +39,44 @@ PYTHON_INSTALLER_SIZE_MB = 25
 TORCH_WHEEL_VERSION = "2.6.0"
 TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 
+# Pinned dependency chain for the Chatterbox engine venv. This MUST stay
+# identical to installer/requirements-chatterbox.txt and the matching list
+# in installer/post_install_chatterbox.py — tests/test_chatterbox_requirements.py
+# enforces parity so the two install paths can never drift apart again.
+#
+# Every entry is pinned on purpose: a floating transformers (or any other
+# link in this chain) is what produced the silent "Could not import module
+# 'LlamaModel'" engine-load failures. See the requirements file's header for
+# the full rationale and bump policy. torch / torchaudio install separately
+# via TORCH_CUDA_INDEX so chatterbox-tts's resolver does not pull the CPU
+# wheel — keep them out of this list.
 PIP_PACKAGES_MAIN = [
-    "chatterbox-tts",
-    "safetensors",
-    "num2words",
-    "silero-vad",
-    "pydub",
-    "PyMuPDF",
-    "huggingface_hub",
+    "chatterbox-tts==0.1.7",
+    # The load-bearing chain (the LlamaModel failure lives here).
+    "transformers==5.2.0",
+    "tokenizers==0.22.2",
+    # chatterbox-tts direct dependencies that otherwise float.
+    "numpy==1.26.4",
+    "diffusers==0.29.0",
+    "librosa==0.11.0",
+    "conformer==0.3.2",
+    "s3tokenizer==0.3.0",
+    "omegaconf==2.3.0",
+    "resemble-perth==1.0.1",
+    "pykakasi==2.3.0",
+    "pyloudnorm==0.2.0",
+    "safetensors==0.5.3",
+    "huggingface_hub==1.10.1",
+    # Runner companions.
+    "silero-vad==6.2.1",
+    "pydub==0.25.1",
+    "num2words==0.5.14",
+    "PyMuPDF==1.27.2.2",
     # Voice-pack LoRA training (scripts/voice_pack_train.py). Adds ~6 MB
     # on top of the ~5 GB Chatterbox stack; listed here so training does
     # not fail with NotImplementedError on a fresh install.
-    "peft",
-    "accelerate",
+    "peft==0.19.1",
+    "accelerate==1.13.0",
 ]
 
 HF_REPOS = [
