@@ -61,6 +61,7 @@ _EXAMPLES: dict[tuple[str, ...], str] = {
     ("voices", "list"): 'audiobookmaker-cli voices list --language fi',
     ("engines", "list"): 'audiobookmaker-cli engines list --installed-only',
     ("engines", "install"): 'audiobookmaker-cli engines install chatterbox_grandmom',
+    ("engines", "repair"): 'audiobookmaker-cli engines repair chatterbox_grandmom',
     ("engines", "remove"): 'audiobookmaker-cli engines remove piper --yes',
     ("engines", "check"): 'audiobookmaker-cli engines check chatterbox_grandmom',
     ("packs", "list"): 'audiobookmaker-cli packs list',
