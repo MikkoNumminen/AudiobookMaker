@@ -23,8 +23,9 @@ git -C <main-repo-path> fetch origin
 git -C <main-repo-path> merge --ff-only origin/master
 ```
 
-Then read `TODO.md` in full. Find a session row showing `🟢 idle` with
-no task or owner tag. That is the slot for the new session.
+Then read `TODO.md` (limit=60 lines; the session table is always near
+the top). Find a session row showing `🟢 idle` with no task or owner
+tag. That is the slot for the new session.
 
 If no slot is idle, stop and tell the user. Do not invent a fifth
 session name or reuse a slot showing `🔵 working`.

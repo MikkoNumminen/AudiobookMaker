@@ -176,7 +176,7 @@ because subagents skipped the context-read step:**
 ```
 Your task is to audit the codebase for resource lifecycle bugs — file handles, subprocesses, tempfiles, network sockets, and GUI widgets that are created but not reliably released.
 
-Grep for these patterns (see SKILL.md Phase 1 pattern list for the full set):
+Grep for these patterns (see SKILL.md §Phase 2 subagent 1, first ~80 lines, for the full set):
 - `open(` without `with` / missing `.close()`
 - `subprocess.Popen(` without `.wait()`, `.terminate()`, or context manager
 - `tempfile.NamedTemporaryFile(delete=False)` without matching `os.unlink`
@@ -199,7 +199,7 @@ Cap your report at ~400 words.
 ```
 Your task is to audit the codebase for data integrity bugs — format assumptions, silent conversions, and silent fallbacks that corrupt user data or mask errors.
 
-Grep for these patterns (see SKILL.md Phase 1 pattern list for the full set):
+Grep for these patterns (see SKILL.md §Phase 2 subagent 2, first ~80 lines, for the full set):
 - `.encode(` / `.decode(` without explicit encoding or with `errors="ignore"` / `"replace"`
 - `json.loads` / `yaml.safe_load` without schema or key-presence checks
 - `int(` / `float(` on external strings without `try/except`
@@ -222,7 +222,7 @@ Cap your report at ~400 words.
 ```
 Your task is to audit the codebase for concurrency bugs — shared mutable state, TOCTOU windows, daemon-thread death, and check-then-act races.
 
-Grep for these patterns (see SKILL.md Phase 1 pattern list for the full set):
+Grep for these patterns (see SKILL.md §Phase 2 subagent 3, first ~80 lines, for the full set):
 - module-level mutable globals read/written from threads
 - `os.path.exists(x)` immediately followed by `open(x)` / `os.remove(x)`
 - `Thread(..., daemon=True)` doing work that must finish (writes, flushes)
@@ -245,7 +245,7 @@ Cap your report at ~400 words.
 ```
 Your task is to audit the codebase for broken error paths — swallowed exceptions, errors raised after partial writes, and missing try/finally cleanup.
 
-Grep for these patterns (see SKILL.md Phase 1 pattern list for the full set):
+Grep for these patterns (see SKILL.md §Phase 2 subagent 4, first ~80 lines, for the full set):
 - `except Exception: pass` / `except: pass` / `except ... : continue`
 - `except ... as e: logger.debug(e)` with no re-raise and no recovery
 - writes to an output file before validation can raise
@@ -268,7 +268,7 @@ Cap your report at ~400 words.
 ```
 Your task is to audit the codebase for unsafe external boundaries — missing timeouts, path traversal, shell interpolation, and unvalidated untrusted input.
 
-Grep for these patterns (see SKILL.md Phase 1 pattern list for the full set):
+Grep for these patterns (see SKILL.md §Phase 2 subagent 5, first ~80 lines, for the full set):
 - `requests.get(` / `requests.post(` / `urlopen(` without `timeout=`
 - `subprocess.run(..., shell=True)` or f-strings built into shell commands
 - `os.path.join(base, user_input)` with no `os.path.realpath` containment check

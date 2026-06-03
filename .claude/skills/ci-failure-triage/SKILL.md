@@ -114,7 +114,8 @@ If the log output does not match any recipe:
 2. Grep the recent commit log for context:
    `git log --oneline --all | grep -i "fix(ci)"`.
 3. Identify the exact line that changed between the last green run and
-   this one: `git log --oneline <last-green-sha>..HEAD --`.
+   this one: `git log --oneline <last-green-sha>..HEAD --` (limit to
+   ~20 commits; don't spelunk into dependency repos).
 4. Fix the root cause, commit with `fix(ci): ...`, and add a new row
    to the recipe table in this file so the next session does not repeat
    the investigation.

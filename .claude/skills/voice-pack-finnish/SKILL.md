@@ -232,8 +232,11 @@ role:
 import json, random
 random.seed(7)
 by_spk = {}
+# Cap at 2000 lines — enough to sample 5 chunks per speaker from long sources.
 with open('.local/voice_runs/run_ecapa/transcripts.jsonl', encoding='utf-8') as f:
-    for line in f:
+    for i, line in enumerate(f):
+        if i >= 2000:
+            break
         c = json.loads(line)
         by_spk.setdefault(c['speaker'], []).append(c)
 for spk in sorted(by_spk):

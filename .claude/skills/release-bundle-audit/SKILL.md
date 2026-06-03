@@ -66,7 +66,8 @@ enumerate:
   - Voice-cloning reference clips (`assets/voices/<voice>_reference.wav`)
     that ship for a Chatterbox SYNTHESIS feature reachable in frozen
     *or* for a Chatterbox CLONING feature gated behind a lazy import.
-    Resolve by reading `src/gui_unified.py` for the actual reachability.
+    Resolve by reading `src/gui_unified.py` (limit=120, first two sections
+    only — engine dispatch table and lazy-import guards) for reachability.
   - `scripts/<engine>_runner.py` files for subprocess engines.
   - `src/*.py` re-bundled into a `src/` data dir — these are usually
     required because the subprocess script can't import from the PYZ.
@@ -128,9 +129,11 @@ True`. For Audiobookmaker:
 3. Find every `import torch | transformers | chatterbox | voxcpm |
    pyannote | silero_vad | safetensors | accelerate | bitsandbytes |
    peft | ctranslate2 | faster_whisper | whisper | speechbrain |
-   soundfile | librosa | huggingface_hub | sklearn` under `src/`. For
-   each, decide: reachable in frozen / subprocess-only / dev-only /
-   sys.frozen-gated.
+   soundfile | librosa | huggingface_hub | sklearn` under `src/`. Use
+   a Grep search (not per-file reads) and read matched files with
+   limit=80. Max ~3 file traces per package; don't spelunk into
+   installed packages or venvs. For each, decide: reachable in
+   frozen / subprocess-only / dev-only / sys.frozen-gated.
 
 Cross-check against `requirements.txt` to flag packages that are
 installed in the build env but never imported from reachable code.

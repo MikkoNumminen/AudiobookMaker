@@ -240,9 +240,15 @@ def _run_inner(
     voice_id = resolve_str(
         getattr(args, "voice", None),
         "AUDIOBOOKMAKER_VOICE",
-        cfg.voice_id,
+        "",
         "",
     ) or None
+    # A configured voice is engine-specific (e.g. 'grandmom' is a Chatterbox voice
+    # and is invalid for edge). Only inherit cfg.voice_id when the engine was NOT
+    # overridden away from the configured engine; otherwise leave voice_id None so
+    # the resolved engine picks its own default_voice.
+    if voice_id is None and engine_id == cfg.engine_id:
+        voice_id = cfg.voice_id or None
     speed_keyword = resolve_str(
         getattr(args, "speed", None),
         "AUDIOBOOKMAKER_SPEED",

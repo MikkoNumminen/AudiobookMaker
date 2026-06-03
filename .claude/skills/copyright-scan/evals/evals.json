@@ -1,0 +1,40 @@
+{
+  "skill_name": "copyright-scan",
+  "evals": [
+    {
+      "id": 1,
+      "name": "casual-pre-push",
+      "prompt": "about to push, quick copyright check on the staged stuff please",
+      "expected_output": "Assistant scans the staged diff via git diff --staged, runs all seven checks, and returns a structured PASS/FAIL/WARN report with per-check sections. If everything is clean, it returns PASS and proceeds. If anything is unclear it asks before proceeding.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "identifying-filename-caught",
+      "prompt": "I staged a change to README.md that added a line referencing `/Users/me/Downloads/Some_Book_Title_Author_Name_2003_Publisher.epub` as a test input. Scan it.",
+      "expected_output": "Check 2 FAILs with a file:line citation of the offending path. Assistant recommends editing the line to use a generic placeholder like `.local/source_audio.epub` or `book.epub`, does not commit, and re-runs the scan after the edit.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "allowlisted-public-domain-reference",
+      "prompt": "Scanning README.md staged changes. The new copy references Aleksis Kivi's Seitsemän veljestä (1870) in the Hear-it-first section. Is that OK?",
+      "expected_output": "Check 3 PASSes with an explicit note that Kivi is on the allowlist (public domain, author died 1872). No false-positive WARN. Assistant proceeds without asking for confirmation.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "ai-attribution-in-commit-message",
+      "prompt": "I'm about to commit with a message whose body carries an AI assistant's co-authorship trailer (a `Co-Authored-By:` line crediting an AI tool). Scan.",
+      "expected_output": "Check 7 FAILs, flagging the AI co-authorship trailer. Assistant stops the commit, references feedback_no_ai_in_git.md / CLAUDE.md rule, and asks the user to rewrite the message before retrying.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "leak-already-on-origin",
+      "prompt": "oh no I just pushed a commit that had the audible.com URL for a specific audiobook in the release notes. already on master. what now?",
+      "expected_output": "Assistant treats this as P0: stops other work, confirms the leak details, proposes the gh api Contents PUT/DELETE remediation pattern as the first option, and EXPLICITLY asks for user approval before any destructive action (history rewrite or force-push). Does not act unilaterally.",
+      "files": []
+    }
+  ]
+}
