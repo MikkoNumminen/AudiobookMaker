@@ -79,14 +79,20 @@ PIP_PACKAGES_MAIN = [
     "accelerate==1.13.0",
 ]
 
+# (repo_id, allow_patterns, revision). The revision is an immutable commit
+# SHA so the prefetch resolves the same model files every install — an
+# upstream rename/move/force-push can't silently change what we cache. The
+# Finnish SHA matches FINNISH_REVISION in the synthesis runner so the prefetch
+# populates exactly the revision the runner later requests.
 HF_REPOS = [
-    ("ResembleAI/chatterbox", None),
+    ("ResembleAI/chatterbox", None, "ef85ce7bef2f3f1a74d0d837d379d2fcb68203cd"),
     (
         "Finnish-NLP/Chatterbox-Finnish",
         [
             "models/best_finnish_multilingual_cp986.safetensors",
             "samples/reference_finnish.wav",
         ],
+        "d15775e1788055e67f49dfc6da402021e51bd0f0",
     ),
 ]
 
@@ -1074,16 +1080,17 @@ class ChatterboxInstaller(EngineInstaller):
     ) -> None:
         """Download HuggingFace model weights."""
         code_lines = ["from huggingface_hub import snapshot_download"]
-        for repo_id, allow in HF_REPOS:
+        for repo_id, allow, revision in HF_REPOS:
             if allow is None:
                 code_lines.append(
-                    f"snapshot_download({repo_id!r}, repo_type='model')"
+                    f"snapshot_download({repo_id!r}, repo_type='model', "
+                    f"revision={revision!r})"
                 )
             else:
                 allow_str = repr(list(allow))
                 code_lines.append(
                     f"snapshot_download({repo_id!r}, repo_type='model', "
-                    f"allow_patterns={allow_str})"
+                    f"allow_patterns={allow_str}, revision={revision!r})"
                 )
         code = "; ".join(code_lines)
 

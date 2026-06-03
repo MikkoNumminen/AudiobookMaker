@@ -93,15 +93,20 @@ PIP_PACKAGES_MAIN = [
 # HuggingFace assets to prefetch so the first real synthesis run does not
 # have to wait on a 7 GB download.
 HF_REPOS = [
-    # (repo_id, allow_patterns)
+    # (repo_id, allow_patterns, revision). The revision is an immutable commit
+    # SHA so the prefetch resolves the same model files every install, and the
+    # Finnish SHA matches FINNISH_REVISION in the synthesis runner. Keep these
+    # in sync with HF_REPOS in src/engine_installer.py.
     (
         "ResembleAI/chatterbox",
         None,  # whole multilingual repo, ~5.3 GB
+        "ef85ce7bef2f3f1a74d0d837d379d2fcb68203cd",
     ),
     (
         "Finnish-NLP/Chatterbox-Finnish",
         ["models/best_finnish_multilingual_cp986.safetensors",
          "samples/reference_finnish.wav"],
+        "d15775e1788055e67f49dfc6da402021e51bd0f0",
     ),
 ]
 
@@ -260,16 +265,17 @@ def prefetch_models(venv_py: Path) -> None:
     installed.
     """
     code_lines = ["from huggingface_hub import snapshot_download"]
-    for repo_id, allow in HF_REPOS:
+    for repo_id, allow, revision in HF_REPOS:
         if allow is None:
             code_lines.append(
-                f"snapshot_download({repo_id!r}, repo_type='model')"
+                f"snapshot_download({repo_id!r}, repo_type='model', "
+                f"revision={revision!r})"
             )
         else:
             allow_str = repr(list(allow))
             code_lines.append(
                 f"snapshot_download({repo_id!r}, repo_type='model', "
-                f"allow_patterns={allow_str})"
+                f"allow_patterns={allow_str}, revision={revision!r})"
             )
     code = "; ".join(code_lines)
 
