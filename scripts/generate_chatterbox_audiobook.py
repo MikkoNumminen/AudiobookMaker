@@ -181,8 +181,12 @@ VAD_FALLBACK_HEAD_KEEP_MS = 40
 VAD_FALLBACK_TRAIL_KEEP_MS = 100
 
 SETUP_INSTRUCTIONS = (
-    "chatterbox-tts is not installed in this venv. Open AudiobookMaker and "
-    "click the Install engines button in the top-right of the main window."
+    "The Chatterbox engine could not load. Its Python environment is either "
+    "missing or has incompatible package versions (for example a transformers "
+    "version that no longer matches chatterbox-tts). Open AudiobookMaker and "
+    "click the Install engines button in the top-right of the main window to "
+    "(re)install it — this repairs an existing broken environment, not just a "
+    "fresh one."
 )
 
 
@@ -830,12 +834,21 @@ def main() -> int:
     if args.dry_run:
         return _dry_run(args)
 
-    # Lazy torch/chatterbox imports with friendly error.
+    # Lazy torch/chatterbox imports with a friendly, actionable error.
+    #
+    # A drifted venv (e.g. a transformers newer than chatterbox-tts==0.1.7
+    # targets) fails right here, but NOT always as a plain ImportError: the
+    # transformers _LazyModule wrapper re-raises the real failure as a generic
+    # exception, which is the source of the cryptic "Could not import module
+    # 'LlamaModel'. Are this object's requirements defined correctly?" message.
+    # Catch broadly — any failure of these three core imports means the engine
+    # is unusable — and point the user at the one-click (re)install, which now
+    # repairs a version-drifted venv because the installer pins are exact.
     try:
         import torch  # noqa: F401
         import torchaudio  # noqa: F401
         import chatterbox  # noqa: F401
-    except ImportError as exc:
+    except Exception as exc:  # noqa: BLE001 — any failure = engine cannot load
         print(f"[error] {exc}", flush=True)
         print(SETUP_INSTRUCTIONS, flush=True)
         return 2

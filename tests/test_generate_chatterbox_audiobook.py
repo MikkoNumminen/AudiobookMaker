@@ -310,3 +310,74 @@ class TestVadConstants:
     def test_fallback_trailing_threshold_is_more_negative(self) -> None:
         """More negative dB → quieter tails survive the trim."""
         assert gca.VAD_FALLBACK_TRAIL_DB < gca.VAD_FALLBACK_HEAD_DB
+
+
+# ---------------------------------------------------------------------------
+# main(): a broken/drifted engine venv must produce an actionable repair
+# message and exit code 2 — never a raw traceback.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingFinder:
+    """meta_path hook that makes ``import <target>`` raise the given error.
+
+    Mirrors the _FakeFinder pattern used elsewhere in this file (find_module/
+    load_module is deprecated but still honoured on the 3.11 runtime).
+    """
+
+    def __init__(self, target: str, exc: BaseException) -> None:
+        self._target = target
+        self._exc = exc
+
+    def find_module(self, name, path=None):  # noqa: D401 - import hook protocol
+        return self if name == self._target else None
+
+    def load_module(self, name):
+        raise self._exc
+
+
+class TestMainEngineLoadFailure:
+    def _run_main_with_failing_chatterbox(self, exc: BaseException, capsys):
+        """Drive gca.main() with torch/torchaudio present but `import
+        chatterbox` raising ``exc``; return (exit_code, stdout)."""
+        finder = _RaisingFinder("chatterbox", exc)
+        original_chatterbox = sys.modules.pop("chatterbox", None)
+        sys.meta_path.insert(0, finder)
+        try:
+            with patch.dict(
+                sys.modules, {"torch": MagicMock(), "torchaudio": MagicMock()}
+            ), patch.object(
+                gca, "parse_args", return_value=SimpleNamespace(dry_run=False)
+            ):
+                code = gca.main()
+        finally:
+            sys.meta_path.remove(finder)
+            if original_chatterbox is not None:
+                sys.modules["chatterbox"] = original_chatterbox
+        return code, capsys.readouterr().out
+
+    def test_version_drift_runtime_error_is_caught_and_actionable(self, capsys):
+        """The transformers _LazyModule wrapper raises the LlamaModel failure
+        as a RuntimeError, not an ImportError — the old `except ImportError`
+        let it escape as a raw traceback. The broadened catch must map it to
+        the repair message + exit 2 while preserving the raw signature."""
+        exc = RuntimeError(
+            "Could not import module 'LlamaModel'. Are this object's "
+            "requirements defined correctly?"
+        )
+        code, out = self._run_main_with_failing_chatterbox(exc, capsys)
+        assert code == 2
+        assert "[error]" in out
+        # Raw signature preserved in the log for diagnosis.
+        assert "LlamaModel" in out
+        # Actionable: points at the one-click (re)install and names the cause.
+        assert "Install engines" in out
+        assert "incompatible package versions" in out
+
+    def test_missing_engine_importerror_is_still_handled(self, capsys):
+        """A genuinely absent engine (plain ImportError) still maps to the
+        same actionable message + exit 2."""
+        exc = ImportError("No module named 'chatterbox'")
+        code, out = self._run_main_with_failing_chatterbox(exc, capsys)
+        assert code == 2
+        assert "Install engines" in out
