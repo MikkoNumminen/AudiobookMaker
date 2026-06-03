@@ -90,7 +90,12 @@ SSH in, then:
 ```bash
 cd /workspace
 pip install --upgrade pip
-pip install chatterbox-tts pypdf soundfile pydub
+# Pin the load-bearing chain so the pod resolves the same versions the app
+# ships — a floating transformers triggers the cryptic "Could not import
+# module 'LlamaModel'" failure. installer/requirements-chatterbox.txt is the
+# canonical pinned set; match it (prefer `-r` it if the repo is on the pod).
+pip install chatterbox-tts==0.1.7 transformers==5.2.0 tokenizers==0.22.2 \
+    pypdf soundfile pydub
 apt-get update && apt-get install -y ffmpeg
 ```
 

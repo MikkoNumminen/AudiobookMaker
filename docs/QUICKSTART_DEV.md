@@ -142,8 +142,12 @@ pip install --upgrade pip
 # PyTorch 2.6.0 with CUDA 12.4 runtime
 pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
-# Chatterbox + the extras the Windows installer also installs:
-pip install chatterbox-tts safetensors num2words silero-vad PyMuPDF pydub
+# Chatterbox + the extras the Windows installer also installs.
+# installer/requirements-chatterbox.txt is the canonical pinned set both
+# installers use; -r it here so your dev venv matches a user's exactly.
+# (Pinning matters: a floating transformers is what caused the
+# "Could not import module 'LlamaModel'" engine-load failures.)
+pip install -r installer/requirements-chatterbox.txt
 
 # Optional: Finnish "gemination patch" that reduces stuttering on long
 # sequences. Windows applies it automatically. On Linux, open
