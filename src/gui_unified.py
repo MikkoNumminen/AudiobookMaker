@@ -65,6 +65,7 @@ try:
 except Exception:  # pragma: no cover — module might be stubbed in parallel dev
     _duration_estimate = None  # type: ignore
 from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engines
+from src.version_manifest import is_engine_load_failure
 from src.tts_engine import TTSConfig, chapters_to_speech
 from src.voice_pack import (
     VoicePack,
@@ -268,6 +269,8 @@ _STRINGS = {
         "disk_space_msg": "Levytilaa ei riitä tulostekansiossa.\n\nVapaa: {free} MB\nTarvitaan: ~{need} MB\n\nVapauta tilaa tai valitse toinen tallennuspaikka.",
         "pdf_selected": "PDF valittu.",
         "chatterbox_venv_missing": "Chatterbox-moottoria ei ole asennettu. Asenna se ikkunan oikeasta yläkulmasta löytyvällä \"Asenna moottoreita…\" -painikkeella.",
+        "engine_repair_title": "Moottori vaatii korjauksen",
+        "engine_repair_prompt": "Chatterbox-moottoria ei voitu ladata — sen ympäristön versiot ovat todennäköisesti yhteensopimattomat. Avataanko \"Asenna moottoreita…\" ja korjataan se nyt?",
         "subprocess_failed": "Subprocess ei käynnistynyt: {error}",
         "engine_not_found_id": "Moottoria '{engine_id}' ei löytynyt.",
         "reading_input": "Luetaan syötettä\u2026",
@@ -377,6 +380,8 @@ _STRINGS = {
         "disk_space_msg": "Not enough disk space at the output path.\n\nFree: {free} MB\nNeeded: ~{need} MB\n\nFree some space or pick a different save location.",
         "pdf_selected": "PDF selected.",
         "chatterbox_venv_missing": "Chatterbox engine is not installed. Install it via the \"Install engines…\" button in the top-right corner of the main window.",
+        "engine_repair_title": "Engine needs repair",
+        "engine_repair_prompt": "The Chatterbox engine could not load — its environment likely has incompatible package versions. Open \"Install engines…\" and repair it now?",
         "subprocess_failed": "Subprocess failed to start: {error}",
         "engine_not_found_id": "Engine '{engine_id}' not found.",
         "reading_input": "Reading input\u2026",
@@ -3205,6 +3210,22 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Revert the sticky strip: no green "done", no lingering progress.
         if hasattr(self, "_status_strip_frame"):
             self._set_status_strip("idle")
+        # A broken/drifted engine venv (the "Could not import module
+        # 'LlamaModel'" failure) is recoverable in one click: offer to open
+        # Install engines, which re-pins the venv. Defensive — if anything in
+        # the offer path misbehaves, fall through to the plain error dialog so
+        # the failure is never swallowed.
+        if is_engine_load_failure(message):
+            try:
+                if messagebox.askyesno(
+                    self._s("engine_repair_title"),
+                    f"{message}\n\n{self._s('engine_repair_prompt')}",
+                ):
+                    self._open_engine_manager()
+                return
+            except Exception:
+                logger.debug("engine-repair offer failed; showing plain error",
+                             exc_info=True)
         messagebox.showerror(self._s("error"), message)
 
     def _request_cancel(self) -> None:  # type: ignore[override]

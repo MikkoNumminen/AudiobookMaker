@@ -186,3 +186,34 @@ def test_build_probe_code_compiles() -> None:
     # Must be syntactically valid so the subprocess does not crash on parse.
     compile(code, "<probe>", "exec")
     assert "import_ok" in code
+
+
+# ---------------------------------------------------------------------------
+# is_engine_load_failure — the GUI repair-offer trigger
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "[error] Could not import module 'LlamaModel'. Are this object's requirements defined correctly?",
+        "Could not import module 'LlamaModel'",
+        "RuntimeError: ... LlamaModel ...",
+        "The Chatterbox engine could not load. Its Python environment ... has incompatible package versions",
+    ],
+)
+def test_is_engine_load_failure_true_for_broken_venv(message: str) -> None:
+    assert vm.is_engine_load_failure(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "",
+        "Not enough disk space at the output path.",
+        "Subprocess failed to start: file not found",
+        "User cancelled synthesis.",
+    ],
+)
+def test_is_engine_load_failure_false_for_unrelated_errors(message: str) -> None:
+    assert vm.is_engine_load_failure(message) is False

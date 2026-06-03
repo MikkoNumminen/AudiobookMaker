@@ -125,6 +125,29 @@ class VenvHealth:
         return "Chatterbox engine venv is healthy."
 
 
+# Substrings that mark an error message as a broken/drifted engine venv. The
+# transformers _LazyModule wrapper hides the real failure behind "Could not
+# import module 'LlamaModel'"; the synthesis runner adds its own wording. Lives
+# here (not in the GUI) so it is importable without Tk and unit-testable.
+_ENGINE_LOAD_FAILURE_SIGNATURES = (
+    "could not import module",        # transformers _LazyModule wrapper
+    "llamamodel",
+    "incompatible package versions",  # the runner's broken-engine guidance
+)
+
+
+def is_engine_load_failure(message: str) -> bool:
+    """True if an error message looks like a broken/drifted Chatterbox venv.
+
+    Lets the GUI offer a one-click repair (open Install engines) instead of a
+    dead-end traceback dialog when synthesis fails on a venv that drifted.
+    """
+    if not message:
+        return False
+    low = message.lower()
+    return any(sig in low for sig in _ENGINE_LOAD_FAILURE_SIGNATURES)
+
+
 def compare(
     pinned: dict[str, str], installed: dict[str, Optional[str]]
 ) -> list[Drift]:
