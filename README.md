@@ -367,3 +367,4 @@ Cloning someone's voice without consent is harmful and illegal in many jurisdict
 
 The voice-cloning **pipeline** (analyze → train → package) is intentionally kept out of the end-user installer. This isn't a packaging accident — it's a choice. The people most likely to do real harm are those who download a one-click installer and click around; the people most likely to do useful work are those willing to set up Python, install CUDA, read a README, and record their own voice. The friction is on purpose. The GUI consumes the resulting voice packs but does not produce them.
 
+
