@@ -209,6 +209,56 @@ class TestCheckForUpdate:
         assert info.sha256 == sha
 
 
+class TestCheckForUpdateMalformedResponse:
+    """A malformed GitHub response must degrade to 'no update' (or an update
+    with empty fields), never raise — check_for_update documents never-raises,
+    and a broken update check must not crash the app or its background thread.
+    """
+
+    @staticmethod
+    def _raw(payload) -> MagicMock:
+        resp = MagicMock()
+        resp.read.return_value = json.dumps(payload).encode()
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    @patch("src.auto_updater.urlopen")
+    def test_null_body_does_not_crash(self, mock_urlopen: MagicMock) -> None:
+        # body: null -> .get("body") is None; the old .get("body", "") would
+        # pass None into _extract_sha256 and raise TypeError.
+        mock_urlopen.return_value = _mock_github_response(tag="v3.0.0", body=None)
+        info = check_for_update("2.0.0")
+        assert info.available is True  # newer tag, valid asset
+        assert info.sha256 == ""        # no SHA derivable, but no crash
+        assert info.release_notes == ""
+
+    @patch("src.auto_updater.urlopen")
+    def test_null_tag_name_returns_no_update(self, mock_urlopen: MagicMock) -> None:
+        mock_urlopen.return_value = _mock_github_response(tag=None)
+        info = check_for_update("2.0.0")
+        assert info.available is False
+        assert info.current_version == "2.0.0"
+
+    @patch("src.auto_updater.urlopen")
+    def test_non_dict_response_returns_no_update(self, mock_urlopen: MagicMock) -> None:
+        # A valid-JSON but non-object response (e.g. a list) must not
+        # AttributeError on `.get`.
+        mock_urlopen.return_value = self._raw(["not", "a", "release", "object"])
+        info = check_for_update("2.0.0")
+        assert info.available is False
+
+    @patch("src.auto_updater.urlopen")
+    def test_github_error_object_returns_no_update(self, mock_urlopen: MagicMock) -> None:
+        # GitHub's {"message": "Not Found"} 404 body — a dict with no tag.
+        mock_urlopen.return_value = self._raw({"message": "Not Found"})
+        info = check_for_update("2.0.0")
+        assert info.available is False
+
+    def test_extract_sha256_tolerates_non_string(self) -> None:
+        assert _extract_sha256(None) is None  # type: ignore[arg-type]
+
+
 class TestSidecarSha256Fallback:
     """When the release body lacks a SHA-256 line, fall back to the
     `.exe.sha256` sidecar asset uploaded by the release pipeline."""
