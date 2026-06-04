@@ -229,6 +229,12 @@ def _extract_sha256(release_notes: str) -> str | None:
     or:
         `abc123...` (64 hex chars on their own)
     """
+    # A GitHub release body can be JSON null (-> None here) or, defensively,
+    # any non-string. Guard so a malformed response yields "no SHA found"
+    # rather than a TypeError that would escape check_for_update's
+    # never-raises contract.
+    if not isinstance(release_notes, str):
+        return None
     # Pattern: "SHA-256: <hex>" or "sha256: <hex>"  (with optional backticks)
     match = re.search(r"(?i)sha-?256:\s*`?([0-9a-fA-F]{64})`?", release_notes)
     if match:
@@ -260,7 +266,20 @@ def check_for_update(current_version: str) -> UpdateInfo:
         with urlopen(req, timeout=API_TIMEOUT) as resp:
             release_data = json.loads(resp.read().decode("utf-8"))
 
-        tag: str = release_data.get("tag_name", "")
+        # The body is valid JSON but might not be the expected object — e.g.
+        # GitHub's `{"message": "Not Found"}` error payload is a dict (handled
+        # below by empty fields), but a rate-limit/list response could be a
+        # non-dict. Bail cleanly rather than AttributeError on `.get`.
+        if not isinstance(release_data, dict):
+            logger.warning(
+                "GitHub release response was not a JSON object (got %s)",
+                type(release_data).__name__,
+            )
+            return _no_update(current_version)
+
+        # `or ""` (not `.get(k, "")`): a present-but-null field returns None
+        # from .get, and None.lstrip(...) would raise.
+        tag: str = release_data.get("tag_name") or ""
         latest_version = tag.lstrip("vV").strip()
         if not latest_version:
             logger.warning("GitHub release has no tag_name")
@@ -274,7 +293,7 @@ def check_for_update(current_version: str) -> UpdateInfo:
             logger.warning("No .exe asset found in latest release")
             return _no_update(current_version)
 
-        sha256 = _extract_sha256(release_data.get("body", ""))
+        sha256 = _extract_sha256(release_data.get("body") or "")
         # Fallback: the release author may have published the sidecar
         # `.exe.sha256` asset without (or before) editing the body. Both
         # paths are equally trustworthy because the release author
@@ -304,13 +323,20 @@ def check_for_update(current_version: str) -> UpdateInfo:
             current_version=current_version,
             latest_version=latest_version,
             download_url=download_url,
-            release_notes=release_data.get("body", ""),
-            asset_size_bytes=asset.get("size", 0),
+            release_notes=release_data.get("body") or "",
+            asset_size_bytes=asset.get("size") or 0,
             sha256=sha256 or "",
         )
 
     except (URLError, OSError, json.JSONDecodeError, KeyError) as exc:
         logger.debug("Update check failed: %s", exc)
+        return _no_update(current_version)
+    except Exception as exc:  # noqa: BLE001
+        # Defensive net: check_for_update documents "never raises", and a
+        # broken update check must never crash the app or its background
+        # thread. Anything unforeseen (a surprise response shape, an
+        # attribute/type error) degrades to "no update" with a loud log.
+        logger.warning("Update check hit an unexpected error: %s", exc, exc_info=True)
         return _no_update(current_version)
 
 
