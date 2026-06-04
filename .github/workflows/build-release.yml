@@ -160,7 +160,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           if [ ! -f assets/icon.ico ]; then
-            pip install Pillow
+            pip install Pillow==12.2.0  # keep in sync with requirements.txt
             python -c "
           from PIL import Image
           img = Image.new('RGBA', (256, 256), (52, 101, 164, 255))
@@ -407,7 +407,9 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        # Pinned to a commit SHA (was @v2): this third-party action publishes
+        # the release, so an upstream tag re-point can't change what runs.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
           name: AudiobookMaker ${{ steps.version.outputs.VERSION }}
           body_path: release_notes.md
