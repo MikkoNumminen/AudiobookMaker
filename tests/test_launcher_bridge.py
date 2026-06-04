@@ -550,7 +550,13 @@ class TestReaderLoopFinallyClose:
 
 
 class _WaiterState:
-    """Minimal state for _waiter_loop: proc + reader + event_queue + done."""
+    """Minimal state for _waiter_loop: proc + reader + event_queue + done.
+
+    Mirrors the fields of ``_RunnerState`` that ``_waiter_loop`` and its
+    helpers touch — including ``cancel_requested``, which gates whether the
+    waiter escalates to terminate/kill or just keeps waiting for the runner
+    to exit on its own.
+    """
 
     def __init__(self, proc):
         from queue import Queue as _Queue
@@ -560,22 +566,30 @@ class _WaiterState:
         self.reader = None
         self.event_queue = _Queue()
         self.done = _Event()
+        self.cancel_requested = _Event()
+        self.reader_error = None
+        self.waiter_error = None
 
 
-def _make_runner_with_proc(proc):
+def _make_runner_with_proc(proc, *, cancel: bool = False):
     runner = ChatterboxRunner.__new__(ChatterboxRunner)
     runner._state = _WaiterState(proc)
+    if cancel:
+        runner._state.cancel_requested.set()
     return runner
 
 
-class TestWaiterLoopShutdownBudget:
-    """_waiter_loop must bound its wait on the runner subprocess so a
-    stuck child never pins the waiter thread forever — the launcher
-    still needs to deliver the 'exit' event so the GUI stops spinning."""
+class TestWaiterLoopNaturalCompletion:
+    """A normal, un-cancelled run must wait for the runner to exit on its
+    own — for as long as it takes. The waiter polls in short slices but
+    NEVER escalates to terminate/kill while waiting for natural completion.
 
-    def test_wait_called_with_timeout(self) -> None:
-        import subprocess as _sp
+    Regression guard: a previous version bounded the *initial* wait at the
+    60s shutdown budget and terminated the runner the moment it ran longer
+    — which killed every synthesis >60s and broke the final MP3-assembly
+    phase on long books."""
 
+    def test_happy_path_reports_clean_rc(self) -> None:
         from unittest.mock import MagicMock
 
         mock_proc = MagicMock()
@@ -584,58 +598,110 @@ class TestWaiterLoopShutdownBudget:
         runner = _make_runner_with_proc(mock_proc)
         runner._waiter_loop()
 
-        # First wait() must have been bounded.
+        # The poll wait is bounded (so a cancel can be honoured), but small.
         first_call = mock_proc.wait.call_args_list[0]
         assert first_call.kwargs.get("timeout") is not None
         assert first_call.kwargs["timeout"] > 0
-        # Happy path reports the clean return code.
+        mock_proc.terminate.assert_not_called()
+        mock_proc.kill.assert_not_called()
         ev = runner._state.event_queue.get_nowait()
         assert ev.kind == "exit"
         assert ev.returncode == 0
-        _ = _sp.TimeoutExpired  # silence unused import warning
 
-    def test_timeout_escalates_to_terminate_then_kill(self) -> None:
-        """If the bounded wait expires, _waiter_loop must terminate the
-        child, give it a short grace period, then kill() if still
-        alive. Without this a hung runner would block shutdown forever."""
+    def test_long_run_is_never_terminated_without_cancel(self) -> None:
+        """The runner stays busy across many poll slices (simulating a
+        multi-minute synthesis + assembly) and finally exits cleanly. With
+        no cancel request, the waiter must never terminate() or kill() it."""
         import subprocess as _sp
 
         from unittest.mock import MagicMock
 
         mock_proc = MagicMock()
-        # wait() call sequence: first hangs (bounded wait), second hangs
-        # (post-terminate grace), third returns after kill().
+        # Five poll slices time out (still running), then a clean exit.
         mock_proc.wait.side_effect = [
-            _sp.TimeoutExpired(cmd="runner", timeout=60),
-            _sp.TimeoutExpired(cmd="runner", timeout=5),
-            -9,
+            _sp.TimeoutExpired(cmd="runner", timeout=1),
+            _sp.TimeoutExpired(cmd="runner", timeout=1),
+            _sp.TimeoutExpired(cmd="runner", timeout=1),
+            _sp.TimeoutExpired(cmd="runner", timeout=1),
+            _sp.TimeoutExpired(cmd="runner", timeout=1),
+            0,
         ]
 
         runner = _make_runner_with_proc(mock_proc)
         runner._waiter_loop()
 
-        mock_proc.terminate.assert_called_once()
-        mock_proc.kill.assert_called_once()
-        assert mock_proc.wait.call_count == 3
+        mock_proc.terminate.assert_not_called()
+        mock_proc.kill.assert_not_called()
         ev = runner._state.event_queue.get_nowait()
         assert ev.kind == "exit"
-        # Return code is whatever the final wait() produced (here -9 from kill).
+        assert ev.returncode == 0
+
+
+class TestWaiterLoopCancelEscalation:
+    """Once cancel() has set ``cancel_requested``, the waiter gives the
+    runner the shutdown budget to finish its current chunk, then SIGTERM +
+    short grace, then SIGKILL — so a stuck runner can never pin shutdown."""
+
+    def test_cancel_escalates_to_terminate_then_kill(self) -> None:
+        import subprocess as _sp
+
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        # poll slice (still running) -> cancel seen -> shutdown budget hangs
+        # -> terminate grace hangs -> kill returns.
+        mock_proc.wait.side_effect = [
+            _sp.TimeoutExpired(cmd="runner", timeout=1),
+            _sp.TimeoutExpired(cmd="runner", timeout=60),
+            _sp.TimeoutExpired(cmd="runner", timeout=5),
+            -9,
+        ]
+
+        runner = _make_runner_with_proc(mock_proc, cancel=True)
+        runner._waiter_loop()
+
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        ev = runner._state.event_queue.get_nowait()
+        assert ev.kind == "exit"
         assert ev.returncode == -9
 
-    def test_terminate_grace_skips_kill_when_child_exits(self) -> None:
-        """If terminate() is enough — the child exits within the grace
-        window — kill() must not be called."""
+    def test_cancel_clean_exit_within_budget_skips_terminate(self) -> None:
+        """If the runner honours SIGINT and exits inside the shutdown
+        budget, neither terminate() nor kill() is called."""
         import subprocess as _sp
 
         from unittest.mock import MagicMock
 
         mock_proc = MagicMock()
         mock_proc.wait.side_effect = [
-            _sp.TimeoutExpired(cmd="runner", timeout=60),
+            _sp.TimeoutExpired(cmd="runner", timeout=1),  # poll slice
+            0,  # clean exit within the shutdown budget
+        ]
+
+        runner = _make_runner_with_proc(mock_proc, cancel=True)
+        runner._waiter_loop()
+
+        mock_proc.terminate.assert_not_called()
+        mock_proc.kill.assert_not_called()
+        ev = runner._state.event_queue.get_nowait()
+        assert ev.returncode == 0
+
+    def test_cancel_terminate_grace_skips_kill(self) -> None:
+        """terminate() is enough — the child exits within the grace window —
+        so kill() must not be called."""
+        import subprocess as _sp
+
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        mock_proc.wait.side_effect = [
+            _sp.TimeoutExpired(cmd="runner", timeout=1),   # poll slice
+            _sp.TimeoutExpired(cmd="runner", timeout=60),  # shutdown budget
             0,  # terminate grace: child exits cleanly
         ]
 
-        runner = _make_runner_with_proc(mock_proc)
+        runner = _make_runner_with_proc(mock_proc, cancel=True)
         runner._waiter_loop()
 
         mock_proc.terminate.assert_called_once()
