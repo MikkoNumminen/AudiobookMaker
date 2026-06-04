@@ -233,6 +233,40 @@ class TestTextToSpeech:
             finally:
                 os.unlink(out)
 
+    def test_each_chunk_gets_its_own_retry_budget(self, tmp_path) -> None:
+        """Regression for the bounded-wait kill (same bug class as the
+        Chatterbox bridge 60s waiter): each chunk is synthesized under its OWN
+        _asyncio_run_with_retry — not the whole book under one 10s*chunks
+        wall-clock budget that a slow connection would blow mid-flight. The
+        per-chunk budget must also exceed the inner per-chunk timeout so a
+        genuinely slow (but progressing) chunk is not abandoned."""
+        from src.tts_engine import _EDGE_CHUNK_TIMEOUT, split_text_into_chunks
+
+        # Enough text to exceed the 3000-char chunker default -> several chunks.
+        text = " ".join(f"Lause numero {i}." for i in range(400))
+        timeouts: list[float] = []
+
+        def fake_retry(factory, timeout_s=120, retries=3):
+            timeouts.append(timeout_s)
+            factory().close()  # realise the coroutine, don't run it (lazy body)
+            return None
+
+        with patch("src.tts_engine._asyncio_run_with_retry", side_effect=fake_retry), \
+                patch("src.tts_engine.combine_audio_files"):
+            text_to_speech(
+                text,
+                str(tmp_path / "out.mp3"),
+                config=TTSConfig(language="fi", normalize_text=False),
+            )
+
+        n_chunks = len(split_text_into_chunks(text))
+        assert n_chunks > 1, "test text must split into multiple chunks"
+        assert len(timeouts) == n_chunks, "one retry budget per chunk, not per book"
+        assert all(t >= _EDGE_CHUNK_TIMEOUT for t in timeouts), (
+            f"per-chunk budget must cover the inner {_EDGE_CHUNK_TIMEOUT}s "
+            f"timeout, got {timeouts}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Edge-TTS chunk timeout
