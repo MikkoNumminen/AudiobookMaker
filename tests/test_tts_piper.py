@@ -284,3 +284,32 @@ class TestSupportedLanguages:
 
     def test_returns_a_set(self) -> None:
         assert isinstance(PiperTTSEngine().supported_languages(), set)
+
+
+class TestPiperNormalizesText:
+    """Piper must normalize via normalize_text before chunking — like every
+    other engine — so Finnish years, §-citations, and acronyms are spoken
+    correctly on Piper too. Without it the corrections only reach Chatterbox.
+    Cross-engine consistency guard (docs/CONVENTIONS.md "Text normalization")."""
+
+    def test_synthesize_normalizes_before_chunking(self, tmp_path, monkeypatch) -> None:
+        fake_piper = MagicMock()
+        fake_piper.PiperVoice.load.return_value = MagicMock()
+        monkeypatch.setattr("src.tts_piper._is_voice_cached", lambda spec: True)
+        monkeypatch.setattr("src.tts_piper._cache_dir", lambda: tmp_path)
+
+        with patch.dict("sys.modules", {"piper": fake_piper}), \
+                patch("src.tts_piper.normalize_text",
+                      return_value="NORMALIZED") as spy, \
+                patch("src.tts_piper.split_text_into_chunks",
+                      return_value=[]) as chunker:
+            # Empty chunks raise right after normalization has run.
+            with pytest.raises(ValueError):
+                PiperTTSEngine().synthesize(
+                    "Vuonna 1995 § 4 mukaan.", str(tmp_path / "out.mp3"),
+                    "fi_FI-harri-medium", "fi",
+                )
+
+        spy.assert_called_once_with("Vuonna 1995 § 4 mukaan.", "fi")
+        chunker.assert_called_once()
+        assert chunker.call_args.args[0] == "NORMALIZED"

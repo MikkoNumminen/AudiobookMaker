@@ -334,3 +334,41 @@ class TestSampleRateContract:
         # model-reported 16000, never the old 24000 fallback.
         assert captured_rates, "expected at least one chunk to be written"
         assert all(r == 16000 for r in captured_rates), captured_rates
+
+
+class TestNormalizesText:
+    """VoxCPM must normalize via normalize_text before chunking — like every
+    other engine — so Finnish years, §-citations, and acronyms are spoken
+    correctly here too. Cross-engine consistency guard
+    (docs/CONVENTIONS.md "Text normalization")."""
+
+    def test_synthesize_normalizes_before_chunking(self, tmp_path) -> None:
+        fake_torch = MagicMock()
+        fake_torch.cuda.is_available.return_value = True
+        engine = VoxCPM2Engine()
+
+        def good_load_model():
+            engine._model = MagicMock()
+            engine._sample_rate = 16000
+            return engine._model
+
+        engine._load_model = good_load_model  # type: ignore[method-assign]
+
+        with patch.dict(
+            "sys.modules",
+            {"voxcpm": MagicMock(), "torch": fake_torch, "soundfile": MagicMock()},
+        ), patch(
+            "src.tts_voxcpm.normalize_text", return_value="NORMALIZED"
+        ) as spy, patch(
+            "src.tts_voxcpm.split_text_into_chunks", return_value=[]
+        ) as chunker:
+            # Empty chunks raise right after normalization has run.
+            with pytest.raises(ValueError):
+                engine.synthesize(
+                    "Vuonna 1995 § 4 mukaan.", str(tmp_path / "out.mp3"),
+                    "voxcpm2-default-fi", "fi",
+                )
+
+        spy.assert_called_once_with("Vuonna 1995 § 4 mukaan.", "fi")
+        chunker.assert_called_once()
+        assert chunker.call_args.args[0] == "NORMALIZED"

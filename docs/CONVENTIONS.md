@@ -242,6 +242,29 @@ later changes have to reason about forever. See
 [docs/tts_text_normalization_cases.md](tts_text_normalization_cases.md)
 for the canonical test inventory.
 
+## Text normalization runs in every engine, before chunking
+
+Normalization (years, §-citations, säädösnumerot, acronym letter-names,
+etc.) is **upstream of every TTS model**, not a feature of any one engine.
+The contract: **every engine's `synthesize()` calls
+`normalize_text(text, language)` before `split_text_into_chunks(...)`.**
+
+If an engine chunks raw text, the whole normalizer is silently bypassed
+for that engine — "GDPR" and "§ 4" come out right on Chatterbox but wrong
+on Piper, and the inconsistency is invisible until someone listens. This
+already happened: Piper and VoxCPM chunked raw text while Chatterbox (via
+the runner) and Edge (via `text_to_speech`) normalized.
+
+Rules:
+
+- A new engine adapter's `synthesize()` **must** normalize before chunking.
+  Mirror the existing call in `src/tts_piper.py` / `src/tts_voxcpm.py`.
+- Normalize **once** per path. `text_to_speech()` already normalizes, so an
+  engine that routes through it (Edge) must **not** normalize again.
+- Each engine that normalizes in its own `synthesize()` gets a regression
+  test asserting the chunker receives the normalized text (see
+  `TestPiperNormalizesText`, `tests/test_tts_voxcpm.py::TestNormalizesText`).
+
 ## cuDNN duplicate DLL in `.venv-chatterbox` (ctranslate2 vs. torch)
 
 If you run anything in the Chatterbox venv that touches
