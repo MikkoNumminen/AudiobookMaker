@@ -7,6 +7,17 @@ requests. Pure text in / list-of-strings out — no synthesis dependencies.
 
 from __future__ import annotations
 
+import re
+
+
+# Clause-boundary punctuation. When a single sentence is too long to fit in a
+# chunk it MUST be split, but splitting mid-phrase inserts an audible pause
+# there (each chunk seam carries a VAD tail-pad + inter-chunk gap). Prefer to
+# break right after a comma / semicolon / colon / dash — a place the listener
+# already expects a short pause. The split keeps the punctuation on the
+# left-hand clause.
+_CLAUSE_BOUNDARY_RE = re.compile(r"(?<=[,;:—–])\s+")
+
 
 # Maximum characters per TTS request. edge-tts has no hard limit but
 # large chunks cause timeouts; 3000 chars is reliable in practice.
@@ -187,7 +198,40 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _force_split(text: str, max_chars: int) -> list[str]:
-    """Split a long string on word boundaries."""
+    """Split a too-long sentence, preferring clause boundaries over bare words.
+
+    A sentence longer than max_chars must be broken, but a mid-phrase break
+    puts an audible pause there. Pack clauses (split at commas/semicolons/
+    colons/dashes) up to max_chars; only fall back to word boundaries when a
+    single clause is itself too long. This keeps the seam — and its pause — at
+    a place the listener already expects one.
+    """
+    clauses = _CLAUSE_BOUNDARY_RE.split(text)
+    chunks: list[str] = []
+    current = ""
+    for clause in clauses:
+        clause = clause.strip()
+        if not clause:
+            continue
+        if len(clause) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_word_split(clause, max_chars))
+            continue
+        if len(current) + len(clause) + 1 <= max_chars:
+            current = current + " " + clause if current else clause
+        else:
+            if current:
+                chunks.append(current)
+            current = clause
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _word_split(text: str, max_chars: int) -> list[str]:
+    """Last-resort split on word boundaries (a single clause exceeds max_chars)."""
     words = text.split()
     chunks: list[str] = []
     current = ""

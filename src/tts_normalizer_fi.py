@@ -15,6 +15,7 @@ import re
 from typing import Optional
 
 from src.fi_loanwords import apply_loanword_respellings
+from src.tts_normalizer_fi_legal import expand_legal_citations
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +329,21 @@ def _expand_acronyms(text: str) -> str:
     lookup = _fi_acronym_lookup()
 
     def _sub(m: re.Match) -> str:
-        return lookup[m.group(1)]
+        key = m.group(1)
+        value = lookup[key]
+        # Spell-out entries — the value is the key's letters written as
+        # space-separated SINGLE letters (e.g. "WTO": "W T O", "PDF": "P D F").
+        # Read these as Finnish letter names so the model doesn't mispronounce
+        # bare letters. A word value like "Nato" is NOT a spell-out (its tokens
+        # aren't all single letters), so it passes through unchanged.
+        parts = value.split()
+        if (
+            len(parts) >= 2
+            and all(len(p) == 1 for p in parts)
+            and value.replace(" ", "").upper() == key.upper()
+        ):
+            return _fi_spell_letters(key)
+        return value
     return _fi_acronym_re().sub(_sub, text)
 
 
@@ -397,8 +412,32 @@ def _fi_in_heading_run(spans: list[tuple[int, int]], start: int, end: int) -> bo
     return False
 
 
+# Finnish names of the letters. An acronym like "GDPR" must be spelled as the
+# spoken letter NAMES ("gee dee pee är"), not left as bare letters "G D P R" —
+# the TTS model guesses the wrong sounds for bare letters (it read "P" as
+# "paa" and "R" as "ar" instead of "pee"/"är"). Reading real words fixes the
+# whole class of acronym mispronunciation, known or unknown.
+_FI_LETTER_NAMES: dict[str, str] = {
+    "A": "aa", "B": "bee", "C": "see", "D": "dee", "E": "ee", "F": "äf",
+    "G": "gee", "H": "hoo", "I": "ii", "J": "jii", "K": "koo", "L": "äl",
+    "M": "äm", "N": "än", "O": "oo", "P": "pee", "Q": "kuu", "R": "är",
+    "S": "äs", "T": "tee", "U": "uu", "V": "vee", "W": "kaksoisvee",
+    "X": "äks", "Y": "yy", "Z": "tseta", "Å": "ruotsalainen oo",
+    "Ä": "ää", "Ö": "öö",
+}
+
+
+def _fi_spell_letters(token: str) -> str:
+    """Spell an acronym as Finnish letter-name words ("GDPR" -> "gee dee pee är").
+
+    A letter with no known name (a digit, say) is read on its own; the digit
+    passes through to num2words downstream.
+    """
+    return " ".join(_FI_LETTER_NAMES.get(ch.upper(), ch) for ch in token)
+
+
 def _expand_acronym_fallback(text: str) -> str:
-    """Spell unknown 2-5 letter ALL-CAPS tokens letter-by-letter.
+    """Spell unknown 2-5 letter ALL-CAPS tokens as Finnish letter names.
 
     Runs after :func:`_expand_acronyms`, so any token listed in
     ``data/fi_acronyms.yaml`` has already been replaced with its Finnish
@@ -427,7 +466,7 @@ def _expand_acronym_fallback(text: str) -> str:
             return tok
         if _fi_in_heading_run(heading_spans, m.start(), m.end()):
             return tok
-        return " ".join(tok)
+        return _fi_spell_letters(tok)
 
     return _FI_ACRONYM_FALLBACK_RE.sub(_sub, text)
 
@@ -1014,6 +1053,15 @@ def normalize_finnish_text(
     # Pass O — strip emoji. Runs first so no later regex needs to worry
     # about pictographs sneaking through character classes.
     text = _strip_emoji(text)
+
+    # Pass Z — legal-citation expansion (§, law abbreviations, statute numbers,
+    # articles, moments, page ranges). Runs before Pass A so that statute
+    # numbers are turned into spoken "NNN kautta YYYY" and survive (a
+    # substantive law reference should be read), while genuine bibliographic
+    # citations (author names, journal refs) still match Pass A and are
+    # dropped. Context-aware: a no-op on text that has no legal citation
+    # shapes, so it is safe to run on every Finnish document.
+    text = expand_legal_citations(text)
 
     # Pass A — drop bibliographic citations and metadata parens.
     if drop_citations:

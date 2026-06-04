@@ -253,3 +253,26 @@ class TestForceSplit:
         parts = _force_split(word, max_chars=100)
         assert len(parts) == 1
         assert parts[0] == word
+
+    def test_prefers_clause_boundaries_over_mid_phrase(self) -> None:
+        # A too-long sentence must break at commas (natural pause points), not
+        # in the middle of a phrase — otherwise the inter-chunk gap + tail pad
+        # land mid-phrase and the listener hears an unnatural pause.
+        sentence = (
+            "ensimmäinen lauseke jossa on runsaasti sanoja mukana, "
+            "toinen yhtä mittava lauseke vielä lisää sanoja tähän, "
+            "kolmas lauseke jossa on loputkin sanat paikallaan"
+        )
+        parts = _force_split(sentence, max_chars=60)
+        # Every seam (all but the last part) ends at a clause boundary.
+        for p in parts[:-1]:
+            assert p.rstrip().endswith((",", ";", ":")), p
+        assert all(len(p) <= 60 for p in parts)
+
+    def test_falls_back_to_words_when_a_clause_exceeds_max(self) -> None:
+        # A single clause with no internal punctuation longer than max_chars
+        # still gets word-split (last resort).
+        clause = "sana " * 40  # 200 chars, no comma
+        parts = _force_split(clause.strip(), max_chars=50)
+        assert len(parts) > 1
+        assert all(len(p) <= 50 for p in parts)
