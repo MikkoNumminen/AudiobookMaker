@@ -325,6 +325,88 @@ class TestVadConstants:
         """More negative dB → quieter tails survive the trim."""
         assert gca.VAD_FALLBACK_TRAIL_DB < gca.VAD_FALLBACK_HEAD_DB
 
+    def test_mid_join_keep_is_tighter_than_sentence_pads(self) -> None:
+        """A mid-phrase join hard-caps silence to far less than a sentence
+        end keeps — otherwise the force-split inside a phrase is a pause."""
+        assert gca.MID_JOIN_TAIL_KEEP_MS < gca.VAD_TAIL_PAD_MS
+        assert gca.MID_JOIN_HEAD_KEEP_MS < gca.VAD_HEAD_PAD_MS
+
+
+class TestEndsOnPausePunct:
+    """_ends_on_pause_punct decides whether a chunk boundary gets the
+    generous sentence pads + inter-chunk gap (True) or a tight, gap-free
+    mid-phrase join (False)."""
+
+    @pytest.mark.parametrize("text", [
+        "Tämä on lause.",
+        "Onko näin?",
+        "Varo!",
+        "Hän mietti…",
+        "ensin yksi asia,",          # clause boundary (comma)
+        "seuraavasti:",              # colon
+        "kaksi osaa;",               # semicolon
+        "ajatus —",                  # em dash
+        "toinen –",                  # en dash
+        'hän sanoi "kyllä."',        # terminator behind a closing quote
+        "(lapsen etu).",             # terminator behind a closing paren
+        "summa (yhteensä),",         # comma behind a closing paren
+    ])
+    def test_punctuation_endings_warrant_a_pause(self, text: str) -> None:
+        assert gca._ends_on_pause_punct(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "varsin",                    # the reported bare-word splits
+        "valtion",
+        "Yhdistyneet",
+        "pykälien",
+        "force split mid phrase",
+        "trailing spaces   ",
+        "ends in a quote with no punct \"",
+    ])
+    def test_bare_word_endings_are_mid_phrase(self, text: str) -> None:
+        assert gca._ends_on_pause_punct(text) is False
+
+    def test_empty_is_not_a_pause(self) -> None:
+        assert gca._ends_on_pause_punct("") is False
+        assert gca._ends_on_pause_punct("   ") is False
+
+
+class TestCapSilence:
+    """_cap_trailing_silence / _cap_leading_silence collapse absolute silence
+    at a mid-phrase join down to a small keep without clipping the speech.
+    Pure pydub — no torch/silero needed."""
+
+    @staticmethod
+    def _tone(ms: int):
+        from pydub.generators import Sine
+        return Sine(220).to_audio_segment(duration=ms).apply_gain(-3)
+
+    @staticmethod
+    def _sil(ms: int):
+        from pydub import AudioSegment
+        return AudioSegment.silent(duration=ms)
+
+    def test_trailing_silence_capped_to_keep(self) -> None:
+        seg = self._tone(300) + self._sil(800)
+        out = gca._cap_trailing_silence(seg, keep_ms=70)
+        # 800ms trailing silence collapsed to ~70ms; tone (300ms) preserved.
+        assert 360 <= len(out) <= 380
+
+    def test_leading_silence_capped_to_keep(self) -> None:
+        seg = self._sil(800) + self._tone(300)
+        out = gca._cap_leading_silence(seg, keep_ms=40)
+        assert 330 <= len(out) <= 350
+
+    def test_short_silence_left_untouched(self) -> None:
+        seg = self._tone(300) + self._sil(30)  # already shorter than keep
+        out = gca._cap_trailing_silence(seg, keep_ms=70)
+        assert len(out) == len(seg)
+
+    def test_pure_speech_not_clipped(self) -> None:
+        seg = self._tone(500)
+        assert len(gca._cap_trailing_silence(seg, keep_ms=70)) == len(seg)
+        assert len(gca._cap_leading_silence(seg, keep_ms=40)) == len(seg)
+
 
 # ---------------------------------------------------------------------------
 # main(): a broken/drifted engine venv must produce an actionable repair

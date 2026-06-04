@@ -27,6 +27,7 @@ import string
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -262,6 +263,13 @@ class _RunnerState:
     # crash rather than completing cleanly.
     reader_error: Optional[BaseException] = None
     waiter_error: Optional[BaseException] = None
+    # Set by cancel() so the waiter switches from "wait indefinitely for
+    # natural completion" to the bounded terminate/kill escalation. Without
+    # this flag the waiter applied the short shutdown budget to *every* run
+    # and killed any synthesis (or final MP3 assembly) that ran longer than
+    # _SHUTDOWN_WAIT_S — the cause of the "crashes every few chunks" and the
+    # assembly-phase failures on long books.
+    cancel_requested: threading.Event = field(default_factory=threading.Event)
 
 
 class ChatterboxRunner:
@@ -392,6 +400,9 @@ class ChatterboxRunner:
         proc = self._state.proc
         if proc is None or proc.poll() is not None:
             return
+        # Tell the waiter a clean shutdown is in progress so it applies the
+        # bounded grace-then-escalate path instead of waiting forever.
+        self._state.cancel_requested.set()
         try:
             if sys.platform == "win32":
                 # CTRL_C_EVENT is the only way to raise SIGINT in the child
@@ -483,39 +494,35 @@ class ChatterboxRunner:
                 except OSError:
                     pass
 
-    # Bounded shutdown budget for the Chatterbox runner. The runner
-    # handles SIGINT (CTRL_C_EVENT on Windows) by finishing the current
-    # chunk and exiting cleanly, which takes seconds on a normal exit
-    # and up to ~a minute if a long chunk was in flight. Past that we
-    # escalate instead of waiting forever.
+    # Bounded shutdown budget, applied ONLY after a cancel() request (or the
+    # absolute hang ceiling below). The runner handles SIGINT (CTRL_C_EVENT
+    # on Windows) by finishing the current chunk and exiting cleanly, which
+    # takes seconds on a normal exit and up to ~a minute if a long chunk was
+    # in flight. Past that we escalate instead of waiting forever.
+    #
+    # This budget must NEVER bound a normal, un-cancelled run. A real
+    # audiobook synthesises for many minutes of GPU work and then assembles
+    # hundreds of WAV chunks into a single MP3 — a phase that prints nothing
+    # while it runs and legitimately exceeds a minute on a long book.
+    # Bounding the *initial* wait at this budget is exactly what silently
+    # killed long runs at 60s (observed: every synthesis >60s terminated
+    # mid-flight, and the assembly phase failing on 200-chunk books).
     _SHUTDOWN_WAIT_S: float = 60.0
     _TERMINATE_GRACE_S: float = 5.0
+    # Absolute ceiling for an un-cancelled run — a backstop against a runner
+    # that wedges on a stuck cleanup (rare on Windows, but seen during torch
+    # teardown) and never exits. Set generously so it can never clip a real
+    # synthesis; even a very long book finishes well inside this.
+    _MAX_RUN_S: float = 12 * 3600.0
+    # Poll slice while waiting for natural completion — small enough that a
+    # cancel request is honoured promptly, large enough to be free.
+    _POLL_INTERVAL_S: float = 1.0
 
     def _waiter_loop(self) -> None:
         proc = self._state.proc
         assert proc is not None
-        # proc.wait() without a timeout could pin the waiter thread
-        # indefinitely when a runner child hangs on a stuck cleanup
-        # (rare on Windows, but has happened during torch teardown).
-        # Escalate on timeout: SIGTERM + short grace, then SIGKILL,
-        # so the launcher always reaches the "exit" event and the GUI
-        # never spins on a ghost runner.
         try:
-            try:
-                rc = proc.wait(timeout=self._SHUTDOWN_WAIT_S)
-            except subprocess.TimeoutExpired:
-                proc.terminate()
-                try:
-                    rc = proc.wait(timeout=self._TERMINATE_GRACE_S)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    # After kill() the OS reaps quickly; 5s is a safety net
-                    # so a kernel-level zombie window cannot wedge the
-                    # GUI's shutdown thread indefinitely.
-                    try:
-                        rc = proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        rc = -9  # treat as forced-kill exit code
+            rc = self._wait_for_runner_exit(proc)
             # Reader finishes on stdout EOF, which happens as the child exits.
             if self._state.reader is not None:
                 self._state.reader.join(timeout=5.0)
@@ -544,6 +551,50 @@ class ChatterboxRunner:
                 pass
         finally:
             self._state.done.set()
+
+    def _wait_for_runner_exit(self, proc: subprocess.Popen) -> int:
+        """Block until the runner exits and return its code.
+
+        Normal completion is effectively unbounded: a long synthesis plus the
+        final MP3 assembly can run for many minutes with no output, so we poll
+        ``proc.wait`` in short slices rather than imposing a single timeout.
+        Two conditions switch us to the bounded terminate/kill escalation:
+
+        * a ``cancel()`` request (clean, user-initiated stop), or
+        * the absolute ``_MAX_RUN_S`` ceiling (a genuinely wedged runner).
+        """
+        start = time.monotonic()
+        while True:
+            try:
+                return proc.wait(timeout=self._POLL_INTERVAL_S)
+            except subprocess.TimeoutExpired:
+                pass
+            if self._state.cancel_requested.is_set():
+                return self._escalate_shutdown(proc)
+            if time.monotonic() - start > self._MAX_RUN_S:
+                return self._escalate_shutdown(proc)
+
+    def _escalate_shutdown(self, proc: subprocess.Popen) -> int:
+        """Give the runner the shutdown budget to exit on its own, then
+        SIGTERM + short grace, then SIGKILL. Returns the final exit code.
+
+        Reached only after a cancel request (or the hang ceiling) — never on
+        the normal-completion path, so it cannot clip a healthy long run.
+        """
+        try:
+            return proc.wait(timeout=self._SHUTDOWN_WAIT_S)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+        try:
+            return proc.wait(timeout=self._TERMINATE_GRACE_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        # After kill() the OS reaps quickly; 5s is a safety net so a
+        # kernel-level zombie window cannot wedge the shutdown thread.
+        try:
+            return proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            return -9  # treat as forced-kill exit code
 
 
 # ---------------------------------------------------------------------------
