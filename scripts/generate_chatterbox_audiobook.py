@@ -179,6 +179,26 @@ VAD_MIN_SILENCE_MS = 500
 VAD_HEAD_PAD_MS = 100
 VAD_TAIL_PAD_MS = 500
 
+# Mid-phrase joins. When a single sentence/clause is longer than chunk_chars
+# the chunker force-splits it between two words, so two adjacent chunks are
+# really one continuous phrase. The generous sentence-end pads above (500ms
+# tail + 100ms head) plus the 100ms inter-chunk gap then land ~700ms of
+# silence *inside* the phrase — heard as an unnatural pause ("varsin …
+# yleistä", "Yhdistyneet … kansakunnat", "pykälien … taakse").
+#
+# Trimming relative to silero's speech-end doesn't help here: silero counts
+# the trailing quiet as speech, so its end timestamp sits near the chunk end
+# and the pad never bites. Instead, at a mid-phrase join we HARD-CAP the
+# absolute silence at the junction — trailing silence of the left chunk down
+# to MID_JOIN_TAIL_KEEP_MS, leading silence of the right chunk down to
+# MID_JOIN_HEAD_KEEP_MS, measured at MID_JOIN_SILENCE_DB — and drop the gap.
+# Measured on a Finnish legal excerpt this turns 530–1370ms pauses into a
+# uniform ~110ms word-to-word transition. Real sentence/clause boundaries are
+# untouched and keep the generous pads + gap.
+MID_JOIN_SILENCE_DB = -40.0
+MID_JOIN_TAIL_KEEP_MS = 70
+MID_JOIN_HEAD_KEEP_MS = 40
+
 # dB fallback when silero-vad is missing: trailing must stay conservative.
 VAD_FALLBACK_HEAD_DB = -42.0
 VAD_FALLBACK_TRAIL_DB = -52.0
@@ -778,6 +798,47 @@ def _make_vad():
         return None, None
 
 
+# Punctuation that marks a natural spoken pause at a chunk boundary. Sentence
+# terminators (. ! ? …) and clause boundaries (, : ; — –) all qualify.
+_PAUSE_PUNCT = ".,!?:;…—–"
+# Closing wrappers that can legitimately sit AFTER the pause punctuation
+# (quotes, brackets) and should be looked through when testing the end.
+_TRAILING_WRAP = "\"'»”’)]}"
+
+
+def _ends_on_pause_punct(chunk_text: str) -> bool:
+    """True when a chunk ends on punctuation that warrants an inter-chunk pause.
+
+    A chunk ending on a bare word was force-split inside a phrase (its
+    sentence/clause was longer than chunk_chars). The join to the next chunk
+    must then be tight and gap-free so it doesn't sound like a pause. A chunk
+    ending on ``_PAUSE_PUNCT`` (optionally followed by a closing quote/bracket)
+    is a real sentence or clause boundary where a small pause is natural.
+    """
+    stripped = chunk_text.rstrip().rstrip(_TRAILING_WRAP).rstrip()
+    return bool(stripped) and stripped[-1] in _PAUSE_PUNCT
+
+
+def _cap_trailing_silence(seg, keep_ms, threshold_db=MID_JOIN_SILENCE_DB):
+    """Trim trailing silence (quieter than ``threshold_db``) down to ``keep_ms``.
+
+    Used on the left side of a mid-phrase join so the next chunk follows almost
+    immediately. The kept ``keep_ms`` preserves the soft tail of the last word.
+    """
+    from pydub.silence import detect_leading_silence
+    trail = detect_leading_silence(seg.reverse(), silence_threshold=threshold_db)
+    cut = max(0, trail - keep_ms)
+    return seg[:len(seg) - cut] if cut > 0 else seg
+
+
+def _cap_leading_silence(seg, keep_ms, threshold_db=MID_JOIN_SILENCE_DB):
+    """Trim leading silence down to ``keep_ms`` (right side of a mid-phrase join)."""
+    from pydub.silence import detect_leading_silence
+    lead = detect_leading_silence(seg, silence_threshold=threshold_db)
+    cut = max(0, lead - keep_ms)
+    return seg[cut:] if cut > 0 else seg
+
+
 def _vad_trim(seg, vad_model, get_speech_timestamps):
     """Silero-VAD loose-Finnish tail/head trim. seg: pydub AudioSegment."""
     import torch
@@ -1126,13 +1187,25 @@ def main() -> int:
             print(f"[chapter {ci_pos}/{len(plan)}] assembling MP3...",
                   flush=True)
             combined = AudioSegment.empty()
-            gap = AudioSegment.silent(duration=100)  # 100ms inter-chunk
+            gap = AudioSegment.silent(duration=100)  # 100ms between sentences
             for chi in range(len(chunks)):
                 cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
                 seg = AudioSegment.from_file(str(cache_path))
                 seg = _vad_trim(seg, vad_model, get_speech_timestamps)
+                # A chunk that doesn't end on punctuation was force-split
+                # mid-phrase; the chunk right after such a split starts
+                # mid-phrase. Hard-cap the silence on those sides so the two
+                # halves of the phrase flow together, and drop the inter-chunk
+                # gap. Real sentence/clause boundaries keep the generous pads
+                # and the gap.
+                ends_phrase = _ends_on_pause_punct(chunks[chi])
+                starts_phrase = chi == 0 or _ends_on_pause_punct(chunks[chi - 1])
+                if not starts_phrase:
+                    seg = _cap_leading_silence(seg, MID_JOIN_HEAD_KEEP_MS)
+                if not ends_phrase and chi < len(chunks) - 1:
+                    seg = _cap_trailing_silence(seg, MID_JOIN_TAIL_KEEP_MS)
                 combined += seg
-                if chi < len(chunks) - 1:
+                if chi < len(chunks) - 1 and ends_phrase:
                     combined += gap
             combined = _postprocess(combined)
             combined.export(str(chapter_mp3), format="mp3", bitrate="128k")
