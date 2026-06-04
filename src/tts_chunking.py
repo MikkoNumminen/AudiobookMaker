@@ -44,9 +44,11 @@ _ABBREVIATIONS = {
 def split_text_into_chunks(
     text: str, max_chars: int = MAX_CHUNK_CHARS, min_chars: int = 0
 ) -> list[str]:
-    """Split text into chunks of at most max_chars characters.
+    """Split text into chunks, each at most max_chars characters.
 
     Splits on sentence boundaries when possible to avoid breaking mid-sentence.
+    (A sub-``min_chars`` fragment may be folded into a neighbor and so slightly
+    exceed ``max_chars`` — see ``min_chars`` below.)
 
     Args:
         text: Input text to split.

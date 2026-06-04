@@ -433,6 +433,20 @@ class TestCachedChunkHealth:
         self._write_wav(p, 20.0)           # 20s for 64 chars -> 0.31 > 0.20
         assert gca._cached_chunk_healthy(p, 64) is False
 
+    def test_sub_floor_rambling_chunk_is_unhealthy(self, tmp_path) -> None:
+        # The exact bug this branch fixes: a tiny fragment that RAMBLES (12s
+        # for 7 chars) must NOT be exempted just for being below the floor.
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 12.0)
+        assert gca._cached_chunk_healthy(p, 7) is False
+
+    def test_sub_floor_brief_chunk_is_healthy(self, tmp_path) -> None:
+        # A genuinely brief tiny sentence is fine — truncation is suppressed
+        # below the floor; only the rambling edge is enforced there.
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 1.0)
+        assert gca._cached_chunk_healthy(p, 7) is True
+
     def test_full_chunk_is_healthy(self, tmp_path) -> None:
         p = tmp_path / "c.wav"
         self._write_wav(p, 12.0)           # 12s for 168 chars -> 0.071 s/char
@@ -470,6 +484,14 @@ class TestRatioBadness:
 
     def test_rambling_has_positive_badness(self) -> None:
         assert gca._ratio_badness(20.0, 64) > 0            # 0.31 > MAX
+
+    def test_sub_floor_truncation_is_suppressed(self) -> None:
+        # A short, low-s/char tiny chunk is NOT flagged truncated (too noisy).
+        assert gca._ratio_badness(0.1, 7) == 0.0
+
+    def test_sub_floor_rambling_still_flagged(self) -> None:
+        # ...but a tiny chunk that rambles IS flagged at any size.
+        assert gca._ratio_badness(12.0, 7) > 0
 
     def test_less_truncated_attempt_is_preferred(self) -> None:
         assert gca._ratio_badness(2.0, 100) < gca._ratio_badness(1.0, 100)
