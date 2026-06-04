@@ -1,36 +1,92 @@
-"""Regression test: PyInstaller specs must bundle every transitively-imported
-sibling that the Chatterbox subprocess might reach at runtime.
+"""Regression test: PyInstaller specs must bundle every src module the
+Chatterbox subprocess can reach.
 
-The Chatterbox subprocess imports `src.tts_engine`, which imports sibling
-modules at module load time, plus `src.tts_normalizer` (the dispatcher),
-which lazily imports per-language modules (`tts_normalizer_fi`,
-`tts_normalizer_en`) inside `normalize_text`. If a new sibling lands in
-either layer and the .spec files don't list it, the installed app crashes
-with ModuleNotFoundError.
+The Chatterbox runner (``scripts/generate_chatterbox_audiobook.py``) is
+executed by the separate ``.venv-chatterbox`` interpreter and imports
+``from src.X import`` straight off the bundled ``_internal/src/`` tree —
+PyInstaller's dependency analysis never runs for it. So every src module in
+the runner's FULL TRANSITIVE import closure must have a ``datas`` entry in
+BOTH shipped specs (``audiobookmaker.spec`` and ``audiobookmaker_cli.spec``).
 
-This test parses both `src/tts_engine.py` and `src/tts_normalizer.py` to
-discover the full sibling set and asserts each one is registered in both
-spec files.
+A direct-imports-only check is not enough: ``tts_normalizer_fi_legal`` shipped
+broken in 3.15.0 because it is reachable only transitively (runner →
+``tts_normalizer`` → ``tts_normalizer_fi`` → ``tts_normalizer_fi_legal``). The
+closure walk lives in ``scripts/check_spec_runner_imports.py`` and is reused
+here so the CI guard and this test can never drift apart.
+
+The launcher spec (``audiobookmaker_launcher.spec``) is different: it freezes
+a GUI entry point, so PyInstaller follows top-level imports automatically and
+only the LAZILY-imported normalizer modules need explicit ``hidden_imports``
+— hence the narrower seed for that assertion.
 """
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_TTS_ENGINE = _REPO_ROOT / "src" / "tts_engine.py"
-_TTS_NORMALIZER = _REPO_ROOT / "src" / "tts_normalizer.py"
-_TTS_NORMALIZER_EN = _REPO_ROOT / "src" / "tts_normalizer_en.py"
+_SCRIPTS = _REPO_ROOT / "scripts"
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+import check_spec_runner_imports as guard  # noqa: E402
+
+_SRC = _REPO_ROOT / "src"
+_TTS_ENGINE = _SRC / "tts_engine.py"
+_TTS_NORMALIZER = _SRC / "tts_normalizer.py"
+_TTS_NORMALIZER_EN = _SRC / "tts_normalizer_en.py"
 _APP_SPEC = _REPO_ROOT / "audiobookmaker.spec"
+_CLI_SPEC = _REPO_ROOT / "audiobookmaker_cli.spec"
 _LAUNCHER_SPEC = _REPO_ROOT / "audiobookmaker_launcher.spec"
+
+# Full transitive src closure of the Chatterbox runner — every flat src/X.py
+# module it can reach directly or via a chain. Both shipped datas specs must
+# bundle all of these.
+_RUNNER_CLOSURE = sorted(
+    m for m in guard._transitive_src_closure(guard._RUNNER)
+    if (_SRC / f"{m}.py").exists()
+)
+
+
+@pytest.mark.parametrize("module", _RUNNER_CLOSURE)
+def test_app_spec_bundles_runner_module(module: str) -> None:
+    """Every src module the runner can reach must be a datas entry in
+    audiobookmaker.spec, else the frozen Chatterbox subprocess crashes with
+    ModuleNotFoundError (this is how tts_normalizer_fi_legal shipped broken
+    in 3.15.0)."""
+    assert module in guard._collect_spec_bundled(_APP_SPEC), (
+        f"audiobookmaker.spec is missing a datas entry for src/{module}.py "
+        f"(reached transitively by the Chatterbox runner)."
+    )
+
+
+@pytest.mark.parametrize("module", _RUNNER_CLOSURE)
+def test_cli_spec_bundles_runner_module(module: str) -> None:
+    """The same closure must be bundled in audiobookmaker_cli.spec — the CLI
+    zip ships the same runner and reads src/*.py off disk the same way."""
+    assert module in guard._collect_spec_bundled(_CLI_SPEC), (
+        f"audiobookmaker_cli.spec is missing a datas entry for src/{module}.py "
+        f"(reached transitively by the Chatterbox runner)."
+    )
+
+
+def test_runner_closure_includes_known_transitive_deps() -> None:
+    """Canary: the closure walk must keep surfacing the DEEP transitive deps
+    that historically shipped unbundled — tts_normalizer_fi_legal (runner →
+    tts_normalizer → tts_normalizer_fi → it) and ocr_path (via pdf_parser).
+    If the closure logic regresses, the per-module tests above would silently
+    stop checking them, so assert their presence directly."""
+    assert "tts_normalizer_fi_legal" in _RUNNER_CLOSURE
+    assert "ocr_path" in _RUNNER_CLOSURE
 
 
 def _src_siblings_imported_by(path: Path) -> set[str]:
-    """Return the set of `src.X` module basenames imported by `path`.
+    """Return the set of ``src.X`` module basenames imported by ``path``.
 
-    Walks both top-level `from src.X import …` statements and lazy imports
+    Walks both top-level ``from src.X import …`` statements and lazy imports
     nested inside function bodies — the dispatcher uses the latter to keep
     the FI and EN normalizers from being eagerly loaded.
     """
@@ -44,7 +100,12 @@ def _src_siblings_imported_by(path: Path) -> set[str]:
     return siblings
 
 
-def _src_siblings_imported_by_tts_engine() -> set[str]:
+def _lazy_normalizer_siblings() -> set[str]:
+    """Modules the launcher must declare as hidden_imports: the lazily-imported
+    normalizer chain that PyInstaller's static analysis cannot follow. Their
+    own top-level imports (e.g. tts_normalizer_fi → tts_normalizer_fi_legal)
+    are followed automatically by PyInstaller once the parent is a
+    hidden_import, so they are not required here."""
     return (
         _src_siblings_imported_by(_TTS_ENGINE)
         | _src_siblings_imported_by(_TTS_NORMALIZER)
@@ -52,20 +113,10 @@ def _src_siblings_imported_by_tts_engine() -> set[str]:
     )
 
 
-@pytest.mark.parametrize("sibling", sorted(_src_siblings_imported_by_tts_engine()))
-def test_audiobookmaker_spec_bundles_sibling(sibling: str) -> None:
-    """Each src.X imported by tts_engine.py must appear in audiobookmaker.spec datas."""
-    spec_text = _APP_SPEC.read_text(encoding="utf-8")
-    needle = f"{sibling}.py"
-    assert needle in spec_text, (
-        f"audiobookmaker.spec is missing a datas entry for src/{needle}; "
-        f"the Chatterbox subprocess will crash with ModuleNotFoundError."
-    )
-
-
-@pytest.mark.parametrize("sibling", sorted(_src_siblings_imported_by_tts_engine()))
+@pytest.mark.parametrize("sibling", sorted(_lazy_normalizer_siblings()))
 def test_launcher_spec_declares_sibling_hidden_import(sibling: str) -> None:
-    """Each src.X imported by tts_engine.py must appear in audiobookmaker_launcher.spec hidden_imports."""
+    """Each lazily-imported normalizer sibling must appear in
+    audiobookmaker_launcher.spec hidden_imports."""
     spec_text = _LAUNCHER_SPEC.read_text(encoding="utf-8")
     needle = f'"src.{sibling}"'
     assert needle in spec_text, (
