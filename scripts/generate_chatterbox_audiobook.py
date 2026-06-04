@@ -156,9 +156,31 @@ FI_CFG_WEIGHT = 0.3
 # anything below this threshold is a synthesis failure, not a short
 # sentence. Retry up to MIN_AUDIO_MAX_RETRIES times with fresh stochasticity
 # and keep the longest result.
-MIN_AUDIO_S_PER_CHAR = 0.040
-MIN_AUDIO_RETRY_CHAR_FLOOR = 50  # skip retry for very short chunks
-MIN_AUDIO_MAX_RETRIES = 2        # 1 initial + up to 2 retries
+# Chatterbox-Finnish is only stable inside a band of audio-seconds-per-char.
+# BELOW MIN: the T3 sampler emitted EOS early and dropped speech (a silent
+# gap mid-sentence). ABOVE MAX: the model rambled/repeated on a fragment —
+# e.g. 12s of audio for a 7-char clause like "vuoksi," — which survives
+# VAD-trimming straight into the book as garbage. Normal Finnish sits around
+# 0.06–0.10. Both extremes are synthesis failures; re-roll and keep the
+# attempt nearest the band.
+# MIN is the truncation floor. The old 0.040 was a *catastrophe* detector — it
+# only caught chunks that dropped >~50% of their speech, so PARTIAL truncations
+# (a sentence missing a third of its words) shipped silently just above it. On
+# the Finnish finetune healthy chunks cluster tightly at >=0.062 s/char (median
+# ~0.074); the partial truncations form a separated tail below ~0.056 with a
+# clean valley between. 0.058 sits in that valley — it catches the partial
+# truncations and leaves the densest legitimate chunk (0.062) alone.
+MIN_AUDIO_S_PER_CHAR = 0.058
+MAX_AUDIO_S_PER_CHAR = 0.200
+# Below this char count, s/char is too noisy to judge (a genuine 3-word
+# sentence can be brief), so skip the band guard. Tiny chunks are also merged
+# away upstream (CHUNK_MIN_CHARS) so they rarely reach the synth.
+MIN_AUDIO_RETRY_CHAR_FLOOR = 40
+MIN_AUDIO_MAX_RETRIES = 5        # 1 initial + up to 5 re-rolls
+
+# Minimum chunk size handed to the chunker: fold stray sub-60-char clauses
+# into a neighbor so the model never sees a fragment it would ramble on.
+CHUNK_MIN_CHARS = 60
 
 # Post-processing targets.
 LOWPASS_HZ = 7000
@@ -390,7 +412,11 @@ def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int,
     from src.tts_normalizer import normalize_text
     content = _trim_to_sentence_start(chapter.content.strip())
     content = normalize_text(content, language)
-    chunks = split_text_into_chunks(content, max_chars=chunk_chars)
+    # min_chars folds stray sub-60-char clauses into a neighbor: Chatterbox
+    # rambles for 10+ seconds on a tiny fragment, so it must never see one.
+    chunks = split_text_into_chunks(
+        content, max_chars=chunk_chars, min_chars=CHUNK_MIN_CHARS
+    )
     if chunks_cap and chunks_cap > 0:
         chunks = chunks[:chunks_cap]
     return chunks
@@ -798,6 +824,74 @@ def _make_vad():
         return None, None
 
 
+def _cached_audio_seconds(cache_path) -> float:
+    """Duration (seconds) of a cached chunk WAV, from the header only (fast).
+
+    Returns -1.0 if the file is unreadable / zero-length (treated as a miss).
+    """
+    try:
+        import torchaudio
+        info = torchaudio.info(str(cache_path))
+        return info.num_frames / float(info.sample_rate or 1)
+    except Exception:
+        try:
+            import wave
+            with wave.open(str(cache_path), "rb") as w:
+                return w.getnframes() / float(w.getframerate() or 1)
+        except Exception:
+            return -1.0
+
+
+def _ratio_badness(audio_s: float, chunk_chars: int) -> float:
+    """0.0 if audio-seconds-per-char sits in the healthy band, else the
+    distance outside it. Used both to validate a cached chunk and to pick the
+    least-bad retry attempt (truncated vs rambling).
+
+    The two edges are treated asymmetrically by chunk length. The RAMBLING
+    (upper) edge applies at EVERY size — 12s for a 7-char fragment is
+    unambiguous garbage. The TRUNCATION (lower) edge is suppressed below
+    MIN_AUDIO_RETRY_CHAR_FLOOR, because a genuine 3-word sentence is
+    legitimately brief and its s/char is too noisy to call. (A blanket
+    sub-floor exemption was the original bug: it let tiny ramblers — the exact
+    fragments this guard targets — ship unchecked.)
+
+    Note the two out-of-band distances are NOT on the same scale, so a
+    truncation badness and a rambling badness are only loosely comparable.
+    That is acceptable: the retry only compares attempts for the SAME chunk,
+    where consecutive rolls almost always fail the same way, and any in-band
+    roll (badness 0) wins outright.
+    """
+    if chunk_chars <= 0:
+        return 0.0
+    r = audio_s / chunk_chars
+    if r > MAX_AUDIO_S_PER_CHAR:
+        return r - MAX_AUDIO_S_PER_CHAR        # rambling / repetition (any size)
+    if chunk_chars >= MIN_AUDIO_RETRY_CHAR_FLOOR and r < MIN_AUDIO_S_PER_CHAR:
+        return MIN_AUDIO_S_PER_CHAR - r       # early-stop truncation
+    return 0.0
+
+
+def _cached_chunk_healthy(cache_path, chunk_chars: int) -> bool:
+    """True if a cached chunk WAV's audio length is in the healthy band.
+
+    The cache key is the chunk INDEX, and a chunk was historically reused
+    whenever the file merely existed — never checking that it actually
+    contains the right amount of speech. But Chatterbox leaves bad stubs at
+    BOTH extremes: early-stop truncations (0.9s for a 64-char chunk → a silent
+    gap) and ramble/repeat blow-ups (12s for a 7-char fragment → garbage).
+    Reusing either ships the defect. So a cached chunk outside the band
+    (:func:`_ratio_badness` > 0) is treated as a cache MISS and re-synthesized.
+    The truncation edge is suppressed for sub-floor chunks inside
+    ``_ratio_badness`` (a brief sentence is legitimately short), but the
+    rambling edge still applies at every size — so a tiny cached rambler is
+    NOT silently kept.
+    """
+    secs = _cached_audio_seconds(cache_path)
+    if secs <= 0:
+        return False
+    return _ratio_badness(secs, chunk_chars) == 0.0
+
+
 # Punctuation that marks a natural spoken pause at a chunk boundary. Sentence
 # terminators (. ! ? …) and clause boundaries (, : ; — –) all qualify.
 _PAUSE_PUNCT = ".,!?:;…—–"
@@ -1043,16 +1137,27 @@ def main() -> int:
 
     wall_start = time.time()
     total_done = 0
-    # Count already-cached chunks to keep RTF/ETA honest across restarts.
+    # Count already-cached HEALTHY chunks to keep RTF/ETA honest across
+    # restarts. A cached-but-unhealthy chunk (truncated OR rambling) is NOT
+    # counted — it will be re-synthesized below, so it is pending work.
     cached_done = 0
+    stale_unhealthy = 0
     for pos, ch, chunks in plan:
-        for chi in range(len(chunks)):
+        for chi, chunk_text in enumerate(chunks):
             cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
-            if cache_path.exists():
+            if not cache_path.exists():
+                continue
+            if _cached_chunk_healthy(cache_path, len(chunk_text)):
                 cached_done += 1
+            else:
+                stale_unhealthy += 1
     total_done = cached_done
-    print(f"[setup] cached chunks found: {cached_done}/{total_chunks}",
-          flush=True)
+    print(
+        f"[setup] cached chunks found: {cached_done}/{total_chunks}"
+        + (f" ({stale_unhealthy} unhealthy -> re-synthesizing)"
+           if stale_unhealthy else ""),
+        flush=True,
+    )
 
     completed_chapters: list[dict] = []
     chapter_mp3_paths: list[Path] = []
@@ -1077,7 +1182,13 @@ def main() -> int:
                     raise _StopRequested()
 
                 cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
-                if cache_path.exists():
+                # Reuse a cached chunk only if it is HEALTHY (long enough for
+                # its text). A stale truncation is treated as a miss and
+                # re-synthesized; the ta.save at the end of this block
+                # overwrites the bad file.
+                if cache_path.exists() and _cached_chunk_healthy(
+                    cache_path, len(chunk_text)
+                ):
                     continue
 
                 _clear_chatterbox_state(engine)
@@ -1094,46 +1205,65 @@ def main() -> int:
                 dt = time.time() - t0
                 audio_s = wav.shape[-1] / engine.sr
 
-                # Early-stop guard: T3's alignment analyzer + EOS sampler
-                # can truncate synthesis mid-sentence. Detect via
-                # audio_s/char ratio; retry with fresh state to re-roll
-                # the stochastic trajectory. Keep the longest result so
-                # we never regress.
+                # Band guard: T3's alignment analyzer + EOS sampler can
+                # truncate synthesis (audio far too short — dropped speech) OR
+                # ramble/repeat on a fragment (audio far too long — garbage).
+                # Detect via audio_s/char and re-roll with fresh state, keeping
+                # the attempt nearest the healthy band so we never regress
+                # toward either failure.
                 chunk_chars = len(chunk_text)
                 retries_used = 0
-                if chunk_chars >= MIN_AUDIO_RETRY_CHAR_FLOOR:
-                    best_wav, best_audio_s, best_dt = wav, audio_s, dt
-                    for attempt in range(1, MIN_AUDIO_MAX_RETRIES + 1):
-                        ratio = best_audio_s / chunk_chars
-                        if ratio >= MIN_AUDIO_S_PER_CHAR:
-                            break
-                        print(
-                            f"[retry {attempt}/{MIN_AUDIO_MAX_RETRIES}] "
-                            f"ch{pos:02d} chunk{chi:04d}: "
-                            f"audio_s={best_audio_s:.2f} "
-                            f"s_per_char={ratio:.4f} < "
-                            f"{MIN_AUDIO_S_PER_CHAR} (early-stop suspected)",
-                            flush=True,
-                        )
-                        _clear_chatterbox_state(engine)
-                        t0r = time.time()
-                        wav_r = engine.generate(
-                            chunk_text,
-                            language_id=args.language,
-                            audio_prompt_path=ref_wav_path,
-                            repetition_penalty=FI_REPETITION_PENALTY,
-                            temperature=FI_TEMPERATURE,
-                            exaggeration=FI_EXAGGERATION,
-                            cfg_weight=FI_CFG_WEIGHT,
-                        )
-                        dt_r = time.time() - t0r
-                        audio_s_r = wav_r.shape[-1] / engine.sr
-                        retries_used = attempt
-                        # always charge the wall-clock
-                        dt += dt_r
-                        if audio_s_r > best_audio_s:
-                            best_wav, best_audio_s, best_dt = wav_r, audio_s_r, dt_r
-                    wav, audio_s = best_wav, best_audio_s
+                # Run the guard for every chunk; _ratio_badness returns 0
+                # immediately for an in-band first roll (no re-synth), and for a
+                # sub-floor chunk it only fires on the rambling edge — so a tiny
+                # fragment that rambles is still re-rolled, while a genuinely
+                # brief short sentence is left alone.
+                best_wav, best_audio_s, best_dt = wav, audio_s, dt
+                for attempt in range(1, MIN_AUDIO_MAX_RETRIES + 1):
+                    if _ratio_badness(best_audio_s, chunk_chars) == 0.0:
+                        break
+                    ratio = best_audio_s / chunk_chars
+                    kind = ("early-stop" if ratio < MIN_AUDIO_S_PER_CHAR
+                            else "rambling")
+                    print(
+                        f"[retry {attempt}/{MIN_AUDIO_MAX_RETRIES}] "
+                        f"ch{pos:02d} chunk{chi:04d}: "
+                        f"audio_s={best_audio_s:.2f} "
+                        f"s_per_char={ratio:.4f} ({kind} suspected)",
+                        flush=True,
+                    )
+                    _clear_chatterbox_state(engine)
+                    t0r = time.time()
+                    wav_r = engine.generate(
+                        chunk_text,
+                        language_id=args.language,
+                        audio_prompt_path=ref_wav_path,
+                        repetition_penalty=FI_REPETITION_PENALTY,
+                        temperature=FI_TEMPERATURE,
+                        exaggeration=FI_EXAGGERATION,
+                        cfg_weight=FI_CFG_WEIGHT,
+                    )
+                    dt_r = time.time() - t0r
+                    audio_s_r = wav_r.shape[-1] / engine.sr
+                    retries_used = attempt
+                    # always charge the wall-clock
+                    dt += dt_r
+                    if _ratio_badness(audio_s_r, chunk_chars) < _ratio_badness(
+                        best_audio_s, chunk_chars
+                    ):
+                        best_wav, best_audio_s, best_dt = wav_r, audio_s_r, dt_r
+                wav, audio_s = best_wav, best_audio_s
+                if _ratio_badness(best_audio_s, chunk_chars) > 0.0:
+                    ratio = best_audio_s / chunk_chars
+                    kind = ("truncated" if ratio < MIN_AUDIO_S_PER_CHAR
+                            else "rambling")
+                    print(
+                        f"[warn] ch{pos:02d} chunk{chi:04d} STILL {kind} "
+                        f"after {MIN_AUDIO_MAX_RETRIES} retries "
+                        f"(s_per_char={ratio:.4f}); shipping best attempt "
+                        f"— text: {chunk_text[:60]!r}",
+                        flush=True,
+                    )
 
                 synth_wall_s += dt
                 synth_audio_s += audio_s

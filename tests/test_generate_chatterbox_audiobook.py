@@ -408,6 +408,98 @@ class TestCapSilence:
         assert len(gca._cap_leading_silence(seg, keep_ms=40)) == len(seg)
 
 
+class TestCachedChunkHealth:
+    """_cached_chunk_healthy treats a too-short cached chunk as a miss so the
+    runner re-synthesizes Chatterbox's early-stop truncations instead of
+    shipping them as silent gaps ('pauses in the middle of a sentence')."""
+
+    @staticmethod
+    def _write_wav(path, seconds: float, rate: int = 24000) -> None:
+        import wave
+        n = int(seconds * rate)
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"\x00\x00" * n)
+
+    def test_truncated_chunk_is_unhealthy(self, tmp_path) -> None:
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 0.9)            # 0.9s for 64 chars -> 0.014 s/char
+        assert gca._cached_chunk_healthy(p, 64) is False
+
+    def test_rambling_chunk_is_unhealthy(self, tmp_path) -> None:
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 20.0)           # 20s for 64 chars -> 0.31 > 0.20
+        assert gca._cached_chunk_healthy(p, 64) is False
+
+    def test_sub_floor_rambling_chunk_is_unhealthy(self, tmp_path) -> None:
+        # The exact bug this branch fixes: a tiny fragment that RAMBLES (12s
+        # for 7 chars) must NOT be exempted just for being below the floor.
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 12.0)
+        assert gca._cached_chunk_healthy(p, 7) is False
+
+    def test_sub_floor_brief_chunk_is_healthy(self, tmp_path) -> None:
+        # A genuinely brief tiny sentence is fine — truncation is suppressed
+        # below the floor; only the rambling edge is enforced there.
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 1.0)
+        assert gca._cached_chunk_healthy(p, 7) is True
+
+    def test_full_chunk_is_healthy(self, tmp_path) -> None:
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 12.0)           # 12s for 168 chars -> 0.071 s/char
+        assert gca._cached_chunk_healthy(p, 168) is True
+
+    def test_just_below_threshold_is_unhealthy(self, tmp_path) -> None:
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 100 * (gca.MIN_AUDIO_S_PER_CHAR - 0.005))
+        assert gca._cached_chunk_healthy(p, 100) is False
+
+    def test_short_chunk_is_exempt(self, tmp_path) -> None:
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 0.2)            # tiny audio, but text below the floor
+        assert gca._cached_chunk_healthy(p, gca.MIN_AUDIO_RETRY_CHAR_FLOOR - 1) is True
+
+    def test_missing_file_is_unhealthy(self, tmp_path) -> None:
+        assert gca._cached_chunk_healthy(tmp_path / "nope.wav", 100) is False
+
+    def test_cached_audio_seconds(self, tmp_path) -> None:
+        p = tmp_path / "c.wav"
+        self._write_wav(p, 2.0)
+        assert 1.9 <= gca._cached_audio_seconds(p) <= 2.1
+
+
+class TestRatioBadness:
+    """_ratio_badness is 0 inside the healthy band and grows with distance
+    outside it, so the retry loop can pick the least-bad attempt whether the
+    failure is truncation (too short) or rambling (too long)."""
+
+    def test_in_band_is_zero(self) -> None:
+        assert gca._ratio_badness(5.0, 64) == 0.0          # 0.078 in band
+
+    def test_truncation_has_positive_badness(self) -> None:
+        assert gca._ratio_badness(0.9, 64) > 0             # 0.014 < MIN
+
+    def test_rambling_has_positive_badness(self) -> None:
+        assert gca._ratio_badness(20.0, 64) > 0            # 0.31 > MAX
+
+    def test_sub_floor_truncation_is_suppressed(self) -> None:
+        # A short, low-s/char tiny chunk is NOT flagged truncated (too noisy).
+        assert gca._ratio_badness(0.1, 7) == 0.0
+
+    def test_sub_floor_rambling_still_flagged(self) -> None:
+        # ...but a tiny chunk that rambles IS flagged at any size.
+        assert gca._ratio_badness(12.0, 7) > 0
+
+    def test_less_truncated_attempt_is_preferred(self) -> None:
+        assert gca._ratio_badness(2.0, 100) < gca._ratio_badness(1.0, 100)
+
+    def test_less_rambling_attempt_is_preferred(self) -> None:
+        assert gca._ratio_badness(25.0, 100) < gca._ratio_badness(40.0, 100)
+
+
 # ---------------------------------------------------------------------------
 # main(): a broken/drifted engine venv must produce an actionable repair
 # message and exit code 2 — never a raw traceback.
