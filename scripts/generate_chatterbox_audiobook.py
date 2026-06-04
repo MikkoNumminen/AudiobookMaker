@@ -150,26 +150,30 @@ FI_TEMPERATURE = 0.5
 FI_EXAGGERATION = 0.5
 FI_CFG_WEIGHT = 0.3
 
-# Early-stop guard: if synthesized audio is much shorter than expected for
-# the input character count, the T3 sampler likely emitted EOS early
-# (truncated sentence). Normal Finnish ratio sits around 0.06 s/char;
-# anything below this threshold is a synthesis failure, not a short
-# sentence. Retry up to MIN_AUDIO_MAX_RETRIES times with fresh stochasticity
-# and keep the longest result.
 # Chatterbox-Finnish is only stable inside a band of audio-seconds-per-char.
 # BELOW MIN: the T3 sampler emitted EOS early and dropped speech (a silent
 # gap mid-sentence). ABOVE MAX: the model rambled/repeated on a fragment —
 # e.g. 12s of audio for a 7-char clause like "vuoksi," — which survives
-# VAD-trimming straight into the book as garbage. Normal Finnish sits around
-# 0.06–0.10. Both extremes are synthesis failures; re-roll and keep the
-# attempt nearest the band.
-# MIN is the truncation floor. The old 0.040 was a *catastrophe* detector — it
-# only caught chunks that dropped >~50% of their speech, so PARTIAL truncations
-# (a sentence missing a third of its words) shipped silently just above it. On
-# the Finnish finetune healthy chunks cluster tightly at >=0.062 s/char (median
-# ~0.074); the partial truncations form a separated tail below ~0.056 with a
-# clean valley between. 0.058 sits in that valley — it catches the partial
-# truncations and leaves the densest legitimate chunk (0.062) alone.
+# VAD-trimming straight into the book as garbage. The synth re-rolls an
+# out-of-band chunk and keeps the attempt NEAREST the band (see
+# _ratio_badness) — not merely the longest, which would prefer a rambler over
+# a clean roll.
+#
+# MIN is the truncation floor. A naive 0.040 is only a *catastrophe* detector:
+# it caught chunks that dropped >~50% of their speech but let PARTIAL
+# truncations (a sentence missing a third of its words) ship silently just
+# above it. The 0.058 floor is DATA-DERIVED: on the Finnish finetune healthy
+# chunks cluster at >=0.062 s/char (median ~0.074) and the partial truncations
+# form a separated tail below ~0.056, with a clean valley between — 0.058 sits
+# in it, catching the truncations while sparing the densest legitimate chunk.
+#
+# CALIBRATION CAVEAT: these thresholds are measured on the Finnish (T3) voice
+# only. The --language en path reuses them; that is expected to be safe because
+# English renders slower per character (so it sits well above the floor), and
+# any miscalibration surfaces loudly via the "[warn] ... STILL ..." line rather
+# than as silent bad audio. Re-derive the band from a measured English run
+# before leaning on en synthesis at scale — do NOT invent en numbers without
+# data (the FI numbers above are kept honest by being measured).
 MIN_AUDIO_S_PER_CHAR = 0.058
 MAX_AUDIO_S_PER_CHAR = 0.200
 # Below this char count, s/char is too noisy to judge (a genuine 3-word
