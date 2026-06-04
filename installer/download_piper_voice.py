@@ -23,7 +23,10 @@ from pathlib import Path
 
 VOICE_ID = "fi_FI-harri-medium"
 BASE_URL = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+    # Pinned to an immutable commit SHA (was floating `main`) so an upstream
+    # voice-tree reorg can't silently change the downloaded files.
+    "https://huggingface.co/rhasspy/piper-voices/resolve/"
+    "b710b0ba0740da88dc36e1ab8fa6b310d43a3a48/"
     "fi/fi_FI/harri/medium/"
 )
 

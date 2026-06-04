@@ -138,6 +138,11 @@ except Exception as _exc:
 FINNISH_REPO = "Finnish-NLP/Chatterbox-Finnish"
 FINNISH_T3_FILE = "models/best_finnish_multilingual_cp986.safetensors"
 FINNISH_REF_WAV = "samples/reference_finnish.wav"
+# Pin the model revision so a future upstream commit that renames/moves the
+# exact files above can't silently break synthesis (the same failure class as
+# a rotated download URL). This SHA is the validated-working revision — it is
+# what the cache resolves to today. Bump it deliberately after re-validating.
+FINNISH_REVISION = "d15775e1788055e67f49dfc6da402021e51bd0f0"
 
 # Finnish "Golden Settings" from the model card.
 FI_REPETITION_PENALTY = 1.5
@@ -739,12 +744,16 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
     else:
         print(f"[tts] fetching reference wav from {FINNISH_REPO}...",
               flush=True)
-        ref_wav_path = hf_hub_download(FINNISH_REPO, FINNISH_REF_WAV)
+        ref_wav_path = hf_hub_download(
+            FINNISH_REPO, FINNISH_REF_WAV, revision=FINNISH_REVISION
+        )
     print(f"[tts] ref wav: {ref_wav_path}", flush=True)
 
     print(f"[tts] fetching Finnish T3 finetune from {FINNISH_REPO}...",
           flush=True)
-    fi_ckpt_path = hf_hub_download(FINNISH_REPO, FINNISH_T3_FILE)
+    fi_ckpt_path = hf_hub_download(
+        FINNISH_REPO, FINNISH_T3_FILE, revision=FINNISH_REVISION
+    )
     sd = load_file(fi_ckpt_path)
     sd = {k[3:] if k.startswith("t3.") else k: v for k, v in sd.items()}
     missing, unexpected = engine.t3.load_state_dict(sd, strict=False)
