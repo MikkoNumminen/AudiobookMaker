@@ -110,6 +110,12 @@ HF_REPOS = [
     ),
 ]
 
+# Pin the base-model download revision (the library hardcodes revision="main"
+# in ChatterboxMultilingualTTS.from_pretrained). MUST equal the
+# ResembleAI/chatterbox revision in HF_REPOS above and CHATTERBOX_BASE_REVISION
+# in src/engine_installer.py.
+CHATTERBOX_BASE_REVISION = "ef85ce7bef2f3f1a74d0d837d379d2fcb68203cd"
+
 
 def log(step: int, total: int, msg: str) -> None:
     print(f"[step {step}/{total}] {msg}", flush=True)
@@ -367,6 +373,46 @@ def apply_gemination_patch(venv_path: Path) -> None:
     print(f"  patched {path}", flush=True)
 
 
+def _find_mtl_tts_path(venv_path: Path) -> Optional[Path]:
+    """Return chatterbox/mtl_tts.py inside the venv, or None."""
+    candidates = [
+        venv_path / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py",
+        venv_path / "lib" / "python3.11" / "site-packages" / "chatterbox"
+        / "mtl_tts.py",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def apply_base_revision_pin_patch(venv_path: Path) -> None:
+    """Pin the base-model download to an immutable revision.
+
+    ChatterboxMultilingualTTS.from_pretrained hardcodes revision="main" for the
+    ResembleAI/chatterbox download, and we can't pass a revision through that
+    call, so we rewrite the library source to the validated SHA (matching the
+    prefetch). Fully graceful — every miss is a no-op skip, so this can never
+    break the install (worst case the base model stays on main, as before).
+    """
+    path = _find_mtl_tts_path(venv_path)
+    if path is None:
+        print("  skipping base-revision pin: mtl_tts.py not found", flush=True)
+        return
+    original = path.read_text(encoding="utf-8")
+    new = f'revision="{CHATTERBOX_BASE_REVISION}"'
+    if new in original:
+        print("  base revision already pinned — skipping", flush=True)
+        return
+    old = 'revision="main"'
+    if original.count(old) != 1:
+        # 0 -> upstream changed; >1 -> ambiguous; skip rather than mis-pin.
+        print("  base-revision pin skipped (unexpected mtl_tts.py shape)", flush=True)
+        return
+    path.write_text(original.replace(old, new), encoding="utf-8")
+    print(f"  pinned base model revision in {path}", flush=True)
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -423,6 +469,7 @@ def main() -> int:
     else:
         log(5, total, "Sovelletaan suomen gemination-korjaus")
         apply_gemination_patch(args.venv_path)
+        apply_base_revision_pin_patch(args.venv_path)
 
     print("[done] Chatterbox-asennus valmis.", flush=True)
     return 0

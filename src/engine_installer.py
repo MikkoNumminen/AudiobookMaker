@@ -96,6 +96,13 @@ HF_REPOS = [
     ),
 ]
 
+# The ResembleAI/chatterbox base model is loaded by the library's
+# ChatterboxMultilingualTTS.from_pretrained, which hardcodes revision="main".
+# We can't pass a revision through that call, so the install step patches the
+# library source to pin it to this SHA (matching the prefetch revision in
+# HF_REPOS). MUST equal the ResembleAI/chatterbox revision above.
+CHATTERBOX_BASE_REVISION = "ef85ce7bef2f3f1a74d0d837d379d2fcb68203cd"
+
 DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
 # Upper bound on the smoke-test subprocess. Long enough to cover a cold
@@ -1175,6 +1182,40 @@ class ChatterboxInstaller(EngineInstaller):
                 message="Gemination-korjaus asennettu.",
             )
         )
+        self._pin_base_model_revision()
+
+    def _pin_base_model_revision(self) -> None:
+        """Pin the base-model download revision in the chatterbox library.
+
+        ChatterboxMultilingualTTS.from_pretrained hardcodes revision="main"
+        for the ResembleAI/chatterbox download, so an upstream rename of the
+        weight files on main would break loading. Rewrite it to the validated
+        SHA (matching the prefetch). Fully graceful — every miss is a no-op
+        skip, so this can never break the install (worst case the base model
+        stays on main, exactly as before this patch existed).
+        """
+        candidates = [
+            self._venv_path / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py",
+            self._venv_path / "lib" / "python3.11" / "site-packages"
+            / "chatterbox" / "mtl_tts.py",
+        ]
+        path = next((c for c in candidates if c.exists()), None)
+        if path is None:
+            return
+        try:
+            original = path.read_text(encoding="utf-8")
+        except OSError:
+            return
+        new = f'revision="{CHATTERBOX_BASE_REVISION}"'
+        if new in original:
+            return  # already pinned
+        old = 'revision="main"'
+        # Only patch when there is exactly one occurrence — more than one means
+        # the source shape changed and a blind replace could mis-pin a
+        # different repo's download.
+        if original.count(old) != 1:
+            return
+        path.write_text(original.replace(old, new), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

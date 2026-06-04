@@ -52,6 +52,12 @@ _DEFAULT_VOICES: dict[str, tuple[str, str]] = {
     "en": ("voxcpm2-default-en", "VoxCPM2 default voice (English)"),
 }
 
+# NOTE: this model load cannot be pinned to a revision from our side. VoxCPM's
+# from_pretrained passes the repo id straight to snapshot_download with no
+# revision and does not parse a `repo@revision` id, and VoxCPM is a
+# developer-only manual install (`pip install voxcpm`) so there is no install
+# hook to patch. Pinning would require an upstream VoxCPM change. Documented
+# here so it isn't mistaken for an oversight.
 _HUGGINGFACE_MODEL_ID = "openbmb/VoxCPM2"
 _INSTALL_HINT = "Install required: pip install voxcpm  (developer install only)"
 

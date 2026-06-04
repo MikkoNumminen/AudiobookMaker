@@ -64,9 +64,14 @@ if TYPE_CHECKING:  # pragma: no cover - import guard for type checkers only
 # Default gap, in seconds, below which two same-speaker turns are merged.
 _DEFAULT_MERGE_GAP_S = 0.1
 
-# Pyannote model id. Centralised so it is easy to bump when a new revision
-# ships.
-_PYANNOTE_MODEL_ID = "pyannote/speaker-diarization-3.1"
+# Pyannote model id, pinned to an immutable commit revision via the
+# `repo@revision` syntax that Pipeline.from_pretrained parses (it splits on
+# "@" and passes the right-hand side as `revision=` to hf_hub_download). This
+# stops an upstream re-tag/force-push of speaker-diarization-3.1 from silently
+# changing the diarizer. Bump the SHA deliberately after re-validating.
+_PYANNOTE_MODEL_ID = (
+    "pyannote/speaker-diarization-3.1@84fd25912480287da0247647c3d2b4853cb3ee5d"
+)
 
 
 def resolve_token(hf_token: str | None) -> str:
