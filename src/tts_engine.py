@@ -231,30 +231,6 @@ async def _synthesize_chunk(
         )
 
 
-async def _synthesize_all_chunks(
-    chunks: list[str],
-    config: TTSConfig,
-    tmp_dir: str,
-    progress_cb: Optional[ProgressCallback],
-) -> list[str]:
-    """Synthesize all chunks sequentially and return list of MP3 file paths."""
-    voice = config.resolved_voice()
-    output_files: list[str] = []
-    total = len(chunks)
-
-    for i, chunk in enumerate(chunks):
-        out_path = os.path.join(tmp_dir, f"chunk_{i:04d}.mp3")
-        if progress_cb:
-            progress_cb(i, total, f"Syntetisoidaan pala {i + 1}/{total}…")
-        await _synthesize_chunk(chunk, voice, config.rate, config.volume, out_path)
-        output_files.append(out_path)
-
-    if progress_cb:
-        progress_cb(total, total, "Yhdistetään äänitiedostot…")
-
-    return output_files
-
-
 # ---------------------------------------------------------------------------
 # Windows asyncio socketpair workaround
 # ---------------------------------------------------------------------------
@@ -353,10 +329,30 @@ def text_to_speech(
 
     tmp_dir = tempfile.mkdtemp(prefix="abm_tts_")
     try:
-        mp3_files = _asyncio_run_with_retry(
-            lambda: _synthesize_all_chunks(chunks, config, tmp_dir, progress_cb),
-            timeout_s=max(15, len(chunks) * 10),
-        )
+        voice = config.resolved_voice()
+        mp3_files: list[str] = []
+        total = len(chunks)
+        for i, chunk in enumerate(chunks):
+            out_path = os.path.join(tmp_dir, f"chunk_{i:04d}.mp3")
+            if progress_cb:
+                progress_cb(i, total, f"Syntetisoidaan pala {i + 1}/{total}…")
+            # One asyncio.run PER CHUNK. The retry wrapper exists to survive
+            # the Windows socketpair-init flake (a per-event-loop init hang),
+            # so it must wrap each chunk, not the whole book: a slow chunk then
+            # can't blow a whole-audiobook wall-clock budget — it has its own
+            # _EDGE_CHUNK_TIMEOUT inner timeout — and a transient flake retries
+            # only THIS chunk instead of restarting every finished chunk from
+            # zero. The budget here only needs to exceed that inner per-chunk
+            # timeout enough to let a genuine socketpair hang be retried.
+            _asyncio_run_with_retry(
+                lambda c=chunk, p=out_path: _synthesize_chunk(
+                    c, voice, config.rate, config.volume, p
+                ),
+                timeout_s=_EDGE_CHUNK_TIMEOUT + 30,
+            )
+            mp3_files.append(out_path)
+        if progress_cb:
+            progress_cb(total, total, "Yhdistetään äänitiedostot…")
         # On Windows, edge-tts's async transports may hold file handles
         # briefly after asyncio.run() returns. Force GC to release them.
         import gc
