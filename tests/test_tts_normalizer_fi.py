@@ -426,12 +426,12 @@ class TestRomanNumeralExpansion:
 
     @pytest.mark.parametrize("text,spelled", [
         # Pass L's blacklist prevents Roman-numeral expansion; Pass N's
-        # letter-by-letter fallback then spells these as individual letters,
-        # which matches how a Finnish reader would actually say them.
-        pytest.param("DC power", "D C power", id="dc"),
-        pytest.param("lähetä CV", "lähetä C V", id="cv"),
-        pytest.param("tämän kauden MVP", "tämän kauden M V P", id="mvp"),
-        pytest.param("LCD näyttö", "L C D näyttö", id="lcd"),
+        # fallback then spells these as Finnish letter names, which matches how
+        # a Finnish reader would actually say them.
+        pytest.param("DC power", "dee see power", id="dc"),
+        pytest.param("lähetä CV", "lähetä see vee", id="cv"),
+        pytest.param("tämän kauden MVP", "tämän kauden äm vee pee", id="mvp"),
+        pytest.param("LCD näyttö", "äl see dee näyttö", id="lcd"),
     ])
     def test_blacklisted_spelled_by_fallback(self, text, spelled):
         assert normalize_finnish_text(text) == spelled
@@ -460,7 +460,7 @@ class TestRomanNumeralExpansion:
         # then spells each I separately so the TTS engine reads "I I I I"
         # instead of trying to pronounce "iiiii" as a word.
         assert _roman_to_int("IIII") is None
-        assert normalize_finnish_text("IIII") == "I I I I"
+        assert normalize_finnish_text("IIII") == "ii ii ii ii"
 
     def test_roman_at_sentence_start(self) -> None:
         result = normalize_finnish_text("IX vuosisadalla")
@@ -515,10 +515,10 @@ class TestMetadataParenDrop:
 
     def test_metadata_paren_kept_when_drop_citations_false(self) -> None:
         # With drop_citations=False the metadata paren survives. Pass N's
-        # letter-by-letter fallback spells ``DOI`` as ``D O I``, so the
-        # paren content is still there — just read aloud letter by letter.
+        # fallback spells ``DOI`` as the Finnish letter names ``dee oo ii``, so
+        # the paren content is still there — just read aloud letter by letter.
         result = normalize_finnish_text("(DOI 10.1234/abcd)", drop_citations=False)
-        assert "D O I" in result
+        assert "dee oo ii" in result
 
 
 # ---------------------------------------------------------------------------
@@ -636,11 +636,11 @@ class TestAcronymExpansion:
         pytest.param("USA oli", "Yhdysvallat oli", id="usa"),
         # NATO reads as a word, not letter-by-letter
         pytest.param("NATO jäsenyys", "Nato jäsenyys", id="nato_word"),
-        pytest.param("ALR sääti", "A L R sääti", id="alr_letter_by_letter"),
+        pytest.param("ALR sääti", "aa äl är sääti", id="alr_letter_by_letter"),
         # Hyphen is a non-word char so \b fires between ABGB and -.
-        pytest.param("ABGB-laki", "A B G B-laki", id="abgb_with_hyphen"),
-        pytest.param("BGB § 242", "B G B § 242", id="bgb_with_section"),
-        pytest.param("HGB", "H G B", id="hgb"),
+        pytest.param("ABGB-laki", "aa bee gee bee-laki", id="abgb_with_hyphen"),
+        pytest.param("BGB § 242", "bee gee bee § 242", id="bgb_with_section"),
+        pytest.param("HGB", "hoo gee bee", id="hgb"),
         pytest.param(
             "EU ja YK",
             "Euroopan unioni ja Yhdistyneet kansakunnat",
@@ -655,7 +655,7 @@ class TestAcronymExpansion:
         pytest.param("EU:n", "Euroopan unioni:n", id="eu_colon_suffix"),
         pytest.param("YK:n", "Yhdistyneet kansakunnat:n", id="yk_colon_suffix"),
         # Ensures `ABGB` is NOT partially replaced as `A` + `BGB` expansion.
-        pytest.param("ABGB ja BGB", "A B G B ja B G B", id="longest_first_abgb_bgb"),
+        pytest.param("ABGB ja BGB", "aa bee gee bee ja bee gee bee", id="longest_first_abgb_bgb"),
     ])
     def test_acronym_expansion(self, text, expected):
         assert _expand_acronyms(text) == expected
@@ -1192,9 +1192,9 @@ class TestPassL:
 
     def test_blacklist_not_roman_expanded(self) -> None:
         # ``DC`` is a modern acronym on Pass L's blacklist (prevents Roman
-        # expansion to 600). Pass N's letter-by-letter fallback then spells
-        # it as ``D C`` so the TTS engine reads the individual letters.
-        assert normalize_finnish_text("DC power") == "D C power"
+        # expansion to 600). Pass N's fallback then spells it as the Finnish
+        # letter names ``dee see`` so the model reads the letters correctly.
+        assert normalize_finnish_text("DC power") == "dee see power"
 
     def test_single_letter_i_untouched(self) -> None:
         # Standalone ``I`` (1 character) must not be expanded.
@@ -1203,9 +1203,9 @@ class TestPassL:
 
     def test_non_canonical_roman_spelled_by_fallback(self) -> None:
         # ``IIII`` is not canonical (canonical is ``IV``). Pass L leaves it
-        # alone; Pass N's letter-by-letter fallback then spells it as
-        # ``I I I I`` so Chatterbox doesn't mispronounce it as a word.
-        assert normalize_finnish_text("IIII") == "I I I I"
+        # alone; Pass N's fallback then spells it as the letter name ``ii``
+        # repeated so Chatterbox doesn't mispronounce it as a word.
+        assert normalize_finnish_text("IIII") == "ii ii ii ii"
 
     def test_cross_language_english_untouched(self) -> None:
         # English text without Roman numerals — unchanged.
@@ -1318,25 +1318,27 @@ class TestPassNFallback:
     # --- Basic spelling ---
 
     @pytest.mark.parametrize("text,expected", [
-        pytest.param("XKJ", "X K J", id="three_cons_no_vowel"),
-        pytest.param("IBM", "I B M", id="ibm"),
-        pytest.param("FBI", "F B I", id="fbi"),
-        pytest.param("SOS", "S O S", id="sos"),
-        pytest.param("HR", "H R", id="two_letter_hr"),
-        pytest.param("DVD", "D V D", id="dvd"),
-        pytest.param("CEO", "C E O", id="ceo"),
+        # Spelled as Finnish letter NAMES, not bare letters, so the model
+        # pronounces them correctly (it mishears bare "P"/"R" as "paa"/"ar").
+        pytest.param("XKJ", "äks koo jii", id="three_cons_no_vowel"),
+        pytest.param("IBM", "ii bee äm", id="ibm"),
+        pytest.param("FBI", "äf bee ii", id="fbi"),
+        pytest.param("SOS", "äs oo äs", id="sos"),
+        pytest.param("HR", "hoo är", id="two_letter_hr"),
+        pytest.param("DVD", "dee vee dee", id="dvd"),
+        pytest.param("CEO", "see ee oo", id="ceo"),
     ])
     def test_unknown_allcaps_spelled(self, text, expected):
         assert _expand_acronym_fallback(text) == expected
 
     def test_in_sentence_context(self):
         # Surrounding prose is preserved; only the acronym is spelled.
-        assert _expand_acronym_fallback("Osto IBM:n kautta") == "Osto I B M:n kautta"
+        assert _expand_acronym_fallback("Osto IBM:n kautta") == "Osto ii bee äm:n kautta"
 
     def test_multiple_acronyms_in_one_sentence(self):
         assert (
             _expand_acronym_fallback("DVD ja CPU ovat vanhoja")
-            == "D V D ja C P U ovat vanhoja"
+            == "dee vee dee ja see pee uu ovat vanhoja"
         )
 
     # --- Length guards ---
@@ -1371,7 +1373,7 @@ class TestPassNFallback:
 
     def test_two_allcaps_in_a_row_still_spelled(self):
         # Only two — not enough to trip the heading heuristic.
-        assert _expand_acronym_fallback("DVD CPU") == "D V D C P U"
+        assert _expand_acronym_fallback("DVD CPU") == "dee vee dee see pee uu"
 
     # --- Accented Finnish characters excluded ---
 
@@ -1384,16 +1386,17 @@ class TestPassNFallback:
     # --- Idempotence ---
 
     def test_idempotent_on_already_spelled(self):
-        # Once spelled, each letter is length 1 and won't re-match.
+        # Once spelled, the output is lowercase letter-name words and won't
+        # re-match the all-caps fallback pattern.
         once = _expand_acronym_fallback("IBM")
         twice = _expand_acronym_fallback(once)
-        assert once == twice == "I B M"
+        assert once == twice == "ii bee äm"
 
     # --- Integration via normalize_finnish_text ---
 
     def test_fallback_runs_inside_normalize(self):
         # Unknown acronym now gets spelled through the full pipeline.
-        assert normalize_finnish_text("XYZ on akronyymi") == "X Y Z on akronyymi"
+        assert normalize_finnish_text("XYZ on akronyymi") == "äks yy tseta on akronyymi"
 
     def test_known_whitelist_still_wins(self):
         # EU is in the whitelist → expanded to the Finnish phrase. The
