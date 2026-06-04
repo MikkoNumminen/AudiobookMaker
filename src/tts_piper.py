@@ -60,7 +60,12 @@ class _PiperVoiceSpec:
 
     def build_url(self, filename: str) -> str:
         return (
-            "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+            # Pinned to an immutable commit SHA, matching the other Piper
+            # download sites (engine installer, post-install, launcher.iss).
+            # The voice file is byte-identical to the old v1.0.0 tag (verified
+            # by ETag), so this only removes the tag-vs-SHA inconsistency.
+            "https://huggingface.co/rhasspy/piper-voices/resolve/"
+            "b710b0ba0740da88dc36e1ab8fa6b310d43a3a48/"
             f"{self.url_lang}/{self.url_locale}/{self.url_voice}/"
             f"{self.url_quality}/{filename}"
         )
