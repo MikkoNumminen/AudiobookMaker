@@ -41,7 +41,9 @@ _ABBREVIATIONS = {
 
 
 
-def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+def split_text_into_chunks(
+    text: str, max_chars: int = MAX_CHUNK_CHARS, min_chars: int = 0
+) -> list[str]:
     """Split text into chunks of at most max_chars characters.
 
     Splits on sentence boundaries when possible to avoid breaking mid-sentence.
@@ -49,6 +51,13 @@ def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[
     Args:
         text: Input text to split.
         max_chars: Maximum characters per chunk.
+        min_chars: If > 0, fold any chunk shorter than this into a neighbor
+            (see :func:`_merge_short_chunks`). Tiny chunks — a stray clause
+            like ``"vuoksi,"`` left over from splitting a long sentence — make
+            some neural TTS models behave pathologically (Chatterbox rambles
+            for 10+ seconds on a 7-char input). Off by default so the online
+            engines (which chunk at 3000 chars and never see fragments this
+            small) are unaffected; the Chatterbox runner opts in.
 
     Returns:
         List of text chunks.
@@ -86,7 +95,37 @@ def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[
     if current.strip():
         chunks.append(current.strip())
 
-    return [c for c in chunks if c]
+    return _merge_short_chunks([c for c in chunks if c], max_chars, min_chars)
+
+
+def _merge_short_chunks(
+    chunks: list[str], max_chars: int, min_chars: int
+) -> list[str]:
+    """Fold sub-``min_chars`` chunks into a neighbor.
+
+    A tiny chunk — a stray clause like ``"vuoksi,"`` left over when a long
+    sentence is force-split at commas — makes some neural TTS models misbehave:
+    Chatterbox rambles for 10+ seconds on a 7-char input, and that audio
+    survives VAD-trimming straight into the book as garbage. Merge any chunk
+    shorter than ``min_chars`` into the preceding chunk, allowing a modest
+    overflow past ``max_chars`` (a 230-char chunk reads fine; a 7-char one does
+    not). A short chunk is only left standalone if folding it would exceed the
+    overflow ceiling — rare, and the synth-side band guard catches the rest.
+    """
+    if min_chars <= 0 or len(chunks) <= 1:
+        return chunks
+    ceiling = max_chars + min_chars
+    out: list[str] = []
+    for ch in chunks:
+        if (
+            out
+            and (len(out[-1]) < min_chars or len(ch) < min_chars)
+            and len(out[-1]) + 1 + len(ch) <= ceiling
+        ):
+            out[-1] = out[-1] + " " + ch
+        else:
+            out.append(ch)
+    return out
 
 
 def _split_sentences(text: str) -> list[str]:

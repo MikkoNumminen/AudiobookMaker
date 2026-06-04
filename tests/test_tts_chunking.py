@@ -11,6 +11,7 @@ import pytest
 
 from src.tts_chunking import (
     _force_split,
+    _merge_short_chunks,
     _split_sentences,
     split_text_into_chunks,
 )
@@ -276,3 +277,45 @@ class TestForceSplit:
         parts = _force_split(clause.strip(), max_chars=50)
         assert len(parts) > 1
         assert all(len(p) <= 50 for p in parts)
+
+
+class TestMergeShortChunks:
+    """min_chars folds tiny clause-fragments into a neighbor so the TTS model
+    never sees a fragment it would ramble on (Chatterbox produces 10+ seconds
+    of garbage for a 7-char input)."""
+
+    def test_disabled_by_default(self) -> None:
+        chunks = ["a" * 100, "vuoksi,", "b" * 100]
+        assert _merge_short_chunks(chunks, 180, 0) == chunks
+
+    def test_tiny_chunk_folded_into_previous(self) -> None:
+        out = _merge_short_chunks(["a" * 100, "vuoksi,", "b" * 100], 180, 60)
+        assert out == ["a" * 100 + " vuoksi,", "b" * 100]
+        assert all(len(c) >= 60 for c in out)
+
+    def test_consecutive_tiny_chunks_accumulate(self) -> None:
+        out = _merge_short_chunks(["a" * 100, "x,", "y,", "b" * 100], 180, 60)
+        assert out == ["a" * 100 + " x, y,", "b" * 100]
+
+    def test_trailing_tiny_chunk_is_merged(self) -> None:
+        assert _merge_short_chunks(["a" * 100, "end."], 180, 60) == ["a" * 100 + " end."]
+
+    def test_not_merged_past_overflow_ceiling(self) -> None:
+        # prev already at the ceiling (max+min=240) -> a tiny chunk stays put
+        # rather than producing an even larger, truncation-prone chunk.
+        out = _merge_short_chunks(["a" * 239, "x,"], 180, 60)
+        assert out == ["a" * 239, "x,"]
+
+    def test_single_chunk_unchanged(self) -> None:
+        assert _merge_short_chunks(["short"], 180, 60) == ["short"]
+
+    def test_integration_no_tiny_chunks_when_min_set(self) -> None:
+        # A long sentence that force-splits into a stray trailing clause must
+        # not leave a sub-min chunk once min_chars is on.
+        text = ("Tämä on hyvin pitkä virke jossa on todella paljon sanoja, "
+                "ja toinen yhtä mittava lauseke täynnä lisää sanoja tähän, "
+                "vuoksi.")
+        loose = split_text_into_chunks(text, max_chars=60, min_chars=0)
+        merged = split_text_into_chunks(text, max_chars=60, min_chars=40)
+        assert min(len(c) for c in loose) < 40       # tiny chunk exists without it
+        assert min(len(c) for c in merged) >= 40 or len(merged) == 1
