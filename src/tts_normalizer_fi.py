@@ -15,6 +15,7 @@ import re
 from typing import Optional
 
 from src.fi_loanwords import apply_loanword_respellings
+from src.tts_normalizer_fi_legal import expand_legal_citations
 
 
 # ---------------------------------------------------------------------------
@@ -1014,6 +1015,15 @@ def normalize_finnish_text(
     # Pass O — strip emoji. Runs first so no later regex needs to worry
     # about pictographs sneaking through character classes.
     text = _strip_emoji(text)
+
+    # Pass Z — legal-citation expansion (§, law abbreviations, statute numbers,
+    # articles, moments, page ranges). Runs before Pass A so that statute
+    # numbers are turned into spoken "NNN kautta YYYY" and survive (a
+    # substantive law reference should be read), while genuine bibliographic
+    # citations (author names, journal refs) still match Pass A and are
+    # dropped. Context-aware: a no-op on text that has no legal citation
+    # shapes, so it is safe to run on every Finnish document.
+    text = expand_legal_citations(text)
 
     # Pass A — drop bibliographic citations and metadata parens.
     if drop_citations:
