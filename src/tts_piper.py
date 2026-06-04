@@ -29,7 +29,11 @@ from src.tts_base import (
     Voice,
     register_engine,
 )
-from src.tts_engine import combine_audio_files, split_text_into_chunks
+from src.tts_engine import (
+    combine_audio_files,
+    normalize_text,
+    split_text_into_chunks,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +552,10 @@ class PiperTTSEngine(TTSEngine):
 
         voice = PiperVoice.load(str(model_path), config_path=str(config_path))
 
+        # Normalize before chunking so Finnish years, §-citations, acronyms,
+        # etc. are spoken correctly on this engine too — the same chokepoint
+        # every engine uses (see docs/CONVENTIONS.md "Text normalization").
+        text = normalize_text(text, language)
         chunks = split_text_into_chunks(text)
         if not chunks:
             raise ValueError("Text produced no chunks after splitting.")
