@@ -349,17 +349,17 @@ class TestEndsOnPausePunct:
         "ajatus —",                  # em dash
         "toinen –",                  # en dash
         'hän sanoi "kyllä."',        # terminator behind a closing quote
-        "(lapsen etu).",             # terminator behind a closing paren
+        "(a footnote).",             # terminator behind a closing paren
         "summa (yhteensä),",         # comma behind a closing paren
     ])
     def test_punctuation_endings_warrant_a_pause(self, text: str) -> None:
         assert gca._ends_on_pause_punct(text) is True
 
     @pytest.mark.parametrize("text", [
-        "varsin",                    # the reported bare-word splits
-        "valtion",
-        "Yhdistyneet",
-        "pykälien",
+        "midwordone",                # synthetic bare-word force-split endings
+        "midwordtwo",
+        "Capitalword",
+        "lowerword",
         "force split mid phrase",
         "trailing spaces   ",
         "ends in a quote with no punct \"",
@@ -417,7 +417,7 @@ class TestSeamKind:
         "Onko näin?",
         "Varo!",
         "Hän mietti…",
-        '(lapsen etu).',          # terminator behind a closing paren
+        '(a footnote).',          # terminator behind a closing paren
         'hän sanoi "kyllä."',     # terminator behind a closing quote
     ])
     def test_sentence_endings(self, text: str) -> None:
@@ -435,7 +435,7 @@ class TestSeamKind:
         assert gca._seam_kind(text) == "clause"
 
     @pytest.mark.parametrize("text", [
-        "varsin", "valtion", "force split mid phrase", "trailing spaces   ",
+        "midwordone", "midwordtwo", "force split mid phrase", "trailing spaces   ",
         "", "   ",
     ])
     def test_bare_words_are_mid(self, text: str) -> None:
