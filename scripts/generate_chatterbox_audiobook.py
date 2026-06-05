@@ -209,8 +209,8 @@ VAD_TAIL_PAD_MS = 500
 # the chunker force-splits it between two words, so two adjacent chunks are
 # really one continuous phrase. The generous sentence-end pads above (500ms
 # tail + 100ms head) plus the 100ms inter-chunk gap then land ~700ms of
-# silence *inside* the phrase — heard as an unnatural pause ("varsin …
-# yleistä", "Yhdistyneet … kansakunnat", "pykälien … taakse").
+# silence *inside* the phrase — heard as an unnatural pause exactly where a
+# force-split fell between two words of one continuous phrase.
 #
 # Trimming relative to silero's speech-end doesn't help here: silero counts
 # the trailing quiet as speech, so its end timestamp sits near the chunk end
@@ -230,6 +230,35 @@ VAD_FALLBACK_HEAD_DB = -42.0
 VAD_FALLBACK_TRAIL_DB = -52.0
 VAD_FALLBACK_HEAD_KEEP_MS = 40
 VAD_FALLBACK_TRAIL_KEEP_MS = 100
+
+# Inter-chunk pause, tiered by the left chunk's final punctuation. Both edges
+# of every chunk are first capped to the mid-join keeps (MID_JOIN_TAIL_KEEP_MS
+# trailing + MID_JOIN_HEAD_KEEP_MS leading); the gap below is then added on
+# top, so the silence at a seam is:
+#   mid-word  ~110ms  (70 + 0   + 40)  force-split inside a phrase — rejoin tight
+#   clause    ~260ms  (70 + 150 + 40)  , : ; — –
+#   sentence  ~480ms  (70 + 370 + 40)  . ! ? …
+# Measured cause (Finnish legal excerpt, 2026-06): without the tiering the
+# assembly gave a comma at a chunk seam the SAME ~1.1s pause as a full stop —
+# the 500ms VAD tail pad stacked on the model's own trailing pause — heard as a
+# weird ~1.1s pause at a comma that happened to land on a chunk seam.
+CLAUSE_SEAM_GAP_MS = 150
+SENTENCE_SEAM_GAP_MS = 370
+
+# The Finnish model sometimes renders very long pauses (up to ~1.6s measured)
+# at a period or comma that lands in the MIDDLE of a chunk. VAD only trims the
+# chunk edges, so those internal over-pauses survive into the book as weird
+# mid-sentence gaps. Cap any in-chunk silence longer than this down to this
+# length (≈ a natural sentence pause); speech is never touched.
+MAX_INTERNAL_SILENCE_MS = 480
+
+# Window step (ms) for the assembly silence scans. The default 1ms step scans
+# every millisecond — ~400x more work than needed at these granularities and a
+# real drag on assembling a long book (three full-segment scans per chunk).
+# 10ms is far finer than any pause we cap (40/70/480ms) and stays conservative:
+# trailing-silence end still reports as the true segment end, and a leading
+# scan only ever keeps a hair MORE lead-in, never clips speech.
+SILENCE_SCAN_STEP_MS = 10
 
 SETUP_INSTRUCTIONS = (
     "The Chatterbox engine could not load. Its Python environment is either "
@@ -896,45 +925,153 @@ def _cached_chunk_healthy(cache_path, chunk_chars: int) -> bool:
     return _ratio_badness(secs, chunk_chars) == 0.0
 
 
-# Punctuation that marks a natural spoken pause at a chunk boundary. Sentence
-# terminators (. ! ? …) and clause boundaries (, : ; — –) all qualify.
-_PAUSE_PUNCT = ".,!?:;…—–"
-# Closing wrappers that can legitimately sit AFTER the pause punctuation
-# (quotes, brackets) and should be looked through when testing the end.
+# Closing wrappers that can legitimately sit AFTER pause punctuation (quotes,
+# brackets) and should be looked through when testing how a chunk ends.
 _TRAILING_WRAP = "\"'»”’)]}"
 
 
 def _ends_on_pause_punct(chunk_text: str) -> bool:
     """True when a chunk ends on punctuation that warrants an inter-chunk pause.
 
-    A chunk ending on a bare word was force-split inside a phrase (its
-    sentence/clause was longer than chunk_chars). The join to the next chunk
-    must then be tight and gap-free so it doesn't sound like a pause. A chunk
-    ending on ``_PAUSE_PUNCT`` (optionally followed by a closing quote/bracket)
-    is a real sentence or clause boundary where a small pause is natural.
+    A bare-word ending was force-split inside a phrase and must rejoin the next
+    chunk tightly; a sentence/clause-punctuation ending is a real boundary where
+    a pause is natural. Thin wrapper over :func:`_seam_kind` so the two
+    punctuation sets stay single-sourced and can't drift apart.
+    """
+    return _seam_kind(chunk_text) != "mid"
+
+
+# Sentence terminators vs. clause boundaries. A full stop earns a longer pause
+# than a comma; both earn a pause; a bare word earns none (mid-phrase rejoin).
+_SENTENCE_END_PUNCT = ".!?…"
+_CLAUSE_PUNCT = ",:;—–"
+
+
+def _seam_kind(chunk_text: str) -> str:
+    """Classify the pause that follows a chunk by its final punctuation.
+
+    Returns ``"sentence"`` (``. ! ? …``), ``"clause"`` (``, : ; — –``), or
+    ``"mid"`` (a bare word — the chunk was force-split inside a phrase and must
+    rejoin tightly). The three map to progressively shorter inter-chunk pauses
+    so a comma at a chunk seam does not get the same ~half-second gap as a full
+    stop. A closing quote/bracket after the punctuation is looked through.
     """
     stripped = chunk_text.rstrip().rstrip(_TRAILING_WRAP).rstrip()
-    return bool(stripped) and stripped[-1] in _PAUSE_PUNCT
+    if not stripped:
+        return "mid"
+    last = stripped[-1]
+    if last in _SENTENCE_END_PUNCT:
+        return "sentence"
+    if last in _CLAUSE_PUNCT:
+        return "clause"
+    return "mid"
+
+
+def _seam_gap_ms(chunk_text: str) -> int:
+    """Inter-chunk gap (ms) to add after ``chunk_text`` based on its seam kind."""
+    return {
+        "sentence": SENTENCE_SEAM_GAP_MS,
+        "clause": CLAUSE_SEAM_GAP_MS,
+        "mid": 0,
+    }[_seam_kind(chunk_text)]
+
+
+def _cap_internal_silences(seg, max_ms, threshold_db=MID_JOIN_SILENCE_DB):
+    """Cap any silence *inside* ``seg`` that is longer than ``max_ms`` down to it.
+
+    The Finnish model sometimes renders very long pauses (1–1.5s measured) at a
+    period or comma that falls in the middle of a chunk. VAD trimming only
+    touches the chunk edges, so those internal over-pauses survive into the book
+    as weird mid-sentence gaps. Detect every silence longer than ``max_ms`` and
+    shorten it to ``max_ms``, leaving the speech untouched.
+    """
+    from pydub.silence import detect_silence
+    spans = detect_silence(
+        seg, min_silence_len=max_ms + 1, silence_thresh=threshold_db,
+        seek_step=SILENCE_SCAN_STEP_MS,
+    )
+    if not spans:
+        return seg
+    out = seg[:0]
+    prev = 0
+    for start, end in spans:
+        out += seg[prev:start] + seg[start:start + max_ms]
+        prev = end
+    out += seg[prev:]
+    return out
 
 
 def _cap_trailing_silence(seg, keep_ms, threshold_db=MID_JOIN_SILENCE_DB):
     """Trim trailing silence (quieter than ``threshold_db``) down to ``keep_ms``.
 
-    Used on the left side of a mid-phrase join so the next chunk follows almost
-    immediately. The kept ``keep_ms`` preserves the soft tail of the last word.
+    Uses *windowed* silence detection, not a sample-exact reverse scan: a faint
+    breath or click in the dead air after the last word stops a sample-exact
+    scan early and leaves hundreds of ms of near-silence behind (measured: a
+    477ms trailing gap survived, then stacked with the seam gap into a ~0.9s
+    pause). The kept ``keep_ms`` preserves the soft tail of the last word.
     """
-    from pydub.silence import detect_leading_silence
-    trail = detect_leading_silence(seg.reverse(), silence_threshold=threshold_db)
-    cut = max(0, trail - keep_ms)
-    return seg[:len(seg) - cut] if cut > 0 else seg
+    from pydub.silence import detect_silence
+    spans = detect_silence(
+        seg, min_silence_len=keep_ms + 1, silence_thresh=threshold_db,
+        seek_step=SILENCE_SCAN_STEP_MS,
+    )
+    if spans and spans[-1][1] >= len(seg) - 1:
+        return seg[: spans[-1][0] + keep_ms]
+    return seg
 
 
 def _cap_leading_silence(seg, keep_ms, threshold_db=MID_JOIN_SILENCE_DB):
-    """Trim leading silence down to ``keep_ms`` (right side of a mid-phrase join)."""
-    from pydub.silence import detect_leading_silence
-    lead = detect_leading_silence(seg, silence_threshold=threshold_db)
-    cut = max(0, lead - keep_ms)
-    return seg[cut:] if cut > 0 else seg
+    """Trim leading silence down to ``keep_ms`` (windowed; see _cap_trailing_silence)."""
+    from pydub.silence import detect_silence
+    spans = detect_silence(
+        seg, min_silence_len=keep_ms + 1, silence_thresh=threshold_db,
+        seek_step=SILENCE_SCAN_STEP_MS,
+    )
+    if spans and spans[0][0] <= SILENCE_SCAN_STEP_MS:
+        return seg[spans[0][1] - keep_ms:]
+    return seg
+
+
+def _assemble_chunks(seg_iter, chunk_texts):
+    """Concatenate VAD-trimmed chunk segments with tiered inter-chunk pauses.
+
+    ``seg_iter`` yields each chunk's already-VAD-trimmed ``AudioSegment`` in
+    order; ``chunk_texts`` is the parallel list of chunk strings used to size
+    the pause after each chunk. For every chunk this caps internal over-pauses
+    (``_cap_internal_silences``), then tightens the two SEAM edges — the
+    chapter-open lead-in and chapter-close tail are deliberately left intact —
+    and finally inserts a gap sized by the left chunk's final punctuation
+    (``_seam_gap_ms``: sentence > clause > mid-word). Returns the combined
+    ``AudioSegment`` (before ``_postprocess``).
+
+    Streams one segment at a time so a long book never holds every chunk's audio
+    in memory at once. This is the single source of the assembly pause logic —
+    drive it from a test to pin the seam-gap behaviour.
+    """
+    from pydub import AudioSegment
+    combined = AudioSegment.empty()
+    n = len(chunk_texts)
+    for chi, seg in enumerate(seg_iter):
+        seg = _cap_internal_silences(seg, MAX_INTERNAL_SILENCE_MS)
+        if chi > 0:  # not the chapter opening — tighten the seam lead-in
+            seg = _cap_leading_silence(seg, MID_JOIN_HEAD_KEEP_MS)
+        if chi < n - 1:  # not the chapter close — tighten the seam tail
+            seg = _cap_trailing_silence(seg, MID_JOIN_TAIL_KEEP_MS)
+        combined += seg
+        if chi < n - 1:
+            gap_ms = _seam_gap_ms(chunk_texts[chi])
+            if gap_ms:
+                combined += AudioSegment.silent(duration=gap_ms)
+    return combined
+
+
+def _iter_trimmed_chunks(chunks_dir, pos, n, vad_model, get_speech_timestamps):
+    """Yield each cached chunk wav, VAD-trimmed, in order (one at a time)."""
+    from pydub import AudioSegment
+    for chi in range(n):
+        cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
+        seg = AudioSegment.from_file(str(cache_path))
+        yield _vad_trim(seg, vad_model, get_speech_timestamps)
 
 
 def _vad_trim(seg, vad_model, get_speech_timestamps):
@@ -1320,27 +1457,13 @@ def main() -> int:
                 raise _StopRequested()
             print(f"[chapter {ci_pos}/{len(plan)}] assembling MP3...",
                   flush=True)
-            combined = AudioSegment.empty()
-            gap = AudioSegment.silent(duration=100)  # 100ms between sentences
-            for chi in range(len(chunks)):
-                cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
-                seg = AudioSegment.from_file(str(cache_path))
-                seg = _vad_trim(seg, vad_model, get_speech_timestamps)
-                # A chunk that doesn't end on punctuation was force-split
-                # mid-phrase; the chunk right after such a split starts
-                # mid-phrase. Hard-cap the silence on those sides so the two
-                # halves of the phrase flow together, and drop the inter-chunk
-                # gap. Real sentence/clause boundaries keep the generous pads
-                # and the gap.
-                ends_phrase = _ends_on_pause_punct(chunks[chi])
-                starts_phrase = chi == 0 or _ends_on_pause_punct(chunks[chi - 1])
-                if not starts_phrase:
-                    seg = _cap_leading_silence(seg, MID_JOIN_HEAD_KEEP_MS)
-                if not ends_phrase and chi < len(chunks) - 1:
-                    seg = _cap_trailing_silence(seg, MID_JOIN_TAIL_KEEP_MS)
-                combined += seg
-                if chi < len(chunks) - 1 and ends_phrase:
-                    combined += gap
+            combined = _assemble_chunks(
+                _iter_trimmed_chunks(
+                    chunks_dir, pos, len(chunks),
+                    vad_model, get_speech_timestamps,
+                ),
+                chunks,
+            )
             combined = _postprocess(combined)
             combined.export(str(chapter_mp3), format="mp3", bitrate="128k")
             print(f"[chapter {ci_pos}/{len(plan)}] wrote {chapter_mp3.name} "

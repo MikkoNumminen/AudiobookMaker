@@ -333,9 +333,10 @@ class TestVadConstants:
 
 
 class TestEndsOnPausePunct:
-    """_ends_on_pause_punct decides whether a chunk boundary gets the
-    generous sentence pads + inter-chunk gap (True) or a tight, gap-free
-    mid-phrase join (False)."""
+    """_ends_on_pause_punct is the boundary predicate: True at a real
+    sentence/clause boundary, False at a mid-phrase force-split. It is now a
+    thin wrapper over _seam_kind (the tiering lives there); this class keeps the
+    closing-quote/bracket edge cases pinned."""
 
     @pytest.mark.parametrize("text", [
         "Tämä on lause.",
@@ -348,17 +349,17 @@ class TestEndsOnPausePunct:
         "ajatus —",                  # em dash
         "toinen –",                  # en dash
         'hän sanoi "kyllä."',        # terminator behind a closing quote
-        "(lapsen etu).",             # terminator behind a closing paren
+        "(a footnote).",             # terminator behind a closing paren
         "summa (yhteensä),",         # comma behind a closing paren
     ])
     def test_punctuation_endings_warrant_a_pause(self, text: str) -> None:
         assert gca._ends_on_pause_punct(text) is True
 
     @pytest.mark.parametrize("text", [
-        "varsin",                    # the reported bare-word splits
-        "valtion",
-        "Yhdistyneet",
-        "pykälien",
+        "midwordone",                # synthetic bare-word force-split endings
+        "midwordtwo",
+        "Capitalword",
+        "lowerword",
         "force split mid phrase",
         "trailing spaces   ",
         "ends in a quote with no punct \"",
@@ -406,6 +407,151 @@ class TestCapSilence:
         seg = self._tone(500)
         assert len(gca._cap_trailing_silence(seg, keep_ms=70)) == len(seg)
         assert len(gca._cap_leading_silence(seg, keep_ms=40)) == len(seg)
+
+
+class TestSeamKind:
+    """_seam_kind tiers the inter-chunk pause: sentence > clause > mid-word."""
+
+    @pytest.mark.parametrize("text", [
+        "Tämä on lause.",
+        "Onko näin?",
+        "Varo!",
+        "Hän mietti…",
+        '(a footnote).',          # terminator behind a closing paren
+        'hän sanoi "kyllä."',     # terminator behind a closing quote
+    ])
+    def test_sentence_endings(self, text: str) -> None:
+        assert gca._seam_kind(text) == "sentence"
+
+    @pytest.mark.parametrize("text", [
+        "ensin yksi asia,",       # comma
+        "seuraavasti:",           # colon
+        "kaksi osaa;",            # semicolon
+        "ajatus —",               # em dash
+        "toinen –",               # en dash
+        "summa (yhteensä),",      # comma behind a closing paren
+    ])
+    def test_clause_endings(self, text: str) -> None:
+        assert gca._seam_kind(text) == "clause"
+
+    @pytest.mark.parametrize("text", [
+        "midwordone", "midwordtwo", "force split mid phrase", "trailing spaces   ",
+        "", "   ",
+    ])
+    def test_bare_words_are_mid(self, text: str) -> None:
+        assert gca._seam_kind(text) == "mid"
+
+    def test_gap_tiers_are_ordered(self) -> None:
+        """A full stop pauses longer than a comma, which pauses longer than a
+        mid-phrase rejoin (which adds no gap at all)."""
+        assert gca._seam_gap_ms("End of sentence.") == gca.SENTENCE_SEAM_GAP_MS
+        assert gca._seam_gap_ms("a clause,") == gca.CLAUSE_SEAM_GAP_MS
+        assert gca._seam_gap_ms("bareword") == 0
+        assert (
+            gca._seam_gap_ms("bareword")
+            < gca._seam_gap_ms("a clause,")
+            < gca._seam_gap_ms("End of sentence.")
+        )
+
+
+class TestCapInternalSilences:
+    """_cap_internal_silences shortens an over-long pause in the MIDDLE of a
+    chunk (the Finnish model renders 1–1.5s gaps at some punctuation) without
+    touching the surrounding speech."""
+
+    @staticmethod
+    def _tone(ms: int):
+        from pydub.generators import Sine
+        return Sine(220).to_audio_segment(duration=ms).apply_gain(-3)
+
+    @staticmethod
+    def _sil(ms: int):
+        from pydub import AudioSegment
+        return AudioSegment.silent(duration=ms)
+
+    def test_long_internal_silence_capped(self) -> None:
+        seg = self._tone(300) + self._sil(1500) + self._tone(300)
+        out = gca._cap_internal_silences(seg, max_ms=480)
+        # 1500ms gap collapsed to ~480ms; both 300ms tones preserved.
+        assert 1060 <= len(out) <= 1110
+
+    def test_short_internal_silence_untouched(self) -> None:
+        seg = self._tone(300) + self._sil(300) + self._tone(300)
+        out = gca._cap_internal_silences(seg, max_ms=480)
+        assert len(out) == len(seg)
+
+    def test_multiple_long_silences_all_capped(self) -> None:
+        seg = (self._tone(200) + self._sil(900) + self._tone(200)
+               + self._sil(900) + self._tone(200))
+        out = gca._cap_internal_silences(seg, max_ms=480)
+        # two 900ms gaps → ~480ms each; speech (600ms) preserved.
+        assert 1500 <= len(out) <= 1620
+
+    def test_pure_speech_not_clipped(self) -> None:
+        seg = self._tone(500)
+        assert len(gca._cap_internal_silences(seg, max_ms=480)) == len(seg)
+
+
+class TestAssembleChunks:
+    """_assemble_chunks is the single source of the assembly pause logic: tiered
+    seam gaps (sentence > clause > mid-word), internal-silence capping, and
+    chapter-edge preservation. This is the integration guard that stops the
+    long-pause bug from silently reappearing. Pure pydub — no torch/engine."""
+
+    @staticmethod
+    def _tone(ms: int):
+        from pydub.generators import Sine
+        return Sine(220).to_audio_segment(duration=ms).apply_gain(-3)
+
+    @staticmethod
+    def _sil(ms: int):
+        from pydub import AudioSegment
+        return AudioSegment.silent(duration=ms)
+
+    def _seam_silence(self, left_text: str) -> int:
+        """Assemble two interior chunks; return the single seam-silence length."""
+        from pydub.silence import detect_silence
+        a = self._tone(300) + self._sil(600)
+        b = self._sil(600) + self._tone(300)
+        out = gca._assemble_chunks([a, b], [left_text, "tail."])
+        spans = detect_silence(out, min_silence_len=50, silence_thresh=-40)
+        return max(e - s for s, e in spans)
+
+    def test_sentence_seam_is_full(self) -> None:
+        # ~70 trail + 370 gap + 40 lead
+        assert 430 <= self._seam_silence("A full stop.") <= 540
+
+    def test_clause_seam_is_medium(self) -> None:
+        # ~70 trail + 150 gap + 40 lead
+        assert 210 <= self._seam_silence("a clause,") <= 320
+
+    def test_midword_seam_is_tight(self) -> None:
+        # ~70 trail + 0 gap + 40 lead — a force-split inside a phrase
+        assert 80 <= self._seam_silence("bareword") <= 170
+
+    def test_seam_tiers_strictly_ordered(self) -> None:
+        assert (
+            self._seam_silence("End.")
+            > self._seam_silence("mid,")
+            > self._seam_silence("bareword")
+        )
+
+    def test_long_internal_pause_capped_in_assembly(self) -> None:
+        # a 1.5s model pause in the MIDDLE of a chunk is shortened, not shipped
+        from pydub.silence import detect_silence
+        mid = self._tone(300) + self._sil(1500) + self._tone(300)
+        out = gca._assemble_chunks([mid, self._tone(200)], ["one.", "two."])
+        worst = max(e - s for s, e in detect_silence(out, min_silence_len=50, silence_thresh=-40))
+        assert worst <= gca.MAX_INTERNAL_SILENCE_MS + gca.SILENCE_SCAN_STEP_MS
+
+    def test_chapter_edges_preserved(self) -> None:
+        # first chunk's lead-in and last chunk's tail are NOT seam-tightened
+        from pydub.silence import detect_leading_silence
+        first = self._sil(300) + self._tone(300)
+        last = self._tone(300) + self._sil(300)
+        out = gca._assemble_chunks([first, last], ["open.", "close."])
+        assert detect_leading_silence(out, silence_threshold=-40) >= 200
+        assert detect_leading_silence(out.reverse(), silence_threshold=-40) >= 200
 
 
 class TestCachedChunkHealth:
