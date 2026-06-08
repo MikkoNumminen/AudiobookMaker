@@ -143,6 +143,14 @@ _CORRUPTION_SMOKE_SIGNATURES = (
     "dll load failed",
     "cannot import",
     "failed to import",
+    # Windows: a missing/half-written dependency DLL (e.g. torch's fbgemm.dll)
+    # surfaces as OSError [WinError 126/127] "Error loading ..." rather than an
+    # ImportError — still a corruption a clean rebuild fixes. A CUDA-availability
+    # failure reads differently ("Found no NVIDIA driver" / "CUDA error"), so
+    # these don't re-introduce the wasted-rebuild-on-CUDA-down case.
+    "winerror 126",
+    "winerror 127",
+    "error loading",
 )
 
 

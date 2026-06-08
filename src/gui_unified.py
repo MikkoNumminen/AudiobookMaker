@@ -2638,6 +2638,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._synth_running:
             return
 
+        # Refuse before any PDF parsing if an engine install/repair is running
+        # (same corruption risk as Convert; fail fast before the parse).
+        if self._engine_install_in_progress():
+            messagebox.showerror(
+                self._s("error"), self._s("engine_installing_wait")
+            )
+            return
+
         # Validate input — same rules as Muunna.
         if self._input_mode == "pdf" and not self._pdf_path:
             messagebox.showerror(self._s("error"), self._s("no_pdf"))
@@ -2679,14 +2687,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         engine = self._current_engine()
         if engine is None:
             messagebox.showerror(self._s("error"), self._s("engine_not_found"))
-            return
-
-        # Refuse to launch while an engine install/repair is running (see
-        # _on_convert_click) — same corruption risk applies to a sample run.
-        if self._engine_install_in_progress():
-            messagebox.showerror(
-                self._s("error"), self._s("engine_installing_wait")
-            )
             return
 
         # Availability check runs for EVERY engine (cheap, path-only), so a

@@ -746,3 +746,14 @@ class TestConvertBlockedDuringInstall:
         showerror.assert_called_once()
         assert app._s("engine_installing_wait") in showerror.call_args[0][1]
         assert app._synth_running is False
+
+    def test_sample_blocked_while_engine_installing(self, app):
+        # The sample guard is hoisted above the PDF parse, so it fires right
+        # after the synth-running check — no input setup needed.
+        with patch.object(app._settings_view, "is_installing", return_value=True), \
+             patch("src.gui_unified.messagebox.showerror") as showerror:
+            app._on_sample_click()
+
+        showerror.assert_called_once()
+        assert app._s("engine_installing_wait") in showerror.call_args[0][1]
+        assert app._synth_running is False

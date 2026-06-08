@@ -164,6 +164,34 @@ class TestRepairEscalation:
         assert any(e.error for e in events)
         assert not any(e.done for e in events)
 
+    def test_repair_rebuilds_on_winerror_126_dll_failure(self, tmp_path):
+        # The common Windows corruption: a missing dependency DLL surfaces as
+        # OSError [WinError 126] "Error loading ...", NOT an ImportError — it
+        # must still trigger the clean rebuild (this is exactly a corrupt torch).
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        inst._venv_path.mkdir(parents=True)
+        smoke_results = [
+            "OSError: [WinError 126] The specified module could not be found. "
+            'Error loading "...\\torch\\lib\\fbgemm.dll" or one of its dependencies.',
+            None,
+        ]
+
+        def smoke(_venv_py, _cancel):
+            return smoke_results.pop(0)
+
+        remove_mock = MagicMock(return_value=True)
+        ctxs = _mocked_install_steps(inst)
+        ctxs.append(patch.object(inst, "_smoke_test", side_effect=smoke))
+        ctxs.append(patch.object(inst, "remove", remove_mock))
+        with ctxs[0], ctxs[1], ctxs[2], ctxs[3], ctxs[4], ctxs[5], ctxs[6]:
+            events = []
+            inst.force_reinstall(events.append, threading.Event())
+
+        remove_mock.assert_called_once()
+        assert smoke_results == []
+        assert any(e.done for e in events)
+        assert not any(e.error for e in events)
+
 
 class TestBridgeCheckStatusIncomplete:
     def test_check_status_unavailable_when_incomplete(self):
