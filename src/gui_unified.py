@@ -3222,6 +3222,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     f"{message}\n\n{self._s('engine_repair_prompt')}",
                 ):
                     self._open_engine_manager()
+                    # Don't dead-end on the engine panel (which used to show
+                    # only Uninstall): kick off the force-reinstall repair
+                    # right away, targeting the engine that actually failed.
+                    # is_engine_load_failure() matches on the message, not the
+                    # engine, so fall back to Chatterbox — the only engine that
+                    # drifts this way today — when the selection is unknown.
+                    self._settings_view.start_repair(
+                        self._current_engine_id() or "chatterbox_grandmom"
+                    )
                 return
             except Exception:
                 logger.debug("engine-repair offer failed; showing plain error",

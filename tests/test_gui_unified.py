@@ -608,3 +608,109 @@ class TestChatterboxFinalizePreservesNestedCache:
         assert nested.is_dir()
         assert wav_keep.is_file()
         assert dst_flat.is_file()
+
+
+# ---------------------------------------------------------------------------
+# _fail(): one-click repair offer for a broken/drifted engine venv.
+# ---------------------------------------------------------------------------
+
+
+class TestFailEngineRepairOffer:
+    """A synthesis-time engine-load failure must offer — and actually launch —
+    the force-reinstall repair, not dead-end on a panel that only shows
+    Uninstall."""
+
+    _LLAMA = (
+        "Could not import module 'LlamaModel'. "
+        "Are this object's requirements defined correctly?"
+    )
+
+    def test_load_failure_yes_opens_manager_and_starts_repair(self, app):
+        with patch("src.gui_unified.messagebox.askyesno", return_value=True), \
+             patch.object(app, "_current_engine_id", return_value="chatterbox_grandmom"), \
+             patch.object(app, "_open_engine_manager") as open_mgr, \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail(self._LLAMA)
+
+        open_mgr.assert_called_once()
+        start_repair.assert_called_once_with("chatterbox_grandmom")
+
+    def test_repair_targets_currently_selected_engine(self, app):
+        # The engine that failed — not a hardcoded id — is the repair target.
+        with patch("src.gui_unified.messagebox.askyesno", return_value=True), \
+             patch.object(app, "_current_engine_id", return_value="piper"), \
+             patch.object(app, "_open_engine_manager"), \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail(self._LLAMA)
+
+        start_repair.assert_called_once_with("piper")
+
+    def test_repair_falls_back_to_chatterbox_when_selection_unknown(self, app):
+        with patch("src.gui_unified.messagebox.askyesno", return_value=True), \
+             patch.object(app, "_current_engine_id", return_value=""), \
+             patch.object(app, "_open_engine_manager"), \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail(self._LLAMA)
+
+        start_repair.assert_called_once_with("chatterbox_grandmom")
+
+    def test_load_failure_declined_does_not_repair(self, app):
+        with patch("src.gui_unified.messagebox.askyesno", return_value=False), \
+             patch("src.gui_unified.messagebox.showerror") as showerror, \
+             patch.object(app, "_open_engine_manager") as open_mgr, \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail(self._LLAMA)
+
+        open_mgr.assert_not_called()
+        start_repair.assert_not_called()
+        # Declined → early return; no error dialog should pop.
+        showerror.assert_not_called()
+
+    def test_plain_error_shows_messagebox_and_no_repair(self, app):
+        with patch("src.gui_unified.messagebox.showerror") as showerror, \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail("Some unrelated synthesis error")
+
+        showerror.assert_called_once()
+        start_repair.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Engine-manager rows: the Repair button must render for an installed engine.
+# ---------------------------------------------------------------------------
+
+
+class TestEngineRowRepairButton:
+    """_build_installer_row renders Repair + Uninstall when installed, and
+    Install otherwise — the UI contract behind one-click repair."""
+
+    class _FakeInstaller:
+        def __init__(self, engine_id, installed):
+            self.engine_id = engine_id
+            self.display_name = engine_id
+            self._installed = installed
+
+        def is_installed(self):
+            return self._installed
+
+        def get_steps(self):
+            return []
+
+    def test_installed_engine_shows_repair_and_uninstall(self, app):
+        view = app._settings_view
+        view._build_installer_row(self._FakeInstaller("fake_installed", True), 0)
+        btns = view._engine_rows["fake_installed"]["btns"]
+        texts = [b.cget("text") for b in btns]
+
+        assert len(btns) == 2
+        assert view._s("repair_btn") in texts
+        assert view._s("uninstall_btn") in texts
+
+    def test_not_installed_engine_shows_install_only(self, app):
+        view = app._settings_view
+        view._build_installer_row(self._FakeInstaller("fake_absent", False), 1)
+        btns = view._engine_rows["fake_absent"]["btns"]
+        texts = [b.cget("text") for b in btns]
+
+        assert len(btns) == 1
+        assert view._s("install_btn") in texts

@@ -14,9 +14,12 @@ This module is the runtime guard against that:
   same way synthesis does, reporting whether it imports AND which installed
   package versions drifted from the pins.
 
-The CLI ``doctor`` command and the GUI startup check call :func:`probe_venv`
-so a broken venv surfaces before the user clicks Convert, with an actionable
-"repair the engine" message instead of a raw traceback.
+The CLI ``doctor`` command calls :func:`probe_venv` to report version drift.
+The GUI does not probe at startup; instead it maps a synthesis-time
+engine-load failure (via :func:`is_engine_load_failure`) to a one-click
+repair — the main window opens the engine manager and force-reinstalls the
+pinned chain — so a broken venv becomes an actionable "repair the engine"
+action instead of a raw traceback.
 """
 
 from __future__ import annotations

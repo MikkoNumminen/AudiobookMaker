@@ -136,3 +136,125 @@ class TestHandleProgressClipboardPreLoad:
 
         body = showerror.call_args[0][1]
         assert en_hint in body
+
+
+# ---------------------------------------------------------------------------
+# Repair path: the Repair button, _on_repair, start_repair, and the
+# install-vs-repair operation selection inside _on_install's worker.
+# ---------------------------------------------------------------------------
+
+
+class _InlineThread:
+    """Thread stand-in that runs the target synchronously on ``.start()``.
+
+    Lets us drive ``_on_install``'s background worker inline so we can assert
+    which installer entry point (install vs force_reinstall) it invoked,
+    without real threads, Tk, or a display.
+    """
+
+    def __init__(self, target=None, daemon=None, name=None):
+        self._target = target
+
+    def start(self):
+        if self._target:
+            self._target()
+
+    def is_alive(self):
+        return False
+
+
+def _make_install_dialog(ui_lang: str = "fi") -> EngineManagerDialog:
+    """Bare dialog with only the attributes ``_on_install`` touches.
+
+    No ``_close_btn`` is set, so ``_on_install`` takes the embedded-view grid
+    branch; every widget is a MagicMock and ``after`` is stubbed so no Tk
+    event loop runs.
+    """
+    dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+    dialog._ui_lang = ui_lang
+    dialog._strings = _ENGINE_MGR_STRINGS[ui_lang]
+    dialog._progress_frame = MagicMock()
+    dialog._progress_step_lbl = MagicMock()
+    dialog._progress_msg_lbl = MagicMock()
+    dialog._progress_bar = MagicMock()
+    dialog._progress_row = 3
+    dialog._engine_rows = {}
+    dialog._progress_queue = MagicMock()
+    dialog.after = MagicMock()
+    return dialog
+
+
+class TestRepairPath:
+    """One-click repair wiring: the GUI's only route to force_reinstall."""
+
+    def test_on_repair_calls_on_install_with_repair_true(self):
+        dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+        dialog._on_install = MagicMock()
+        installer = MagicMock()
+
+        dialog._on_repair(installer)
+
+        dialog._on_install.assert_called_once_with(installer, repair=True)
+
+    def test_start_repair_resolves_installer_and_repairs(self):
+        dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+        dialog._ui_lang = "en"
+        dialog._on_repair = MagicMock()
+        fake_installer = MagicMock()
+
+        with patch(
+            "src.engine_installer.get_installer", return_value=fake_installer
+        ) as get_installer:
+            dialog.start_repair("chatterbox_grandmom")
+
+        get_installer.assert_called_once_with("chatterbox_grandmom")
+        # ui_lang is propagated so the installer's error strings localize.
+        assert fake_installer.ui_lang == "en"
+        dialog._on_repair.assert_called_once_with(fake_installer)
+
+    def test_start_repair_unknown_engine_noops(self):
+        dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+        dialog._ui_lang = "fi"
+        dialog._on_repair = MagicMock()
+
+        with patch("src.engine_installer.get_installer", return_value=None):
+            dialog.start_repair("does_not_exist")
+
+        dialog._on_repair.assert_not_called()
+
+    def test_on_install_repair_true_runs_force_reinstall(self):
+        dialog = _make_install_dialog()
+        installer = MagicMock()
+        installer.engine_id = "chatterbox_grandmom"
+        installer.check_prerequisites.return_value = []
+
+        with patch("src.gui_engine_dialog.threading.Thread", _InlineThread):
+            dialog._on_install(installer, repair=True)
+
+        installer.force_reinstall.assert_called_once()
+        installer.install.assert_not_called()
+
+    def test_on_install_default_runs_plain_install(self):
+        dialog = _make_install_dialog()
+        installer = MagicMock()
+        installer.engine_id = "piper"
+        installer.check_prerequisites.return_value = []
+
+        with patch("src.gui_engine_dialog.threading.Thread", _InlineThread):
+            dialog._on_install(installer)
+
+        installer.install.assert_called_once()
+        installer.force_reinstall.assert_not_called()
+
+    def test_on_install_prereq_failure_aborts_before_worker(self):
+        dialog = _make_install_dialog()
+        installer = MagicMock()
+        installer.check_prerequisites.return_value = ["No NVIDIA GPU"]
+
+        with patch("src.gui_engine_dialog.messagebox.showerror") as showerror, \
+             patch("src.gui_engine_dialog.threading.Thread", _InlineThread):
+            dialog._on_install(installer, repair=True)
+
+        showerror.assert_called_once()
+        installer.install.assert_not_called()
+        installer.force_reinstall.assert_not_called()
