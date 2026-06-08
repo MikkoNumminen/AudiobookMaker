@@ -16,7 +16,8 @@ actually CI-gated.
 from __future__ import annotations
 
 import queue
-from unittest.mock import MagicMock
+import sys
+from unittest.mock import MagicMock, patch
 
 from src.auto_updater import UpdateInfo
 from src.gui_unified import UnifiedApp
@@ -92,3 +93,40 @@ class TestPollUpdateCheckRearm:
 
         app._show_update_banner.assert_called_once_with(info)
         assert app._pending_update is info
+
+    def test_frozen_schedules_periodic_check_after_consume(self):
+        """Frozen install: after a result is consumed, the next periodic
+        check is scheduled (the branch the dev-mode tests don't exercise)."""
+        app = _make_app()
+        app._update_queue.put(_info(available=True))
+
+        with patch.object(sys, "frozen", True, create=True):
+            app._poll_update_check()
+
+        app._show_update_banner.assert_called_once()
+        app.after.assert_called_once_with(
+            app.UPDATE_CHECK_INTERVAL_MS, app._schedule_update_check
+        )
+
+
+class TestCheckUpdateWorkerAlwaysEnqueues:
+    """The worker must enqueue exactly one result so the poller stops re-arming
+    — even if check_for_update's no-raise contract is ever violated."""
+
+    def test_enqueues_the_check_result(self):
+        app = _make_app()
+        info = _info(available=True)
+        with patch("src.gui_unified.check_for_update", return_value=info):
+            app._check_update_worker()
+
+        assert app._update_queue.get_nowait() is info
+
+    def test_enqueues_no_update_on_unexpected_error(self):
+        app = _make_app()
+        with patch(
+            "src.gui_unified.check_for_update", side_effect=RuntimeError("boom")
+        ):
+            app._check_update_worker()
+
+        result = app._update_queue.get_nowait()
+        assert result.available is False
