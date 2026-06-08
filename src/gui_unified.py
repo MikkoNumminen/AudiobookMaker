@@ -37,7 +37,7 @@ from src import _audio_player, app_config
 from src.auto_updater import (
     check_for_update, download_update, apply_update,
     APP_VERSION, GITHUB_REPO, UpdateInfo,
-    is_post_update_launch,
+    is_post_update_launch, _no_update,
 )
 from src import gui_style
 from src.gui_builders import (
@@ -2032,24 +2032,42 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
     UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 
     def _check_update_worker(self) -> None:
-        """Background thread: check GitHub for a newer release."""
+        """Background thread: check GitHub for a newer release.
+
+        ALWAYS enqueues exactly one result so the main-thread poller
+        (_poll_update_check) can stop re-arming. check_for_update is
+        contractually no-raise, but belt-and-suspenders it here: on any
+        unexpected error, log it and enqueue a "no update" result, so a
+        contract violation can never leave the poll spinning every 500 ms
+        with nothing to consume.
+        """
         try:
             info = check_for_update(APP_VERSION)
-            self._update_queue.put(info)
         except Exception:
-            pass  # Never crash on update check failure.
+            logger.debug("Update check raised unexpectedly", exc_info=True)
+            info = _no_update(APP_VERSION)
+        self._update_queue.put(info)
 
     def _poll_update_check(self) -> None:
         """Main thread: pick up the result from the update check thread."""
         try:
             info = self._update_queue.get_nowait()
-            if info.available:
-                self._pending_update = info
-                self._show_update_banner(info)
         except queue.Empty:
-            pass
+            # The check thread hasn't returned yet — a GitHub round-trip
+            # routinely outlasts the initial 500 ms poll. Re-arm until the
+            # result lands; otherwise it sits unread in the queue and the
+            # banner never appears until the next periodic check (frozen) or
+            # never (dev). Safe from spinning forever: check_for_update never
+            # raises and always enqueues exactly one UpdateInfo, so the worker
+            # always lands a result within API_TIMEOUT.
+            self.after(500, self._poll_update_check)
+            return
 
-        # Schedule the next periodic check.
+        if info.available:
+            self._pending_update = info
+            self._show_update_banner(info)
+
+        # Result consumed — schedule the next periodic check (frozen only).
         if getattr(sys, "frozen", False):
             self.after(
                 self.UPDATE_CHECK_INTERVAL_MS,
