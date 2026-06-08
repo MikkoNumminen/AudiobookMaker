@@ -271,6 +271,7 @@ _STRINGS = {
         "chatterbox_venv_missing": "Chatterbox-moottoria ei ole asennettu. Asenna se ikkunan oikeasta yläkulmasta löytyvällä \"Asenna moottoreita…\" -painikkeella.",
         "engine_repair_title": "Moottori vaatii korjauksen",
         "engine_repair_prompt": "Chatterbox-moottoria ei voitu ladata — sen ympäristön versiot ovat todennäköisesti yhteensopimattomat. Avataanko \"Asenna moottoreita…\" ja korjataan se nyt?",
+        "engine_installing_wait": "Moottoria asennetaan parhaillaan. Odota, että asennus valmistuu, ennen kuin aloitat muunnoksen.",
         "subprocess_failed": "Subprocess ei käynnistynyt: {error}",
         "engine_not_found_id": "Moottoria '{engine_id}' ei löytynyt.",
         "reading_input": "Luetaan syötettä\u2026",
@@ -382,6 +383,7 @@ _STRINGS = {
         "chatterbox_venv_missing": "Chatterbox engine is not installed. Install it via the \"Install engines…\" button in the top-right corner of the main window.",
         "engine_repair_title": "Engine needs repair",
         "engine_repair_prompt": "The Chatterbox engine could not load — its environment likely has incompatible package versions. Open \"Install engines…\" and repair it now?",
+        "engine_installing_wait": "An engine is installing right now. Wait for the install to finish before starting a conversion.",
         "subprocess_failed": "Subprocess failed to start: {error}",
         "engine_not_found_id": "Engine '{engine_id}' not found.",
         "reading_input": "Reading input\u2026",
@@ -836,7 +838,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # Stacked in the same grid cell; switched via tkraise().
         self._settings_view = EngineManagerView(
             self._view_container, ui_lang=self._ui_lang,
-            on_back=self._show_main_view,
+            on_back=self._show_main_view, host=self,
         )
         self._settings_view.grid(row=0, column=0, sticky="nsew")
         main.tkraise()
@@ -1882,6 +1884,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """Legacy entry-point. Routes to the in-place settings view."""
         self._show_settings_view()
 
+    def _engine_install_in_progress(self) -> bool:
+        """True while the engine manager is running an install/repair thread.
+
+        The synth-launch handlers use this to refuse a Convert/Sample against a
+        half-built venv, which fails and can corrupt the in-progress install.
+        """
+        view = getattr(self, "_settings_view", None)
+        return view is not None and view.is_installing()
+
     # ------------------------------------------------------------------
     # Update self-heal: fallback when silent install didn't take effect
     # ------------------------------------------------------------------
@@ -2627,6 +2638,14 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._synth_running:
             return
 
+        # Refuse before any PDF parsing if an engine install/repair is running
+        # (same corruption risk as Convert; fail fast before the parse).
+        if self._engine_install_in_progress():
+            messagebox.showerror(
+                self._s("error"), self._s("engine_installing_wait")
+            )
+            return
+
         # Validate input — same rules as Muunna.
         if self._input_mode == "pdf" and not self._pdf_path:
             messagebox.showerror(self._s("error"), self._s("no_pdf"))
@@ -2670,16 +2689,17 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             messagebox.showerror(self._s("error"), self._s("engine_not_found"))
             return
 
-        # Availability + voice checks for in-process engines. Subprocess
-        # engines (Chatterbox) run their own bridge-level readiness probe
-        # when the runner starts, so skip those here.
+        # Availability check runs for EVERY engine (cheap, path-only), so a
+        # subprocess engine like Chatterbox is blocked when its venv is missing
+        # or still incomplete rather than launching against a half-built env.
+        status = engine.check_status()
+        if not status.available:
+            messagebox.showerror(
+                self._s("error"), f"{engine.display_name}: {status.reason}"
+            )
+            return
+        # Voice selection only applies to in-process engines.
         if not engine.uses_subprocess:
-            status = engine.check_status()
-            if not status.available:
-                messagebox.showerror(
-                    self._s("error"), f"{engine.display_name}: {status.reason}"
-                )
-                return
             voice = self._current_voice()
             if voice is None:
                 messagebox.showerror(self._s("error"), self._s("select_voice"))
@@ -2748,15 +2768,27 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             messagebox.showerror(self._s("error"), self._s("engine_not_found"))
             return
 
-        # Availability + voice checks for in-process engines. Subprocess
-        # engines run their own readiness probe when the bridge starts.
+        # Refuse to launch while an engine install/repair is running — a
+        # Convert against a half-built venv fails and can corrupt the install
+        # (pip cannot overwrite files the synth subprocess has locked).
+        if self._engine_install_in_progress():
+            messagebox.showerror(
+                self._s("error"), self._s("engine_installing_wait")
+            )
+            return
+
+        # Availability check runs for EVERY engine now (it is cheap, path-only),
+        # so a subprocess engine like Chatterbox is blocked when its venv is
+        # missing or still incomplete, instead of launching the runner against a
+        # half-built environment.
+        status = engine.check_status()
+        if not status.available:
+            messagebox.showerror(
+                self._s("error"), f"{engine.display_name}: {status.reason}"
+            )
+            return
+        # Voice selection only applies to in-process engines.
         if not engine.uses_subprocess:
-            status = engine.check_status()
-            if not status.available:
-                messagebox.showerror(
-                    self._s("error"), f"{engine.display_name}: {status.reason}"
-                )
-                return
             voice = self._current_voice()
             if voice is None:
                 messagebox.showerror(self._s("error"), self._s("select_voice"))

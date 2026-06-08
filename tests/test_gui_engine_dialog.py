@@ -258,3 +258,62 @@ class TestRepairPath:
         showerror.assert_called_once()
         installer.install.assert_not_called()
         installer.force_reinstall.assert_not_called()
+
+
+class TestIsInstalling:
+    """is_installing() gates the main window's Convert during an install."""
+
+    def test_reflects_thread_state(self):
+        dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+
+        dialog._install_thread = None
+        assert dialog.is_installing() is False
+
+        alive = MagicMock()
+        alive.is_alive.return_value = True
+        dialog._install_thread = alive
+        assert dialog.is_installing() is True
+
+        dead = MagicMock()
+        dead.is_alive.return_value = False
+        dialog._install_thread = dead
+        assert dialog.is_installing() is False
+
+
+class TestSynthRunningBlocksInstall:
+    """_on_install/_on_repair must refuse while the host has a synth running —
+    the reverse of the Convert-during-install corruption."""
+
+    def test_install_blocked_while_synth_running(self):
+        dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+        dialog._ui_lang = "fi"
+        dialog._strings = _ENGINE_MGR_STRINGS["fi"]
+        host = MagicMock()
+        host._synth_running = True
+        dialog._host = host
+        installer = MagicMock()
+
+        with patch("src.gui_engine_dialog.messagebox.showerror") as showerror:
+            dialog._on_install(installer)
+
+        showerror.assert_called_once()
+        # Blocked before doing any installer work.
+        installer.check_prerequisites.assert_not_called()
+        installer.install.assert_not_called()
+        installer.force_reinstall.assert_not_called()
+
+    def test_install_proceeds_when_no_synth_running(self):
+        dialog = EngineManagerDialog.__new__(EngineManagerDialog)
+        dialog._ui_lang = "fi"
+        dialog._strings = _ENGINE_MGR_STRINGS["fi"]
+        host = MagicMock()
+        host._synth_running = False
+        dialog._host = host
+        installer = MagicMock()
+        installer.check_prerequisites.return_value = ["stop here"]
+
+        with patch("src.gui_engine_dialog.messagebox.showerror"):
+            dialog._on_install(installer)
+
+        # Got past the synth guard to the prereq check.
+        installer.check_prerequisites.assert_called_once()

@@ -74,7 +74,8 @@ class ChatterboxEngine(TTSEngine):
         checks are cheap (path existence only), matching the "do not do
         heavy imports" contract on ``check_status``.
         """
-        if resolve_chatterbox_python() is None:
+        venv_python = resolve_chatterbox_python()
+        if venv_python is None:
             return EngineStatus(
                 available=False,
                 reason=(
@@ -85,6 +86,24 @@ class ChatterboxEngine(TTSEngine):
                     "(Asetukset-paneelin \"Asenna moottoreita…\"-painikkeesta), "
                     "or via the CLI:\n"
                     "  audiobookmaker engines install chatterbox_grandmom"
+                ),
+            )
+        # A venv whose python exists but whose install is still mid-flight or
+        # was interrupted must NOT report ready — otherwise a Convert launches
+        # the runner against a half-built environment (and can corrupt the
+        # in-progress pip install). The install writes a sentinel for exactly
+        # this window; see engine_installer.is_install_incomplete.
+        from src.engine_installer import is_install_incomplete
+        if is_install_incomplete(venv_python):
+            return EngineStatus(
+                available=False,
+                reason=(
+                    "Chatterbox is still installing, or its last install was "
+                    "interrupted. Wait for the install to finish, or reinstall "
+                    "it from the Engine manager.\n"
+                    "Chatterbox-asennus on kesken tai keskeytyi — odota "
+                    "asennuksen valmistumista tai asenna se uudelleen "
+                    "moottoreiden hallinnasta."
                 ),
             )
         repo_root = Path(__file__).resolve().parent.parent

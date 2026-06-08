@@ -56,6 +56,7 @@ _ENGINE_MGR_STRINGS = {
         "uninstall_done": "Poistettu.",
         "install_done": "Asennus valmis.",
         "install_failed": "Asennus epäonnistui:",
+        "synth_running_wait": "Muunnos on käynnissä. Odota, että se valmistuu, ennen kuin asennat tai korjaat moottorin.",
         "error_on_clipboard": "Virhe on kopioitu leikepöydälle. Liitä se kehittäjälle.",
     },
     "en": {
@@ -84,6 +85,7 @@ _ENGINE_MGR_STRINGS = {
         "uninstall_done": "Uninstalled.",
         "install_done": "Install complete.",
         "install_failed": "Install failed:",
+        "synth_running_wait": "A conversion is running. Wait for it to finish before installing or repairing an engine.",
         "error_on_clipboard": "Error copied to clipboard. Paste it to your developer.",
     },
 }
@@ -340,6 +342,17 @@ class EngineManagerDialog(ctk.CTkToplevel):
         back to the pinned versions; the prerequisite check, progress UI and
         cancellation are identical to a fresh install.
         """
+        # Refuse while a synthesis is running — pip would try to overwrite venv
+        # files the live runner holds locked (the reverse of the
+        # Convert-during-install corruption). ``_host`` is the main window; the
+        # legacy Toplevel dialog has none, so this is a no-op there.
+        host = getattr(self, "_host", None)
+        if host is not None and getattr(host, "_synth_running", False):
+            messagebox.showerror(
+                self._s("title"), self._s("synth_running_wait"), parent=self
+            )
+            return
+
         # Check prerequisites (localized to the current UI language).
         issues = installer.check_prerequisites(self._ui_lang)
         if issues:
@@ -488,6 +501,15 @@ class EngineManagerDialog(ctk.CTkToplevel):
         finally:
             self._refresh_engine_rows()
 
+    def is_installing(self) -> bool:
+        """True while a background install/repair thread is running.
+
+        The main window checks this before launching a synthesis so a Convert
+        can't run against a half-built venv mid-install.
+        """
+        t = self._install_thread
+        return t is not None and t.is_alive()
+
     def _on_repair(self, installer) -> None:
         """Repair a present-but-broken engine venv (force-reinstall the pins).
 
@@ -528,11 +550,14 @@ class EngineManagerView(ctk.CTkFrame):
     returns to the main audiobook view.
     """
 
-    def __init__(self, parent, ui_lang: str = "fi", on_back=None) -> None:
+    def __init__(self, parent, ui_lang: str = "fi", on_back=None, host=None) -> None:
         super().__init__(parent, fg_color="transparent")
         self._ui_lang = ui_lang
         self._strings = _ENGINE_MGR_STRINGS.get(ui_lang, _ENGINE_MGR_STRINGS["fi"])
         self._on_back = on_back
+        # The main window, so install/repair can refuse while a synth is
+        # running (pip must not overwrite DLLs the live runner holds locked).
+        self._host = host
         self._cancel_event: Optional[threading.Event] = None
         self._install_thread: Optional[threading.Thread] = None
         self._progress_queue: "queue.Queue" = queue.Queue()
@@ -672,5 +697,6 @@ class EngineManagerView(ctk.CTkFrame):
     _handle_progress = EngineManagerDialog._handle_progress
     _install_finished = EngineManagerDialog._install_finished
     _on_uninstall = EngineManagerDialog._on_uninstall
+    is_installing = EngineManagerDialog.is_installing
     _on_repair = EngineManagerDialog._on_repair
     start_repair = EngineManagerDialog.start_repair

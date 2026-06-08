@@ -714,3 +714,46 @@ class TestEngineRowRepairButton:
 
         assert len(btns) == 1
         assert view._s("install_btn") in texts
+
+
+# ---------------------------------------------------------------------------
+# Convert must not launch while an engine install is in progress (else it runs
+# against a half-built venv and can corrupt the install).
+# ---------------------------------------------------------------------------
+
+
+class TestConvertBlockedDuringInstall:
+    def test_engine_install_in_progress_reflects_settings_view(self, app):
+        with patch.object(app._settings_view, "is_installing", return_value=True):
+            assert app._engine_install_in_progress() is True
+        with patch.object(app._settings_view, "is_installing", return_value=False):
+            assert app._engine_install_in_progress() is False
+
+    def test_convert_blocked_while_engine_installing(self, app, tmp_path):
+        # Valid text input + the default selected engine so the install guard
+        # (which sits after engine resolution) is actually reached.
+        app._input_nb.set("Teksti")
+        app.update_idletasks()
+        app._text_widget.delete("1.0", tk.END)
+        app._text_widget.insert("1.0", "Riittävän pitkä testiteksti muunnosta varten.")
+        app._text_has_placeholder = False
+        app._output_path = str(tmp_path / "kirja.mp3")
+
+        with patch.object(app._settings_view, "is_installing", return_value=True), \
+             patch("src.gui_unified.messagebox.showerror") as showerror:
+            app._on_convert_click()
+
+        showerror.assert_called_once()
+        assert app._s("engine_installing_wait") in showerror.call_args[0][1]
+        assert app._synth_running is False
+
+    def test_sample_blocked_while_engine_installing(self, app):
+        # The sample guard is hoisted above the PDF parse, so it fires right
+        # after the synth-running check — no input setup needed.
+        with patch.object(app._settings_view, "is_installing", return_value=True), \
+             patch("src.gui_unified.messagebox.showerror") as showerror:
+            app._on_sample_click()
+
+        showerror.assert_called_once()
+        assert app._s("engine_installing_wait") in showerror.call_args[0][1]
+        assert app._synth_running is False
