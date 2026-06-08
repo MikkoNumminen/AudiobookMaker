@@ -2043,13 +2043,22 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """Main thread: pick up the result from the update check thread."""
         try:
             info = self._update_queue.get_nowait()
-            if info.available:
-                self._pending_update = info
-                self._show_update_banner(info)
         except queue.Empty:
-            pass
+            # The check thread hasn't returned yet — a GitHub round-trip
+            # routinely outlasts the initial 500 ms poll. Re-arm until the
+            # result lands; otherwise it sits unread in the queue and the
+            # banner never appears until the next periodic check (frozen) or
+            # never (dev). Safe from spinning forever: check_for_update never
+            # raises and always enqueues exactly one UpdateInfo, so the worker
+            # always lands a result within API_TIMEOUT.
+            self.after(500, self._poll_update_check)
+            return
 
-        # Schedule the next periodic check.
+        if info.available:
+            self._pending_update = info
+            self._show_update_banner(info)
+
+        # Result consumed — schedule the next periodic check (frozen only).
         if getattr(sys, "frozen", False):
             self.after(
                 self.UPDATE_CHECK_INTERVAL_MS,
