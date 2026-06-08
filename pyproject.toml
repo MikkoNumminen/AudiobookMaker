@@ -7,7 +7,7 @@ name = "audiobookmaker"
 # Version duplicated from src/auto_updater.py APP_VERSION.
 # When cutting a release, bump both this field and APP_VERSION in the same
 # commit. (The release-cut workflow does not yet automate this — future work.)
-version = "3.16.0"
+version = "3.17.0"
 description = "Turn PDFs, EPUBs, and scanned books into audiobooks."
 readme = "README.md"
 license = {file = "LICENSE.txt"}
