@@ -105,6 +105,54 @@ CHATTERBOX_BASE_REVISION = "ef85ce7bef2f3f1a74d0d837d379d2fcb68203cd"
 
 DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
+# Sentinel written inside the engine venv while an install or repair is in
+# progress, and removed only after the post-install smoke test passes. A venv
+# that has its python.exe but still carries this marker is INCOMPLETE — an
+# install still running, or one interrupted/corrupted (e.g. a Convert was
+# launched against the half-built venv and pip could not finish overwriting
+# files the synth subprocess had locked). Treating such a venv as "not
+# installed" stops the engine from looking usable before it actually is.
+# Installs built before this marker existed never carry it, so they keep
+# reading as installed — the check is backward-compatible.
+INSTALL_INCOMPLETE_MARKER = ".install-incomplete"
+
+
+def is_install_incomplete(venv_python) -> bool:
+    """True if the venv that owns ``venv_python`` carries the incomplete marker.
+
+    ``venv_python`` is the interpreter path (``<venv>/Scripts/python.exe`` or
+    ``<venv>/bin/python``); the marker lives at the venv root. Used by the
+    Chatterbox engine's ``check_status`` to refuse a venv that is mid-install
+    or was interrupted.
+    """
+    try:
+        venv_root = Path(venv_python).resolve(strict=False).parent.parent
+        return (venv_root / INSTALL_INCOMPLETE_MARKER).exists()
+    except (OSError, ValueError):
+        return False
+
+
+# Smoke-test error substrings that mean missing/broken PACKAGES — the failure a
+# clean rebuild can actually fix. Anything else (e.g. a CUDA-runtime error from
+# torch.zeros(1).cuda() on a machine whose driver is down) is environmental, so
+# a repair does NOT escalate to a ~30-min rebuild that would re-fail the same way.
+_CORRUPTION_SMOKE_SIGNATURES = (
+    "importerror",
+    "modulenotfounderror",
+    "no module named",
+    "dll load failed",
+    "cannot import",
+    "failed to import",
+)
+
+
+def _smoke_error_looks_like_corruption(err) -> bool:
+    """True when a smoke-test error looks like broken packages (rebuild fixes it)
+    rather than an environmental problem like CUDA being unavailable."""
+    low = (err or "").lower()
+    return any(sig in low for sig in _CORRUPTION_SMOKE_SIGNATURES)
+
+
 # Upper bound on the smoke-test subprocess. Long enough to cover a cold
 # torch import on a slow machine; short enough that a hung process does
 # not freeze the install dialog indefinitely.
@@ -599,6 +647,27 @@ class ChatterboxInstaller(EngineInstaller):
             return self._venv_path / "Scripts" / "python.exe"
         return self._venv_path / "bin" / "python"
 
+    @property
+    def _install_marker(self) -> Path:
+        """In-progress/incomplete sentinel inside the venv (see module docstring)."""
+        return self._venv_path / INSTALL_INCOMPLETE_MARKER
+
+    def _mark_incomplete(self) -> None:
+        """Mark the venv as not-yet-usable (best-effort)."""
+        try:
+            self._install_marker.write_text("installing\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    def _clear_incomplete(self) -> None:
+        """Clear the incomplete marker once the install is verified."""
+        try:
+            self._install_marker.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
     def check_prerequisites(self, ui_lang: str = "fi") -> list[str]:
         issues = []
         gpu = detect_gpu()
@@ -624,13 +693,20 @@ class ChatterboxInstaller(EngineInstaller):
         # Check the default path first, then fall back to the bridge resolver
         # which searches every location we've ever used (repo root, D: drive
         # dev setup, common C:\AudiobookMaker\, sibling of the running exe…).
+        # A venv counts as installed only if its python exists AND it is not
+        # mid-install or interrupted — i.e. the .install-incomplete marker is
+        # absent. Pre-marker installs never carry it, so they still read as
+        # installed (backward-compatible).
         if self._venv_python.exists():
-            return True
+            return not self._install_marker.exists()
         try:
             from src.launcher_bridge import resolve_chatterbox_python
-            return resolve_chatterbox_python() is not None
+            resolved = resolve_chatterbox_python()
         except Exception:
             return False
+        if resolved is None:
+            return False
+        return not is_install_incomplete(resolved)
 
     def remove(self) -> bool:
         """Delete the Chatterbox venv. Returns True if anything was removed.
@@ -691,6 +767,7 @@ class ChatterboxInstaller(EngineInstaller):
         progress_cb: ProgressCallback,
         cancel_event: threading.Event,
         force: bool = False,
+        _allow_clean_rebuild: bool = True,
     ) -> None:
         """Install the Chatterbox engine.
 
@@ -698,6 +775,12 @@ class ChatterboxInstaller(EngineInstaller):
         existing, drifted venv is pulled back to the pinned versions even when
         pip would otherwise consider a package "already satisfied". Used by
         :meth:`force_reinstall` (the ``engines repair`` path).
+
+        ``_allow_clean_rebuild`` (internal) lets a repair that still fails its
+        smoke test escalate ONCE to deleting the venv and rebuilding from
+        scratch — the only way to fix a corrupt torch, which the in-place
+        ``--force-reinstall`` does not touch. The recursive rebuild passes
+        ``False`` to stop further escalation.
         """
         total = 6
 
@@ -718,6 +801,11 @@ class ChatterboxInstaller(EngineInstaller):
             )
         )
         venv_py = self._create_venv(python_exe, progress_cb)
+        # The venv exists now but its packages do not. Mark it incomplete so
+        # is_installed()/check_status() refuse to treat it as usable until the
+        # smoke test passes — this is what blocks a Convert against the
+        # half-built venv from looking like a working engine.
+        self._mark_incomplete()
 
         if cancel_event.is_set():
             return
@@ -769,6 +857,41 @@ class ChatterboxInstaller(EngineInstaller):
         )
         smoke_error = self._smoke_test(venv_py, cancel_event)
         if smoke_error is not None:
+            if (
+                force and _allow_clean_rebuild
+                and not cancel_event.is_set()
+                and _smoke_error_looks_like_corruption(smoke_error)
+            ):
+                # A reused venv that still fails the smoke test after a
+                # force-reinstall, with a package/import-shaped error, is
+                # corrupt beyond repair-in-place: the main --force-reinstall
+                # step does not touch torch, so a broken torch survives it.
+                # Delete the venv and rebuild from scratch once — a fresh venv
+                # reinstalls torch too. (A non-corruption failure such as CUDA
+                # being unavailable is NOT rebuilt — see
+                # _smoke_error_looks_like_corruption.)
+                progress_cb(
+                    InstallProgress(
+                        6, total, "Rakennetaan ympäristö uudelleen",
+                        message=(
+                            "Korjaus ei riittänyt — asennetaan puhtaalta "
+                            "pöydältä."
+                        ),
+                    )
+                )
+                # Do NOT clear the marker first: let remove() delete it with the
+                # venv. If remove() fails (locked files — the very corruption
+                # case), the broken venv keeps its marker and still reads as
+                # incomplete; the rebuild's _mark_incomplete re-writes it.
+                try:
+                    self.remove()
+                except OSError:
+                    pass
+                self.install(
+                    progress_cb, cancel_event,
+                    force=False, _allow_clean_rebuild=False,
+                )
+                return
             progress_cb(
                 InstallProgress(
                     6, total, "Asennus ei toimi",
@@ -788,6 +911,9 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
+        # Install verified — clear the incomplete marker so the engine reports
+        # ready.
+        self._clear_incomplete()
         progress_cb(
             InstallProgress(
                 6, total, "Valmis",
