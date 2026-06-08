@@ -329,8 +329,7 @@ class EngineManagerDialog(ctk.CTkToplevel):
             btns = [install_btn]
 
         self._engine_rows[installer.engine_id] = {
-            "row": row, "status": status_lbl, "size": size_lbl,
-            "btn": btns[0], "btns": btns,
+            "row": row, "status": status_lbl, "size": size_lbl, "btns": btns,
         }
 
     def _on_install(self, installer, repair: bool = False) -> None:
@@ -341,8 +340,8 @@ class EngineManagerDialog(ctk.CTkToplevel):
         back to the pinned versions; the prerequisite check, progress UI and
         cancellation are identical to a fresh install.
         """
-        # Check prerequisites
-        issues = installer.check_prerequisites()
+        # Check prerequisites (localized to the current UI language).
+        issues = installer.check_prerequisites(self._ui_lang)
         if issues:
             msg = self._s("prereq_fail") + "\n\n" + "\n".join(f"\u2022 {x}" for x in issues)
             messagebox.showerror(self._s("title"), msg, parent=self)
@@ -365,7 +364,7 @@ class EngineManagerDialog(ctk.CTkToplevel):
         # Disable every action button (Install / Repair / Uninstall) on all
         # rows while an install or repair is running.
         for row in self._engine_rows.values():
-            for b in row.get("btns", [row["btn"]]):
+            for b in row["btns"]:
                 b.configure(state="disabled")
 
         self._cancel_event = threading.Event()
