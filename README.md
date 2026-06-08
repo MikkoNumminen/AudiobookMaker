@@ -128,7 +128,7 @@ Nothing else to install for the basic flow. Edge-TTS and Piper work out of the b
 
 **Already have an older version?** The app checks for updates automatically. When a new version is available, a banner appears at the top of the window — click **Update now** and the app handles the download, SHA-256 verification, and reinstall. No manual downloads, no installer prompts.
 
-For **Chatterbox** (Grandmom voice, imported voice packs, reference-clip voice imitation), open the GUI and click **Install engines…** in the Settings panel. The app downloads the Chatterbox venv + Finnish-NLP model on demand (one-time ~15 GB). After that it works fully offline.
+For **Chatterbox** (Grandmom voice, imported voice packs, reference-clip voice imitation), open the GUI and click **Install engines…** in the Settings panel. The app downloads the Chatterbox venv + Finnish-NLP model on demand (one-time ~15 GB). After that it works fully offline. If Chatterbox ever stops loading (a drifted engine — the cryptic *"Could not import module 'LlamaModel'"* error), each installed engine row has a **Repair** button that force-reinstalls the pinned versions, and a failed conversion offers the same one-click repair.
 
 For **VoxCPM2** or the dev-only voice-cloning pipeline (analyze / export / train / package), use the [Development setup](#development-setup) instead.
 

@@ -44,6 +44,7 @@ _ENGINE_MGR_STRINGS = {
         "available": "Käytettävissä",
         "install_btn": "Asenna",
         "uninstall_btn": "Poista",
+        "repair_btn": "Korjaa",
         "cancel_btn": "Peruuta asennus",
         "installing": "Asennetaan...",
         "step": "Vaihe",
@@ -297,25 +298,49 @@ class EngineManagerDialog(ctk.CTkToplevel):
         )
         size_lbl.grid(row=0, column=2, sticky="e", padx=(4, 8), pady=4)
 
+        # Action buttons live in a small container at column 3 so an
+        # installed engine can offer Repair beside Uninstall. Repair
+        # (force-reinstall the pinned chain) is the only GUI path that fixes a
+        # drifted/broken venv — the "Could not import module 'LlamaModel'"
+        # failure — which was previously reachable only from the CLI.
+        btn_box = ctk.CTkFrame(row, fg_color="transparent")
+        btn_box.grid(row=0, column=3, padx=(4, 8), pady=4)
         if installed:
-            btn = ctk.CTkButton(
-                row, text=self._s("uninstall_btn"),
-                command=lambda inst=installer: self._on_uninstall(inst),
-                width=110,
+            repair_btn = ctk.CTkButton(
+                btn_box, text=self._s("repair_btn"),
+                command=lambda inst=installer: self._on_repair(inst),
+                width=90,
             )
+            repair_btn.pack(side=tk.LEFT, padx=(0, 4))
+            uninstall_btn = ctk.CTkButton(
+                btn_box, text=self._s("uninstall_btn"),
+                command=lambda inst=installer: self._on_uninstall(inst),
+                width=90,
+            )
+            uninstall_btn.pack(side=tk.LEFT)
+            btns = [repair_btn, uninstall_btn]
         else:
-            btn = ctk.CTkButton(
-                row, text=self._s("install_btn"),
+            install_btn = ctk.CTkButton(
+                btn_box, text=self._s("install_btn"),
                 command=lambda inst=installer: self._on_install(inst),
                 width=110,
             )
-        btn.grid(row=0, column=3, padx=(4, 8), pady=4)
+            install_btn.pack(side=tk.LEFT)
+            btns = [install_btn]
 
         self._engine_rows[installer.engine_id] = {
-            "row": row, "status": status_lbl, "size": size_lbl, "btn": btn,
+            "row": row, "status": status_lbl, "size": size_lbl,
+            "btn": btns[0], "btns": btns,
         }
 
-    def _on_install(self, installer) -> None:
+    def _on_install(self, installer, repair: bool = False) -> None:
+        """Install (or, when ``repair`` is set, force-reinstall) an engine.
+
+        ``repair=True`` routes the background worker through
+        ``installer.force_reinstall`` so a present-but-drifted venv is pulled
+        back to the pinned versions; the prerequisite check, progress UI and
+        cancellation are identical to a fresh install.
+        """
         # Check prerequisites
         issues = installer.check_prerequisites()
         if issues:
@@ -337,15 +362,21 @@ class EngineManagerDialog(ctk.CTkToplevel):
         self._progress_msg_lbl.configure(text="")
         self._progress_bar.set(0)
 
-        # Disable all install buttons, change one to Cancel
+        # Disable every action button (Install / Repair / Uninstall) on all
+        # rows while an install or repair is running.
         for row in self._engine_rows.values():
-            row["btn"].configure(state="disabled")
+            for b in row.get("btns", [row["btn"]]):
+                b.configure(state="disabled")
 
         self._cancel_event = threading.Event()
 
         def worker() -> None:
             try:
-                installer.install(
+                # Repair re-pins a drifted venv via force_reinstall; a fresh
+                # install uses the normal entry point. Both share this
+                # progress/threading machinery.
+                op = installer.force_reinstall if repair else installer.install
+                op(
                     progress_cb=lambda p: self._progress_queue.put(p),
                     cancel_event=self._cancel_event,
                 )
@@ -457,6 +488,32 @@ class EngineManagerDialog(ctk.CTkToplevel):
             messagebox.showerror(self._s("title"), str(exc), parent=self)
         finally:
             self._refresh_engine_rows()
+
+    def _on_repair(self, installer) -> None:
+        """Repair a present-but-broken engine venv (force-reinstall the pins).
+
+        Thin wrapper over :meth:`_on_install` so the Repair button and the
+        main window's one-click repair both flow through the same path. This
+        is the GUI's only route to ``force_reinstall``; before it existed, a
+        drifted venv could be repaired only from the ``engines repair`` CLI.
+        """
+        self._on_install(installer, repair=True)
+
+    def start_repair(self, engine_id: str) -> None:
+        """Begin a repair of ``engine_id`` programmatically.
+
+        Entry point for the main window: when synthesis fails on a broken
+        engine venv it opens this view and calls ``start_repair`` so the
+        force-reinstall starts immediately, instead of dead-ending on a panel
+        that only offered Uninstall. No-ops when the id has no installer.
+        """
+        from src.engine_installer import get_installer
+
+        installer = get_installer(engine_id)
+        if installer is None:
+            return
+        installer.ui_lang = self._ui_lang
+        self._on_repair(installer)
 
 
 # ---------------------------------------------------------------------------
@@ -616,3 +673,5 @@ class EngineManagerView(ctk.CTkFrame):
     _handle_progress = EngineManagerDialog._handle_progress
     _install_finished = EngineManagerDialog._install_finished
     _on_uninstall = EngineManagerDialog._on_uninstall
+    _on_repair = EngineManagerDialog._on_repair
+    start_repair = EngineManagerDialog.start_repair

@@ -3222,6 +3222,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     f"{message}\n\n{self._s('engine_repair_prompt')}",
                 ):
                     self._open_engine_manager()
+                    # Don't dead-end on the engine panel (which used to show
+                    # only Uninstall): kick off the force-reinstall repair
+                    # right away. The LlamaModel / transformers load failures
+                    # are Chatterbox-specific, so target that engine.
+                    self._settings_view.start_repair("chatterbox_grandmom")
                 return
             except Exception:
                 logger.debug("engine-repair offer failed; showing plain error",

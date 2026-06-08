@@ -608,3 +608,45 @@ class TestChatterboxFinalizePreservesNestedCache:
         assert nested.is_dir()
         assert wav_keep.is_file()
         assert dst_flat.is_file()
+
+
+# ---------------------------------------------------------------------------
+# _fail(): one-click repair offer for a broken/drifted engine venv.
+# ---------------------------------------------------------------------------
+
+
+class TestFailEngineRepairOffer:
+    """A synthesis-time engine-load failure must offer — and actually launch —
+    the force-reinstall repair, not dead-end on a panel that only shows
+    Uninstall."""
+
+    _LLAMA = (
+        "Could not import module 'LlamaModel'. "
+        "Are this object's requirements defined correctly?"
+    )
+
+    def test_load_failure_yes_opens_manager_and_starts_repair(self, app):
+        with patch("src.gui_unified.messagebox.askyesno", return_value=True), \
+             patch.object(app, "_open_engine_manager") as open_mgr, \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail(self._LLAMA)
+
+        open_mgr.assert_called_once()
+        start_repair.assert_called_once_with("chatterbox_grandmom")
+
+    def test_load_failure_declined_does_not_repair(self, app):
+        with patch("src.gui_unified.messagebox.askyesno", return_value=False), \
+             patch.object(app, "_open_engine_manager") as open_mgr, \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail(self._LLAMA)
+
+        open_mgr.assert_not_called()
+        start_repair.assert_not_called()
+
+    def test_plain_error_shows_messagebox_and_no_repair(self, app):
+        with patch("src.gui_unified.messagebox.showerror") as showerror, \
+             patch.object(app._settings_view, "start_repair") as start_repair:
+            app._fail("Some unrelated synthesis error")
+
+        showerror.assert_called_once()
+        start_repair.assert_not_called()
