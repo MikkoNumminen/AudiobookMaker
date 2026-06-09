@@ -1157,6 +1157,30 @@ class ChatterboxInstaller(EngineInstaller):
             )
         return self._venv_python
 
+    def _torch_is_noncuda(self, venv_py: Path) -> bool:
+        """True if the venv's torch is installed but is NOT a CUDA build.
+
+        A version-pinned ``pip install torch==X`` skips an already-present torch
+        even when it's the wrong (CPU) build — so the repair path uses this to
+        decide whether to force the cu124 wheel back in-place (fixing e.g. a
+        venv a prior bad force-reinstall clobbered to the CPU wheel) instead of
+        falling through to the full clean-rebuild escalation. Returns False when
+        torch is a CUDA build, is not installed, or can't be probed — those are
+        handled by the normal install and the smoke-test + rebuild path.
+        """
+        try:
+            proc = subprocess.run(
+                [
+                    str(venv_py), "-c",
+                    "import torch, sys; sys.exit(0 if torch.version.cuda else 3)",
+                ],
+                capture_output=True,
+                timeout=60,
+            )
+        except Exception:
+            return False
+        return proc.returncode == 3
+
     def _pip_install(
         self,
         venv_py: Path,
@@ -1175,6 +1199,11 @@ class ChatterboxInstaller(EngineInstaller):
         compiled with CUDA enabled". Every runtime dependency is already pinned
         in PIP_PACKAGES_MAIN, so re-pinning just the listed packages is the
         correct, torch-safe repair.
+
+        Separately, a repair force-reinstalls the cu124 torch wheel in-place
+        when it detects the installed torch is a non-CUDA build (see
+        :meth:`_torch_is_noncuda`) — recovering a previously-clobbered venv with
+        one torch re-download instead of a full rebuild.
         """
         # Upgrade pip.
         _run_subprocess(
@@ -1189,14 +1218,22 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
-        # CUDA torch.
+        # CUDA torch. A plain version-pinned install skips an already-present
+        # torch even if it's the wrong (CPU) build, so on a repair we probe the
+        # installed build and force the cu124 wheel back in when it's not CUDA
+        # (e.g. a prior bad force-reinstall pulled the CPU wheel). This fixes
+        # such a venv in-place — one torch re-download — instead of needing the
+        # full clean-rebuild escalation.
+        torch_cmd = [
+            str(venv_py), "-m", "pip", "install",
+            f"torch=={TORCH_WHEEL_VERSION}",
+            f"torchaudio=={TORCH_WHEEL_VERSION}",
+            "--index-url", TORCH_CUDA_INDEX,
+        ]
+        if force and self._torch_is_noncuda(venv_py):
+            torch_cmd.append("--force-reinstall")
         result = _run_subprocess(
-            [
-                str(venv_py), "-m", "pip", "install",
-                f"torch=={TORCH_WHEEL_VERSION}",
-                f"torchaudio=={TORCH_WHEEL_VERSION}",
-                "--index-url", TORCH_CUDA_INDEX,
-            ],
+            torch_cmd,
             progress_cb=progress_cb,
             step=3,
             total_steps=5,
