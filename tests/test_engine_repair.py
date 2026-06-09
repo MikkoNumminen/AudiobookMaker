@@ -75,13 +75,15 @@ class TestPipInstallForce:
         assert main_calls
         assert "--force-reinstall" not in main_calls[-1]
 
-    def test_force_never_touches_the_torch_step(self, tmp_path) -> None:
-        # torch installs via --index-url; a forced multi-GB re-download is
-        # never what repair needs, so the torch call must stay un-forced.
+    def test_force_leaves_cuda_torch_step_untouched(self, tmp_path) -> None:
+        # When the existing torch is already a CUDA build, the torch step is NOT
+        # force-reinstalled (no wasteful multi-GB re-download) and never carries
+        # --no-deps (that flag is only for the main package step).
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
-        with mock.patch.object(
-            ei, "_run_subprocess", return_value=MagicMock(returncode=0)
-        ) as run:
+        with mock.patch.object(inst, "_torch_is_noncuda", return_value=False), \
+             mock.patch.object(
+                 ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+             ) as run:
             inst._pip_install(
                 tmp_path / "py.exe", _noop_progress, threading.Event(), force=True
             )
@@ -92,6 +94,65 @@ class TestPipInstallForce:
         assert torch_calls, "expected a torch pip call"
         for argv in torch_calls:
             assert "--force-reinstall" not in argv
+            assert "--no-deps" not in argv
+
+    def test_force_reinstalls_torch_in_place_when_cpu_build(self, tmp_path) -> None:
+        # A non-CUDA torch (e.g. clobbered by an old repair) is force-reinstalled
+        # from the cu124 index in-place — recovering without a full rebuild.
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        with mock.patch.object(inst, "_torch_is_noncuda", return_value=True), \
+             mock.patch.object(
+                 ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+             ) as run:
+            inst._pip_install(
+                tmp_path / "py.exe", _noop_progress, threading.Event(), force=True
+            )
+        torch_calls = [
+            c.args[0] for c in run.call_args_list
+            if any("torch==" in str(tok) for tok in c.args[0])
+        ]
+        assert torch_calls
+        assert "--force-reinstall" in torch_calls[-1]
+        assert any(ei.TORCH_CUDA_INDEX in str(tok) for tok in torch_calls[-1])
+
+    def test_torch_is_noncuda_classifies_build(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        # exit 3 = torch.version.cuda falsy (CPU build) → needs cu124 reinstall
+        with mock.patch("subprocess.run", return_value=MagicMock(returncode=3)):
+            assert inst._torch_is_noncuda(tmp_path / "py.exe") is True
+        # exit 0 = CUDA build → leave it
+        with mock.patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            assert inst._torch_is_noncuda(tmp_path / "py.exe") is False
+        # unprobable (import error / no torch / crash) → False (rebuild handles)
+        with mock.patch("subprocess.run", side_effect=OSError("boom")):
+            assert inst._torch_is_noncuda(tmp_path / "py.exe") is False
+
+    def test_force_adds_no_deps_to_main_step(self, tmp_path) -> None:
+        # Without --no-deps, --force-reinstall reinstalls chatterbox-tts's torch
+        # dependency from PyPI (a CPU wheel), clobbering the cu124 CUDA torch and
+        # breaking synth with "Torch not compiled with CUDA enabled".
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        with mock.patch.object(
+            ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+        ) as run:
+            inst._pip_install(
+                tmp_path / "py.exe", _noop_progress, threading.Event(), force=True
+            )
+        main_calls = _main_pip_calls(run)
+        assert main_calls
+        assert "--no-deps" in main_calls[-1]
+
+    def test_no_force_omits_no_deps(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        with mock.patch.object(
+            ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+        ) as run:
+            inst._pip_install(
+                tmp_path / "py.exe", _noop_progress, threading.Event(), force=False
+            )
+        main_calls = _main_pip_calls(run)
+        assert main_calls
+        assert "--no-deps" not in main_calls[-1]
 
 
 # ---------------------------------------------------------------------------

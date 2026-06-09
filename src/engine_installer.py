@@ -151,6 +151,12 @@ _CORRUPTION_SMOKE_SIGNATURES = (
     "winerror 126",
     "winerror 127",
     "error loading",
+    # A CPU-only torch wheel (wrong BUILD, not missing hardware) reports this —
+    # e.g. after a bad force-reinstall clobbered the cu124 wheel. A clean
+    # rebuild reinstalls the cu124 CUDA wheel and fixes it. Distinct from a
+    # genuine "Found no NVIDIA driver" / "CUDA error", which a rebuild can't fix
+    # and which therefore is NOT in this list.
+    "torch not compiled with cuda enabled",
 )
 
 
@@ -1151,6 +1157,30 @@ class ChatterboxInstaller(EngineInstaller):
             )
         return self._venv_python
 
+    def _torch_is_noncuda(self, venv_py: Path) -> bool:
+        """True if the venv's torch is installed but is NOT a CUDA build.
+
+        A version-pinned ``pip install torch==X`` skips an already-present torch
+        even when it's the wrong (CPU) build — so the repair path uses this to
+        decide whether to force the cu124 wheel back in-place (fixing e.g. a
+        venv a prior bad force-reinstall clobbered to the CPU wheel) instead of
+        falling through to the full clean-rebuild escalation. Returns False when
+        torch is a CUDA build, is not installed, or can't be probed — those are
+        handled by the normal install and the smoke-test + rebuild path.
+        """
+        try:
+            proc = subprocess.run(
+                [
+                    str(venv_py), "-c",
+                    "import torch, sys; sys.exit(0 if torch.version.cuda else 3)",
+                ],
+                capture_output=True,
+                timeout=60,
+            )
+        except Exception:
+            return False
+        return proc.returncode == 3
+
     def _pip_install(
         self,
         venv_py: Path,
@@ -1160,10 +1190,20 @@ class ChatterboxInstaller(EngineInstaller):
     ) -> None:
         """Install torch + chatterbox packages.
 
-        ``force`` adds ``--force-reinstall`` to the main package step so a
-        drifted venv is repaired (a too-new transformers is pulled back to the
-        pin). torch is left untouched — it is pinned by version and a forced
-        re-download of the multi-GB CUDA wheel is never what repair needs.
+        ``force`` adds ``--force-reinstall --no-deps`` to the main package step
+        so a drifted venv is repaired (a too-new transformers is pulled back to
+        the pin) WITHOUT re-resolving dependencies. ``--no-deps`` is essential:
+        plain ``--force-reinstall`` also reinstalls chatterbox-tts's ``torch``
+        dependency from PyPI (a CPU wheel), clobbering the cu124 CUDA torch
+        installed just above — which then fails synth/smoke with "Torch not
+        compiled with CUDA enabled". Every runtime dependency is already pinned
+        in PIP_PACKAGES_MAIN, so re-pinning just the listed packages is the
+        correct, torch-safe repair.
+
+        Separately, a repair force-reinstalls the cu124 torch wheel in-place
+        when it detects the installed torch is a non-CUDA build (see
+        :meth:`_torch_is_noncuda`) — recovering a previously-clobbered venv with
+        one torch re-download instead of a full rebuild.
         """
         # Upgrade pip.
         _run_subprocess(
@@ -1178,14 +1218,22 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
-        # CUDA torch.
+        # CUDA torch. A plain version-pinned install skips an already-present
+        # torch even if it's the wrong (CPU) build, so on a repair we probe the
+        # installed build and force the cu124 wheel back in when it's not CUDA
+        # (e.g. a prior bad force-reinstall pulled the CPU wheel). This fixes
+        # such a venv in-place — one torch re-download — instead of needing the
+        # full clean-rebuild escalation.
+        torch_cmd = [
+            str(venv_py), "-m", "pip", "install",
+            f"torch=={TORCH_WHEEL_VERSION}",
+            f"torchaudio=={TORCH_WHEEL_VERSION}",
+            "--index-url", TORCH_CUDA_INDEX,
+        ]
+        if force and self._torch_is_noncuda(venv_py):
+            torch_cmd.append("--force-reinstall")
         result = _run_subprocess(
-            [
-                str(venv_py), "-m", "pip", "install",
-                f"torch=={TORCH_WHEEL_VERSION}",
-                f"torchaudio=={TORCH_WHEEL_VERSION}",
-                "--index-url", TORCH_CUDA_INDEX,
-            ],
+            torch_cmd,
             progress_cb=progress_cb,
             step=3,
             total_steps=5,
@@ -1203,7 +1251,12 @@ class ChatterboxInstaller(EngineInstaller):
         if force:
             # Repair: re-pin the whole set even if pip thinks it is satisfied,
             # so a drifted transformers is replaced by the pinned version.
-            main_cmd.append("--force-reinstall")
+            # --no-deps is REQUIRED alongside --force-reinstall: without it pip
+            # also reinstalls chatterbox-tts's torch dependency from PyPI (a CPU
+            # wheel), clobbering the cu124 CUDA torch and breaking synth with
+            # "Torch not compiled with CUDA enabled". The whole runtime chain is
+            # already pinned in PIP_PACKAGES_MAIN, so deps need no resolution.
+            main_cmd += ["--force-reinstall", "--no-deps"]
         main_cmd += PIP_PACKAGES_MAIN
         result = _run_subprocess(
             main_cmd,

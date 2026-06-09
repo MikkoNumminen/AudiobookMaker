@@ -192,6 +192,50 @@ class TestRepairEscalation:
         assert any(e.done for e in events)
         assert not any(e.error for e in events)
 
+    def test_repair_rebuilds_on_cpu_torch_wheel(self, tmp_path):
+        # A CPU torch wheel (e.g. clobbered by a bad force-reinstall) reports
+        # "Torch not compiled with CUDA enabled" — fixable by a clean rebuild
+        # (fresh venv reinstalls the cu124 wheel), so repair must escalate.
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        inst._venv_path.mkdir(parents=True)
+        smoke_results = [
+            "AssertionError: Torch not compiled with CUDA enabled",
+            None,
+        ]
+
+        def smoke(_venv_py, _cancel):
+            return smoke_results.pop(0)
+
+        remove_mock = MagicMock(return_value=True)
+        ctxs = _mocked_install_steps(inst)
+        ctxs.append(patch.object(inst, "_smoke_test", side_effect=smoke))
+        ctxs.append(patch.object(inst, "remove", remove_mock))
+        with ctxs[0], ctxs[1], ctxs[2], ctxs[3], ctxs[4], ctxs[5], ctxs[6]:
+            events = []
+            inst.force_reinstall(events.append, threading.Event())
+
+        remove_mock.assert_called_once()
+        assert smoke_results == []
+        assert any(e.done for e in events)
+
+
+class TestCorruptionSignature:
+    """_smoke_error_looks_like_corruption: rebuild on wrong-build/missing
+    packages, but NOT on genuine hardware/driver failures."""
+
+    def test_classification(self):
+        from src.engine_installer import _smoke_error_looks_like_corruption as c
+
+        # Rebuildable (wrong build / missing packages):
+        assert c("AssertionError: Torch not compiled with CUDA enabled")
+        assert c('OSError: [WinError 126] ... Error loading "...\\fbgemm.dll"')
+        assert c("ImportError: DLL load failed while importing _C")
+        assert c("ModuleNotFoundError: No module named 'chatterbox'")
+        # NOT rebuildable (environmental — a rebuild can't fix the hardware):
+        assert not c("RuntimeError: Found no NVIDIA driver on your system")
+        assert not c("RuntimeError: CUDA error: no kernel image is available")
+        assert not c("")
+
 
 class TestBridgeCheckStatusIncomplete:
     def test_check_status_unavailable_when_incomplete(self):
