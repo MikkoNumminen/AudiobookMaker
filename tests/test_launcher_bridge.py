@@ -338,6 +338,48 @@ class TestRunnerConstruction:
         # Must not raise.
         runner.cancel()
 
+    def test_convert_env_isolated_from_frozen_app(self, tmp_path, monkeypatch) -> None:
+        # The Chatterbox venv interpreter must NOT inherit the frozen app's
+        # PYTHONPATH/PYTHONHOME — they would shadow the venv's torch/transformers
+        # and make model load fail at Convert with a masked "Could not import
+        # module 'LlamaModel'" even though the venv (and the install smoke test)
+        # are fine.
+        import io
+        import subprocess as _sp
+
+        monkeypatch.setenv("PYTHONPATH", r"C:\frozen\_internal")
+        monkeypatch.setenv("PYTHONHOME", r"C:\frozen")
+        captured: dict = {}
+
+        class _FakeProc:
+            stdout = io.StringIO("")
+
+            def poll(self) -> int:
+                return 0
+
+            def wait(self, timeout=None) -> int:
+                return 0
+
+        def _fake_popen(argv, **kw):
+            captured["env"] = kw.get("env")
+            return _FakeProc()
+
+        monkeypatch.setattr(_sp, "Popen", _fake_popen)
+
+        runner = ChatterboxRunner(
+            python_exe=sys.executable,
+            script_path="scripts/generate_chatterbox_audiobook.py",
+            pdf_path=str(tmp_path / "book.pdf"),
+            out_dir=str(tmp_path / "out"),
+        )
+        runner.start()
+
+        env = captured["env"]
+        assert env is not None
+        assert "PYTHONPATH" not in env
+        assert "PYTHONHOME" not in env
+        assert env.get("PYTHONNOUSERSITE") == "1"
+
     def test_double_start_raises(self, tmp_path, monkeypatch) -> None:
         runner = ChatterboxRunner(
             python_exe=sys.executable,  # any real python, even if the script

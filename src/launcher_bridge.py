@@ -348,6 +348,18 @@ class ChatterboxRunner:
         ]
 
         env = os.environ.copy()
+        # Isolate the Chatterbox venv interpreter from the frozen app's leaked
+        # import environment. A PyInstaller-frozen parent copies PYTHONPATH /
+        # PYTHONHOME (and a user site-packages dir) into its environment; if the
+        # venv python inherits them it imports the APP's bundled or a system
+        # torch/transformers instead of the venv's, and model load dies with a
+        # masked "Could not import module 'LlamaModel'" — even though the venv
+        # is sound (the install smoke test runs `python -c` and passes). A
+        # proper venv finds its own site-packages without these, so stripping
+        # them is safe and is the fix for that Convert-only failure.
+        for _leak in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"):
+            env.pop(_leak, None)
+        env["PYTHONNOUSERSITE"] = "1"
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         # Silence tqdm progress bars from HuggingFace downloads — their

@@ -436,6 +436,44 @@ def download_voice(
 # ---------------------------------------------------------------------------
 
 
+# Cache the piper-import verdict for the whole process. `import piper` drags in
+# native single-phase-init extensions (numpy, onnxruntime) that can initialise
+# only once per process; re-running the import on every check_status() call
+# (startup probe of every engine, engine switch, preview, convert, listen,
+# self-test) can turn one transient native-load failure into a sticky,
+# whole-session "cannot load module more than once per process". Probe once,
+# reuse the verdict.
+_PIPER_IMPORT: Optional[tuple[bool, Optional[str]]] = None
+
+
+def _probe_piper_import() -> tuple[bool, Optional[str]]:
+    """Import the piper stack once and cache ``(ok, reason)``."""
+    global _PIPER_IMPORT
+    if _PIPER_IMPORT is None:
+        try:
+            # Loads numpy + onnxruntime at module level (NOT espeakbridge, which
+            # piper imports lazily at synth time).
+            from piper import PiperVoice  # noqa: F401
+            _PIPER_IMPORT = (True, None)
+        except ImportError as exc:
+            _PIPER_IMPORT = (
+                False,
+                f"Piper import failed: {exc}. Try: pip install piper-tts",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _PIPER_IMPORT = (
+                False,
+                f"Piper load error: {type(exc).__name__}: {exc}",
+            )
+    return _PIPER_IMPORT
+
+
+def _reset_piper_probe() -> None:
+    """Clear the cached import verdict (tests re-probe with patched imports)."""
+    global _PIPER_IMPORT
+    _PIPER_IMPORT = None
+
+
 @register_engine
 class PiperTTSEngine(TTSEngine):
     """Offline CPU-only Piper neural TTS."""
@@ -455,21 +493,12 @@ class PiperTTSEngine(TTSEngine):
     # --------------------------------------------------------------------- #
 
     def check_status(self) -> EngineStatus:
-        try:
-            import piper  # noqa: F401
-            # Force the real import chain (voice -> espeakbridge .pyd) so
-            # bundling issues are caught here rather than at synth time.
-            from piper import PiperVoice  # noqa: F401
-        except ImportError as exc:
-            return EngineStatus(
-                available=False,
-                reason=f"Piper import failed: {exc}. Try: pip install piper-tts",
-            )
-        except Exception as exc:
-            return EngineStatus(
-                available=False,
-                reason=f"Piper load error: {type(exc).__name__}: {exc}",
-            )
+        # Probe the import once per process (see _probe_piper_import). Repeatedly
+        # force-re-importing here is what made a single native-load failure stick
+        # for the whole session.
+        ok, reason = _probe_piper_import()
+        if not ok:
+            return EngineStatus(available=False, reason=reason)
 
         # If at least one voice is cached, we're fully ready; otherwise the
         # GUI should show a 'Download voices' button.

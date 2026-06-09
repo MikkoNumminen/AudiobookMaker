@@ -120,3 +120,14 @@ def _block_network(request):
     finally:
         socket.socket = real_socket  # type: ignore[assignment]
         urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
+
+
+@pytest.fixture(autouse=True)
+def _reset_piper_import_cache():
+    """Reset the process-wide piper-import verdict (src.tts_piper) before each
+    test, so a test that patches the import to fail can't poison a later test
+    that expects the real import to succeed."""
+    from src.tts_piper import _reset_piper_probe
+
+    _reset_piper_probe()
+    yield
