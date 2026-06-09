@@ -1154,7 +1154,18 @@ def main() -> int:
         import torchaudio  # noqa: F401
         import chatterbox  # noqa: F401
     except Exception as exc:  # noqa: BLE001 — any failure = engine cannot load
+        import traceback
         print(f"[error] {exc}", flush=True)
+        # str(exc) is usually the MASKED message: transformers' _LazyModule
+        # re-raises the real ModuleNotFoundError/RuntimeError as the generic
+        # "Could not import module 'LlamaModel'" via `from e`, so the true cause
+        # lives in the chained traceback ("direct cause" block). Dump the full
+        # chain to stdout (stderr is merged into it) so the actual failure is
+        # visible in the log instead of only the masked one-liner.
+        print("[error] --- full import traceback (real cause below) ---",
+              flush=True)
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
         print(SETUP_INSTRUCTIONS, flush=True)
         return 2
 

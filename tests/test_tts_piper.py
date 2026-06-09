@@ -125,6 +125,33 @@ class TestCheckStatus:
         assert not status.available
         assert "piper-tts" in status.reason
 
+    def test_import_is_probed_once_and_cached(self) -> None:
+        # Re-importing piper on every check_status() call is what turned a
+        # single native single-phase-init failure into a sticky whole-session
+        # "cannot load module more than once per process". The probe must import
+        # once and reuse the verdict.
+        import builtins
+
+        import src.tts_piper as tp
+
+        tp._reset_piper_probe()
+        calls = {"piper": 0}
+        real_import = builtins.__import__
+
+        def fake_import(name: str, *args, **kwargs):
+            if name == "piper":
+                calls["piper"] += 1
+                raise ImportError("cannot load module more than once per process")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            r1 = tp._probe_piper_import()
+            r2 = tp._probe_piper_import()
+
+        assert r1 == r2
+        assert calls["piper"] == 1          # imported once; second call cached
+        assert r1[0] is False and "piper-tts" in r1[1]
+
     @pytest.mark.skipif(not PIPER_INSTALLED, reason="piper-tts not installed")
     def test_needs_download_when_no_voices_cached(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr("src.tts_piper._cache_dir", lambda: tmp_path)

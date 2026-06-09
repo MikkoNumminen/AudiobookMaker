@@ -422,6 +422,27 @@ a.binaries = [
     and not _drop_path(b, *_pil_unused_binaries)
 ]
 
+# ── Defensive native-extension de-duplication ───────────────────────────
+# A native extension collected both as an EXTENSION (from a hidden import)
+# and as a BINARY (from collect_all) can land at two dest paths in the
+# bundle. A single-phase-init .pyd — onnxruntime's onnxruntime_pybind11_state,
+# numpy's _multiarray_umath, piper's espeakbridge — then dies at its SECOND
+# load with "ImportError: cannot load module more than once per process",
+# which surfaces as "Piper import failed" (Piper's import pulls in
+# numpy+onnxruntime). Keep the first entry per normalized dest path. This is
+# what PyInstaller >=5.13 does internally; we pin it defensively so the build
+# is correct regardless of the toolchain version. (The earlier espeakbridge
+# fix removed one duplicate at the source; this guards the whole binary set.)
+_seen_bin_dests = set()
+_deduped_binaries = []
+for _b in a.binaries:
+    _dest = _b[0].lower().replace('\\', '/')
+    if _dest in _seen_bin_dests:
+        continue
+    _seen_bin_dests.add(_dest)
+    _deduped_binaries.append(_b)
+a.binaries = _deduped_binaries
+
 pyz = PYZ(
     a.pure,
     a.zipped_data,
