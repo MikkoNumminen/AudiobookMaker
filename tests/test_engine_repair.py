@@ -93,6 +93,33 @@ class TestPipInstallForce:
         for argv in torch_calls:
             assert "--force-reinstall" not in argv
 
+    def test_force_adds_no_deps_to_main_step(self, tmp_path) -> None:
+        # Without --no-deps, --force-reinstall reinstalls chatterbox-tts's torch
+        # dependency from PyPI (a CPU wheel), clobbering the cu124 CUDA torch and
+        # breaking synth with "Torch not compiled with CUDA enabled".
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        with mock.patch.object(
+            ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+        ) as run:
+            inst._pip_install(
+                tmp_path / "py.exe", _noop_progress, threading.Event(), force=True
+            )
+        main_calls = _main_pip_calls(run)
+        assert main_calls
+        assert "--no-deps" in main_calls[-1]
+
+    def test_no_force_omits_no_deps(self, tmp_path) -> None:
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        with mock.patch.object(
+            ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+        ) as run:
+            inst._pip_install(
+                tmp_path / "py.exe", _noop_progress, threading.Event(), force=False
+            )
+        main_calls = _main_pip_calls(run)
+        assert main_calls
+        assert "--no-deps" not in main_calls[-1]
+
 
 # ---------------------------------------------------------------------------
 # force_reinstall wiring

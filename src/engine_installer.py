@@ -151,6 +151,12 @@ _CORRUPTION_SMOKE_SIGNATURES = (
     "winerror 126",
     "winerror 127",
     "error loading",
+    # A CPU-only torch wheel (wrong BUILD, not missing hardware) reports this —
+    # e.g. after a bad force-reinstall clobbered the cu124 wheel. A clean
+    # rebuild reinstalls the cu124 CUDA wheel and fixes it. Distinct from a
+    # genuine "Found no NVIDIA driver" / "CUDA error", which a rebuild can't fix
+    # and which therefore is NOT in this list.
+    "torch not compiled with cuda enabled",
 )
 
 
@@ -1160,10 +1166,15 @@ class ChatterboxInstaller(EngineInstaller):
     ) -> None:
         """Install torch + chatterbox packages.
 
-        ``force`` adds ``--force-reinstall`` to the main package step so a
-        drifted venv is repaired (a too-new transformers is pulled back to the
-        pin). torch is left untouched — it is pinned by version and a forced
-        re-download of the multi-GB CUDA wheel is never what repair needs.
+        ``force`` adds ``--force-reinstall --no-deps`` to the main package step
+        so a drifted venv is repaired (a too-new transformers is pulled back to
+        the pin) WITHOUT re-resolving dependencies. ``--no-deps`` is essential:
+        plain ``--force-reinstall`` also reinstalls chatterbox-tts's ``torch``
+        dependency from PyPI (a CPU wheel), clobbering the cu124 CUDA torch
+        installed just above — which then fails synth/smoke with "Torch not
+        compiled with CUDA enabled". Every runtime dependency is already pinned
+        in PIP_PACKAGES_MAIN, so re-pinning just the listed packages is the
+        correct, torch-safe repair.
         """
         # Upgrade pip.
         _run_subprocess(
@@ -1203,7 +1214,12 @@ class ChatterboxInstaller(EngineInstaller):
         if force:
             # Repair: re-pin the whole set even if pip thinks it is satisfied,
             # so a drifted transformers is replaced by the pinned version.
-            main_cmd.append("--force-reinstall")
+            # --no-deps is REQUIRED alongside --force-reinstall: without it pip
+            # also reinstalls chatterbox-tts's torch dependency from PyPI (a CPU
+            # wheel), clobbering the cu124 CUDA torch and breaking synth with
+            # "Torch not compiled with CUDA enabled". The whole runtime chain is
+            # already pinned in PIP_PACKAGES_MAIN, so deps need no resolution.
+            main_cmd += ["--force-reinstall", "--no-deps"]
         main_cmd += PIP_PACKAGES_MAIN
         result = _run_subprocess(
             main_cmd,
