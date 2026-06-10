@@ -309,6 +309,39 @@ in `launcher_bridge.py` turns them into `ProgressEvent` dataclasses
 is handled by the queue; cancellation flows the other way via
 `threading.Event`.
 
+### Engine venv integrity (the v3.16–v3.17.3 hardening)
+
+Field failures where install/repair reported success while Convert kept
+failing produced a set of invariants, each enforced by tests:
+
+- **One verification path.** The installer's post-install smoke test
+  runs the runner script's `--selftest` (`engine_installer.RUNNER_SCRIPT_PATH`)
+  — the same file, imports, and environment as a real synthesis — with
+  an inline `python -c` probe only as a fallback. Smoke and Convert
+  can therefore never verify different things.
+- **Environment isolation.** Both the runner spawn and the smoke test
+  use `launcher_bridge.isolated_python_env()` (strips
+  `PYTHONPATH`/`PYTHONHOME`/`PYTHONSTARTUP`, sets `PYTHONNOUSERSITE`),
+  so the venv interpreter can't be redirected to the app's bundled
+  packages. The runner *appends* (never prepends) its root to
+  `sys.path` for the same reason — a source-guard test enforces it.
+- **Provenance.** Every run prints a `[runner] build` stamp; the GUI
+  logs `Runner:`/`Venv:` lines before starting. A stale script (e.g. a
+  half-applied silent update) or a stray venv is visible in any user
+  log instead of requiring a multi-day investigation.
+- **Install lifecycle marker.** The venv carries `.install-incomplete`
+  from creation until smoke passes; while present the engine reads as
+  not-installed, so Convert can't run against (and corrupt) a
+  half-built venv.
+- **Repair semantics.** Repair force-reinstalls the pinned package set
+  with `--no-deps` (so chatterbox's torch dependency can't clobber the
+  cu124 CUDA wheel with a CPU build), reinstalls torch in place when a
+  non-CUDA build is detected, and escalates to a clean rebuild only on
+  corruption-shaped smoke failures (`_CORRUPTION_SMOKE_SIGNATURES`) —
+  never on environmental ones like a missing NVIDIA driver.
+
+Diagnosis runbook for field reports: the `engine-venv-triage` skill.
+
 ## Auto-update
 
 ```mermaid
