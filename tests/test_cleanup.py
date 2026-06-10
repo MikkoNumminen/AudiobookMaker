@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import struct
 from pathlib import Path
 from unittest.mock import patch
@@ -156,6 +157,10 @@ def _build_minimal_lnk(target_path: str) -> bytes:
     return bytes(header) + bytes(li)
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Parses real .lnk files via the Windows-only mbcs codec",
+)
 class TestFindOrphanShortcuts:
     def test_finds_shortcut_pointing_to_missing_exe(self, tmp_path: Path) -> None:
         shortcut_dir = tmp_path / "shortcuts"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -645,9 +646,14 @@ class TestCanonicalizeVenvPath:
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.delenv("TEMP", raising=False)
         monkeypatch.delenv("TMP", raising=False)
-        # An absolute path nowhere near the repo / install root. On
-        # Windows the drive letter alone is enough to escape every root.
-        bogus = Path("Z:/definitely/not/allowed/venv")
+        # An absolute path nowhere near the repo / install root. On Windows
+        # the drive letter alone escapes every root; on POSIX "Z:/..." is a
+        # RELATIVE path that resolves under the CWD (inside the repo!), so
+        # use a genuinely-absolute outside path there.
+        if sys.platform == "win32":
+            bogus = Path("Z:/definitely/not/allowed/venv")
+        else:
+            bogus = Path("/definitely/not/allowed/venv")
         with pytest.raises(ValueError, match="outside every allowed root"):
             _canonicalize_venv_path(bogus)
 
@@ -658,8 +664,10 @@ class TestCanonicalizeVenvPath:
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.delenv("TEMP", raising=False)
         monkeypatch.delenv("TMP", raising=False)
+        # Platform-aware escape path — see test_rejects_path_outside_allowed_roots.
+        escape = Path("Z:/escape/venv" if sys.platform == "win32" else "/escape/venv")
         with pytest.raises(ValueError):
-            ChatterboxInstaller(venv_path=Path("Z:/escape/venv"))
+            ChatterboxInstaller(venv_path=escape)
 
 
 # ---------------------------------------------------------------------------
