@@ -1,14 +1,17 @@
 ---
 name: work-session
-description: Start, pause, or finish a TODO.md work session as one of the 4 permanent Claude sessions in AudiobookMaker. Use this whenever the user says "claim task X", "take task Y", "start working on Z", "pick something", "I'm done", "finish up", "pause", "I'm blocked", or "go idle". Also use before touching any code on a fresh session to make sure the status board and in-progress list are honest. Parallel Claudes collide without this discipline; the shared TODO.md protocol is the only way four sessions stay coherent.
+description: Start, pause, or finish a TODO.md work session as one of the 4 permanent Claude sessions in AudiobookMaker. Use this whenever the user says "claim task X", "take task Y", "start working on Z", "pick something", "I'm done", "finish up", "pause", "I'm blocked", or "go idle". Also use before touching any code on a fresh session to make sure the status board and in-progress list are honest. Parallel Claudes collide without this discipline; the local TODO.md protocol (one gitignored file in the main checkout, never tracked) is the only way sessions on this machine stay coherent.
 ---
 
 # Work-session
 
-Atomic start / pause / finish for the shared [TODO.md](../../../TODO.md)
-protocol. Four Claude sessions (Claude 1–4) run in parallel against the
-same repo; `TODO.md` on master is the only way any one session knows what
-the others are doing. Getting the mechanics right is the difference
+Atomic start / pause / finish for the local `TODO.md` protocol. Four
+Claude sessions (Claude 1–4) run in parallel against the same repo on
+this machine; the **main checkout's** `TODO.md` is the only way any one
+session knows what the others are doing. The file is **local-only and
+gitignored** (per CLAUDE.md): never `git add` it, never mention it in a
+commit message — claims are plain file edits, visible to other local
+sessions immediately. Getting the mechanics right is the difference
 between parallel productivity and silent clobbering.
 
 ## Why this skill exists
@@ -25,7 +28,8 @@ Three separate failure modes keep recurring without this discipline:
    got its commit landed on master in April 2026 exactly this way.
 
 The fix for all three is the same: **pull → read → claim → branch →
-work → finish** as atomic phases, each committed before the next starts.
+work → finish** as atomic phases, each completed before the next starts
+(the pull keeps *code* fresh; the claim itself is a local file edit).
 
 ## Session identity
 
@@ -55,10 +59,12 @@ Do not `git pull --rebase` — rebase is never done in this repo without
 explicit per-operation approval from the user. A fast-forward merge is
 safe and loud.
 
-Then read `TODO.md` (limit=120 lines is usually enough; read more only
-if the file is clearly truncated mid-section), paying attention to
-the status board and "In Progress" — not just the backlog. Another
-Claude may have just pushed a status change.
+Then read the **main checkout's** `TODO.md` (limit=120 lines is usually
+enough; read more only if the file is clearly truncated mid-section),
+paying attention to the status board and "In Progress" — not just the
+backlog. Another local session may have just edited it. (The pull above
+is for *code* freshness — `TODO.md` itself is gitignored and never on
+the remote.)
 
 ### 2. Pick
 
@@ -70,31 +76,21 @@ If the user named a specific task, honour that even if the size marker
 suggests it's outside your usual. Ask only if the task already has an
 owner.
 
-### 3. Claim on master
+### 3. Claim — a local edit, never a commit
 
-Edit `TODO.md`:
+Edit the **main checkout's** `TODO.md` (even when you will work in a
+worktree — worktrees have their own roots, and the main checkout's copy
+is the single coordination point):
 
 - Move the task into the "In Progress" section if it isn't there.
 - Append your tag to the header: `[Claude N, worktree-<branch-slug>]`.
 - Update the status-board row: `🔵 working`, task title, today's date
   (`YYYY-MM-DD`).
 
-Commit with a conventional message:
-
-```
-chore(todo): claim <short task description>
-```
-
-Push immediately:
-
-```bash
-git push origin master
-```
-
-This publishes your claim. Every other Claude sees it on their next
-pull. **Do not touch any other files in this commit** — the claim is one
-logical change, and keeping it alone makes it trivial to revert if the
-session aborts.
+Save the file — that IS the claim. Every other session on this machine
+reads the same file and sees it immediately. **Never `git add` TODO.md,
+never mention it in a commit message** (CLAUDE.md, "Task tracking"): it
+is gitignored, local-only, and has no remote copy.
 
 ### 4. Branch into a worktree
 
@@ -138,7 +134,7 @@ If external input is needed:
 
 - Append `[BLOCKED: <short reason>]` to the task line.
 - Update status-board row to `🟡 blocked`.
-- Commit + push the TODO.md change.
+- Save the file (a local edit — TODO.md is never committed).
 
 Examples of real blocks: "waiting on voice recording from Turo", "needs
 NVIDIA hardware", "needs upstream merge".

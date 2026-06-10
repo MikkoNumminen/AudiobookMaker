@@ -141,13 +141,17 @@ look unprofessional in English prose.
 
 ## TODO.md protocol
 
-[TODO.md](../TODO.md) is the shared task list across all parallel
-developers and agents. The file's own header lists the mandatory
-rules — re-read it before starting any task. Highlights:
+`TODO.md` at the repo root is the task list for all sessions **on this
+machine**. It is **local-only**: gitignored, never `git add`ed, never
+referenced in a commit message, and there is no remote copy —
+`CLAUDE.md` owns that policy. Coordination works because every session
+(including worktree sessions) reads and edits the *main checkout's*
+copy directly; changes are visible to other local sessions immediately,
+no commit or push involved. Highlights:
 
 - **Move your task to "In Progress" with your name tag *before* you
   touch any files.** `[mikko, master]`, `[Claude 1, audit-fixes]`,
-  etc. This is how parallel workers avoid collisions.
+  etc. This is how parallel workers on this machine avoid collisions.
 - **Don't pick up an item that already has an owner tag.** Pick
   something else or wait.
 - **Don't remove your tag mid-task.** It stays in In Progress until
@@ -178,8 +182,10 @@ rules — re-read it before starting any task. Highlights:
   `installer/setup.iss`, `cleanup.py`) — these run on every user's
   machine on every release. Mistakes are expensive.
 - Anything that affects `master` directly without a branch.
-- Anything that would create a `CLAUDE.md`, `.claude/` directory in
-  the repo, or a co-authored commit. Don't.
+- Anything that would create a co-authored commit or put vendor
+  branding in git history. Don't. (`CLAUDE.md` and `.claude/skills/`
+  are tracked, load-bearing parts of the repo — see
+  `docs/AI_FIRST_GUIDE.md`; editing them follows the normal PR flow.)
 
 ## Keep `cleanup.py` current ("the trash collector")
 
