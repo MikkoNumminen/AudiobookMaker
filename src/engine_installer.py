@@ -1057,6 +1057,21 @@ class ChatterboxInstaller(EngineInstaller):
 
         if proc.returncode != 0:
             captured = "\n".join(output_lines).strip()
+            # An OLD runner script doesn't know --selftest and dies with
+            # argparse usage text. That means the app's installed files are
+            # mixed versions (a half-applied update left a stale synthesis
+            # script behind) — a venv rebuild can't fix it, so say exactly
+            # what the user should do instead of showing raw usage text.
+            if "unrecognized arguments: --selftest" in captured:
+                return (
+                    "The installed app files are mismatched versions: the "
+                    "synthesis script on disk is older than the app. "
+                    "Download the installer from the GitHub releases page "
+                    "and run it once to refresh the installation.\n"
+                    "Sovelluksen asennustiedostot ovat keskenään eri "
+                    "versioista. Lataa asennusohjelma GitHubista ja aja se "
+                    "kerran, niin asennus korjaantuu."
+                )
             return captured or f"Smoke test exited with code {proc.returncode}"
         return None
 

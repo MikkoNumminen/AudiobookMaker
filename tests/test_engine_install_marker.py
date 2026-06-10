@@ -281,6 +281,35 @@ class TestSmokeProbesRealRunner:
         assert captured["argv"][1] == "-c"
         assert "chatterbox.mtl_tts" in captured["argv"][2]
 
+    def test_stale_script_maps_to_actionable_message(self, tmp_path):
+        # An OLD runner script rejects --selftest with argparse usage text.
+        # The smoke test must translate that into "reinstall from GitHub"
+        # instead of surfacing raw usage text — and must NOT trigger the
+        # corruption rebuild (a venv rebuild can't fix a stale script).
+        import io
+
+        import src.engine_installer as ei
+        from src.engine_installer import _smoke_error_looks_like_corruption
+
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+
+        class _FailProc(_FakeSmokeProc):
+            def __init__(self):
+                self.stdout = io.StringIO(
+                    "usage: generate_chatterbox_audiobook.py [-h] ...\n"
+                    "generate_chatterbox_audiobook.py: error: "
+                    "unrecognized arguments: --selftest\n"
+                )
+                self.returncode = 2
+
+        with patch.object(ei.subprocess, "Popen", return_value=_FailProc()):
+            err = inst._smoke_test(tmp_path / "py.exe", threading.Event())
+
+        assert err is not None
+        assert "GitHub" in err
+        assert "unrecognized arguments" not in err
+        assert not _smoke_error_looks_like_corruption(err)
+
     def test_smoke_runs_with_isolated_env(self, tmp_path, monkeypatch):
         # The smoke test must verify the SAME environment synthesis runs in:
         # leaked PYTHONPATH/PYTHONHOME stripped, user site disabled.
