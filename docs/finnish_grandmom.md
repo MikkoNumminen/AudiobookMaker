@@ -102,6 +102,35 @@ Compared to English Grandmom (Route B v2), the Finnish path has fewer
 moving parts: the model is purpose-built for the language, and no
 reference clip is needed.
 
+## The v7 baseline — the locked production config and quality floor
+
+"v7" is the first configuration the project's canonical Finnish tester
+approved as production-listenable. It is both the **default** for any
+ad-hoc sample and the **quality floor**: no sample this project
+produces should sound worse than v7, and experiments are judged by A/B
+against it.
+
+The locked parameters:
+
+| Parameter | Value | Why |
+|---|---|---|
+| Model | Chatterbox-Finnish T3 finetune | the Finnish voice |
+| Reference | default Finnish reference WAV (no `--ref-audio`) | the v7 voice identity |
+| `cfg_weight` | **0.3** | 0.0 was tested per upstream advice (claimed to mitigate accent bleed) and rejected by ear — 0.3 wins for this voice |
+| `temperature` | **0.8** | v7 production value |
+| `exaggeration` | **0.5** | v7 production value |
+| Chunking | per-sentence (`--chunk-chars 35`) | the decoder emits early EOS on multi-sentence chunks on every device; one sentence per chunk is the only reliable workaround |
+| Tail trim | -30 dB Silero-VAD | v7 production value |
+
+The dev entry point for ad-hoc samples is `dev_chatterbox_fi.py`
+(`--finnish-finetune`, `--chunk-chars 35`, output under
+`.local/scratch/`). Quality always beats speed: use CUDA when an
+NVIDIA card is available, CPU otherwise, and never weaken the
+parameters above to make a run faster. Reference-clip experiments
+that would land below v7 (non-Finnish references, clips under ~5 s,
+noisy/clipped/multi-speaker sources, low-bitrate MP3s) are failed
+experiments, not samples.
+
 ## Why Finnish Grandmom does not have the same prosody quirks as English Grandmom
 
 [english_grandmom.md](english_grandmom.md) documents a class of

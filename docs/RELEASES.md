@@ -9,6 +9,126 @@ Anything older than the top-of-list entry lives here.
 
 ---
 
+**v3.17.3** -- The engine repair button can no longer lie:
+
+- **Install verification now runs the real synthesis path** -- the
+  post-install smoke test executes the runner script's new
+  `--selftest` (same file, same imports, same environment as a real
+  Convert), so "Moottorit asennettu" can never again coexist with a
+  failing Convert
+- **Provenance in every log** -- each run prints a `[runner] build`
+  stamp plus `Runner:`/`Venv:` lines, so a stale script or wrong venv
+  is visible in any user screenshot
+- **Mixed-version installs are detected** -- a half-applied silent
+  update now fails Repair with a plain "download the installer from
+  GitHub" message (EN+FI) instead of looping
+- The installer-managed venv now always outranks stray exe-adjacent
+  venvs, and the runner can no longer have its packages shadowed by
+  the app bundle
+
+**v3.17.2** -- Convert runs in a clean environment:
+
+- **Synthesis subprocess isolation** -- the engine venv's python no
+  longer inherits the app's `PYTHONPATH`/`PYTHONHOME`, which could
+  make model load fail with a masked "Could not import module
+  'LlamaModel'" even though the venv was healthy
+- **Real errors instead of masked ones** -- on an engine import
+  failure the runner now prints the full chained traceback, not just
+  the generic one-liner
+- **Piper fix** -- the import probe is cached per process (a repeated
+  native-module load failure could previously stick for the whole
+  session) and the build de-duplicates native extensions
+
+**v3.17.1** -- Repair no longer breaks CUDA torch:
+
+- **The v3.16.0 Repair button could downgrade torch to a CPU build**
+  (its force-reinstall re-resolved dependencies from PyPI), after
+  which synthesis failed with "Torch not compiled with CUDA enabled".
+  Repair now re-pins packages without touching torch
+- **Self-healing** -- a venv already broken that way is detected (a
+  non-CUDA torch build) and the correct cu124 wheel is reinstalled
+  in place; as a backstop the error is treated as rebuild-fixable
+
+**v3.17.0** -- A Convert can no longer corrupt an in-progress install:
+
+- **Install-incomplete marker** -- the engine venv carries a sentinel
+  from creation until the smoke test passes; while present the engine
+  reads as not-installed, so Convert/sample can't launch against a
+  half-built venv
+- **Repair escalates intelligently** -- a corruption-shaped smoke
+  failure (missing DLLs, import errors) triggers a clean
+  delete-and-rebuild; environmental failures (no NVIDIA driver) are
+  reported directly instead of wasting a rebuild
+
+**v3.16.0** -- One-click engine repair and a reliable update banner:
+
+- **Repair button** in the engine manager force-reinstalls a drifted
+  Chatterbox venv (the "Could not import module 'LlamaModel'" class
+  of failures) without a manual uninstall
+- **Update banner fix** -- the update check could silently miss its
+  result and never show the banner; the poll now re-arms and the
+  worker always reports
+- **Audio polish** -- tiered inter-chunk pauses, over-long model
+  silences tamed, and synthetic test fixtures replacing
+  source-derived words
+
+**v3.15.3** -- Truncation guard tuned on real data:
+
+- **Floor-aware band guard** catches partial truncations (a sentence
+  missing a third of its words), not just catastrophic drops --
+  thresholds derived from measured healthy-chunk distributions
+- **Cached chunk health validation** -- bad cached chunks are
+  re-synthesized instead of shipped
+- Tiny clause fragments are merged before synthesis so the model
+  stops rambling on 7-character inputs
+
+**v3.15.2** -- Edge-TTS synthesizes per-chunk so one slow chunk can't
+kill the whole run.
+
+**v3.15.1** -- Packaging fix: the Finnish legal-citation normalizer and
+OCR path resolver are bundled into the frozen build (3.15.0 shipped
+without them), and Piper/VoxCPM now normalize text like the other
+engines.
+
+**v3.15.0** -- Supply-chain pinning and Finnish text quality:
+
+- **Every model and toolchain fetch is pinned to an immutable
+  revision** -- HF model prefetch, Piper voices, the Finnish T3
+  finetune, CI ffmpeg/pip/action versions. A rotated upstream URL or
+  a force-pushed model repo can no longer break installs silently
+- **Finnish legal citations and acronyms** are normalized for speech;
+  long sentences split at clause boundaries instead of mid-phrase
+- The updater is hardened against malformed GitHub API responses
+
+**v3.14.0** -- Broken engine venvs become diagnosable and repairable:
+
+- **`doctor` health probe** detects version drift in the Chatterbox
+  venv (the dependency chain is now fully pinned in both install
+  paths)
+- **`engines repair` CLI** and a GUI offer to repair when synthesis
+  fails on a broken venv
+- A drifted venv now produces an actionable repair message instead of
+  a cryptic import error
+
+**v3.13.0** -- Scanned books become audiobooks:
+
+- **OCR fallback for image-only PDF pages** via bundled Tesseract
+  (English + Finnish language packs), with pinned, SHA-verified
+  tessdata
+- OCR language follows the book language through the synthesis
+  pipeline
+
+**v3.12.1** -- Cleanup after the voice-cloning removal: dead
+`tkinterdnd2` dependency dropped from the build, stale docs pruned.
+
+**v3.12.0** -- The GUI sheds its experimental voice-cloning surface:
+
+- **Voice-cloning dialog, drop handler, and Voice Pack Maker add-on
+  removed** from the app -- the pipeline lives on as developer CLI
+  tooling, where it actually gets used
+- **Honest engine quality tiers** in the README per real Finnish and
+  English listening tests
+
 **v3.11.2** -- Cleaner shutdown and a wider safety net in CI:
 
 - **Clean teardown of Tk timers** -- the app now tracks every Tk
