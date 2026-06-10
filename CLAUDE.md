@@ -155,8 +155,7 @@ leak the same severity as leaked secrets.
   URLs, and any file that looks like source content by size or extension.
 - **If a leak already landed on origin:** P0 — stop other work, scrub
   the tree via `gh api` Contents PUT/DELETE (works even when another
-  Claude owns the main worktree — see `feedback_gh_api_merge_pattern.md`
-  in memory), and ask the user before any history rewrite (destructive).
+  session owns the main worktree — see `docs/gh_api_scrub_pattern.md`), and ask the user before any history rewrite (destructive).
 
 ## One canonical local tree — `.local/` (dev) and next-to-exe (frozen)
 
@@ -174,8 +173,8 @@ clear subdirs so the layout stays readable:
 - **`.local/scratch/`** — one-off log files, intermediate `.txt`,
   prompt files, anything ephemeral that doesn't fit above.
 - **`.local/clone_scratch/`** — voice-clone-from-file pipeline scratch
-  (path is fixed in `src/gui_clone_voice.py` and a hygiene test;
-  do not redirect).
+  (reserved name from the retired GUI clone flow; old runs may still
+  live here — treat as read-only).
 - **`.local/archive/`** — old run dirs from past sessions that don't
   fit the canonical layout. Read-only by convention; new code never
   writes here.
@@ -229,9 +228,9 @@ bisection probes simultaneously and brought the box down).
 Hard rules for any session in this repo:
 
 - **Only one** voice-pack analyze / synthesize / clone-voice subprocess
-  per machine at a time. The chunked-analyze orchestrator
-  (`src/voice_pack_chunked_subproc.py`) defaults to one CUDA worker for
-  exactly this reason; do not raise the default without a CUDA semaphore.
+  per machine at a time. The analyze orchestrator
+  (`scripts/voice_pack_analyze.py`) runs one CUDA pipeline per
+  invocation for exactly this reason; never run two concurrently.
 - When spawning parallel Claude `Agent`s on this project, only one may
   run a voice-pack subprocess at a time. Either serialise the work
   inside one agent, or restrict GPU-using work to a single agent and
@@ -240,8 +239,7 @@ Hard rules for any session in this repo:
   sequential, not parallel — even if it takes longer.
 - If a session starts and the GPU shows residual VRAM from a prior run
   that's stuck, surface the PIDs to the user and wait for the
-  user's call before killing anything (per
-  `feedback_never_kill_processes.md` in memory).
+  user's call before killing anything (per `docs/process_kill_policy.md`).
 
 ## Voice-extraction default — assume multiple speakers
 
@@ -253,10 +251,11 @@ voices" / "clone the speaker(s)" / similar phrasing:
    exception, not the rule. Always run diarization, even when the user
    only needs one voice; the count of detected speakers is information
    they want.
-2. **Always go through the chunked analyzer**
-   (`src.voice_pack_chunked_subproc.run_chunked_analyze`). It handles
-   long sources, runs diarization, picks ref clips per speaker, and
-   produces the canonical artefacts.
+2. **Always go through the analyze orchestrator**
+   (`scripts/voice_pack_analyze.py` — the `analyze()` entry point /
+   CLI). It runs ASR + diarization, chunks per speaker, and produces
+   the canonical artefacts (transcripts.jsonl, speakers.yaml,
+   report.md).
 3. **Validate refs by transcript before declaring done.** For each
    picked ref clip, read the chunk's transcript text and confirm it
    matches the expected speaker role — interviewer-questions in the

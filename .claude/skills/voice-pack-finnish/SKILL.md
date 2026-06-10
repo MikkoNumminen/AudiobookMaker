@@ -112,7 +112,7 @@ This skill encodes the workaround for all four.
   slower — every analyze chunk will hit the CPU fallback path, and
   LoRA training will be impractical (multi-hour). If anything else is
   consuming the GPU, surface the PIDs to the user and wait for their
-  call (per `feedback_never_kill_processes.md` memory).
+  call (per `docs/process_kill_policy.md`).
 - `.local/` directory exists at the repo root (gitignored). Create
   `.local/voice_runs/` explicitly when Step 1 tells you to.
 - The user has handed you a local audio file path. Never fetch from URLs.
@@ -190,23 +190,27 @@ pyannote has fewer segments to work with on short clips and conflates
 more aggressively.
 
 ```python
-from src.voice_pack_chunked_subproc import run_chunked_analyze, ChunkedProgress
 from pathlib import Path
 
-def cb(ev: ChunkedProgress) -> None:
-    print(f'[{ev.stage}] {ev.message}', flush=True)
+# scripts/voice_pack_analyze.py is the canonical analyze entry point
+# (ASR + diarization + per-speaker chunking; writes transcripts.jsonl,
+# speakers.yaml, report.md). Importable, or run as a CLI.
+import sys
+sys.path.insert(0, "scripts")
+from voice_pack_analyze import analyze
 
-result = run_chunked_analyze(
-    wav=Path('.local/voice_runs/source.wav'),
-    out_dir=Path('.local/voice_runs/run_ecapa'),
-    chunk_seconds=300.0,   # full clip in one chunk for short branch
-    workers=1,             # one CUDA chunk at a time — VRAM gate
+result = analyze(
+    Path('.local/voice_runs/source.wav'),
+    Path('.local/voice_runs/run_ecapa'),
     num_speakers=2,        # from operator answer in Step 0
     diarizer='ecapa',
     asr_device='cuda',
-    progress_cb=cb,
 )
 ```
+
+Equivalent CLI: `python scripts/voice_pack_analyze.py <wav> --out
+.local/voice_runs/run_ecapa --diarizer ecapa --num-speakers 2`. Run ONE
+analyze at a time (CLAUDE.md resource discipline — one CUDA process).
 
 Wall time on RTX 3080 Ti: ~10 min for a 1 h source with 11 chunks. Each
 chunk's whisper ASR is ~40 s; one chunk in ten typically hits the native

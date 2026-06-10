@@ -13,8 +13,8 @@ project's corpus at
 
 Finnish TTS quality improves in two ways:
 
-1. **Structural fixes** — extend the normalizer (see the
-   `fi-normalizer-pass` skill). These pay off across every book.
+1. **Structural fixes** — extend the normalizer (see
+   `docs/finnish_normalizer_design.md`). These pay off across every book.
 2. **Lexicon fixes** — patch one word's respelling in Pass I or a
    similar lookup table. These pay off when the same word keeps
    appearing in reports.

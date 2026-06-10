@@ -26,7 +26,7 @@
       "id": 4,
       "name": "ai-attribution-in-commit-message",
       "prompt": "I'm about to commit with a message whose body carries an AI assistant's co-authorship trailer (a `Co-Authored-By:` line crediting an AI tool). Scan.",
-      "expected_output": "Check 7 FAILs, flagging the AI co-authorship trailer. Assistant stops the commit, references feedback_no_ai_in_git.md / CLAUDE.md rule, and asks the user to rewrite the message before retrying.",
+      "expected_output": "Check 7 FAILs, flagging the AI co-authorship trailer. Assistant stops the commit, references the CLAUDE.md vendor-branding rule, and asks the user to rewrite the message before retrying.",
       "files": []
     },
     {
