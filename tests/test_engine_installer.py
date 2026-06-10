@@ -223,16 +223,14 @@ class TestChatterboxInstaller:
         with patch("src.engine_installer.subprocess.Popen", return_value=mock_proc) as mock_popen:
             err = inst._smoke_test(Path("/fake/python"), threading.Event())
         assert err is None
-        # Confirm the probe exercises CUDA and imports the required packages.
-        probe_arg = mock_popen.call_args.args[0][-1]
-        assert "torch.zeros(1).cuda()" in probe_arg
-        assert "chatterbox.mtl_tts" in probe_arg
-        assert "silero_vad" in probe_arg
-        assert "pydub" in probe_arg
-        assert "huggingface_hub" in probe_arg
-        assert "safetensors" in probe_arg
-        assert "peft" in probe_arg
-        assert "accelerate" in probe_arg
+        # The probe goes through the real runner script's --selftest — the
+        # same code path synthesis uses. The CUDA + package import coverage
+        # lives in the runner's _selftest (see TestSelftest in
+        # test_generate_chatterbox_audiobook.py); the fallback inline probe is
+        # covered by TestSmokeProbesRealRunner in test_engine_install_marker.
+        argv = mock_popen.call_args.args[0]
+        assert argv[-1] == "--selftest"
+        assert argv[-2].endswith("generate_chatterbox_audiobook.py")
 
     def test_smoke_test_returns_real_error_on_failure(self, tmp_path) -> None:
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv")

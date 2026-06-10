@@ -121,10 +121,22 @@ class _RefMelFilter(logging.Filter):
 logging.getLogger().addFilter(_RefMelFilter())
 # -----------------------------------------------------------------------------
 
-# Make `src.*` importable when the script is run from anywhere.
+# Stamp printed at startup (and in --selftest) so any log immediately shows
+# WHICH copy of this script executed. A frozen install runs this file from
+# <install>\_internal\scripts\; if an app update ever leaves a stale copy
+# behind, the stamp in the user's log is the diagnostic. Bump when editing
+# this file.
+RUNNER_BUILD = "2026-06-10.1"
+
+# Make `src.*` importable when the script is run from anywhere. APPEND, do not
+# prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
+# and prepending it would let bundled packages shadow the Chatterbox venv's own
+# packages (torch/transformers/numpy) for this subprocess. Appending keeps
+# `src.*` importable (it exists nowhere else) while the venv always wins for
+# everything it actually has.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+    sys.path.append(str(_REPO_ROOT))
 
 # Point pydub at our bundled ffmpeg/ffprobe. Without this the final MP3
 # assembly step fails with FileNotFoundError when the Chatterbox venv
@@ -332,6 +344,14 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=300,
         help="Target characters per chunk (upstream-consensus sweet spot).",
+    )
+    p.add_argument(
+        "--selftest",
+        action="store_true",
+        help="Verify the venv can load the full synthesis stack (torch + CUDA "
+             "+ chatterbox + helpers) through THIS script's exact code path, "
+             "then exit. Used by the installer's post-install smoke test so "
+             "install verification and real synthesis can never diverge.",
     )
     p.add_argument(
         "--dry-run",
@@ -1132,8 +1152,52 @@ class _StopRequested(Exception):
     pass
 
 
+def _selftest() -> int:
+    """Verify the venv loads the full synthesis stack via THIS script.
+
+    Runs the same imports real synthesis needs — through the same file, the
+    same sys.path setup, the same venv — so the installer's smoke test cannot
+    pass while a real Convert fails (the false-green class). On failure the
+    full chained traceback is printed: transformers' _LazyModule masks the real
+    cause behind a generic "Could not import module 'X'" message, and the
+    chain's "direct cause" block is the diagnostic.
+    """
+    try:
+        import torch
+        # Exercise CUDA with a real allocation so a CPU-only or broken cu124
+        # wheel fails here, not at first synthesis.
+        _ = torch.zeros(1).cuda()
+        import torchaudio  # noqa: F401
+        from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa: F401
+        import silero_vad  # noqa: F401
+        import pydub  # noqa: F401
+        import huggingface_hub  # noqa: F401
+        import safetensors  # noqa: F401
+        import peft  # noqa: F401
+        import accelerate  # noqa: F401
+    except Exception as exc:  # noqa: BLE001 — any failure = engine unusable
+        import traceback
+        print(f"[error] {exc}", flush=True)
+        print("[error] --- full selftest traceback (real cause below) ---",
+              flush=True)
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
+        return 2
+    print("OK", flush=True)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+
+    # Always identify which copy of this script is executing — a frozen
+    # install's update path replaces this file on disk, and the stamp makes a
+    # stale copy visible in every user log.
+    print(f"[runner] build {RUNNER_BUILD} @ {Path(__file__).resolve()}",
+          flush=True)
+
+    if args.selftest:
+        return _selftest()
 
     # --dry-run path must not import torch/chatterbox.
     if args.dry_run:

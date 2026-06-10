@@ -216,6 +216,11 @@ class SynthMixin(_Base):
         self._append_log(f"Input: {plan.input_label}")
         self._append_log(f"Output: {plan.out_dir}")
         self._append_log("Engine: chatterbox_grandmom")
+        # Diagnostic provenance: WHICH script file and WHICH venv python this
+        # run uses. A stale runner script, or a second venv (repair fixes one
+        # while synthesis uses another), is invisible without these two lines.
+        self._append_log(f"Runner: {runner_script}")
+        self._append_log(f"Venv: {plan.runner.python_exe}")
 
         try:
             plan.runner.start()

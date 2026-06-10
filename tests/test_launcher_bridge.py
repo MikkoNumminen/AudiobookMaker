@@ -380,6 +380,49 @@ class TestRunnerConstruction:
         assert "PYTHONHOME" not in env
         assert env.get("PYTHONNOUSERSITE") == "1"
 
+    def test_isolated_python_env_strips_leak_vars(self, monkeypatch) -> None:
+        from src.launcher_bridge import isolated_python_env
+
+        monkeypatch.setenv("PYTHONPATH", r"C:\frozen\_internal")
+        monkeypatch.setenv("PYTHONHOME", r"C:\frozen")
+        monkeypatch.setenv("PYTHONSTARTUP", r"C:\evil\startup.py")
+        monkeypatch.setenv("PATH", "/usr/bin")  # unrelated vars survive
+
+        env = isolated_python_env()
+
+        assert "PYTHONPATH" not in env
+        assert "PYTHONHOME" not in env
+        assert "PYTHONSTARTUP" not in env
+        assert env["PYTHONNOUSERSITE"] == "1"
+        assert env["PATH"] == "/usr/bin"
+
+    def test_frozen_candidates_prefer_managed_venv_over_exe_dir(
+        self, monkeypatch
+    ) -> None:
+        # The installer manages C:\AudiobookMaker\.venv-chatterbox. If a stale
+        # venv lingers next to the exe, preferring it would make Repair fix one
+        # venv while synthesis uses another — so the managed path must come
+        # before every exe-relative candidate in a frozen Windows app.
+        from src import launcher_bridge as lb
+
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "platform", "win32")
+        # Forward slashes so the fake Windows path also splits into components
+        # under a POSIX test runner (backslashes would be a single component).
+        monkeypatch.setattr(
+            sys, "executable",
+            "C:/Users/u/AppData/Local/Programs/AudiobookMaker/AudiobookMaker.exe",
+        )
+
+        cands = [str(c) for c in lb._venv_python_candidates()]
+        managed = next(
+            i for i, c in enumerate(cands) if c.startswith(r"C:\AudiobookMaker")
+        )
+        exe_rel = next(
+            i for i, c in enumerate(cands) if "AppData" in c
+        )
+        assert managed < exe_rel
+
     def test_double_start_raises(self, tmp_path, monkeypatch) -> None:
         runner = ChatterboxRunner(
             python_exe=sys.executable,  # any real python, even if the script
