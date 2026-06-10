@@ -105,6 +105,15 @@ CHATTERBOX_BASE_REVISION = "ef85ce7bef2f3f1a74d0d837d379d2fcb68203cd"
 
 DEFAULT_VENV_PATH = Path(r"C:\AudiobookMaker\.venv-chatterbox")
 
+# The synthesis runner script, resolved the same way the GUI resolves it
+# (repo root in dev, the _internal bundle dir in a frozen app). The smoke
+# test probes THROUGH this script (--selftest) so install verification and
+# real synthesis share one code path.
+RUNNER_SCRIPT_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "scripts" / "generate_chatterbox_audiobook.py"
+)
+
 # Sentinel written inside the engine venv while an install or repair is in
 # progress, and removed only after the post-install smoke test passes. A venv
 # that has its python.exe but still carries this marker is INCOMPLETE — an
@@ -959,29 +968,46 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return None
 
-        probe = (
-            "import torch\n"
-            # Exercise CUDA: allocate a real tensor on the device so a
-            # broken cu124 wheel fails here rather than silently continuing.
-            "_ = torch.zeros(1).cuda()\n"
-            "from chatterbox.mtl_tts import ChatterboxMultilingualTTS\n"
-            "import silero_vad\n"
-            "import pydub\n"
-            "import huggingface_hub\n"
-            "import safetensors\n"
-            "import peft\n"
-            "import accelerate\n"
-            "print('OK')\n"
-        )
+        # Prefer probing through the REAL runner script's --selftest: same
+        # file, same sys.path setup, same imports as an actual synthesis run —
+        # so the smoke test can never pass while Convert fails (the
+        # false-green class observed in the field: `-c` import probes
+        # succeeded while the script's own code path did not). Fall back to
+        # the inline probe when the script isn't present (unit tests, partial
+        # checkouts).
+        if RUNNER_SCRIPT_PATH.exists():
+            argv = [str(venv_python), str(RUNNER_SCRIPT_PATH), "--selftest"]
+        else:
+            probe = (
+                "import torch\n"
+                # Exercise CUDA: allocate a real tensor on the device so a
+                # broken cu124 wheel fails here rather than silently
+                # continuing.
+                "_ = torch.zeros(1).cuda()\n"
+                "from chatterbox.mtl_tts import ChatterboxMultilingualTTS\n"
+                "import silero_vad\n"
+                "import pydub\n"
+                "import huggingface_hub\n"
+                "import safetensors\n"
+                "import peft\n"
+                "import accelerate\n"
+                "print('OK')\n"
+            )
+            argv = [str(venv_python), "-c", probe]
+
+        # Same isolated env the synthesis runner uses — the smoke test must
+        # verify the environment synthesis will actually run in.
+        from src.launcher_bridge import isolated_python_env
 
         output_lines: list[str] = []
         try:
             proc = subprocess.Popen(
-                [str(venv_python), "-c", probe],
+                argv,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=isolated_python_env(),
             )
         except Exception as exc:
             return f"Smoke test could not run: {exc}"

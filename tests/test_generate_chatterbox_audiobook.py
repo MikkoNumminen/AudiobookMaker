@@ -681,7 +681,8 @@ class TestMainEngineLoadFailure:
             with patch.dict(
                 sys.modules, {"torch": MagicMock(), "torchaudio": MagicMock()}
             ), patch.object(
-                gca, "parse_args", return_value=SimpleNamespace(dry_run=False)
+                gca, "parse_args",
+                return_value=SimpleNamespace(dry_run=False, selftest=False),
             ):
                 code = gca.main()
         finally:
@@ -715,3 +716,68 @@ class TestMainEngineLoadFailure:
         code, out = self._run_main_with_failing_chatterbox(exc, capsys)
         assert code == 2
         assert "Install engines" in out
+
+
+# ---------------------------------------------------------------------------
+# --selftest + runner provenance stamp
+# ---------------------------------------------------------------------------
+
+
+class TestSelftest:
+    def test_parse_args_accepts_selftest(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["gca", "--selftest"])
+        args = gca.parse_args()
+        assert args.selftest is True
+
+    def test_main_dispatches_to_selftest_and_prints_stamp(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(sys, "argv", ["gca", "--selftest"])
+        with patch.object(gca, "_selftest", return_value=0) as st:
+            code = gca.main()
+        st.assert_called_once()
+        assert code == 0
+        out = capsys.readouterr().out
+        # Provenance: every run identifies WHICH copy of the script executed.
+        assert f"[runner] build {gca.RUNNER_BUILD} @" in out
+
+    def test_main_prints_stamp_on_normal_runs_too(self, monkeypatch, capsys):
+        # No input args -> main exits early with the usage error, but the
+        # stamp must already be on stdout (diagnosis works on every log).
+        monkeypatch.setattr(sys, "argv", ["gca"])
+        code = gca.main()
+        assert code == 2
+        out = capsys.readouterr().out
+        assert "[runner] build" in out
+
+    def test_selftest_failure_unmasks_chained_cause(self, monkeypatch, capsys):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "torch":
+                raise RuntimeError(
+                    "Could not import module 'LlamaModel'. Are this object's "
+                    "requirements defined correctly?"
+                )
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=fake_import):
+            code = gca._selftest()
+        assert code == 2
+        out = capsys.readouterr().out
+        assert "[error]" in out
+        assert "full selftest traceback" in out
+        # The chained traceback is what reveals the REAL failure behind
+        # transformers' masked message.
+        assert "Traceback" in out
+
+    def test_repo_root_is_appended_not_prepended(self):
+        # Load-bearing one-liner: in a frozen install _REPO_ROOT is the app's
+        # _internal bundle dir; PREPENDING it lets bundled packages shadow the
+        # venv's torch/transformers for the synthesis subprocess. Guard the
+        # source so the append can't silently regress to insert(0).
+        source = (gca.Path(gca.__file__)).read_text(encoding="utf-8")
+        assert "sys.path.append(str(_REPO_ROOT))" in source
+        assert "sys.path.insert(0, str(_REPO_ROOT))" not in source

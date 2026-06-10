@@ -219,6 +219,89 @@ class TestRepairEscalation:
         assert any(e.done for e in events)
 
 
+class _FakeSmokeProc:
+    """Minimal Popen stand-in for _smoke_test (succeeds immediately)."""
+
+    def __init__(self):
+        import io
+        self.stdout = io.StringIO("")  # iterable lines + close()
+        self.returncode = 0
+
+    def wait(self, timeout=None):
+        return 0
+
+    def terminate(self):
+        pass
+
+    def kill(self):
+        pass
+
+
+class TestSmokeProbesRealRunner:
+    """The smoke test must verify through the runner script's --selftest —
+    the same file/sys.path/imports a real Convert uses — so a smoke pass can
+    never coexist with a Convert failure (the field-observed false-green)."""
+
+    def test_smoke_uses_runner_selftest_when_script_exists(self, tmp_path):
+        import src.engine_installer as ei
+
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        captured = {}
+
+        def fake_popen(argv, **kw):
+            captured["argv"] = argv
+            captured["env"] = kw.get("env")
+            return _FakeSmokeProc()
+
+        # The real repo has the script, so the selftest path is taken.
+        assert ei.RUNNER_SCRIPT_PATH.exists()
+        with patch.object(ei.subprocess, "Popen", side_effect=fake_popen):
+            err = inst._smoke_test(tmp_path / "py.exe", threading.Event())
+
+        assert err is None
+        assert captured["argv"][1].endswith("generate_chatterbox_audiobook.py")
+        assert captured["argv"][2] == "--selftest"
+
+    def test_smoke_falls_back_to_inline_probe_without_script(self, tmp_path):
+        import src.engine_installer as ei
+
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        captured = {}
+
+        def fake_popen(argv, **kw):
+            captured["argv"] = argv
+            return _FakeSmokeProc()
+
+        with patch.object(
+            ei, "RUNNER_SCRIPT_PATH", tmp_path / "missing.py"
+        ), patch.object(ei.subprocess, "Popen", side_effect=fake_popen):
+            err = inst._smoke_test(tmp_path / "py.exe", threading.Event())
+
+        assert err is None
+        assert captured["argv"][1] == "-c"
+        assert "chatterbox.mtl_tts" in captured["argv"][2]
+
+    def test_smoke_runs_with_isolated_env(self, tmp_path, monkeypatch):
+        # The smoke test must verify the SAME environment synthesis runs in:
+        # leaked PYTHONPATH/PYTHONHOME stripped, user site disabled.
+        import src.engine_installer as ei
+
+        monkeypatch.setenv("PYTHONPATH", r"C:\frozen\_internal")
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        captured = {}
+
+        def fake_popen(argv, **kw):
+            captured["env"] = kw.get("env")
+            return _FakeSmokeProc()
+
+        with patch.object(ei.subprocess, "Popen", side_effect=fake_popen):
+            inst._smoke_test(tmp_path / "py.exe", threading.Event())
+
+        assert captured["env"] is not None
+        assert "PYTHONPATH" not in captured["env"]
+        assert captured["env"]["PYTHONNOUSERSITE"] == "1"
+
+
 class TestCorruptionSignature:
     """_smoke_error_looks_like_corruption: rebuild on wrong-build/missing
     packages, but NOT on genuine hardware/driver failures."""

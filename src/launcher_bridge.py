@@ -347,19 +347,7 @@ class ChatterboxRunner:
             *self.extra_args,
         ]
 
-        env = os.environ.copy()
-        # Isolate the Chatterbox venv interpreter from the frozen app's leaked
-        # import environment. A PyInstaller-frozen parent copies PYTHONPATH /
-        # PYTHONHOME (and a user site-packages dir) into its environment; if the
-        # venv python inherits them it imports the APP's bundled or a system
-        # torch/transformers instead of the venv's, and model load dies with a
-        # masked "Could not import module 'LlamaModel'" — even though the venv
-        # is sound (the install smoke test runs `python -c` and passes). A
-        # proper venv finds its own site-packages without these, so stripping
-        # them is safe and is the fix for that Convert-only failure.
-        for _leak in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"):
-            env.pop(_leak, None)
-        env["PYTHONNOUSERSITE"] = "1"
+        env = isolated_python_env()
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         # Silence tqdm progress bars from HuggingFace downloads — their
@@ -614,14 +602,39 @@ class ChatterboxRunner:
 # ---------------------------------------------------------------------------
 
 
+def isolated_python_env() -> dict:
+    """A copy of the environment safe for running the Chatterbox venv python.
+
+    Strips the variables through which a parent process (notably the frozen
+    PyInstaller app) could redirect the venv interpreter's imports to the
+    APP's bundled or a system torch/transformers instead of the venv's own —
+    which makes model load die with a masked "Could not import module
+    'LlamaModel'" even though the venv is sound. A proper venv finds its own
+    site-packages without any of these, so stripping is always safe. Used by
+    BOTH the synthesis runner spawn and the installer's smoke test, so the
+    verified environment and the synthesis environment cannot diverge.
+    """
+    env = os.environ.copy()
+    for leak in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"):
+        env.pop(leak, None)
+    env["PYTHONNOUSERSITE"] = "1"
+    return env
+
+
 def resolve_chatterbox_python() -> Optional[Path]:
     """Return the path to the Python that should run the Chatterbox script.
 
     Preference order:
         1. ``CHATTERBOX_PYTHON`` environment variable (escape hatch for tests)
-        2. ``.venv-chatterbox`` next to the repo/app root
-        3. ``C:\\AudiobookMaker\\.venv-chatterbox`` (default install path)
-        4. ``None`` if no Chatterbox venv is detected
+        2. ``.venv-chatterbox`` next to the repo/app root (dev checkouts)
+        3. Frozen app: ``C:\\AudiobookMaker\\.venv-chatterbox`` — the venv the
+           in-app installer creates and repairs. This MUST outrank exe-adjacent
+           guesses: if a stale venv lingers next to the exe from an older
+           layout, picking it means Repair fixes the managed venv while
+           synthesis keeps using the stale one — an unfixable-looking loop.
+        4. Frozen app: ``.venv-chatterbox`` next to (or one above) the exe.
+        5. Other known locations.
+        6. ``None`` if no Chatterbox venv is detected.
 
     The launcher should show a friendly "Chatterbox not installed" message if
     this returns ``None``.
@@ -632,16 +645,35 @@ def resolve_chatterbox_python() -> Optional[Path]:
         if p.exists():
             return p
 
+    for c in _venv_python_candidates():
+        if c.exists():
+            return c
+
+    return None
+
+
+def _venv_python_candidates() -> list:
+    """Ordered candidate paths for the Chatterbox venv python.
+
+    Pure (no filesystem checks) so the ORDER is unit-testable — the order is
+    load-bearing: the installer-managed venv must outrank exe-adjacent guesses
+    in a frozen app (see resolve_chatterbox_python docstring).
+    """
     suffix = ("Scripts", "python.exe") if sys.platform == "win32" else ("bin", "python")
 
     candidates = []
 
-    # 1. Relative to the source/repo root.
+    # 1. Relative to the source/repo root (dev checkouts).
     repo_root = Path(__file__).resolve().parent.parent
     candidates.append(repo_root / ".venv-chatterbox" / suffix[0] / suffix[1])
 
-    # 2. In a PyInstaller bundle, check relative to the exe directory
-    #    (not _MEIPASS which is a temp dir).
+    # 2. Frozen app on Windows: the installer-managed venv BEFORE exe-relative
+    #    fallbacks — a stale venv next to the exe must not outrank the venv
+    #    that Install/Repair actually manage.
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        candidates.append(
+            Path(r"C:\AudiobookMaker\.venv-chatterbox") / suffix[0] / suffix[1]
+        )
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
         candidates.append(exe_dir / ".venv-chatterbox" / suffix[0] / suffix[1])
@@ -649,7 +681,8 @@ def resolve_chatterbox_python() -> Optional[Path]:
         candidates.append(exe_dir.parent / ".venv-chatterbox" / suffix[0] / suffix[1])
 
     if sys.platform == "win32":
-        # 3. Default install path used by the in-app installer.
+        # 3. Default install path used by the in-app installer (dev / unfrozen
+        #    fallback; already first for frozen apps above).
         candidates.append(Path(r"C:\AudiobookMaker\.venv-chatterbox") / suffix[0] / suffix[1])
         # 4. Common dev locations — scan every existing drive letter so
         #    users on E:/F:/… aren't silently skipped.
@@ -658,8 +691,4 @@ def resolve_chatterbox_python() -> Optional[Path]:
                 continue
             candidates.append(Path(f"{letter}:\\koodaamista\\AudiobookMaker\\.venv-chatterbox") / suffix[0] / suffix[1])
 
-    for c in candidates:
-        if c.exists():
-            return c
-
-    return None
+    return candidates
