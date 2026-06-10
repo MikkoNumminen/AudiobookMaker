@@ -298,7 +298,8 @@ agent runs (or is stopped):
 - Small commits — one logical change each
 - No AI mentions in commits (no Co-Authored-By, no "Claude", no "AI")
 - Run tests before every commit (pre-commit hook handles this)
-- Re-read TODO.md before every commit (`git pull` first)
+- Re-read the local TODO.md before every commit (it is gitignored —
+  there is nothing to pull; see "Task tracking" above)
 
 ## Communication
 
@@ -318,11 +319,12 @@ Read `docs/CONVENTIONS.md` for the full list. Highlights:
 
 If a session is operating on a freshly-cloned repo (no `.git/hooks/pre-commit`
 yet), run `bash scripts/install-hooks.sh` once. This wires the project's
-pre-commit hook into `.git/hooks/` — without it, commits skip the
-`docs/CLI.md` sync check and the test suite. The hook content lives at
-`scripts/pre-commit` and is version-controlled; the install script
-symlinks (or copies, on filesystems without symlink support) it into
-place.
+hooks into `.git/hooks/` — without them, commits skip the TODO.md/`.local/`
+staging gates, the `docs/CLI.md` sync check, the test suite, and the
+vendor-branding commit-message scan. The hook content lives at
+`scripts/pre-commit` and `scripts/commit-msg` and is version-controlled;
+the install script symlinks (or copies, on filesystems without symlink
+support) them into place.
 
 ## AI-first surface (contributor-facing)
 

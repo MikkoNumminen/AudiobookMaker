@@ -144,16 +144,17 @@ A real example from this codebase:
 1. A user (Turo) reported that the Chatterbox-Finnish model
    mispronounces a Finnish word.
 2. The reporter's session called the **`pronunciation-corpus-add`
-   skill** to append the entry to
-   [`docs/pronunciation_corpus_fi.md`](pronunciation_corpus_fi.md)
-   in a structured form.
+   skill** to append the entry to `docs/pronunciation_corpus_fi.md`
+   (created by the skill on the first report) in a structured form.
 3. The skill referenced an **auto-memory** note about Turo as the
    canonical Finnish tester.
 4. The corpus entry was committed under **`feat(normalizer):`** or
    `fix(normalizer):` per the **CLAUDE.md** Conventional Commits
    rule.
-5. The commit went through the **pre-commit hook**: tests passed,
-   docs/CLI.md sync verified, AI-mention scan clean.
+5. The commit went through the **git hooks**: tests passed,
+   docs/CLI.md sync verified, the staged diff clear of TODO.md and
+   `.local/` paths, and the commit message clear of vendor-branding
+   tokens (the `commit-msg` hook).
 6. A future normalizer fix references the corpus entry to verify it
    does not regress, locked in by a **test**.
 
@@ -173,8 +174,10 @@ plays its part.
    bash scripts/install-hooks.sh
    ```
 
-   The hook checks `docs/CLI.md` is in sync with parsers on every
-   commit, and runs the test suite (skipped on pure-docs commits).
+   This installs two hooks: `pre-commit` (blocks staged TODO.md /
+   `.local/` files, checks `docs/CLI.md` is in sync with the parsers,
+   runs the test suite — skipped on pure-docs commits) and
+   `commit-msg` (blocks vendor-branding tokens in the message).
    Without this step, your local commits skip the project's
    guardrails — they will still land but they will break things.
 

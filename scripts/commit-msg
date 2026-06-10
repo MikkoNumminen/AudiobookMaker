@@ -1,0 +1,33 @@
+#!/bin/bash
+# Commit-msg hook: mechanically enforce the vendor-branding P0.
+#
+# CLAUDE.md ("Commit messages — keep ... vendor branding out") forbids the
+# AI vendor's product and company names in any commit subject, body, or
+# trailer. The rule is a strict substring match and has been violated
+# before; every violation costs a history rewrite + force-push. This hook
+# turns the documented manual scan into a mechanical gate.
+#
+# Scope: the COMMIT MESSAGE only. File contents may legitimately name the
+# tooling (e.g. docs/AI_FIRST_GUIDE.md); git history must not.
+#
+# Install: bash scripts/install-hooks.sh
+
+msg_file="$1"
+
+# Strip comment lines (not part of the recorded message).
+msg=$(grep -v '^#' "$msg_file" || true)
+
+# The two banned vendor tokens, case-insensitive, as substrings.
+# (Generic AI vocabulary — "AI", "agent", "session" — was explicitly
+# re-allowed by the 2026-05-20 policy narrowing; do not add it here.)
+if echo "$msg" | grep -qiE 'claude|anthropic'; then
+    echo "BLOCKED: the commit message contains a banned vendor token"
+    echo "(see CLAUDE.md, 'Commit messages'). Matched line(s):"
+    echo "$msg" | grep -inE 'claude|anthropic' | sed 's/^/  /'
+    echo ""
+    echo "Reword the message and retry. This includes Co-Authored-By"
+    echo "trailers and phrasings that name the vendor."
+    exit 1
+fi
+
+exit 0
