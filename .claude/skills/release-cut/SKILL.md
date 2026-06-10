@@ -116,7 +116,7 @@ gh run watch <run-id>
 Or: `gh run view <run-id> --log-failed` if it fails. Three likely failure
 modes:
 
-1. **Version drift** — the two version strings don't match. Fix whichever
+1. **Version drift** — the three version strings don't match. Fix whichever
    is wrong, commit, re-tag (delete + recreate + force push tag).
 2. **Tests failed** — CI runs the full suite before building. Fix on
    master, delete tag, re-tag.

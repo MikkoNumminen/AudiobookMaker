@@ -72,9 +72,10 @@ Before touching any code, invoke the work-session skill to claim the
 task in TODO.md under your session slot.
 ```
 
-The new session must invoke `work-session` to publish its claim before
-touching any code; the claim is what makes the session visible to
-the other Claudes.
+The new session must invoke `work-session` to record its claim (a local
+edit to the main checkout's gitignored `TODO.md` — never a commit)
+before touching any code; the claim is what makes the session visible
+to the other local sessions.
 
 ## Phase 5 — verify isolation, then clean up
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 import json
 import logging
 import threading
 from io import BytesIO
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.auto_updater import (
     UpdateInfo,
@@ -971,6 +974,10 @@ class TestAssertPsSafePath:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="apply_update's Popen path uses the Windows-only CREATE_NO_WINDOW",
+)
 class TestApplyUpdatePopenCleanup:
     """If subprocess.Popen raises inside apply_update, the splash .ps1 and
     relaunch .bat we just wrote to %TEMP% must be cleaned up. Otherwise

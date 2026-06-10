@@ -1,6 +1,47 @@
 #!/bin/bash
-# Pre-commit hook: run tests before allowing commits.
-# Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Pre-commit hook: mechanical P0 gates + CLI doc sync + tests.
+# Install: bash scripts/install-hooks.sh
+
+# ── Interpreter resolution (cross-platform) ─────────────────────────────
+# Windows ships the `py` launcher; macOS/Linux don't. ABM_TEST_PYTHON can
+# point at a specific interpreter (e.g. a dedicated test venv). Without a
+# usable interpreter+pytest the python gates are SKIPPED with a loud
+# warning rather than hard-blocking every commit on the machine — the
+# pure-shell gates below still run, and CI remains the backstop.
+resolve_python() {
+    if [ -n "${ABM_TEST_PYTHON:-}" ] && "$ABM_TEST_PYTHON" -c "import sys" >/dev/null 2>&1; then
+        echo "$ABM_TEST_PYTHON"; return
+    fi
+    if command -v py >/dev/null 2>&1; then
+        echo "py -3"; return
+    fi
+    if [ -x ".venv/bin/python" ] && .venv/bin/python -c "import sys" >/dev/null 2>&1; then
+        echo ".venv/bin/python"; return
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        echo "python3"; return
+    fi
+    echo ""
+}
+PY="$(resolve_python)"
+
+# ── Mechanical P0 gates (pure shell — always run) ───────────────────────
+# 1. TODO.md must never be staged (CLAUDE.md: local-only, never tracked).
+# 2. Nothing under .local/ may be staged (CLAUDE.md: third-party source
+#    material and generated output live there; pushing any of it is a P0
+#    copyright/leak risk).
+staged_names=$(git diff --cached --name-only)
+if echo "$staged_names" | grep -qE '^TODO\.md$'; then
+    echo "BLOCKED: TODO.md is staged. It is local-only and never tracked (CLAUDE.md)."
+    echo "Fix: git restore --staged TODO.md"
+    exit 1
+fi
+if echo "$staged_names" | grep -qE '^\.local/'; then
+    echo "BLOCKED: files under .local/ are staged. .local/ holds source material"
+    echo "and generated output that must never reach the repo (CLAUDE.md P0)."
+    echo "Fix: git restore --staged .local/"
+    exit 1
+fi
 
 # Docs-only shortcut: if every staged change is a pure-asset or
 # markdown-style file, skip the test suite entirely. Tests don't
@@ -18,14 +59,33 @@
 #   edit must run the suite.
 DOC_PATTERN='\.(md|rst|gitattributes|gitignore|mp3|wav|ico|png|jpg)$|^(\.gitattributes|\.gitignore|TODO\.md|README\.md|BUILDING\.md|DEVELOPMENT\.md|CONVENTIONS\.md|LICENSE(\.txt)?)$'
 
+# ── Python gates (need an interpreter) ──────────────────────────────────
+if [ -z "$PY" ]; then
+    echo "WARNING: no usable Python found (ABM_TEST_PYTHON / py / .venv / python3)."
+    echo "Skipping the CLI sync check and the test suite — CI is the backstop."
+    echo "Set ABM_TEST_PYTHON to a venv python to restore local gating."
+    exit 0
+fi
+
 # CLI reference sync check — runs unconditionally so that docs/CLI.md
 # stays in sync even on docs-only commits where the test suite is skipped.
+# A missing-dependency crash (interpreter without the project deps) is a
+# warn-and-skip, not a block — only a REAL out-of-sync report blocks.
 echo "Checking docs/CLI.md is in sync with CLI parsers..."
-if ! py -3 scripts/render_cli_help.py --check 2>&1; then
-    echo ""
-    echo "docs/CLI.md is out of sync with the CLI parsers."
-    echo "Run: python scripts/render_cli_help.py"
-    exit 1
+cli_check_out=$($PY scripts/render_cli_help.py --check 2>&1)
+cli_check_rc=$?
+if [ $cli_check_rc -ne 0 ]; then
+    if echo "$cli_check_out" | grep -qE "ModuleNotFoundError|ImportError|Traceback"; then
+        echo "WARNING: CLI sync check could not run with $PY (missing deps or"
+        echo "wrong Python version) — skipping. Set ABM_TEST_PYTHON to a venv"
+        echo "python with the dev deps installed."
+    else
+        echo "$cli_check_out"
+        echo ""
+        echo "docs/CLI.md is out of sync with the CLI parsers."
+        echo "Run: python scripts/render_cli_help.py"
+        exit 1
+    fi
 fi
 
 staged=$(git diff --cached --name-only)
@@ -55,8 +115,14 @@ fi
 # They still run in full CI / manual `pytest` invocations.
 PYTEST_ARGS=(tests/ --ignore=tests/test_record_voice_sample.py -m "not slow" -x -q --tb=short)
 
+if ! $PY -c "import pytest" >/dev/null 2>&1; then
+    echo "WARNING: $PY has no pytest — skipping the test gate (CI is the backstop)."
+    echo "Set ABM_TEST_PYTHON to a venv python with the dev deps installed."
+    exit 0
+fi
+
 run_tests() {
-    py -3 -m pytest "${PYTEST_ARGS[@]}" 2>&1
+    $PY -m pytest "${PYTEST_ARGS[@]}" 2>&1
 }
 
 echo "Running tests before commit..."

@@ -21,8 +21,7 @@ docs, `TODO.md`, commit messages, PR titles/bodies, release notes,
 issues, wiki).
 
 The repo has been burned by this before. The memory index flags it as a
-standing rule (`feedback_no_copyright_in_repo.md`,
-`feedback_no_installing_copyright_derived_packs.md`). Scanning the
+standing rule (CLAUDE.md "No third-party copyrighted material in the repo — P0"). Scanning the
 staged diff manually every time is error-prone; a checklist skill is
 not.
 
@@ -73,7 +72,7 @@ costs a history rewrite + force-push.
    `~/.audiobookmaker/voice_packs/`** if the pack was trained on
    copyrighted source audio. Those packs stay in
    `.local/voice_packs/` only. See
-   `feedback_no_installing_copyright_derived_packs.md` memory.
+   CLAUDE.md copyright policy (voice packs derived from copyrighted sources stay in `.local/`).
 
 ### Explicitly allowed (do NOT flag these)
 
@@ -94,8 +93,7 @@ costs a history rewrite + force-push.
   years ago so the works are public domain. A new reference to Kivi
   or Gibbon by name in new README copy is NOT a leak.
 - **"Grandmom"** — the project's own canonical Chatterbox voice
-  persona. `feedback_voice_pack_framing.md` and
-  `project_grandmom_voice.md` establish this as project nomenclature,
+  persona. Long-standing project nomenclature (see README's voice docs),
   not a real narrator's identity.
 
 ## How to run it
@@ -145,7 +143,7 @@ diff (one file, < 200 lines), serial per-check is fine.
 | 4 | **Real author / narrator names** | Harder — scan for `Firstname Lastname` patterns adjacent to words like `narrated by`, `author`, `narrator`, `read by`, `by <Name>`. Flag for user review; don't hard-fail on bare first+last name pairs since false-positive rate is high. |
 | 5 | **URLs to copyrighted content** | Grep diff content for URL hosts likely to point at copyrighted material: `audible.com`, `audible.co.`, `goodreads.com/book/`, `amazon.*/dp/`, `libgen`, `z-lib`, storefront pages for specific titles. |
 | 6 | **TODO.md accidental staging** | `git diff --staged --name-only` must not include `TODO.md`. Per CLAUDE.md, that file is gitignored; if it shows up staged, something is wrong with `.gitignore` or `git add -A` accidentally pulled it in. |
-| 7 | **Forbidden AI-origin strings in commit message** | If a commit message is being drafted (via the user or via `git log -1` on a just-made commit), grep it for `Claude`, `Anthropic`, `AI`, `agent`, `session`, `Co-Authored-By` (case-insensitive). Any match = P0 violation; `feedback_no_ai_in_git.md`. |
+| 7 | **Vendor branding in commit message** | If a commit message is being drafted (via the user or via `git log -1` on a just-made commit), grep it case-insensitively for `Claude` and `Anthropic` (any variant, incl. `Co-Authored-By` trailers naming them). Any match = P0 violation per CLAUDE.md "Commit messages". Generic AI vocabulary (`AI`, `agent`, `session`, `automation`) was explicitly re-allowed by the 2026-05-20 policy narrowing — do NOT flag it. The commit-msg git hook (`scripts/commit-msg`) enforces this mechanically; this check is the belt to that suspender. |
 
 Check 7 is orthogonal to copyright but shares the same blast-radius
 profile and the same "must never land" property, so folding it into
@@ -229,12 +227,11 @@ public.
 1. Stop all other work.
 2. Ask the user before doing anything destructive. Rewriting history
    or force-pushing requires explicit approval
-   (`feedback_ask_before_rebase.md`).
+   (CLAUDE.md: history rewrites are destructive — ask first).
 3. For a single-file leak with a clean fix, the preferred first
    move is the `gh api` Contents DELETE / PUT pattern — it does not
    require a local worktree and can run even while another Claude
-   owns the main worktree (see `feedback_gh_api_merge_pattern.md` in
-   memory).
+   owns the main worktree (see `docs/gh_api_scrub_pattern.md`).
 4. History rewrite + force-push is a last resort and only with
    explicit approval for that specific rewrite.
 5. After the scrub, scan again to confirm origin is clean.
