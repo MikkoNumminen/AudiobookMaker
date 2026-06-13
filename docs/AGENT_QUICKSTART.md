@@ -58,6 +58,21 @@ The pre-commit hook does this for you, but the checklist is: tests green ·
 catalogs match the skills directory · no `TODO.md` / `.local/` staged · commit
 message free of vendor branding · diff scanned for copyright leaks.
 
+## Running a sub-agent / worktree safely
+
+`Agent({isolation: "worktree"})` isolation is a hint, not a guarantee, and
+read-only `Explore` agents still have `Bash` — they can mutate the main
+checkout. Before trusting a multi-agent run and after it finishes:
+
+1. Snapshot first: `git status`, `git worktree list`, current branch + tip.
+2. After: re-check all three. The main tree must be clean of files the agents
+   touched; the branch tip must equal what you pushed.
+3. If it leaked: restore from the known-good commit
+   (`git checkout <sha> -- <file>` / `git reset --hard <sha>`), remove stray
+   worktrees (`git worktree remove --force`) and branches, `git worktree prune`.
+
+Full rule: `CLAUDE.md` → "Worktree isolation is a hint, not a guarantee".
+
 ## See also
 
 - [`CLAUDE.md`](../CLAUDE.md) — the authoritative rules.
