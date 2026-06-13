@@ -269,7 +269,15 @@ Run tests:
 pytest tests/
 ```
 
+The suite is 2400+ tests in flat `tests/test_*.py` files that mirror the `src/` module names — to test one module, run its file (`pytest tests/test_tts_audio.py`). Three things worth knowing before you dig in:
+
+- Tests marked `slow` run a real TTS engine end-to-end. The pre-commit hook skips them (`-m "not slow"`); a plain `pytest tests/` runs everything.
+- `tests/conftest.py` blocks outbound network connections, so a test that needs an external service must mock it explicitly — a hung "downloading model" test means a missing mock, not a slow network.
+- GUI tests need a display; they are skipped on headless CI runners.
+
 A handful of tests skip automatically when `ffmpeg` isn't on PATH (audio export tests). To run all tests, install ffmpeg first.
+
+If the pre-commit hook reports `docs/CLI.md` out of sync with the CLI parsers (after adding or changing a subcommand), regenerate it with `python scripts/render_cli_help.py` and stage the result — the reference is generated, never hand-edited.
 
 See [BUILDING.md](BUILDING.md) for full Windows installer build instructions.
 
@@ -279,7 +287,7 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 
 #### Skill catalog (audited 2026-05-19; 4 skills retired)
 
-10 in-repo skills under `.claude/skills/`. Per-session cost when not invoked: ~30 tokens each (catalog entry only). Per-invocation cost: the SKILL.md body loads. The 2026-05-19 audit retired four skills that either duplicated CLAUDE.md rules (which auto-load every session) or had zero recorded invocations and trivially-rederivable workflows: `audit-followup`, `commit-then-scan`, `pre-push-scan`, `scanned-pdf-to-audiobook`.
+11 in-repo skills under `.claude/skills/`. Per-session cost when not invoked: ~30 tokens each (catalog entry only). Per-invocation cost: the SKILL.md body loads. The 2026-05-19 audit retired four skills that either duplicated CLAUDE.md rules (which auto-load every session) or had zero recorded invocations and trivially-rederivable workflows: `audit-followup`, `commit-then-scan`, `pre-push-scan`, `scanned-pdf-to-audiobook`. One skill (`engine-venv-triage`) landed after the audit and has not yet been through an audit pass.
 
 **Body size** is the per-invocation load. **Saves/inv** is the rough order-of-magnitude tokens saved versus an agent re-deriving the workflow from first principles. **Usage** is rough 90-day evidence (artefacts on disk, commit log, tool runs).
 
@@ -289,6 +297,7 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 | [`audit`](.claude/skills/audit/SKILL.md) | ~4.8k | ~3–4k | 3 reports landed | **TRIMMED + CALIBRATED 2026-05-20** — Python-only Phase 1; added a Calibration section listing 8 recurring FP patterns (Tkinter single-threaded, `stderr=STDOUT`, CTkImage materialization, etc.) baked from the 2026-05-19 audit's 18 FPs; calibration directive embedded inside each of the 5 subagent template fences so subagents actually receive it |
 | [`ci-failure-triage`](.claude/skills/ci-failure-triage/SKILL.md) | ~1.9k | ~1k | 22 `fix(ci):` commits | **KEEP** — high recurrence; ordering is non-obvious |
 | [`copyright-scan`](.claude/skills/copyright-scan/SKILL.md) | ~3.1k | ~3k | 0 invocations | **TRIM** to ~600t — keep allow-list + decision tree, drop runbook |
+| [`engine-venv-triage`](.claude/skills/engine-venv-triage/SKILL.md) | ~1.4k | ~2–3k | born from the v3.16.0–v3.17.3 field saga (PRs #107–#113) | **KEEP (post-audit addition)** — provenance-first diagnosis ladder for end-user engine failures, built from a saga where every plausible first guess was wrong; not yet through an audit pass |
 | [`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md) | ~1.8k | ~1.5k → 0 | corpus file empty today | **KEEP provisional** — re-audit after 10 entries land; corpus format then self-documents |
 | [`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md) | ~3.8k | ~3k | 1 use (its own birth) | **TRIMMED 2026-05-20** — cut verbose prose; kept exclude list verbatim, gotchas, and decision criteria |
 | [`release-cut`](.claude/skills/release-cut/SKILL.md) | ~1.7k | load-bearing | 20 releases in 90d | **KEEP** — auto-update is P0; ritual ordering not in CLAUDE.md |
@@ -296,7 +305,7 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 | [`work-session`](.claude/skills/work-session/SKILL.md) | ~1.7k | ~2k | TODO.md actively used | **KEEP** — coordinates the 4-session parallel-Claude protocol |
 | [`worktree-launch`](.claude/skills/worktree-launch/SKILL.md) | ~1.3k | ~0.8k | 63 active worktrees | **TRIMMED 2026-05-20** — deduped Why/incident-context vs CLAUDE.md; kept slot-picking, worktree creation, surgical-revert procedure (not in CLAUDE.md), cleanup |
 
-**Net after retirement + trims + calibration:** 6 KEEP, 3 TRIMMED 2026-05-20, 1 TRIM deferred (`copyright-scan` — gitignored, trim happens locally only). Skill surface: ~45k tokens (14 skills) → ~34k (10 skills after PR #73 retirements) → ~32.9k (PR #79 trims) → **~33.6k tokens** (this PR added a ~0.6k Calibration section plus a ~0.1k per-template calibration directive to `audit/SKILL.md`; net savings vs origin/master-pre-PR-79 are still −0.4k across these three skills, just smaller than the headline trim because the calibration is load-bearing knowledge that needs to reach every subagent). Acting on the deferred `copyright-scan` trim would shrink further to ~31k tokens. Audit verdicts are from a single pass on 2026-05-19; prior PR cycles in this repo have shown even adversarial sub-reviewers miss things on the first try, so verdicts on the surviving skills remain input, not final policy.
+**Net after retirement + trims + calibration:** 6 KEEP, 3 TRIMMED 2026-05-20, 1 TRIM deferred (`copyright-scan` — trim not yet applied; the skill is tracked in-repo like the rest). Skill surface: ~45k tokens (14 skills) → ~34k (10 skills after PR #73 retirements) → ~32.9k (PR #79 trims) → **~33.6k tokens** (this PR added a ~0.6k Calibration section plus a ~0.1k per-template calibration directive to `audit/SKILL.md`; net savings vs origin/master-pre-PR-79 are still −0.4k across these three skills, just smaller than the headline trim because the calibration is load-bearing knowledge that needs to reach every subagent). The post-audit `engine-venv-triage` adds ~1.4k on top of those audited-ten figures. Acting on the deferred `copyright-scan` trim would shrink further to ~31k tokens. Audit verdicts are from a single pass on 2026-05-19; prior PR cycles in this repo have shown even adversarial sub-reviewers miss things on the first try, so verdicts on the surviving skills remain input, not final policy.
 
 The project mascot is a goat 🐐 — appears in the application icon.
 

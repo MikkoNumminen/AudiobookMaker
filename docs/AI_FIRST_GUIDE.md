@@ -85,6 +85,12 @@ originally a per-session memory note; it now lives in
 contributor can see it without needing the original author's memory
 file.
 
+Which notes have migrated — and which technical findings are still
+memory-only and waiting to mature — is tracked in
+[`docs/MEMORY_MIGRATIONS.md`](MEMORY_MIGRATIONS.md), so a new session
+can see the state of the pipeline without access to anyone's memory
+files.
+
 ### 3. Skills — committed runbooks for repeated multi-step work
 
 [`.claude/skills/`](../.claude/skills/) holds skill packages. Each
@@ -103,12 +109,13 @@ A skill earns its keep when:
 
 A skill does **not** earn its keep when the workflow is one CLI
 command + `--help`, or when it restates CLAUDE.md rules that
-auto-load every session. The current 10 in-repo skills (plus a
-handful of Claude Code builtins like `simplify`, `loop`, `schedule`)
-are the survivors of a 2026-05-19 audit that retired four skills
+auto-load every session. Of the current 11 in-repo skills (plus a
+handful of Claude Code builtins like `simplify`, `loop`, `schedule`),
+ten are the survivors of a 2026-05-19 audit that retired four skills
 for those exact failure modes (see `README.md` "Skill catalog" for
-the audit verdicts). Resist adding more without a real failure
-pattern to encode.
+the audit verdicts); `engine-venv-triage` landed after that audit,
+encoding the v3.16.0–v3.17.3 field saga. Resist adding more without
+a real failure pattern to encode.
 
 Skill index (in-repo):
 
@@ -119,6 +126,7 @@ Skill index (in-repo):
 | Release / CI | [`release-cut`](../.claude/skills/release-cut/SKILL.md), [`release-bundle-audit`](../.claude/skills/release-bundle-audit/SKILL.md), [`ci-failure-triage`](../.claude/skills/ci-failure-triage/SKILL.md) |
 | Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
 | Multi-session | [`work-session`](../.claude/skills/work-session/SKILL.md), [`worktree-launch`](../.claude/skills/worktree-launch/SKILL.md) |
+| End-user support | [`engine-venv-triage`](../.claude/skills/engine-venv-triage/SKILL.md) |
 
 ### 4. Tests — regression guardrails the next session can't sidestep
 
@@ -197,8 +205,10 @@ When you add code that the next session should know about:
 - **Cross-session learning the user wants remembered** → auto-memory
   (per-user, not tracked).
 
-Resist the urge to add a skill for everything. The current 10 are the
-ones that pay rent (post-2026-05-19 audit).
+Resist the urge to add a skill for everything. The current 11 are the
+ones that pay rent (ten survived the 2026-05-19 audit;
+`engine-venv-triage` earned its place in the v3.16.0–v3.17.3 field
+saga).
 
 ## Where this pattern came from / could go
 
@@ -224,6 +234,8 @@ auto-generated CLI docs) is opportunity, not requirement.
 ## See also
 
 - [`CLAUDE.md`](../CLAUDE.md) — the project's hard rules.
+- [`docs/MEMORY_MIGRATIONS.md`](MEMORY_MIGRATIONS.md) — the tracked
+  log of memory-to-docs migrations (done and pending).
 - [`docs/CONVENTIONS.md`](CONVENTIONS.md) — coding / commit /
   release conventions referenced from `CLAUDE.md`.
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — how the runtime fits
