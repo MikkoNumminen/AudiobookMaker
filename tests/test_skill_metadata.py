@@ -76,3 +76,21 @@ def test_skill_has_nonempty_description(skill_md: Path) -> None:
         f"non-empty 'description'. Without it the skill cannot be triggered "
         f"on intent."
     )
+
+
+@pytest.mark.parametrize(
+    "skill_md", SKILL_FILES, ids=[p.parent.name for p in SKILL_FILES]
+)
+def test_skill_has_evals(skill_md: Path) -> None:
+    """Every skill must ship an evals/evals.json — its only behavioural spec.
+
+    test_skill_evals.py validates the *content* of an evals.json when present,
+    but used to silently accept a skill that shipped none, so a skill could go
+    permanently unspecced. Require the file here; test_skill_evals.py then
+    checks it parses to the schema.
+    """
+    evals = skill_md.parent / "evals" / "evals.json"
+    assert evals.exists(), (
+        f"skill '{skill_md.parent.name}' has no evals/evals.json. Every skill "
+        f"needs one (its behavioural spec); add it next to {skill_md.name}."
+    )
