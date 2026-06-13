@@ -1,0 +1,56 @@
+name: GUI tests (Linux + xvfb)
+
+# The GUI test files (tests/test_gui_*.py) are excluded from the Windows
+# "Build and Release" / "Test master" runs: on headless GHA Windows, a
+# module-level `import tkinter` starts a Tcl notifier thread that has no
+# display to service and hangs at teardown (see the WHY comment in
+# build-release.yml). So GUI logic — synth mixin, dialogs, drag-drop,
+# update mixin — currently runs on NO machine in CI.
+#
+# This job closes that gap from the other side: the GUI logic is
+# platform-independent Python, so we run it on Linux under xvfb, which
+# gives Tk a real (virtual) display. That is the standard headless-GUI
+# test setup and avoids the no-display notifier hang entirely. It does
+# not test Windows-native GUI behaviour, but it does catch regressions in
+# the GUI logic, which is what these tests assert.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install xvfb (virtual display for Tk)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Smoke-check the GUI stack imports under xvfb
+        # Fail fast with a clear signal if tkinter / customtkinter cannot
+        # initialise, rather than burying it in a pytest collection error.
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: xvfb-run -a python -c "import tkinter, customtkinter; print('GUI stack OK')"
+
+      - name: Run the GUI test suite under xvfb
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: xvfb-run -a python -m pytest tests/test_gui_*.py -q --tb=short
