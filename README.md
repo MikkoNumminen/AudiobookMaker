@@ -261,7 +261,7 @@ Install the git hooks (CLI-doc sync check + skill-catalog sync check + test runn
 bash scripts/install-hooks.sh
 ```
 
-On Windows, run this from Git Bash (ships with Git for Windows). Without this step, your local commits skip the project's guardrails — they will still land but they will break things (stale `docs/CLI.md`, untested code).
+This points `core.hooksPath` at the main checkout's versioned `scripts/` directory (an absolute path in the shared git config), so the hooks are always current and every git worktree runs them automatically — no per-worktree reinstall. On Windows, run it from Git Bash (ships with Git for Windows). Without this step, your local commits skip the project's guardrails — they will still land but they will break things (stale `docs/CLI.md`, untested code). A `test_project_git_hooks_are_active` test fails locally if you forget, pointing back here.
 
 Run tests:
 
