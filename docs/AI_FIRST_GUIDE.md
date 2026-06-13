@@ -239,6 +239,8 @@ auto-generated CLI docs) is opportunity, not requirement.
 
 ## See also
 
+- [`docs/AGENT_QUICKSTART.md`](AGENT_QUICKSTART.md) — the one-screen
+  fast path for a session starting work (rules, layout, test commands).
 - [`CLAUDE.md`](../CLAUDE.md) — the project's hard rules.
 - [`docs/MEMORY_MIGRATIONS.md`](MEMORY_MIGRATIONS.md) — the tracked
   log of memory-to-docs migrations (done and pending).
