@@ -88,6 +88,23 @@ if [ $cli_check_rc -ne 0 ]; then
     fi
 fi
 
+# Skill-catalog sync check — also runs unconditionally. Adding a skill or
+# editing a catalog is a pure-markdown change, so the docs-only shortcut
+# below would otherwise skip the test that enforces this. Pure stdlib, so it
+# runs even on an interpreter without the project deps installed (a crash is
+# warn-and-skip; only a real drift report blocks).
+echo "Checking the skill catalogs match .claude/skills/..."
+skill_check_out=$($PY scripts/check_skill_catalog.py 2>&1)
+skill_check_rc=$?
+if [ $skill_check_rc -ne 0 ]; then
+    if echo "$skill_check_out" | grep -qE "ModuleNotFoundError|ImportError|Traceback"; then
+        echo "WARNING: skill-catalog check could not run with $PY — skipping."
+    else
+        echo "$skill_check_out"
+        exit 1
+    fi
+fi
+
 staged=$(git diff --cached --name-only)
 if [ -z "$staged" ]; then
     # Nothing staged (e.g. --amend with no changes). Fall through to

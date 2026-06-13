@@ -255,7 +255,7 @@ pip install voxcpm
 
 Several GB of model weights download on first use.
 
-Install the git hooks (CLI-doc sync check + test runner on every commit):
+Install the git hooks (CLI-doc sync check + skill-catalog sync check + test runner on every commit):
 
 ```bash
 bash scripts/install-hooks.sh

@@ -17,11 +17,23 @@ worse than the dead link.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Share the catalog-drift logic with the pre-commit checker rather than
+# re-implementing it: the script runs unconditionally in the hook (even on
+# docs-only commits), this test is the CI / full-suite backstop for the same
+# invariant. One implementation, two enforcement points.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from scripts.check_skill_catalog import (  # noqa: E402
+    actual_skill_slugs,
+    check as check_skill_catalog,
+)
 
 SCANNED_DOCS = [
     REPO_ROOT / "CLAUDE.md",
@@ -158,3 +170,28 @@ def test_scanned_docs_all_exist() -> None:
     # And it must actually cover every committed skill.
     skills = list((REPO_ROOT / ".claude" / "skills").glob("*/SKILL.md"))
     assert len(skills) >= 10, "skill glob found suspiciously few skills"
+
+
+# ── Skill-catalog completeness ──────────────────────────────────────────────
+# test_no_dead_file_references catches a catalog row that points at a deleted
+# skill (the link 404s). It does NOT catch the opposite, more common drift: a
+# skill added to .claude/skills/ that nobody added to the catalog, or a count
+# claim left stale. README.md is not even in SCANNED_DOCS. Both gaps let the
+# "10 skills vs 11 committed" drift land twice. These tests close the loop via
+# the same checker the pre-commit hook runs.
+
+
+def test_skill_catalog_in_sync() -> None:
+    """README and AI_FIRST_GUIDE skill catalogs must match .claude/skills/."""
+    problems = check_skill_catalog()
+    assert not problems, "Skill catalog drift:\n" + "\n".join(
+        f"  - {p}" for p in problems
+    )
+
+
+def test_skill_catalog_checker_sees_the_skills() -> None:
+    """Guard against the checker silently globbing nothing (path rot)."""
+    assert len(actual_skill_slugs()) >= 10, (
+        "check_skill_catalog found suspiciously few skills — the source-of-truth "
+        "glob may be pointed at the wrong directory"
+    )

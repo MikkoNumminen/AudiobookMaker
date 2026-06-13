@@ -184,8 +184,9 @@ plays its part.
 
    This installs two hooks: `pre-commit` (blocks staged TODO.md /
    `.local/` files, checks `docs/CLI.md` is in sync with the parsers,
-   runs the test suite — skipped on pure-docs commits) and
-   `commit-msg` (blocks vendor-branding tokens in the message).
+   checks the skill catalogs match `.claude/skills/`, runs the test
+   suite — skipped on pure-docs commits) and `commit-msg` (blocks
+   vendor-branding tokens in the message).
    Without this step, your local commits skip the project's
    guardrails — they will still land but they will break things.
 
