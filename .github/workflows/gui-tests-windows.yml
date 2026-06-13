@@ -1,0 +1,40 @@
+name: GUI tests (Windows)
+
+# Runs the GUI test suite (tests/test_gui_*.py) on Windows — the platform the
+# app actually ships on. These files are excluded from the "Build and Release"
+# run because a module-level `import tkinter` starts a Tcl notifier thread that
+# interpreter shutdown cannot join on a headless runner, so a plain pytest
+# invocation runs the tests fine but then HANGS after the summary until the job
+# times out (see the WHY comment in build-release.yml).
+#
+# scripts/run_gui_tests.py works around exactly that: it runs pytest in-process
+# and then os._exit()s with the real status code, skipping the thread-join at
+# shutdown. This gives the ship platform genuine GUI-regression coverage
+# (complementing the Linux+xvfb job in gui-tests.yml) instead of none.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gui-windows:
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the GUI test suite (hard-exit to dodge the Tk teardown hang)
+        run: python scripts/run_gui_tests.py
