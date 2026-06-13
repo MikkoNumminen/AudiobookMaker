@@ -117,7 +117,7 @@ The locked parameters:
 | Model | Chatterbox-Finnish T3 finetune | the Finnish voice |
 | Reference | default Finnish reference WAV (no `--ref-audio`) | the v7 voice identity |
 | `cfg_weight` | **0.3** | 0.0 was tested per upstream advice (claimed to mitigate accent bleed) and rejected by ear — 0.3 wins for this voice |
-| `temperature` | **0.8** | v7 production value |
+| `temperature` | **0.5** | v7 production value — lowered from the model-card golden 0.8 in "fix(chatterbox): lower FI sampler temperature to 0.5" |
 | `exaggeration` | **0.5** | v7 production value |
 | Chunking | per-sentence (`--chunk-chars 35`) | the decoder emits early EOS on multi-sentence chunks on every device; one sentence per chunk is the only reliable workaround |
 | Tail trim | -30 dB Silero-VAD | v7 production value |
