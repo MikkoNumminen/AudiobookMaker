@@ -37,6 +37,7 @@ from scripts.check_skill_catalog import (  # noqa: E402
 
 SCANNED_DOCS = [
     REPO_ROOT / "CLAUDE.md",
+    REPO_ROOT / "README.md",
     REPO_ROOT / "docs" / "AI_FIRST_GUIDE.md",
     REPO_ROOT / "docs" / "CONVENTIONS.md",
     *sorted((REPO_ROOT / ".claude" / "skills").glob("*/SKILL.md")),

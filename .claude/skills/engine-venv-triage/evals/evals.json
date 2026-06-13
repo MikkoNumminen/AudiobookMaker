@@ -1,0 +1,26 @@
+{
+  "skill_name": "engine-venv-triage",
+  "evals": [
+    {
+      "id": 1,
+      "name": "llama-import-error-after-repair",
+      "prompt": "chatterbox won't convert — the dialog says \"Could not import module 'LlamaModel'\". I already clicked Repair twice and it didn't help.",
+      "expected_output": "Assistant follows the provenance-first ladder: identifies this as transformers drift inside the separate engine venv (NOT a torch/GPU problem), checks the venv's transformers version against the pin, and explains that Repair / an app update cannot fix a broken venv (the update never re-pips it) — so the fix is a clean engine reinstall. Does not chase a CUDA/GPU red herring.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "smoke-passes-convert-fails",
+      "prompt": "the install smoke test passed but Convert errors out as soon as I start a real audiobook. chatterbox does not work for me.",
+      "expected_output": "Assistant recognizes the smoke-passes-but-synthesis-fails paradox from the v3.16.0-v3.17.3 field saga, asks for the log panel (not just the error dialog), and works the provenance ladder instead of assuming the install was clean. Surfaces the real masked error before proposing a fix.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "torch-not-compiled-with-cuda",
+      "prompt": "the engine keeps failing with \"Torch not compiled with CUDA enabled\" on my machine",
+      "expected_output": "Assistant checks provenance (which torch wheel actually landed in the engine venv) and environment isolation rather than reinstalling blindly, ties the symptom to a CPU-wheel-in-a-CUDA-expecting-path mismatch, and recommends the targeted fix from the runbook.",
+      "files": []
+    }
+  ]
+}
