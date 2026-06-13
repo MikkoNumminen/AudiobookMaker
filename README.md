@@ -283,7 +283,7 @@ See [BUILDING.md](BUILDING.md) for full Windows installer build instructions.
 
 ### Working with Claude Code / other AI assistants
 
-This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.md), runbooks in [`.claude/skills/`](.claude/skills/), auto-generated CLI reference, contract tests that catch drift. If you use Claude Code on this repo (or want to copy the pattern to your own project), read [docs/AI_FIRST_GUIDE.md](docs/AI_FIRST_GUIDE.md) — it explains how the four pillars (project rules, auto-memory, skills, tests) interlock.
+This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.md), runbooks in [`.claude/skills/`](.claude/skills/), auto-generated CLI reference, contract tests that catch drift. Starting a session? [docs/AGENT_QUICKSTART.md](docs/AGENT_QUICKSTART.md) is the one-screen fast path. For the full picture (or to copy the pattern to your own project), read [docs/AI_FIRST_GUIDE.md](docs/AI_FIRST_GUIDE.md) — it explains how the four pillars (project rules, auto-memory, skills, tests) interlock.
 
 #### Skill catalog (audited 2026-05-19; 4 skills retired)
 
