@@ -63,7 +63,11 @@ DEFAULT_SENTENCE = (
     "Tämä lause sisältää pitkiä vokaaleja ja kaksoiskonsonantteja."
 )
 
-# Finnish "Golden Settings" from the model card.
+# Finnish "Golden Settings" from the model card. NOTE: this dev preview tool
+# intentionally uses the model-card golden temperature (0.8) for script/UX
+# iteration — locked by test_fi_temperature_matches_model_card. Production
+# (scripts/generate_chatterbox_audiobook.py) deliberately ships a lower 0.5;
+# the two are not meant to match on temperature.
 FI_REPETITION_PENALTY = 1.5
 FI_TEMPERATURE = 0.8
 FI_EXAGGERATION = 0.5
