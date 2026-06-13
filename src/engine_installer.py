@@ -220,10 +220,12 @@ def _allowed_venv_roots() -> list[Path]:
         except (OSError, ValueError):
             pass
 
-    # 4. TMP / TEMP — pytest's tmp_path lives here. Valid in tests only,
-    #    but the cost of allowing it is zero in production because no
-    #    real config points a venv at TEMP.
-    for var in ("TEMP", "TMP"):
+    # 4. The OS temp dir — pytest's tmp_path lives here. Valid in tests
+    #    only, but the cost of allowing it is zero in production because
+    #    no real config points a venv at TEMP. TEMP/TMP cover Windows;
+    #    TMPDIR covers macOS/Linux, where the Mac dev loop runs this
+    #    same suite.
+    for var in ("TEMP", "TMP", "TMPDIR"):
         tmp = os.environ.get(var)
         if tmp:
             try:
