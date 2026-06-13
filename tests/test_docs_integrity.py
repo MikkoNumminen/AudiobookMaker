@@ -40,6 +40,7 @@ SCANNED_DOCS = [
     REPO_ROOT / "README.md",
     REPO_ROOT / "docs" / "AI_FIRST_GUIDE.md",
     REPO_ROOT / "docs" / "AGENT_QUICKSTART.md",
+    REPO_ROOT / "docs" / "MEMORY_MIGRATIONS.md",
     REPO_ROOT / "docs" / "CONVENTIONS.md",
     *sorted((REPO_ROOT / ".claude" / "skills").glob("*/SKILL.md")),
 ]

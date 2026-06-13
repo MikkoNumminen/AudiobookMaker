@@ -30,4 +30,16 @@ if echo "$msg" | grep -qiE 'claude|anthropic'; then
     exit 1
 fi
 
+# No co-authors of any kind. The conventions doc forbids co-authored commits
+# (vendor OR human); the vendor scan above only catches the vendor case, so a
+# human Co-Authored-By trailer would slip through. Block the whole trailer.
+if echo "$msg" | grep -qiE '^[[:space:]]*co-authored-by:'; then
+    echo "BLOCKED: the commit message contains a Co-Authored-By trailer"
+    echo "(see docs/CONVENTIONS.md — no co-authors on commits). Matched line(s):"
+    echo "$msg" | grep -inE '^[[:space:]]*co-authored-by:' | sed 's/^/  /'
+    echo ""
+    echo "Remove the trailer and retry."
+    exit 1
+fi
+
 exit 0
