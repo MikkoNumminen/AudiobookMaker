@@ -16,6 +16,41 @@ permissions:
   contents: read
 
 jobs:
+  # The local commit-msg hook (scripts/commit-msg) blocks vendor-branding
+  # tokens at commit time, but `git commit --no-verify` — or a clone that
+  # never ran scripts/install-hooks.sh — bypasses it. Re-scan every pushed
+  # commit message here so a violation is flagged the moment it lands,
+  # not when a human happens to read the history. Keep the pattern in
+  # sync with scripts/commit-msg.
+  commit-message-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan pushed commit messages for vendor-branding tokens
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          # Force-pushes (and the first push to a branch) can make BEFORE
+          # unresolvable locally; fall back to scanning the head commit.
+          if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+            commits=$(git rev-list "$BEFORE..$AFTER")
+          else
+            commits=$(git rev-list -1 "$AFTER")
+          fi
+          bad=0
+          for c in $commits; do
+            if git log -1 --format=%B "$c" | grep -qiE 'claude|anthropic'; then
+              echo "::error::Commit $c message contains a banned vendor token (see the 'Commit messages' policy in the root rules file). Matched line(s):"
+              git log -1 --format=%B "$c" | grep -inE 'claude|anthropic' | sed 's/^/  /'
+              bad=1
+            fi
+          done
+          exit $bad
+
   build:
     runs-on: windows-2022
 
