@@ -65,7 +65,10 @@ _PLACEHOLDER_PATHS = {"src/foo.py", "src/bar.py", "src/x.py"}
 _ALLOWED_MISSING = {
     "TODO.md",                                   # local-only, gitignored
     "docs/pronunciation_corpus_fi.md",           # created by the skill on first report
-    ".claude/worktrees/",                        # created per parallel session
+    # Created per parallel session. _iter_path_refs strips a trailing slash, so
+    # a doc writing `.claude/worktrees/` arrives here as `.claude/worktrees`;
+    # list the stripped form or the exact-match never fires.
+    ".claude/worktrees",
 }
 _ALLOWED_MISSING_PREFIXES = (
     ".local/",          # the gitignored local I/O tree

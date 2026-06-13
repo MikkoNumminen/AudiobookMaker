@@ -182,11 +182,16 @@ plays its part.
    bash scripts/install-hooks.sh
    ```
 
-   This installs two hooks: `pre-commit` (blocks staged TODO.md /
-   `.local/` files, checks `docs/CLI.md` is in sync with the parsers,
-   checks the skill catalogs match `.claude/skills/`, runs the test
-   suite — skipped on pure-docs commits) and `commit-msg` (blocks
-   vendor-branding tokens in the message).
+   This points `core.hooksPath` at the main checkout's `scripts/`
+   directory, activating two hooks: `pre-commit` (blocks staged
+   TODO.md / `.local/` files, checks `docs/CLI.md` is in sync with the
+   parsers, checks the skill catalogs match `.claude/skills/`, runs the
+   test suite — skipped on pure-docs commits) and `commit-msg` (blocks
+   vendor-branding tokens in the message). `core.hooksPath` lives in the
+   shared config, so every worktree under `.claude/worktrees/` runs the
+   same hooks with no per-tree reinstall — and a
+   `test_project_git_hooks_are_active` test fails locally if they are
+   not active.
    Without this step, your local commits skip the project's
    guardrails — they will still land but they will break things.
 
