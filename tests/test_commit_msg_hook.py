@@ -8,12 +8,23 @@ its regex would silently disarm the gate. These tests run the actual script.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / "scripts" / "commit-msg"
+
+# The hook is a bash script. On Windows it runs through Git's bundled bash (the
+# real hook path), but a plain `bash` from a pytest subprocess resolves to the
+# WSL launcher stub (no distro -> exit 1), so we can't exercise it that way.
+# The logic is platform-independent; Linux and macOS cover it.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="commit-msg is bash; invoking it via a plain `bash` subprocess is "
+    "unreliable on Windows runners (WSL launcher stub). Covered on Linux/macOS.",
+)
 
 
 def _run(tmp_path: Path, message: str) -> int:
