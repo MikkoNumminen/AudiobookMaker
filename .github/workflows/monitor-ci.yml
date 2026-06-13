@@ -1,12 +1,13 @@
 name: Monitor CI failures
 
-# Watch the build-release and build-launcher workflows. When one fails,
-# open (or update) a GitHub issue so you get a notification without
-# having to scan the Actions tab. When a workflow passes again, any
-# open failure issue for that workflow is closed automatically.
+# Watch every build/test workflow. When one fails, open (or update) a
+# GitHub issue so you get a notification without having to scan the
+# Actions tab. When a workflow passes again, any open failure issue for
+# that workflow is closed automatically.
 #
 # The goal: a single source of truth for "is CI currently red?" that
-# you can't miss.
+# you can't miss. Keep this list in sync when adding a CI workflow —
+# the names below must match each workflow's `name:` field exactly.
 
 on:
   workflow_run:
@@ -14,6 +15,9 @@ on:
       - "Build and Release"
       - "Build Launcher Installer"
       - "Test master"
+      - "Tests (macOS)"
+      - "GUI tests (Linux + xvfb)"
+      - "GUI tests (Windows)"
     types: [completed]
 
 permissions:
