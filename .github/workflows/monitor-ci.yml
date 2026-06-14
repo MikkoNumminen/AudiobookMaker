@@ -18,6 +18,7 @@ on:
       - "Tests (macOS)"
       - "GUI tests (Linux + xvfb)"
       - "GUI tests (Windows)"
+      - "Codegen smell (lightweight grep pass)"
     types: [completed]
 
 permissions:

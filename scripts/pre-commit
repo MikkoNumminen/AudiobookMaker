@@ -30,6 +30,10 @@ PY="$(resolve_python)"
 # 2. Nothing under .local/ may be staged (CLAUDE.md: third-party source
 #    material and generated output live there; pushing any of it is a P0
 #    copyright/leak risk).
+# 3. No book / audiobook container formats anywhere — these are never a
+#    legitimate tracked file and are the most direct copyright-leak vector
+#    (committing a source ebook/audiobook). The copyright-scan skill is the
+#    deep reviewer; this is the objective always-on floor.
 staged_names=$(git diff --cached --name-only)
 if echo "$staged_names" | grep -qE '^TODO\.md$'; then
     echo "BLOCKED: TODO.md is staged. It is local-only and never tracked (CLAUDE.md)."
@@ -40,6 +44,14 @@ if echo "$staged_names" | grep -qE '^\.local/'; then
     echo "BLOCKED: files under .local/ are staged. .local/ holds source material"
     echo "and generated output that must never reach the repo (CLAUDE.md P0)."
     echo "Fix: git restore --staged .local/"
+    exit 1
+fi
+if echo "$staged_names" | grep -qiE '\.(epub|m4b|mobi|azw3?|aax|m4a)$'; then
+    echo "BLOCKED: a book/audiobook source file is staged (.epub/.m4b/.mobi/"
+    echo ".azw/.aax/.m4a). These are never tracked — source material lives in"
+    echo "gitignored .local/ (CLAUDE.md copyright P0). Matched:"
+    echo "$staged_names" | grep -iE '\.(epub|m4b|mobi|azw3?|aax|m4a)$' | sed 's/^/  /'
+    echo "Fix: git restore --staged <file> and move it under .local/"
     exit 1
 fi
 

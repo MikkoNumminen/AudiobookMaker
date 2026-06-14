@@ -30,5 +30,5 @@ pulling in).
 | English Grandmom reads a bare `"up."` sentence unreliably (failure-word observation) | [`english_grandmom.md`](english_grandmom.md) | migrated |
 | pyannote conflates similar-timbre Finnish speakers; ECAPA fallback rescues; always validate ref clips by transcript | [`voice-pack-finnish` skill](../.claude/skills/voice-pack-finnish/SKILL.md) + `CLAUDE.md` voice-extraction rules | migrated |
 | `"Could not import module 'LlamaModel'"` = transformers drift inside the engine venv (not torch/GPU); provenance-first triage ladder | [`engine-venv-triage` skill](../.claude/skills/engine-venv-triage/SKILL.md) | migrated |
-| Chatterbox emits rare ~1 s acoustic burst artifacts the duration band-guard cannot catch; needs an acoustic-anomaly detector tuned on real artifact audio | — | pending (memory-only) |
-| Engine install should be GPU-vendor-aware (AMD ROCm + CPU fallback, not just NVIDIA cu124); blocked on real Radeon-on-Windows hardware to validate | — | pending (memory-only) |
+| Chatterbox emits rare ~1 s acoustic burst artifacts the duration band-guard cannot catch; needs an acoustic-anomaly detector tuned on real artifact audio | — | pending (memory-only, logged 2026-06-13) — blocked on a corpus of real artifact audio |
+| Engine install should be GPU-vendor-aware (AMD ROCm + CPU fallback, not just NVIDIA cu124); blocked on real Radeon-on-Windows hardware to validate | — | pending (memory-only, logged 2026-06-13) — blocked on Radeon-on-Windows hardware |
