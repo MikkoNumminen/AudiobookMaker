@@ -46,6 +46,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from src.process_lock import LockHeld, single_ml_subprocess_lock  # noqa: E402
 from src.voice_pack.types import (  # noqa: E402
     DatasetClip,
     DatasetManifest,
@@ -972,7 +973,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         try:
-            _run_training(config, manifest)
+            # One heavy ML subprocess at a time (CLAUDE.md GPU discipline).
+            with single_ml_subprocess_lock():
+                _run_training(config, manifest)
+        except LockHeld as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         except NotImplementedError as exc:
             print(
                 "error: training loop not implemented in this commit.\n"

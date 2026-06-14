@@ -51,6 +51,7 @@ except ImportError:
     pass
 
 from src.ffmpeg_path import setup_ffmpeg_path  # noqa: E402
+from src.process_lock import LockHeld, single_ml_subprocess_lock  # noqa: E402
 
 # Point pydub / faster-whisper at the bundled ffmpeg before any audio
 # library import, so voice-pack CLIs work on fresh checkouts where
@@ -468,21 +469,27 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         input_path = _resolve_input(args)
         hf_token = args.hf_token or os.environ.get("HF_TOKEN")
-        result = analyze(
-            audio_path=input_path,
-            out_dir=args.out,
-            hf_token=hf_token,
-            asr_model_size=args.asr_model,
-            asr_device=args.asr_device,
-            min_duration=args.min_duration,
-            max_duration=args.max_duration,
-            min_confidence=args.min_confidence,
-            num_speakers=args.num_speakers,
-            min_speakers=args.min_speakers,
-            max_speakers=args.max_speakers,
-            diarizer=args.diarizer,
-            verbose=args.verbose,
-        )
+        # One heavy ML subprocess at a time (CLAUDE.md GPU discipline) — refuse
+        # to start if an analyze/train/synthesize/clone run is already going.
+        with single_ml_subprocess_lock():
+            result = analyze(
+                audio_path=input_path,
+                out_dir=args.out,
+                hf_token=hf_token,
+                asr_model_size=args.asr_model,
+                asr_device=args.asr_device,
+                min_duration=args.min_duration,
+                max_duration=args.max_duration,
+                min_confidence=args.min_confidence,
+                num_speakers=args.num_speakers,
+                min_speakers=args.min_speakers,
+                max_speakers=args.max_speakers,
+                diarizer=args.diarizer,
+                verbose=args.verbose,
+            )
+    except LockHeld as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except SystemExit as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -50,6 +50,10 @@ path, not a replacement. When in doubt, the linked file wins.
   a missing mock, not a slow link.
 - GUI tests need a display: they run in CI on Linux (xvfb) and Windows, and
   locally on a Mac with a display.
+- Skill evals are schema-checked in CI; to actually *run* them against a model
+  (opt-in, metered — needs your own `ANTHROPIC_API_KEY`), use
+  [`scripts/run_skill_evals.py`](../scripts/run_skill_evals.py). It skips with
+  no key, so it never costs anything in CI or by default.
 
 ## Before you commit
 
