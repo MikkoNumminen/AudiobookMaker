@@ -51,6 +51,26 @@ jobs:
           done
           exit $bad
 
+  # The pre-commit hook blocks staging book/audiobook source formats, but
+  # --no-verify or an uninstalled hook bypasses it. Re-check the tracked tree
+  # on every push so a source-material file that slipped past the local gate is
+  # flagged immediately (copyright P0). Keep the pattern in sync with the
+  # pre-commit source-format gate.
+  copyright-floor-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan the tracked tree for book/audiobook source formats
+        run: |
+          hits=$(git ls-files | grep -iE '\.(epub|m4b|mobi|azw3?|aax|m4a)$' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Tracked book/audiobook source file(s) found — copyright P0. Move them to gitignored .local/ and remove from history:"
+            echo "$hits" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "No tracked source-material formats."
+
   build:
     runs-on: windows-2022
 
