@@ -471,23 +471,66 @@ class TestDocumentKind:
         assert gca._document_kind(Path(name)) == expected
 
 
-class TestHfHubWarningMuted:
-    """The Hub server's "set a HF_TOKEN" advisory rides the `logging` channel
-    on the huggingface_hub.utils._http logger; muting the parent namespace is
-    the only thing that stops it (the warnings-module filter cannot reach a
-    logging-module record). Importing the module runs the suppression block."""
+class TestHfTokenNagFilter:
+    """_HfTokenNagFilter drops ONLY the Hub's server-relayed "set a HF_TOKEN /
+    unauthenticated requests" advisory, keeping huggingface_hub's useful
+    WARNING diagnostics (rate-limit waits, retries, HTTP errors). A filter is
+    used rather than setLevel() because the library resets its namespace level
+    to WARNING when utils._http is imported — exactly when a download fires the
+    advisory — which would silently undo a top-of-file mute."""
 
-    def test_parent_namespace_muted_to_error(self) -> None:
+    @staticmethod
+    def _record(msg: str):
         import logging
-        assert logging.getLogger("huggingface_hub").level == logging.ERROR
+        return logging.LogRecord(
+            "huggingface_hub.utils._http", logging.WARNING, __file__, 0, msg, None, None
+        )
 
-    def test_http_child_inherits_error(self) -> None:
+    def test_drops_the_token_nag(self) -> None:
+        nag = ("Warning: You are sending unauthenticated requests to the HF Hub. "
+               "Please set a HF_TOKEN to enable higher rate limits and faster downloads.")
+        assert gca._HfTokenNagFilter().filter(self._record(nag)) is False
+
+    @pytest.mark.parametrize("msg", [
+        "Rate limited. Waiting 30s before retry [Retry 1/5].",
+        "Retrying in 5s [Retry 2/5].",
+        "HTTP Error 503 thrown while requesting GET https://huggingface.co/...",
+        "'ConnectError' thrown while requesting GET https://huggingface.co/...",
+    ])
+    def test_keeps_useful_download_diagnostics(self, msg: str) -> None:
+        # These ride the SAME logger as the nag; a blunt namespace mute would
+        # throw them away too, hiding exactly the slow-download signal a
+        # rate-limited anonymous user needs.
+        assert gca._HfTokenNagFilter().filter(self._record(msg)) is True
+
+    def test_attached_to_emitting_logger_and_survives_library_import(self) -> None:
         import logging
-        # The advisory is emitted on the .utils._http child; with no explicit
-        # level of its own it inherits ERROR from the parent we muted, so the
-        # WARNING record is dropped before it can reach any handler.
-        child = logging.getLogger("huggingface_hub.utils._http")
-        assert child.getEffectiveLevel() == logging.ERROR
+        # Importing utils._http runs huggingface_hub's
+        # _configure_library_root_logger(), which resets the namespace level to
+        # WARNING — this is what defeats a plain setLevel() mute. The filter
+        # must stay attached to the emitting logger and keep dropping the nag
+        # while letting a diagnostic through.
+        pytest.importorskip("huggingface_hub.utils._http")
+        log = logging.getLogger("huggingface_hub.utils._http")
+        assert any(isinstance(f, gca._HfTokenNagFilter) for f in log.filters)
+
+        captured: list[str] = []
+        handler = logging.Handler()
+        handler.emit = lambda record: captured.append(record.getMessage())  # type: ignore[assignment]
+        log.addHandler(handler)
+        prev_level = log.level
+        log.setLevel(logging.WARNING)
+        try:
+            log.warning("You are sending unauthenticated requests... set a HF_TOKEN ...")
+            log.warning("Rate limited. Waiting 30s before retry [Retry 1/5].")
+        finally:
+            log.removeHandler(handler)
+            log.setLevel(prev_level)
+
+        assert not any(
+            "hf_token" in m.lower() or "unauthenticated" in m.lower() for m in captured
+        )
+        assert any("Rate limited" in m for m in captured)
 
 
 class TestCapInternalSilences:

@@ -101,17 +101,6 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"contextlib")
 # them at the logger level. We keep ERROR so real failures still surface.
 logging.getLogger("chatterbox").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
-# The "unauthenticated requests to the HF Hub / set a HF_TOKEN" advisory is
-# NOT a hardcoded library string and has nothing to do with our app's account
-# surface (we removed all of that). The Hub *server* sends the text in an
-# `X-HF-Warning` response header on anonymous model downloads, and
-# huggingface_hub relays it verbatim via `logger.warning` on the
-# `huggingface_hub.utils._http` logger. It is purely informational — the
-# public Chatterbox-Finnish models download fine without a token. That makes
-# it the `logging` channel, which the warnings-module filter above cannot
-# reach; mute the namespace here instead. ERROR still surfaces real
-# download failures.
-logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 
 class _RefMelFilter(logging.Filter):
@@ -130,6 +119,37 @@ class _RefMelFilter(logging.Filter):
 
 
 logging.getLogger().addFilter(_RefMelFilter())
+
+
+class _HfTokenNagFilter(logging.Filter):
+    """Drop ONLY the Hub's "set a HF_TOKEN / unauthenticated requests" nag.
+
+    That advisory is not ours and not even a hardcoded library string — the HF
+    Hub *server* sends the text in an ``X-HF-Warning`` response header on
+    anonymous model downloads, and huggingface_hub relays it via
+    ``logger.warning`` on the ``huggingface_hub.utils._http`` logger. The
+    public Chatterbox-Finnish models download fine without a token, so the nag
+    is just noise in the log panel.
+
+    Why a filter rather than ``setLevel(logging.ERROR)`` on the namespace:
+    huggingface_hub's ``_configure_library_root_logger()`` runs at import time
+    — which is exactly when a download first pulls in ``utils._http`` — and
+    resets the namespace level back to WARNING, silently undoing a top-of-file
+    setLevel. A filter attached to the emitting logger survives that reset.
+    And unlike a blunt namespace mute, it keeps the genuinely useful WARNING
+    diagnostics on the same logger (rate-limit waits, retries, HTTP errors),
+    which matter precisely because anonymous downloads get rate-limited.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        msg = record.getMessage().lower()
+        return "hf_token" not in msg and "unauthenticated" not in msg
+
+
+# Attach to the emitting logger by name. getLogger() returns the same singleton
+# huggingface_hub later fetches via get_logger(__name__), so attaching here —
+# before the library is imported — still gates its records.
+logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # -----------------------------------------------------------------------------
 
 # Stamp printed at startup (and in --selftest) so any log immediately shows
