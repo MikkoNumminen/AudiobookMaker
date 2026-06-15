@@ -119,6 +119,37 @@ class _RefMelFilter(logging.Filter):
 
 
 logging.getLogger().addFilter(_RefMelFilter())
+
+
+class _HfTokenNagFilter(logging.Filter):
+    """Drop ONLY the Hub's "set a HF_TOKEN / unauthenticated requests" nag.
+
+    That advisory is not ours and not even a hardcoded library string — the HF
+    Hub *server* sends the text in an ``X-HF-Warning`` response header on
+    anonymous model downloads, and huggingface_hub relays it via
+    ``logger.warning`` on the ``huggingface_hub.utils._http`` logger. The
+    public Chatterbox-Finnish models download fine without a token, so the nag
+    is just noise in the log panel.
+
+    Why a filter rather than ``setLevel(logging.ERROR)`` on the namespace:
+    huggingface_hub's ``_configure_library_root_logger()`` runs at import time
+    — which is exactly when a download first pulls in ``utils._http`` — and
+    resets the namespace level back to WARNING, silently undoing a top-of-file
+    setLevel. A filter attached to the emitting logger survives that reset.
+    And unlike a blunt namespace mute, it keeps the genuinely useful WARNING
+    diagnostics on the same logger (rate-limit waits, retries, HTTP errors),
+    which matter precisely because anonymous downloads get rate-limited.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        msg = record.getMessage().lower()
+        return "hf_token" not in msg and "unauthenticated" not in msg
+
+
+# Attach to the emitting logger by name. getLogger() returns the same singleton
+# huggingface_hub later fetches via get_logger(__name__), so attaching here —
+# before the library is imported — still gates its records.
+logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # -----------------------------------------------------------------------------
 
 # Stamp printed at startup (and in --selftest) so any log immediately shows
@@ -996,6 +1027,18 @@ def _seam_gap_ms(chunk_text: str) -> int:
     }[_seam_kind(chunk_text)]
 
 
+def _document_kind(path: Path) -> str:
+    """Human label for a source document, derived from its file extension.
+
+    The non-EPUB parse branch runs every input through PyMuPDF, which opens
+    PDF, DOCX, TXT and friends transparently — so a hardcoded "PDF" label
+    misreports a ``.docx`` (or any other) source in the log. Return the
+    uppercased extension (``"PDF"``, ``"DOCX"``, ``"TXT"``), or ``"document"``
+    when the file has no extension, so the log never claims the wrong type.
+    """
+    return path.suffix.lstrip(".").upper() or "document"
+
+
 def _cap_internal_silences(seg, max_ms, threshold_db=MID_JOIN_SILENCE_DB):
     """Cap any silence *inside* ``seg`` that is longer than ``max_ms`` down to it.
 
@@ -1275,12 +1318,12 @@ def main() -> int:
         from src.pdf_parser import parse_pdf
         pdf_path = Path(args.pdf).expanduser().resolve()
         if not pdf_path.is_file():
-            print(f"[error] PDF not found: {pdf_path}", flush=True)
+            print(f"[error] {_document_kind(pdf_path)} not found: {pdf_path}", flush=True)
             return 2
         book = parse_pdf(str(pdf_path))
         input_stem = pdf_path.stem
         source_path = pdf_path
-        print(f"[setup] parsing PDF: {pdf_path.name}", flush=True)
+        print(f"[setup] parsing {_document_kind(pdf_path)}: {pdf_path.name}", flush=True)
 
     out_root = Path(args.out).expanduser().resolve() / input_stem
     chunks_dir = out_root / ".chunks"

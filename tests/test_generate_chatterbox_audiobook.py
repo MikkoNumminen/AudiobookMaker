@@ -454,6 +454,85 @@ class TestSeamKind:
         )
 
 
+class TestDocumentKind:
+    """_document_kind labels a source by its real extension, not a hardcoded
+    'PDF'. The non-EPUB branch parses PDF, DOCX and TXT through one PyMuPDF
+    path, so the log must report whatever the file actually is."""
+
+    @pytest.mark.parametrize("name,expected", [
+        ("book.pdf", "PDF"),
+        ("book.docx", "DOCX"),       # the case that mislabelled as "PDF"
+        ("notes.txt", "TXT"),
+        ("UPPER.PDF", "PDF"),        # extension casing is normalised
+        ("dotted.name.docx", "DOCX"),  # only the final suffix counts
+        ("no_extension", "document"),  # graceful fallback, never blank
+    ])
+    def test_label_follows_extension(self, name: str, expected: str) -> None:
+        assert gca._document_kind(Path(name)) == expected
+
+
+class TestHfTokenNagFilter:
+    """_HfTokenNagFilter drops ONLY the Hub's server-relayed "set a HF_TOKEN /
+    unauthenticated requests" advisory, keeping huggingface_hub's useful
+    WARNING diagnostics (rate-limit waits, retries, HTTP errors). A filter is
+    used rather than setLevel() because the library resets its namespace level
+    to WARNING when utils._http is imported — exactly when a download fires the
+    advisory — which would silently undo a top-of-file mute."""
+
+    @staticmethod
+    def _record(msg: str):
+        import logging
+        return logging.LogRecord(
+            "huggingface_hub.utils._http", logging.WARNING, __file__, 0, msg, None, None
+        )
+
+    def test_drops_the_token_nag(self) -> None:
+        nag = ("Warning: You are sending unauthenticated requests to the HF Hub. "
+               "Please set a HF_TOKEN to enable higher rate limits and faster downloads.")
+        assert gca._HfTokenNagFilter().filter(self._record(nag)) is False
+
+    @pytest.mark.parametrize("msg", [
+        "Rate limited. Waiting 30s before retry [Retry 1/5].",
+        "Retrying in 5s [Retry 2/5].",
+        "HTTP Error 503 thrown while requesting GET https://huggingface.co/...",
+        "'ConnectError' thrown while requesting GET https://huggingface.co/...",
+    ])
+    def test_keeps_useful_download_diagnostics(self, msg: str) -> None:
+        # These ride the SAME logger as the nag; a blunt namespace mute would
+        # throw them away too, hiding exactly the slow-download signal a
+        # rate-limited anonymous user needs.
+        assert gca._HfTokenNagFilter().filter(self._record(msg)) is True
+
+    def test_attached_to_emitting_logger_and_survives_library_import(self) -> None:
+        import logging
+        # Importing utils._http runs huggingface_hub's
+        # _configure_library_root_logger(), which resets the namespace level to
+        # WARNING — this is what defeats a plain setLevel() mute. The filter
+        # must stay attached to the emitting logger and keep dropping the nag
+        # while letting a diagnostic through.
+        pytest.importorskip("huggingface_hub.utils._http")
+        log = logging.getLogger("huggingface_hub.utils._http")
+        assert any(isinstance(f, gca._HfTokenNagFilter) for f in log.filters)
+
+        captured: list[str] = []
+        handler = logging.Handler()
+        handler.emit = lambda record: captured.append(record.getMessage())  # type: ignore[assignment]
+        log.addHandler(handler)
+        prev_level = log.level
+        log.setLevel(logging.WARNING)
+        try:
+            log.warning("You are sending unauthenticated requests... set a HF_TOKEN ...")
+            log.warning("Rate limited. Waiting 30s before retry [Retry 1/5].")
+        finally:
+            log.removeHandler(handler)
+            log.setLevel(prev_level)
+
+        assert not any(
+            "hf_token" in m.lower() or "unauthenticated" in m.lower() for m in captured
+        )
+        assert any("Rate limited" in m for m in captured)
+
+
 class TestCapInternalSilences:
     """_cap_internal_silences shortens an over-long pause in the MIDDLE of a
     chunk (the Finnish model renders 1–1.5s gaps at some punctuation) without
