@@ -454,6 +454,23 @@ class TestSeamKind:
         )
 
 
+class TestDocumentKind:
+    """_document_kind labels a source by its real extension, not a hardcoded
+    'PDF'. The non-EPUB branch parses PDF, DOCX and TXT through one PyMuPDF
+    path, so the log must report whatever the file actually is."""
+
+    @pytest.mark.parametrize("name,expected", [
+        ("book.pdf", "PDF"),
+        ("book.docx", "DOCX"),       # the case that mislabelled as "PDF"
+        ("notes.txt", "TXT"),
+        ("UPPER.PDF", "PDF"),        # extension casing is normalised
+        ("dotted.name.docx", "DOCX"),  # only the final suffix counts
+        ("no_extension", "document"),  # graceful fallback, never blank
+    ])
+    def test_label_follows_extension(self, name: str, expected: str) -> None:
+        assert gca._document_kind(Path(name)) == expected
+
+
 class TestHfHubWarningMuted:
     """The Hub server's "set a HF_TOKEN" advisory rides the `logging` channel
     on the huggingface_hub.utils._http logger; muting the parent namespace is

@@ -1007,6 +1007,18 @@ def _seam_gap_ms(chunk_text: str) -> int:
     }[_seam_kind(chunk_text)]
 
 
+def _document_kind(path: Path) -> str:
+    """Human label for a source document, derived from its file extension.
+
+    The non-EPUB parse branch runs every input through PyMuPDF, which opens
+    PDF, DOCX, TXT and friends transparently — so a hardcoded "PDF" label
+    misreports a ``.docx`` (or any other) source in the log. Return the
+    uppercased extension (``"PDF"``, ``"DOCX"``, ``"TXT"``), or ``"document"``
+    when the file has no extension, so the log never claims the wrong type.
+    """
+    return path.suffix.lstrip(".").upper() or "document"
+
+
 def _cap_internal_silences(seg, max_ms, threshold_db=MID_JOIN_SILENCE_DB):
     """Cap any silence *inside* ``seg`` that is longer than ``max_ms`` down to it.
 
@@ -1286,12 +1298,12 @@ def main() -> int:
         from src.pdf_parser import parse_pdf
         pdf_path = Path(args.pdf).expanduser().resolve()
         if not pdf_path.is_file():
-            print(f"[error] PDF not found: {pdf_path}", flush=True)
+            print(f"[error] {_document_kind(pdf_path)} not found: {pdf_path}", flush=True)
             return 2
         book = parse_pdf(str(pdf_path))
         input_stem = pdf_path.stem
         source_path = pdf_path
-        print(f"[setup] parsing PDF: {pdf_path.name}", flush=True)
+        print(f"[setup] parsing {_document_kind(pdf_path)}: {pdf_path.name}", flush=True)
 
     out_root = Path(args.out).expanduser().resolve() / input_stem
     chunks_dir = out_root / ".chunks"
