@@ -414,9 +414,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--voice-pack",
         default=None,
-        help="Optional directory containing a trained LoRA adapter (either "
-             "peft-native with adapter_config.json or a packaged pack with "
-             "adapter.pt).",
+        help="Optional voice-pack directory. Clones from the pack's own clip "
+             "(reference.wav, else sample.wav) and applies its LoRA adapter "
+             "if present. Few-shot packs (reference clip only, no adapter) "
+             "are supported — the adapter step is skipped.",
     )
     return p.parse_args()
 
@@ -827,6 +828,68 @@ def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
     )
 
 
+def _voice_pack_reference(voice_pack_dir: Path) -> str | None:
+    """Return the voice-cloning reference clip bundled in a voice pack.
+
+    The pack's own audio is what carries the target speaker's timbre into
+    Chatterbox's clone pass (``audio_prompt_path``) — without it the engine
+    falls back to the language default (Isoäiti in Finnish), which is why a
+    pack used to come out sounding like the default voice. Prefer a curated
+    ``reference.wav`` (few-shot packs ship one); fall back to the preview
+    ``sample.wav`` (LoRA packs ship only that). Returns ``None`` when the
+    pack has neither, so the caller can fall back to the language default.
+    """
+    ref = voice_pack_dir / "reference.wav"
+    if ref.is_file():
+        return str(ref)
+    sample = voice_pack_dir / "sample.wav"
+    if sample.is_file():
+        return str(sample)
+    return None
+
+
+def _voice_pack_has_adapter(voice_pack_dir: Path) -> bool:
+    """True when the pack carries a LoRA adapter :func:`_apply_lora_adapter` can load.
+
+    Few-shot packs ship only a reference clip (no adapter) and must NOT be
+    pushed through :func:`_apply_lora_adapter` — it raises when neither layout
+    is present. The two loadable layouts are: a packaged ``adapter.pt``, or a
+    peft-native ``adapter_config.json`` alongside ``adapter_model.safetensors``
+    / ``adapter_model.bin``. A lone ``adapter_config.json`` with no weights is
+    not loadable, so it reads as "no adapter".
+    """
+    if (voice_pack_dir / "adapter.pt").is_file():
+        return True
+    if (voice_pack_dir / "adapter_config.json").is_file() and (
+        (voice_pack_dir / "adapter_model.safetensors").is_file()
+        or (voice_pack_dir / "adapter_model.bin").is_file()
+    ):
+        return True
+    return False
+
+
+def _apply_voice_pack_adapter(engine, voice_pack_dir: Path | None) -> None:
+    """Apply the pack's LoRA adapter when it has one; no-op for few-shot packs.
+
+    A few-shot pack carries only a reference clip, so there is nothing to
+    apply — and pushing it through :func:`_apply_lora_adapter` would raise
+    ``FileNotFoundError``. The speaker's voice still comes through because
+    :func:`_load_engine` selects the pack's reference clip for cloning.
+    """
+    if voice_pack_dir is None:
+        return
+    if _voice_pack_has_adapter(voice_pack_dir):
+        _apply_lora_adapter(engine, voice_pack_dir)
+    else:
+        import logging as _logging
+
+        _logging.getLogger(__name__).info(
+            "[voice-pack] no LoRA adapter in %s (few-shot pack); "
+            "cloning from the pack's reference clip only",
+            voice_pack_dir,
+        )
+
+
 def _load_engine(device: str, ref_override: str | None, language: str = "fi",
                  voice_pack_dir: Path | None = None):
     """Load Chatterbox. Returns (engine, ref_wav_path).
@@ -849,11 +912,23 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
     engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
     print(f"[tts] base loaded in {time.time() - t0:.1f}s", flush=True)
 
+    # A voice pack's own clip carries the target speaker's timbre, so use it
+    # as the clone reference unless the caller passed an explicit --ref-audio
+    # override (which always wins, matching the GUI's manual-ref behaviour).
+    pack_ref = (
+        _voice_pack_reference(voice_pack_dir)
+        if voice_pack_dir is not None and not ref_override
+        else None
+    )
+
     if language == "en":
-        # Native English path — no T3 finetune, use the bundled Grandmom
-        # reference clip for voice cloning.
+        # Native English path — base multilingual model + a reference clip
+        # for cloning. A voice pack's own clip wins over the bundled Grandmom
+        # default so an imported English voice clones the right speaker.
         if ref_override:
             ref_wav_path = ref_override
+        elif pack_ref is not None:
+            ref_wav_path = pack_ref
         else:
             bundled = _bundled_grandmom_ref()
             if bundled is None:
@@ -864,13 +939,18 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
             ref_wav_path = bundled
         print(f"[tts] English mode: base model + ref wav: {ref_wav_path}",
               flush=True)
-        if voice_pack_dir is not None:
-            _apply_lora_adapter(engine, voice_pack_dir)
+        _apply_voice_pack_adapter(engine, voice_pack_dir)
         return engine, ref_wav_path
 
     # Finnish path (default) — keep existing finetune loading unchanged.
     if ref_override:
         ref_wav_path = ref_override
+    elif pack_ref is not None:
+        # An imported voice pack clones from its own clip instead of the
+        # Finnish-NLP default (Isoäiti), so the pack actually sounds like its
+        # speaker rather than the default voice.
+        ref_wav_path = pack_ref
+        print(f"[tts] voice-pack reference: {ref_wav_path}", flush=True)
     else:
         print(f"[tts] fetching reference wav from {FINNISH_REPO}...",
               flush=True)
@@ -892,8 +972,7 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
         f"unexpected={len(unexpected)})",
         flush=True,
     )
-    if voice_pack_dir is not None:
-        _apply_lora_adapter(engine, voice_pack_dir)
+    _apply_voice_pack_adapter(engine, voice_pack_dir)
     return engine, ref_wav_path
 
 

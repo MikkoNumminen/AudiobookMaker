@@ -860,3 +860,100 @@ class TestSelftest:
         source = (gca.Path(gca.__file__)).read_text(encoding="utf-8")
         assert "sys.path.append(str(_REPO_ROOT))" in source
         assert "sys.path.insert(0, str(_REPO_ROOT))" not in source
+
+
+class TestVoicePackReference:
+    """_voice_pack_reference picks the clip Chatterbox clones from: a curated
+    reference.wav when present, else the preview sample.wav, else None so the
+    caller falls back to the language default. Without this the engine
+    conditioned on the Finnish default (Isoäiti) and a pack came out sounding
+    like the default voice instead of its speaker."""
+
+    def _pack(self, tmp_path, *, reference=False, sample=False):
+        d = tmp_path / "pack"
+        d.mkdir()
+        if reference:
+            (d / "reference.wav").write_bytes(b"\x00" * 16)
+        if sample:
+            (d / "sample.wav").write_bytes(b"\x00" * 16)
+        return d
+
+    def test_prefers_reference_over_sample(self, tmp_path):
+        d = self._pack(tmp_path, reference=True, sample=True)
+        assert gca._voice_pack_reference(d) == str(d / "reference.wav")
+
+    def test_falls_back_to_sample(self, tmp_path):
+        d = self._pack(tmp_path, sample=True)
+        assert gca._voice_pack_reference(d) == str(d / "sample.wav")
+
+    def test_none_when_no_clip(self, tmp_path):
+        d = self._pack(tmp_path)
+        assert gca._voice_pack_reference(d) is None
+
+
+class TestVoicePackHasAdapter:
+    """_voice_pack_has_adapter reports whether _apply_lora_adapter can load a
+    pack — True for packaged (adapter.pt) and peft-native (config + weights)
+    layouts, False for a few-shot pack (reference clip only) or a lone config
+    with no weights, so the caller skips the adapter step instead of crashing."""
+
+    def _pack(self, tmp_path):
+        d = tmp_path / "pack"
+        d.mkdir()
+        return d
+
+    def test_packaged_adapter_pt(self, tmp_path):
+        d = self._pack(tmp_path)
+        (d / "adapter.pt").write_bytes(b"\x00")
+        assert gca._voice_pack_has_adapter(d) is True
+
+    def test_peft_native_safetensors(self, tmp_path):
+        d = self._pack(tmp_path)
+        (d / "adapter_config.json").write_text("{}", encoding="utf-8")
+        (d / "adapter_model.safetensors").write_bytes(b"\x00")
+        assert gca._voice_pack_has_adapter(d) is True
+
+    def test_peft_native_bin(self, tmp_path):
+        d = self._pack(tmp_path)
+        (d / "adapter_config.json").write_text("{}", encoding="utf-8")
+        (d / "adapter_model.bin").write_bytes(b"\x00")
+        assert gca._voice_pack_has_adapter(d) is True
+
+    def test_few_shot_reference_only_is_false(self, tmp_path):
+        d = self._pack(tmp_path)
+        (d / "reference.wav").write_bytes(b"\x00")
+        (d / "sample.wav").write_bytes(b"\x00")
+        assert gca._voice_pack_has_adapter(d) is False
+
+    def test_lone_config_without_weights_is_false(self, tmp_path):
+        d = self._pack(tmp_path)
+        (d / "adapter_config.json").write_text("{}", encoding="utf-8")
+        assert gca._voice_pack_has_adapter(d) is False
+
+
+class TestApplyVoicePackAdapter:
+    """_apply_voice_pack_adapter applies a LoRA adapter when present and is a
+    safe no-op for few-shot packs — directly covering the 'No LoRA adapter
+    found ...' crash when synthesizing a reference-only pack via --voice-pack."""
+
+    def test_none_dir_is_noop(self):
+        with patch.object(gca, "_apply_lora_adapter") as m:
+            gca._apply_voice_pack_adapter(object(), None)
+        m.assert_not_called()
+
+    def test_adapter_pack_applies(self, tmp_path):
+        d = tmp_path / "pack"
+        d.mkdir()
+        (d / "adapter.pt").write_bytes(b"\x00")
+        engine = object()
+        with patch.object(gca, "_apply_lora_adapter") as m:
+            gca._apply_voice_pack_adapter(engine, d)
+        m.assert_called_once_with(engine, d)
+
+    def test_few_shot_pack_skips_without_raising(self, tmp_path):
+        d = tmp_path / "pack"
+        d.mkdir()
+        (d / "reference.wav").write_bytes(b"\x00")
+        with patch.object(gca, "_apply_lora_adapter") as m:
+            gca._apply_voice_pack_adapter(object(), d)  # must NOT raise
+        m.assert_not_called()
