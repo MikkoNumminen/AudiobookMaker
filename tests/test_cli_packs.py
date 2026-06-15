@@ -451,3 +451,118 @@ class TestPacksRemovePromptRouting:
         _make_fake_pack(tmp_path, "exit_check")
         rc = _run_direct(tmp_path, "remove", "exit_check", input_return="n")
         assert rc == EXIT_CANCELLED
+
+
+# ---------------------------------------------------------------------------
+# packs import — zip source
+# ---------------------------------------------------------------------------
+
+
+class TestPacksImportZip:
+    """`packs import` accepts a portable .zip archive, not just a folder."""
+
+    def test_import_from_zip_installs(self, tmp_path):
+        from src.voice_pack import export_pack
+
+        source = _make_fake_pack(tmp_path / "src_root", "zip_voice")
+        archive = export_pack(source, tmp_path / "zip_voice.abvpack.zip")
+        installed_root = tmp_path / "installed_zip"
+
+        rc, out, err = _run(installed_root, "import", str(archive))
+        assert rc == 0, err
+        assert installed_root.exists()
+        assert any(installed_root.iterdir())
+
+    def test_import_from_zip_json(self, tmp_path):
+        from src.voice_pack import export_pack
+
+        source = _make_fake_pack(tmp_path / "src_root", "zip_json_voice")
+        archive = export_pack(source, tmp_path / "zj.abvpack.zip")
+        installed_root = tmp_path / "installed_zj"
+
+        rc, out, err = _run(installed_root, "import", str(archive), "--json")
+        assert rc == 0, err
+        obj = json.loads(out.strip())
+        assert obj["ok"] is True
+        assert "path" in obj
+
+    def test_import_corrupt_zip_exits_1(self, tmp_path):
+        broken = tmp_path / "broken.zip"
+        broken.write_bytes(b"not a real zip")
+        rc, out, err = _run(tmp_path / "installed", "import", str(broken))
+        assert rc == 1
+
+    def test_import_non_zip_file_exits_1(self, tmp_path):
+        notpack = tmp_path / "readme.txt"
+        notpack.write_text("hello", encoding="utf-8")
+        rc, out, err = _run(tmp_path / "installed", "import", str(notpack))
+        assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# packs export
+# ---------------------------------------------------------------------------
+
+
+class TestPacksExport:
+    """`packs export <slug>` bundles an installed pack into a .zip."""
+
+    def test_export_default_out(self, tmp_path, monkeypatch):
+        _make_fake_pack(tmp_path, "exp_voice")
+        # Default --out lands in the CWD; chdir so we don't litter the repo.
+        monkeypatch.chdir(tmp_path)
+
+        rc, out, err = _run(tmp_path, "export", "exp_voice")
+        assert rc == 0, err
+        # Default out is a CWD-relative name; the file lands in tmp_path.
+        expected = tmp_path / "exp_voice.abvpack.zip"
+        assert expected.exists()
+        assert "exp_voice.abvpack.zip" in out
+
+    def test_export_explicit_out(self, tmp_path):
+        _make_fake_pack(tmp_path, "exp_out_voice")
+        dest = tmp_path / "shared" / "myvoice.zip"
+
+        rc, out, err = _run(tmp_path, "export", "exp_out_voice", "--out", str(dest))
+        assert rc == 0, err
+        assert dest.exists()
+
+    def test_export_unknown_slug_exits_1(self, tmp_path):
+        rc, out, err = _run(tmp_path, "export", "does_not_exist")
+        assert rc == 1
+        assert "not found" in err.lower()
+
+    def test_export_path_traversal_slug_exits_1(self, tmp_path):
+        # A slug that escapes the packs root must be refused, not exported.
+        rc, out, err = _run(tmp_path, "export", "..")
+        assert rc == 1
+
+    def test_export_quiet_prints_path_only(self, tmp_path):
+        _make_fake_pack(tmp_path, "exp_quiet")
+        dest = tmp_path / "q.zip"
+        rc, out, err = _run(tmp_path, "export", "exp_quiet", "--out", str(dest), "--quiet")
+        assert rc == 0, err
+        assert out.strip() == str(dest)
+
+    def test_export_json_ok(self, tmp_path):
+        _make_fake_pack(tmp_path, "exp_json")
+        dest = tmp_path / "j.zip"
+        rc, out, err = _run(tmp_path, "export", "exp_json", "--out", str(dest), "--json")
+        assert rc == 0, err
+        obj = json.loads(out.strip())
+        assert obj["ok"] is True
+        assert obj["slug"] == "exp_json"
+
+    def test_export_then_import_round_trip(self, tmp_path):
+        _make_fake_pack(tmp_path / "origin", "rt_voice")
+        archive = tmp_path / "rt.abvpack.zip"
+
+        rc, out, err = _run(tmp_path / "origin", "export", "rt_voice", "--out", str(archive))
+        assert rc == 0, err
+
+        target_root = tmp_path / "other_pc"
+        rc, out, err = _run(target_root, "import", str(archive))
+        assert rc == 0, err
+        rc, out, err = _run(target_root, "list", "--quiet")
+        assert rc == 0
+        assert "rt_voice" in out

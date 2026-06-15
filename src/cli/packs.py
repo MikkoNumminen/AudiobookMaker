@@ -2,7 +2,8 @@
 
 Usage:
     audiobookmaker packs list                  [--json] [--quiet]
-    audiobookmaker packs import <directory>    [--json] [--quiet]
+    audiobookmaker packs import <dir-or-zip>   [--json] [--quiet]
+    audiobookmaker packs export <slug>         [--out FILE] [--json] [--quiet]
     audiobookmaker packs remove <slug>         [--json] [--quiet] [--yes]
     audiobookmaker packs info <slug>           [--json] [--quiet]
 
@@ -52,13 +53,32 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     lst.set_defaults(func=_run_list)
 
     imp = sub.add_parser("import", help="Validate and install a voice pack.")
-    imp.add_argument("directory", metavar="DIRECTORY", help="Source pack directory.")
+    imp.add_argument(
+        "source",
+        metavar="SOURCE",
+        help="Source pack directory or .abvpack.zip archive.",
+    )
     add_output_mode_flags(
         imp,
         json_help="Emit a single result object with fields: ok, slug, path.",
         quiet_help="Print only the installed path on success.",
     )
     imp.set_defaults(func=_run_import)
+
+    exp = sub.add_parser("export", help="Bundle an installed voice pack into a portable .zip.")
+    exp.add_argument("slug", metavar="SLUG", help="Pack slug (folder name).")
+    exp.add_argument(
+        "--out",
+        metavar="FILE",
+        default=None,
+        help="Output archive path (default: <slug>.abvpack.zip in the current directory).",
+    )
+    add_output_mode_flags(
+        exp,
+        json_help="Emit a single result object with fields: ok, slug, path.",
+        quiet_help="Print only the written archive path on success.",
+    )
+    exp.set_defaults(func=_run_export)
 
     rem = sub.add_parser("remove", help="Delete an installed voice pack.")
     rem.add_argument("slug", metavar="SLUG", help="Pack slug (folder name).")
@@ -163,23 +183,28 @@ def _run_list(args: argparse.Namespace) -> int:
 def _run_import(args: argparse.Namespace) -> int:
     json_mode: bool = getattr(args, "json", False)
     quiet: bool = getattr(args, "quiet", False)
-    source = args.directory
+    source = args.source
     try:
-        from src.voice_pack import VoicePackError, install_pack, validate_pack_dir
+        from src.voice_pack import VoicePackError, install_pack_source, validate_pack_dir
     except Exception as exc:
         print(f"Error: voice_pack unavailable: {exc}", file=sys.stderr)
         return EXIT_MISSING_DEP
-    issues = validate_pack_dir(source)
-    if issues:
-        if json_mode:
-            print(json.dumps({"ok": False, "issues": issues}), flush=True)
-        else:
-            print(f"Validation failed for {source}:", file=sys.stderr)
-            for issue in issues:
-                print(f"  - {issue}", file=sys.stderr)
-        return EXIT_BAD_INPUT
+    # For a directory source, surface granular validation issues up front so
+    # the operator sees every problem at once. A zip source can't be checked
+    # without extracting, so install_pack_source validates it post-extract.
+    src_path = Path(source)
+    if src_path.is_dir():
+        issues = validate_pack_dir(src_path)
+        if issues:
+            if json_mode:
+                print(json.dumps({"ok": False, "issues": issues}), flush=True)
+            else:
+                print(f"Validation failed for {source}:", file=sys.stderr)
+                for issue in issues:
+                    print(f"  - {issue}", file=sys.stderr)
+            return EXIT_BAD_INPUT
     try:
-        installed = install_pack(source, _packs_dir())
+        installed = install_pack_source(source, _packs_dir())
     except (FileExistsError, VoicePackError) as exc:
         return _err(json_mode, str(exc), EXIT_BAD_INPUT)
     except Exception as exc:
@@ -192,6 +217,35 @@ def _run_import(args: argparse.Namespace) -> int:
         print(path_str, flush=True)
     else:
         print(f"Installed: {path_str}")
+    return EXIT_OK
+
+
+def _run_export(args: argparse.Namespace) -> int:
+    json_mode: bool = getattr(args, "json", False)
+    quiet: bool = getattr(args, "quiet", False)
+    slug: str = args.slug
+    try:
+        from src.voice_pack import VoicePackError, export_pack
+    except Exception as exc:
+        print(f"Error: voice_pack unavailable: {exc}", file=sys.stderr)
+        return EXIT_MISSING_DEP
+    pack_dir = _resolve_pack_dir(slug)
+    if pack_dir is None or not pack_dir.is_dir():
+        return _err(json_mode, f"Voice pack not found: {slug}", EXIT_BAD_INPUT)
+    try:
+        out = export_pack(pack_dir, args.out)
+    except VoicePackError as exc:
+        return _err(json_mode, str(exc), EXIT_BAD_INPUT)
+    except Exception as exc:
+        print(f"Internal error: {exc}", file=sys.stderr)
+        return EXIT_INTERNAL
+    path_str = str(out)
+    if json_mode:
+        print(json.dumps({"ok": True, "slug": slug, "path": path_str}), flush=True)
+    elif quiet:
+        print(path_str, flush=True)
+    else:
+        print(f"Exported: {path_str}")
     return EXIT_OK
 
 

@@ -66,6 +66,7 @@ _EXAMPLES: dict[tuple[str, ...], str] = {
     ("engines", "check"): 'audiobookmaker-cli engines check chatterbox_grandmom',
     ("packs", "list"): 'audiobookmaker-cli packs list',
     ("packs", "import"): 'audiobookmaker-cli packs import ./mypack/',
+    ("packs", "export"): 'audiobookmaker-cli packs export mypack --out ./mypack.abvpack.zip',
     ("packs", "remove"): 'audiobookmaker-cli packs remove mypack --yes',
     ("packs", "info"): 'audiobookmaker-cli packs info mypack',
     ("config", "show"): 'audiobookmaker-cli config show engine_id',
