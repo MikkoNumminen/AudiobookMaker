@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import tempfile
+import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,11 @@ import yaml
 
 VOICE_PACK_FORMAT_VERSION: int = 1
 VALID_TIERS: tuple[str, ...] = ("full_lora", "reduced_lora", "few_shot")
+
+# Portable single-file form of a voice pack: a zip whose members all live
+# under a top-level ``<slug>/`` directory. The double extension keeps the
+# ".zip" the OS recognises while still announcing the AudiobookMaker origin.
+PACK_ARCHIVE_SUFFIX: str = ".abvpack.zip"
 
 _REQUIRED_META_KEYS: tuple[str, ...] = (
     "name",
@@ -346,3 +353,125 @@ def install_pack(
 
     shutil.copytree(source_path, destination)
     return load_pack(destination)
+
+
+def base_model_requirements(meta: VoicePackMeta) -> list[str]:
+    """Return the base models that must be present on the target machine.
+
+    A voice pack ships the voice-specific layer (a LoRA adapter or a
+    reference clip) but never the multi-gigabyte base TTS weights. Those
+    are downloaded on first synthesis. This helper names what the pack
+    leans on so an import flow can warn the operator before they discover
+    a missing-model error mid-run. The list is human-readable, not a set
+    of download URLs — it answers "what does this voice need to speak?".
+    """
+
+    requirements = ["Chatterbox multilingual base model"]
+    if (meta.language or "").strip().lower().startswith("fi"):
+        requirements.append("Finnish Chatterbox finetune (chatterbox_fi)")
+    return requirements
+
+
+def export_pack(pack_dir: str | Path, out_path: str | Path | None = None) -> Path:
+    """Bundle a voice pack directory into a portable ``.abvpack.zip`` archive.
+
+    The pack is validated first; an invalid pack raises :class:`VoicePackError`
+    so a half-written or wrong-typed folder never ships as if it were whole.
+    Every file is stored under a top-level ``<slug>/`` directory inside the
+    archive (slug = the pack folder's name) so extraction reproduces the
+    original single-pack layout. ``out_path`` defaults to
+    ``<slug>.abvpack.zip`` in the current working directory. Returns the path
+    to the written archive.
+    """
+
+    pack_dir = Path(pack_dir)
+    issues = validate_pack_dir(pack_dir)
+    if issues:
+        raise VoicePackError(
+            f"cannot export invalid voice pack at {pack_dir}: {'; '.join(issues)}"
+        )
+
+    slug = pack_dir.name
+    out_path = Path(out_path) if out_path is not None else Path(f"{slug}{PACK_ARCHIVE_SUFFIX}")
+    # For a bare filename the parent is "." (already exists); for a nested
+    # target we create the directory tree so the write doesn't fail.
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Sort for a deterministic archive layout (helps reproducible bytes and
+    # makes the member order predictable in tests).
+    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file_path in sorted(pack_dir.rglob("*")):
+            if not file_path.is_file():
+                continue
+            arcname = Path(slug) / file_path.relative_to(pack_dir)
+            zf.write(file_path, arcname.as_posix())
+    return out_path
+
+
+def _extract_pack_archive(zip_path: str | Path, dest_dir: str | Path) -> Path:
+    """Extract a voice-pack zip into ``dest_dir`` and return the pack root.
+
+    Guards against zip-slip: any member whose resolved path escapes
+    ``dest_dir`` (via ``..`` segments or an absolute path) raises
+    :class:`VoicePackError` before anything is written. Returns the
+    directory inside the extraction that holds ``meta.yaml`` (the
+    importable pack root); a pack never nests another, so the shallowest
+    ``meta.yaml`` wins.
+    """
+
+    zip_path = Path(zip_path)
+    dest_dir = Path(dest_dir)
+    dest_root = dest_dir.resolve()
+
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for member in zf.namelist():
+                # Reject absolute paths and parent-dir escapes before extracting.
+                target = (dest_root / member).resolve()
+                try:
+                    target.relative_to(dest_root)
+                except ValueError as exc:
+                    raise VoicePackError(
+                        f"unsafe path in voice pack archive: {member!r}"
+                    ) from exc
+            zf.extractall(dest_dir)
+    except zipfile.BadZipFile as exc:
+        raise VoicePackError(f"not a valid zip archive: {zip_path}") from exc
+
+    meta_files = sorted(dest_dir.rglob("meta.yaml"), key=lambda p: len(p.parts))
+    if not meta_files:
+        raise VoicePackError(f"voice pack archive has no meta.yaml: {zip_path}")
+    return meta_files[0].parent
+
+
+def install_pack_source(
+    source: str | Path,
+    root: str | Path | None = None,
+    *,
+    rename_to: str | None = None,
+    overwrite: bool = False,
+) -> VoicePack:
+    """Install a voice pack from either a directory or a ``.zip`` archive.
+
+    A directory source is installed directly via :func:`install_pack`. A
+    zip source (``.abvpack.zip`` or any ``.zip``) is extracted to a
+    temporary location with zip-slip protection, then the pack root inside
+    it is installed. Keyword semantics match :func:`install_pack`.
+    """
+
+    source_path = Path(source)
+    if source_path.is_dir():
+        return install_pack(source_path, root, rename_to=rename_to, overwrite=overwrite)
+
+    if not source_path.exists():
+        raise VoicePackError(f"voice pack source not found: {source_path}")
+
+    if source_path.suffix.lower() != ".zip":
+        raise VoicePackError(
+            "unsupported voice pack source (expected a directory or .zip): "
+            f"{source_path}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="abvpack_import_") as tmp:
+        pack_root = _extract_pack_archive(source_path, tmp)
+        return install_pack(pack_root, root, rename_to=rename_to, overwrite=overwrite)
