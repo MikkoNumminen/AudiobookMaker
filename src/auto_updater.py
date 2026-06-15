@@ -242,6 +242,41 @@ def _extract_sha256(release_notes: str) -> str | None:
     return None
 
 
+def extract_whats_new(release_notes: str) -> str:
+    """Pull the human-readable "What's new" section out of a release body.
+
+    The release pipeline writes a structured body (see build-release.yml): a
+    ``## AudiobookMaker <ver>`` title, a ``### What's new`` section, then
+    ``### Installation``, ``### CLI``, and machine-only ``SHA-256:`` lines. The
+    update banner only wants the "What's new" prose, so return that section's
+    text with the trailing technical sections stripped. Returns "" when the
+    body has no such section (older or hand-written releases) so the caller can
+    simply hide the expander rather than show a wall of markdown.
+    """
+    if not isinstance(release_notes, str) or not release_notes.strip():
+        return ""
+    out: list[str] = []
+    capturing = False
+    for line in release_notes.splitlines():
+        stripped = line.strip()
+        if not capturing:
+            # Begin at the "What's new" heading — tolerant of ## / ###, the
+            # straight or curly apostrophe, and an optional trailing colon.
+            if re.match(r"#{1,6}\s*what['’]?s new\s*:?\s*$", stripped, re.IGNORECASE):
+                capturing = True
+            continue
+        # Stop at the next markdown heading or the SHA-256 / CLI-SHA block.
+        if stripped.startswith("#") or re.match(r"(?i)^(cli:\s*)?sha-?256:", stripped):
+            break
+        out.append(line)
+    # Drop leading/trailing blank lines so the banner text is tight.
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out).strip()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------

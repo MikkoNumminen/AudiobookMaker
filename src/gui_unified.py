@@ -37,7 +37,7 @@ from src import _audio_player, app_config
 from src.auto_updater import (
     check_for_update, download_update, apply_update,
     APP_VERSION, GITHUB_REPO, UpdateInfo,
-    is_post_update_launch, _no_update,
+    is_post_update_launch, _no_update, extract_whats_new,
 )
 from src import gui_style
 from src.gui_builders import (
@@ -242,6 +242,7 @@ _STRINGS = {
         "update_available": "Versio {version} saatavilla.",
         "update_now": "Päivitä nyt",
         "update_download_manually": "Lataa selaimella",
+        "whats_new": "Mikä on uutta",
         "update_downloading": "Ladataan päivitystä...",
         "update_installing": "Asennetaan päivitys...",
         "update_failed": "Päivitys epäonnistui.",
@@ -354,6 +355,7 @@ _STRINGS = {
         "update_available": "Version {version} available.",
         "update_now": "Update now",
         "update_download_manually": "Open in browser",
+        "whats_new": "What's new",
         "update_downloading": "Downloading update...",
         "update_installing": "Installing update...",
         "update_failed": "Update failed.",
@@ -773,6 +775,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             )
             self._update_btn.configure(text=s("update_now"))
             self._update_browser_btn.configure(text=s("update_download_manually"))
+            if getattr(self, "_update_whatsnew_toggle", None) is not None:
+                self._update_whatsnew_toggle.configure(text=self._whatsnew_toggle_text())
 
         # UI lang combobox — keep it in sync.
         self._ui_lang_cb.set("Suomi" if self._ui_lang == "fi" else "English")
@@ -1078,6 +1082,44 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             padx=(0, gui_style.PAD_SM), pady=gui_style.PAD_XS,
         )
 
+        # Expandable "What's new" — the release notes the updater already
+        # fetched (UpdateInfo.release_notes) but never showed. Collapsed by
+        # default so the banner stays one line; the toggle (row 1) and the
+        # notes (row 2) are only gridded when a release actually carries
+        # notes — see _show_update_banner. Both span the three columns above.
+        self._whatsnew_expanded = False
+        self._update_whatsnew_toggle = ctk.CTkButton(
+            self._update_banner,
+            text="",
+            command=self._toggle_whatsnew,
+            font=gui_style.font_button(),
+            fg_color="transparent",
+            hover_color=("#156326", "#0f7a2a"),
+            text_color="white",
+            anchor="w",
+            corner_radius=gui_style.RADIUS_SM,
+        )
+        self._update_whatsnew_toggle.grid(
+            row=1, column=0, columnspan=3, sticky="w",
+            padx=(gui_style.PAD_MD, gui_style.PAD_SM), pady=(0, gui_style.PAD_XS),
+        )
+        self._update_whatsnew_toggle.grid_remove()
+
+        self._update_whatsnew_text = ctk.CTkLabel(
+            self._update_banner,
+            text="",
+            text_color="white",
+            font=gui_style.font_body(),
+            justify="left",
+            anchor="w",
+            wraplength=520,
+        )
+        self._update_whatsnew_text.grid(
+            row=2, column=0, columnspan=3, sticky="w",
+            padx=(gui_style.PAD_MD, gui_style.PAD_MD), pady=(0, gui_style.PAD_SM),
+        )
+        self._update_whatsnew_text.grid_remove()
+
         # Hidden by default.
         self._update_banner.grid_remove()
 
@@ -1100,6 +1142,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         except Exception as exc:
             from tkinter import messagebox
             messagebox.showerror(self._s("error"), f"{url}\n\n{exc}")
+
+    def _whatsnew_toggle_text(self) -> str:
+        """Label for the What's-new expander, with a ▾/▴ affordance."""
+        arrow = "▴" if self._whatsnew_expanded else "▾"
+        return f"{self._s('whats_new')} {arrow}"
+
+    def _toggle_whatsnew(self) -> None:
+        """Expand/collapse the release notes shown under the update banner."""
+        self._whatsnew_expanded = not self._whatsnew_expanded
+        if self._whatsnew_expanded:
+            self._update_whatsnew_text.grid()
+        else:
+            self._update_whatsnew_text.grid_remove()
+        self._update_whatsnew_toggle.configure(text=self._whatsnew_toggle_text())
 
     # ---- 1. Input tabs ------------------------------------------------
 
@@ -2094,9 +2150,25 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self.after(500, self._poll_update_check)
 
     def _show_update_banner(self, info: UpdateInfo) -> None:
-        """Show the update banner with version info."""
+        """Show the update banner with the version and, when the release
+        carries notes, an expandable "What's new" section the user can read
+        before pressing the button."""
         msg = self._s("update_available").format(version=info.latest_version)
         self._update_label.configure(text=msg)
+
+        notes = extract_whats_new(info.release_notes)
+        if notes:
+            # Re-collapse on each new release so a long changelog never springs
+            # open unbidden; the user opts in via the toggle.
+            self._whatsnew_expanded = False
+            self._update_whatsnew_text.configure(text=notes)
+            self._update_whatsnew_text.grid_remove()
+            self._update_whatsnew_toggle.configure(text=self._whatsnew_toggle_text())
+            self._update_whatsnew_toggle.grid()
+        else:
+            self._update_whatsnew_toggle.grid_remove()
+            self._update_whatsnew_text.grid_remove()
+
         self._update_banner.grid()
 
     # Note: _on_update_click and the download worker live in
