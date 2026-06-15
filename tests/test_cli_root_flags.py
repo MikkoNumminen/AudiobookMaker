@@ -144,10 +144,15 @@ class TestSampleAlias:
 
 
 class TestPreviewAlias:
+    # Force a preview-capable engine so these tests don't depend on the dev
+    # machine's saved default engine in ~/.audiobookmaker/config.json. Without
+    # --engine, a saved default of a subprocess engine (e.g. chatterbox_grandmom)
+    # makes preview exit 1 ("cannot be used with preview"), which has nothing to
+    # do with whether the alias itself works.
     def test_p_alias_exits_0(self):
         # preview --no-play with a short string should exit 0 even if no
         # audio device is present (--no-play skips playback).
-        result = _cli("p", "hi", "--no-play")
+        result = _cli("p", "hi", "--engine", "edge", "--no-play")
         # Accept 0 (success) or 2 (engine not available) or 4 (runtime) —
         # what matters is the alias was recognised, not returncode 1 from
         # argparse "invalid choice".
@@ -157,6 +162,6 @@ class TestPreviewAlias:
         assert "invalid choice" not in result.stderr.lower()
 
     def test_p_alias_same_path_as_preview(self):
-        r_full = _cli("preview", "hi", "--no-play")
-        r_alias = _cli("p", "hi", "--no-play")
+        r_full = _cli("preview", "hi", "--engine", "edge", "--no-play")
+        r_alias = _cli("p", "hi", "--engine", "edge", "--no-play")
         assert r_full.returncode == r_alias.returncode
