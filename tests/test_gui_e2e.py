@@ -79,6 +79,27 @@ def app(_shared_app, clean_registry):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_voice_packs_root(monkeypatch, tmp_path):
+    """Point the voice-packs root at an empty per-test dir.
+
+    The GUI voice list surfaces installed voice packs from
+    ``default_voice_packs_root()`` (``~/.audiobookmaker/voice_packs``). On a
+    developer machine that has packs installed, that leaks real packs into
+    tests asserting exact voice lists. Isolating to an empty dir keeps those
+    tests deterministic. Pack-import tests override this in their own body
+    (their monkeypatch wins), so they are unaffected.
+    """
+    empty = tmp_path / "voice_packs_empty"
+    empty.mkdir()
+    monkeypatch.setattr(
+        "src.voice_pack.pack.default_voice_packs_root", lambda: empty
+    )
+    monkeypatch.setattr(
+        "src.gui_unified.default_voice_packs_root", lambda: empty
+    )
+
+
+@pytest.fixture(autouse=True)
 def _reset_app_state(app):
     """Reset shared app to a known baseline before each test.
 
