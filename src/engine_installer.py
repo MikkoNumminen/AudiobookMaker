@@ -141,6 +141,48 @@ def is_install_incomplete(venv_python) -> bool:
         return False
 
 
+def is_base_revision_pinned(venv_python) -> bool:
+    """False only when the venv's chatterbox library still carries the
+    unpatched ``revision="main"`` for the base-model download.
+
+    The install pins ``ChatterboxMultilingualTTS.from_pretrained``'s hardcoded
+    ``revision="main"`` to a validated SHA (see
+    :meth:`ChatterboxInstaller._pin_base_model_revision`). If that patch step
+    never ran — an interrupted install, or a graceful skip that still let the
+    install complete and clear its marker — synthesis re-downloads the floating
+    ``main`` weights: multi-GB, the wrong (unvalidated) revision, and silent.
+    This lets :meth:`ChatterboxEngine.check_status` surface it as "needs
+    repair" instead of letting a Convert quietly pull the wrong model.
+
+    Conservative: returns ``True`` (pinned / OK) whenever the library source
+    can't be read, so a working engine is never wrongly blocked — only a
+    positive ``revision="main"`` sighting reports unpinned. Cheap (one file
+    read), matching ``check_status``'s "no heavy imports" contract.
+
+    Reads the standard ``site-packages`` layout the in-app installer produces
+    (a normal ``pip install`` of ``chatterbox-tts`` into the venv). A dev
+    editable install puts the source outside the venv where this can't reach
+    it, so it conservatively reads as pinned there — the runner's ``--selftest``
+    (which follows the actual import) is the stricter check for that case.
+    """
+    try:
+        venv_root = Path(venv_python).resolve(strict=False).parent.parent
+    except (OSError, ValueError):
+        return True
+    candidates = [
+        venv_root / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py",
+        venv_root / "lib" / "python3.11" / "site-packages" / "chatterbox" / "mtl_tts.py",
+    ]
+    path = next((c for c in candidates if c.is_file()), None)
+    if path is None:
+        return True
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    return 'revision="main"' not in source
+
+
 # Smoke-test error substrings that mean missing/broken PACKAGES — the failure a
 # clean rebuild can actually fix. Anything else (e.g. a CUDA-runtime error from
 # torch.zeros(1).cuda() on a machine whose driver is down) is environmental, so

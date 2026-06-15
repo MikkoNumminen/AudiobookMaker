@@ -20,6 +20,7 @@ import pytest
 from src.engine_installer import (
     ChatterboxInstaller,
     INSTALL_INCOMPLETE_MARKER,
+    is_base_revision_pinned,
     is_install_incomplete,
 )
 
@@ -49,6 +50,39 @@ class TestIncompleteMarkerHelper:
     def test_bad_path_is_not_incomplete(self):
         # A nonsense path must not raise — just report "not incomplete".
         assert is_install_incomplete("") is False
+
+
+class TestBaseRevisionPinnedHelper:
+    """is_base_revision_pinned flags a venv whose chatterbox library still has
+    the unpatched revision="main" — the state that makes synthesis silently
+    re-download the floating 'main' weights. Conservative: only a positive
+    sighting reports unpinned; anything unreadable reads as OK."""
+
+    def _write_mtl(self, tmp_path, body: str) -> Path:
+        sp = tmp_path / "venv" / "Lib" / "site-packages" / "chatterbox"
+        sp.mkdir(parents=True)
+        (sp / "mtl_tts.py").write_text(body, encoding="utf-8")
+        return tmp_path / "venv" / "Scripts" / "python.exe"  # need not exist
+
+    def test_unpinned_source_reads_not_pinned(self, tmp_path):
+        venv_python = self._write_mtl(
+            tmp_path, 'def from_pretrained(cls):\n    dl(repo, revision="main")\n'
+        )
+        assert is_base_revision_pinned(venv_python) is False
+
+    def test_pinned_source_reads_pinned(self, tmp_path):
+        venv_python = self._write_mtl(
+            tmp_path, 'def from_pretrained(cls):\n    dl(repo, revision="ef85ce7")\n'
+        )
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_missing_library_is_not_blocked(self, tmp_path):
+        # No chatterbox lib present → can't tell → don't block a working engine.
+        venv_python = tmp_path / "venv" / "Scripts" / "python.exe"
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_bad_path_is_not_blocked(self):
+        assert is_base_revision_pinned("") is True
 
 
 class TestIsInstalledMarkerAware:
@@ -364,6 +398,26 @@ class TestBridgeCheckStatusIncomplete:
         low = status.reason.lower()
         assert "installing" in low or "kesken" in low
 
+    def test_check_status_unavailable_when_unpinned(self):
+        # Marker gone (install "completed") but the base-model revision pin
+        # never landed → needs-repair, not a silent re-download of 'main'.
+        from src.tts_chatterbox_bridge import ChatterboxEngine
+
+        eng = ChatterboxEngine()
+        with patch(
+            "src.tts_chatterbox_bridge.resolve_chatterbox_python",
+            return_value=Path("/fake/venv/bin/python"),
+        ), patch(
+            "src.engine_installer.is_install_incomplete", return_value=False
+        ), patch(
+            "src.engine_installer.is_base_revision_pinned", return_value=False
+        ):
+            status = eng.check_status()
+
+        assert status.available is False
+        low = status.reason.lower()
+        assert "pinned" in low or "kiinnitet" in low
+
     def test_check_status_available_when_complete(self):
         from src.tts_chatterbox_bridge import ChatterboxEngine
 
@@ -371,7 +425,11 @@ class TestBridgeCheckStatusIncomplete:
         with patch(
             "src.tts_chatterbox_bridge.resolve_chatterbox_python",
             return_value=Path("/fake/venv/bin/python"),
-        ), patch("src.engine_installer.is_install_incomplete", return_value=False):
+        ), patch(
+            "src.engine_installer.is_install_incomplete", return_value=False
+        ), patch(
+            "src.engine_installer.is_base_revision_pinned", return_value=True
+        ):
             status = eng.check_status()
 
         assert status.available is True

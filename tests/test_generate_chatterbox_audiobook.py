@@ -991,3 +991,20 @@ class TestVoicePackClipWarning:
         d.mkdir()  # exists but no reference.wav / sample.wav
         msg = gca._voice_pack_clip_warning(d, None, has_override=False)
         assert msg is not None and "no reference.wav or sample.wav" in msg
+
+
+class TestBaseRevisionPinned:
+    """_base_revision_pinned flags a chatterbox lib whose base-model
+    revision="main" was never patched, so the smoke test (--selftest) fails an
+    unpinned venv instead of passing false-green — the blind spot that let an
+    unpinned venv read as installed and silently re-download the wrong model."""
+
+    def test_unpinned_source(self):
+        assert gca._base_revision_pinned('dl(repo, revision="main")') is False
+
+    def test_pinned_source(self):
+        assert gca._base_revision_pinned('dl(repo, revision="ef85ce7")') is True
+
+    def test_no_revision_call_treated_as_pinned(self):
+        # No revision="main" present → don't fail the smoke test (conservative).
+        assert gca._base_revision_pinned("def from_pretrained(cls): ...") is True
