@@ -225,6 +225,59 @@ class TestHeroHeader:
         assert hasattr(app, "_install_engines_btn")
 
 
+class TestUpdateBannerWhatsNew:
+    """The update banner surfaces a "What's new" section parsed from the
+    release notes — collapsed by default, and only when the release carries
+    notes — so the user can see what an update contains before installing."""
+
+    @staticmethod
+    def _info(notes: str):
+        from src.auto_updater import UpdateInfo
+        return UpdateInfo(
+            available=True, current_version="1.0.0", latest_version="2.0.0",
+            download_url="https://example.com/x.exe", release_notes=notes,
+            asset_size_bytes=1, sha256="a" * 64,
+        )
+
+    def test_toggle_shown_and_collapsed_with_notes(self, app) -> None:
+        app._show_update_banner(self._info(
+            "### What's new\n- A nice change\n\nSHA-256: " + "a" * 64
+        ))
+        # Expander is visible; the notes text is populated but collapsed, and
+        # the machine-only SHA line never leaks into the user-facing text.
+        assert app._update_whatsnew_toggle.grid_info(), "toggle should be gridded"
+        assert "A nice change" in app._update_whatsnew_text.cget("text")
+        assert "SHA-256" not in app._update_whatsnew_text.cget("text")
+        assert app._whatsnew_expanded is False
+        assert not app._update_whatsnew_text.grid_info(), "notes collapsed by default"
+
+    def test_toggle_hidden_when_release_has_no_notes(self, app) -> None:
+        app._show_update_banner(self._info("a plain body with no section"))
+        assert not app._update_whatsnew_toggle.grid_info()
+        assert not app._update_whatsnew_text.grid_info()
+
+    def test_toggle_expands_and_collapses(self, app) -> None:
+        app._show_update_banner(self._info("### What's new\n- one\n- two"))
+        app._toggle_whatsnew()
+        assert app._whatsnew_expanded is True
+        assert app._update_whatsnew_text.grid_info(), "notes shown after expand"
+        app._toggle_whatsnew()
+        assert app._whatsnew_expanded is False
+        assert not app._update_whatsnew_text.grid_info(), "notes hidden after collapse"
+
+    def test_reshow_clears_stale_notes_across_releases(self, app) -> None:
+        # notes -> no-notes -> notes: the hidden text must never retain a
+        # previous release's notes.
+        app._show_update_banner(self._info("### What's new\n- first release note"))
+        assert "first release note" in app._update_whatsnew_text.cget("text")
+        app._show_update_banner(self._info("plain body, no section"))
+        assert not app._update_whatsnew_toggle.grid_info()
+        assert app._update_whatsnew_text.cget("text") == ""
+        app._show_update_banner(self._info("### What's new\n- second release note"))
+        assert "second release note" in app._update_whatsnew_text.cget("text")
+        assert "first release note" not in app._update_whatsnew_text.cget("text")
+
+
 # ---------------------------------------------------------------------------
 # Chatterbox language-aware voice helper
 # ---------------------------------------------------------------------------

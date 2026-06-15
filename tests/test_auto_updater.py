@@ -20,6 +20,7 @@ from src.auto_updater import (
     check_for_update,
     clear_pending_marker,
     download_update,
+    extract_whats_new,
     read_pending_marker,
     verify_pending_update,
     _write_pending_marker,
@@ -48,6 +49,77 @@ class TestExtractSha256:
 
     def test_short_hex_not_matched(self) -> None:
         assert _extract_sha256("SHA-256: abcd1234") is None
+
+
+class TestExtractWhatsNew:
+    """extract_whats_new pulls only the human-readable section out of the
+    structured release body the pipeline writes, dropping the title, the
+    Installation/CLI sections, and the machine-only SHA-256 lines."""
+
+    # Mirrors the shape build-release.yml emits.
+    FULL_BODY = "\n".join([
+        "## AudiobookMaker 3.17.4",
+        "",
+        "### What's new",
+        "- Cleaner Finnish narration pauses",
+        "- Quieter log panel",
+        "",
+        "### Installation",
+        "Run the installer and dismiss SmartScreen.",
+        "",
+        "### CLI (command-line interface)",
+        "Download the CLI zip.",
+        "",
+        "SHA-256: " + "a" * 64,
+        "CLI: SHA-256: " + "b" * 64,
+    ])
+
+    def test_returns_only_the_whats_new_bullets(self) -> None:
+        assert extract_whats_new(self.FULL_BODY) == (
+            "- Cleaner Finnish narration pauses\n- Quieter log panel"
+        )
+
+    def test_drops_installation_cli_and_sha_lines(self) -> None:
+        out = extract_whats_new(self.FULL_BODY)
+        assert "Installation" not in out
+        assert "SHA-256" not in out
+        assert "Download the CLI zip" not in out
+
+    def test_empty_when_no_whats_new_section(self) -> None:
+        body = (
+            "## AudiobookMaker 3.0.0\n\n### Installation\nRun it.\n\n"
+            "SHA-256: " + "c" * 64
+        )
+        assert extract_whats_new(body) == ""
+
+    @pytest.mark.parametrize("value", ["", "   ", None, 123])
+    def test_blank_or_non_string_returns_empty(self, value) -> None:
+        assert extract_whats_new(value) == ""
+
+    @pytest.mark.parametrize("heading", [
+        "### What's new",
+        "## Whats New",
+        "### What’s new:",   # curly apostrophe + trailing colon
+        "#### WHAT'S NEW",
+    ])
+    def test_tolerates_heading_and_apostrophe_variants(self, heading: str) -> None:
+        body = heading + "\n- one\n- two\n### Installation\nx"
+        assert extract_whats_new(body) == "- one\n- two"
+
+    def test_stops_at_sha_when_whats_new_is_last_section(self) -> None:
+        body = "### What's new\n- only change\n\nSHA-256: " + "d" * 64
+        assert extract_whats_new(body) == "- only change"
+
+    def test_handles_crlf_line_endings(self) -> None:
+        # GitHub serves release bodies with CRLF; splitlines() must cope and
+        # the result must carry no stray carriage returns.
+        body = "### What's new\r\n- a change\r\n- another\r\n### Installation\r\nx"
+        assert extract_whats_new(body) == "- a change\n- another"
+
+    def test_empty_section_returns_empty(self) -> None:
+        # Heading present but immediately followed by the next section.
+        body = "### What's new\n### Installation\nRun it.\nSHA-256: " + "e" * 64
+        assert extract_whats_new(body) == ""
 
 
 class TestUpdateInfoSha256Field:
