@@ -1041,8 +1041,24 @@ def _make_few_shot_pack(source_dir, name: str = "Test Pack") -> None:
     (source_dir / "reference.wav").write_bytes(b"\x00" * 64)
 
 
+def _make_few_shot_pack_zip(tmp_path, name: str = "Test Pack") -> str:
+    """Create a few_shot pack folder and bundle it into a portable .zip.
+
+    Returns the path to the written ``.abvpack.zip`` archive — the form the
+    GUI import flow now consumes via ``filedialog.askopenfilename``.
+    """
+    from src.voice_pack import export_pack
+
+    source_dir = tmp_path / f"src_{name.replace(' ', '_')}"
+    _make_few_shot_pack(source_dir, name=name)
+    archive = tmp_path / f"{name.replace(' ', '_')}.abvpack.zip"
+    export_pack(source_dir, archive)
+    return str(archive)
+
+
 class TestVoicePackImport:
-    """GUI wire-up of the voice pack import flow (install_pack + list_packs)."""
+    """GUI wire-up of the voice pack import flow (install_pack_source +
+    list_packs), now consuming a portable .zip archive via a file picker."""
 
     def test_import_button_present_and_localized(self, app) -> None:
         """The Import voice pack button lives in the Settings panel and
@@ -1051,8 +1067,8 @@ class TestVoicePackImport:
         # Finnish default.
         assert "\u00e4\u00e4nipaketti" in app._import_pack_btn.cget("text").lower()
 
-    def test_import_picks_no_folder_noop(self, app, monkeypatch, tmp_path) -> None:
-        """Cancelled folder picker leaves the dropdown untouched."""
+    def test_import_picks_no_file_noop(self, app, monkeypatch, tmp_path) -> None:
+        """Cancelled file picker leaves the dropdown untouched."""
         root_dir = tmp_path / "packs_root"
         monkeypatch.setattr(
             "src.gui_unified.default_voice_packs_root", lambda: root_dir
@@ -1060,18 +1076,17 @@ class TestVoicePackImport:
         monkeypatch.setattr(
             "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
         )
-        with patch("src.gui_unified.filedialog.askdirectory", return_value=""):
+        with patch("src.gui_unified.filedialog.askopenfilename", return_value=""):
             app._import_voice_pack()
         assert not root_dir.exists() or not any(root_dir.iterdir())
 
     def test_import_copies_pack_and_refreshes_dropdown(
         self, app, monkeypatch, tmp_path
     ) -> None:
-        """A valid few_shot pack gets copied to the root and shows up
-        next to Grandmom in the Chatterbox voice dropdown."""
+        """A valid few_shot pack archive gets installed to the root and
+        shows up next to Grandmom in the Chatterbox voice dropdown."""
         root_dir = tmp_path / "packs_root"
-        source_dir = tmp_path / "incoming_pack"
-        _make_few_shot_pack(source_dir, name="Granny Fixture")
+        archive = _make_few_shot_pack_zip(tmp_path, name="Granny Fixture")
         monkeypatch.setattr(
             "src.gui_unified.default_voice_packs_root", lambda: root_dir
         )
@@ -1090,16 +1105,16 @@ class TestVoicePackImport:
         app._engine_cb.set(chatterbox_display)
 
         with patch(
-            "src.gui_unified.filedialog.askdirectory",
-            return_value=str(source_dir),
+            "src.gui_unified.filedialog.askopenfilename",
+            return_value=archive,
         ):
             app._import_voice_pack()
         app.update_idletasks()
 
-        # Pack copied to user-data root.
+        # Pack installed to user-data root.
         assert root_dir.exists()
         copied = list(root_dir.iterdir())
-        assert len(copied) == 1, "install_pack should copy exactly one pack"
+        assert len(copied) == 1, "import should install exactly one pack"
 
         # Dropdown now contains an entry tagged with the voice-pack label.
         values = list(app._voice_cb.cget("values"))
@@ -1109,12 +1124,12 @@ class TestVoicePackImport:
         # Active selection points at the newly imported pack.
         assert "Granny Fixture" in app._voice_cb.get()
 
-    def test_import_rejects_invalid_folder(self, app, monkeypatch, tmp_path) -> None:
-        """A folder without meta.yaml raises an error dialog and does
-        not touch the packs root."""
+    def test_import_rejects_invalid_archive(self, app, monkeypatch, tmp_path) -> None:
+        """A corrupt / non-pack file raises an error dialog and does not
+        touch the packs root."""
         root_dir = tmp_path / "packs_root"
-        bogus_dir = tmp_path / "bogus"
-        bogus_dir.mkdir()
+        broken = tmp_path / "broken.zip"
+        broken.write_bytes(b"not a real zip archive")
         monkeypatch.setattr(
             "src.gui_unified.default_voice_packs_root", lambda: root_dir
         )
@@ -1124,8 +1139,8 @@ class TestVoicePackImport:
 
         errors: list[tuple[str, str]] = []
         with patch(
-            "src.gui_unified.filedialog.askdirectory",
-            return_value=str(bogus_dir),
+            "src.gui_unified.filedialog.askopenfilename",
+            return_value=str(broken),
         ), patch(
             "src.gui_unified.messagebox.showerror",
             side_effect=lambda title, msg: errors.append((title, msg)),
@@ -1134,6 +1149,31 @@ class TestVoicePackImport:
         assert errors, "Invalid pack should trigger an error dialog"
         assert not root_dir.exists() or not any(root_dir.iterdir())
 
+    def test_import_warns_about_base_models(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """After a successful import the log notes which base models the
+        Finnish pack needs on the target machine."""
+        root_dir = tmp_path / "packs_root"
+        archive = _make_few_shot_pack_zip(tmp_path, name="Needs Models")
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+
+        logged: list[str] = []
+        monkeypatch.setattr(app, "_append_log_warning", lambda line: logged.append(line))
+
+        with patch(
+            "src.gui_unified.filedialog.askopenfilename",
+            return_value=archive,
+        ):
+            app._import_voice_pack()
+
+        assert any("Finnish" in line for line in logged), logged
+
     def test_voice_pack_reference_auto_populated(
         self, app, monkeypatch, tmp_path
     ) -> None:
@@ -1141,8 +1181,7 @@ class TestVoicePackImport:
         ``_effective_reference_audio`` return the pack's reference.wav
         even when the user hasn't typed anything into Ref. ääni."""
         root_dir = tmp_path / "packs_root"
-        source_dir = tmp_path / "incoming_pack"
-        _make_few_shot_pack(source_dir, name="Auto Ref")
+        archive = _make_few_shot_pack_zip(tmp_path, name="Auto Ref")
         monkeypatch.setattr(
             "src.gui_unified.default_voice_packs_root", lambda: root_dir
         )
@@ -1153,8 +1192,8 @@ class TestVoicePackImport:
         from src.tts_base import Voice
 
         with patch(
-            "src.gui_unified.filedialog.askdirectory",
-            return_value=str(source_dir),
+            "src.gui_unified.filedialog.askopenfilename",
+            return_value=archive,
         ):
             app._import_voice_pack()
 
@@ -1179,8 +1218,7 @@ class TestVoicePackImport:
         pack's default — lets power users tweak per-run without
         un-picking the pack from the dropdown."""
         root_dir = tmp_path / "packs_root"
-        source_dir = tmp_path / "incoming_pack"
-        _make_few_shot_pack(source_dir, name="Override Me")
+        archive = _make_few_shot_pack_zip(tmp_path, name="Override Me")
         monkeypatch.setattr(
             "src.gui_unified.default_voice_packs_root", lambda: root_dir
         )
@@ -1191,8 +1229,8 @@ class TestVoicePackImport:
         from src.tts_base import Voice
 
         with patch(
-            "src.gui_unified.filedialog.askdirectory",
-            return_value=str(source_dir),
+            "src.gui_unified.filedialog.askopenfilename",
+            return_value=archive,
         ):
             app._import_voice_pack()
 
@@ -1205,6 +1243,132 @@ class TestVoicePackImport:
         manual = str(tmp_path / "manual.wav")
         resolved = app._effective_reference_audio(voice, manual_ref=manual)
         assert resolved == manual
+
+
+class TestVoicePackExport:
+    """GUI wire-up of the voice pack export flow (export_pack via a Save
+    dialog, targeting the currently-selected voice pack)."""
+
+    def _import_one(self, app, monkeypatch, tmp_path, name: str):
+        """Install a single pack via the GUI import flow and select
+        Chatterbox so it surfaces in the Voice dropdown. Returns the
+        installed VoicePack."""
+        root_dir = tmp_path / "packs_root"
+        archive = _make_few_shot_pack_zip(tmp_path, name=name)
+        monkeypatch.setattr(
+            "src.gui_unified.default_voice_packs_root", lambda: root_dir
+        )
+        monkeypatch.setattr(
+            "src.voice_pack.pack.default_voice_packs_root", lambda: root_dir
+        )
+        chatterbox_display = next(
+            (d for d, eid in app._engine_display_to_id.items()
+             if eid == "chatterbox_grandmom"),
+            None,
+        )
+        if chatterbox_display is None:
+            pytest.skip("Chatterbox engine not registered in this test run")
+        app._engine_cb.set(chatterbox_display)
+        with patch(
+            "src.gui_unified.filedialog.askopenfilename",
+            return_value=archive,
+        ):
+            app._import_voice_pack()
+        app.update_idletasks()
+        return app._list_installed_voice_packs()[0]
+
+    def test_export_button_present_and_localized(self, app) -> None:
+        assert hasattr(app, "_export_pack_btn")
+        assert "äänipaketti" in app._export_pack_btn.cget("text").lower()
+
+    def test_export_no_pack_selected_shows_info(self, app, monkeypatch) -> None:
+        """With a non-pack voice selected, export explains there's nothing
+        to export and never opens the Save dialog."""
+        infos: list[tuple[str, str]] = []
+        save_called: list[bool] = []
+        with patch(
+            "src.gui_unified.messagebox.showinfo",
+            side_effect=lambda title, msg: infos.append((title, msg)),
+        ), patch(
+            "src.gui_unified.filedialog.asksaveasfilename",
+            side_effect=lambda **kw: save_called.append(True) or "",
+        ):
+            app._export_voice_pack()
+        assert infos, "Expected an info dialog when no pack is selected"
+        assert not save_called, "Save dialog must not open with no pack selected"
+
+    def test_export_writes_loadable_archive(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """Exporting the selected pack writes a .zip that re-imports back
+        into a valid pack."""
+        from src.voice_pack import load_pack
+        from src.voice_pack.pack import _extract_pack_archive
+
+        pack = self._import_one(app, monkeypatch, tmp_path, "Sendable")
+        # Select the imported pack in the Voice dropdown.
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({tag})")
+
+        dest = tmp_path / "outbox" / "sendable.abvpack.zip"
+        with patch(
+            "src.gui_unified.filedialog.asksaveasfilename",
+            return_value=str(dest),
+        ):
+            app._export_voice_pack()
+
+        assert dest.exists(), "export should write the archive"
+        extracted = _extract_pack_archive(dest, tmp_path / "verify")
+        assert load_pack(extracted).meta.name == "Sendable"
+
+    def test_export_cancelled_noop(self, app, monkeypatch, tmp_path) -> None:
+        """Cancelling the Save dialog writes nothing."""
+        pack = self._import_one(app, monkeypatch, tmp_path, "Cancelled")
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({tag})")
+
+        wrote: list[str] = []
+        monkeypatch.setattr(
+            "src.gui_unified.export_pack",
+            lambda *a, **k: wrote.append("called"),
+        )
+        with patch(
+            "src.gui_unified.filedialog.asksaveasfilename",
+            return_value="",
+        ):
+            app._export_voice_pack()
+        assert not wrote, "export_pack must not run when the Save dialog is cancelled"
+
+    def test_export_shows_error_dialog_on_failure(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """If export_pack raises, the user gets an error dialog and no
+        success line is logged."""
+        from src.voice_pack import VoicePackError
+
+        pack = self._import_one(app, monkeypatch, tmp_path, "Boom")
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({tag})")
+
+        def _boom(*a, **k):
+            raise VoicePackError("disk on fire")
+
+        monkeypatch.setattr("src.gui_unified.export_pack", _boom)
+        logged: list[str] = []
+        monkeypatch.setattr(app, "_append_log_success", lambda line: logged.append(line))
+
+        errors: list[tuple[str, str]] = []
+        with patch(
+            "src.gui_unified.filedialog.asksaveasfilename",
+            return_value=str(tmp_path / "out.zip"),
+        ), patch(
+            "src.gui_unified.messagebox.showerror",
+            side_effect=lambda title, msg: errors.append((title, msg)),
+        ):
+            app._export_voice_pack()
+
+        assert errors, "export failure should raise an error dialog"
+        assert not logged, "no success line should be logged on failure"
 
 
 class TestInlineAudioPlayer:

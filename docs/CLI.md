@@ -169,21 +169,38 @@ echo "Written to: $out"
 
 ### 6. Import and use a voice pack
 
-Install a pack you built (or downloaded) with `packs import`, then pass it to
+Install a pack you built (or received) with `packs import`, then pass it to
 `convert` with `--voice-pack`:
 
 ```bash
-# Install the pack once
+# Install from a folder…
 audiobookmaker-cli packs import /path/to/my_voice_pack/
+
+# …or from a portable .abvpack.zip someone sent you
+audiobookmaker-cli packs import /path/to/my_voice.abvpack.zip
 
 # Use it in a conversion (pack name or full path both work)
 audiobookmaker-cli convert book.txt --engine chatterbox_grandmom --voice-pack my_voice_pack
 ```
 
 `packs import` copies the pack into the app's pack store and validates its
-metadata. After that, `--voice-pack <name>` selects it by the slug shown in
-`packs list`. You can also pass the original directory path directly if you
-haven't imported it yet.
+metadata. It accepts either a pack folder or a `.abvpack.zip` archive. After
+that, `--voice-pack <name>` selects it by the slug shown in `packs list`.
+
+To move a voice to another machine, bundle an installed pack into a single
+shareable file with `packs export`:
+
+```bash
+# Writes my_voice.abvpack.zip in the current directory
+audiobookmaker-cli packs export my_voice
+
+# …or choose where it goes
+audiobookmaker-cli packs export my_voice --out /path/to/send/my_voice.zip
+```
+
+Send that `.zip` to the other machine and `packs import` it there. The pack
+carries only the voice layer (a reference clip or LoRA adapter), not the
+multi-gigabyte base TTS weights — those download automatically on first use.
 
 ---
 
@@ -204,7 +221,8 @@ the auto-generated detail follows.
 | `engines remove ID` | Remove an installed engine's assets |
 | `engines check ID` | Report whether a specific engine is ready to use |
 | `packs list` | List installed voice packs |
-| `packs import DIR` | Validate and install a voice pack from a directory |
+| `packs import SOURCE` | Validate and install a voice pack from a folder or .abvpack.zip |
+| `packs export SLUG` | Bundle an installed voice pack into a portable .abvpack.zip |
 | `packs remove SLUG` | Delete an installed voice pack |
 | `packs info SLUG` | Print metadata for an installed voice pack |
 | `config show` | Print all persistent config fields (or one field) |
@@ -439,7 +457,7 @@ audiobookmaker-cli packs list
 
 | Flag | Description |
 |------|-------------|
-| `DIRECTORY` | Source pack directory. |
+| `SOURCE` | Source pack directory or .abvpack.zip archive. |
 | `--json` | Emit a single result object with fields: ok, slug, path. |
 | `--quiet` | Print only the installed path on success. |
 
@@ -447,6 +465,23 @@ audiobookmaker-cli packs list
 
 ```bash
 audiobookmaker-cli packs import ./mypack/
+```
+
+---
+
+### `audiobookmaker-cli packs export`
+
+| Flag | Description |
+|------|-------------|
+| `SLUG` | Pack slug (folder name). |
+| `--out FILE` | Output archive path (default: <slug>.abvpack.zip in the current directory). |
+| `--json` | Emit a single result object with fields: ok, slug, path. |
+| `--quiet` | Print only the written archive path on success. |
+
+**Example:**
+
+```bash
+audiobookmaker-cli packs export mypack --out ./mypack.abvpack.zip
 ```
 
 ---

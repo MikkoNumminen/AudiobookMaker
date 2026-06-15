@@ -8,12 +8,17 @@ import pytest
 import yaml
 
 from src.voice_pack.pack import (
+    PACK_ARCHIVE_SUFFIX,
     VOICE_PACK_FORMAT_VERSION,
     VoicePack,
     VoicePackError,
     VoicePackMeta,
+    _extract_pack_archive,
+    base_model_requirements,
     default_voice_packs_root,
+    export_pack,
     install_pack,
+    install_pack_source,
     list_packs,
     load_pack,
     validate_pack_dir,
@@ -317,3 +322,202 @@ def test_install_pack_slug_from_name(tmp_path: Path) -> None:
 
 def test_default_voice_packs_root() -> None:
     assert default_voice_packs_root() == Path.home() / ".audiobookmaker" / "voice_packs"
+
+
+# ---------------------------------------------------------------------------
+# base_model_requirements
+# ---------------------------------------------------------------------------
+
+
+def test_base_model_requirements_non_finnish_lists_base_only() -> None:
+    meta = VoicePackMeta(
+        name="X", language="en", tier="few_shot",
+        tier_reason="r", total_source_minutes=1.0,
+    )
+    reqs = base_model_requirements(meta)
+    assert reqs == ["Chatterbox multilingual base model"]
+
+
+def test_base_model_requirements_finnish_adds_finetune() -> None:
+    meta = VoicePackMeta(
+        name="X", language="fi", tier="few_shot",
+        tier_reason="r", total_source_minutes=1.0,
+    )
+    reqs = base_model_requirements(meta)
+    assert len(reqs) == 2
+    assert any("Finnish" in r for r in reqs)
+
+
+def test_base_model_requirements_finnish_case_and_region_insensitive() -> None:
+    # "FI", "fin", "fi-FI", "fi_FI" and leading/trailing space all count.
+    for lang in ("FI", "fin", "fi-FI", "fi_FI", " fi "):
+        meta = VoicePackMeta(
+            name="X", language=lang, tier="few_shot",
+            tier_reason="r", total_source_minutes=1.0,
+        )
+        assert len(base_model_requirements(meta)) == 2, lang
+
+
+def test_base_model_requirements_lookalike_codes_not_finnish() -> None:
+    # Codes that merely start with "fi" but aren't Finnish must NOT pull in
+    # the Finnish finetune requirement.
+    for lang in ("fil", "fij", "filipino"):
+        meta = VoicePackMeta(
+            name="X", language=lang, tier="few_shot",
+            tier_reason="r", total_source_minutes=1.0,
+        )
+        assert base_model_requirements(meta) == ["Chatterbox multilingual base model"], lang
+
+
+# ---------------------------------------------------------------------------
+# export_pack / install_pack_source round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_export_pack_default_name_and_layout(tmp_path: Path, monkeypatch) -> None:
+    source = _make_few_shot_pack(tmp_path / "src", name="Granny")
+    # Default out path lands in the CWD; chdir into tmp so we don't litter.
+    monkeypatch.chdir(tmp_path)
+
+    out = export_pack(source)
+    assert out.name == f"{source.name}{PACK_ARCHIVE_SUFFIX}"
+    assert out.exists()
+
+    import zipfile
+
+    with zipfile.ZipFile(out) as zf:
+        members = sorted(zf.namelist())
+    # Every member is nested under a single top-level <slug>/ directory.
+    assert members == [
+        f"{source.name}/meta.yaml",
+        f"{source.name}/reference.wav",
+        f"{source.name}/sample.wav",
+    ]
+
+
+def test_export_pack_explicit_out_creates_parent_dirs(tmp_path: Path) -> None:
+    source = _make_few_shot_pack(tmp_path / "src", name="Granny")
+    out = tmp_path / "nested" / "dir" / "voice.zip"
+
+    written = export_pack(source, out)
+    assert written == out
+    assert out.exists()
+
+
+def test_export_pack_rejects_invalid_pack(tmp_path: Path) -> None:
+    bogus = tmp_path / "bogus"
+    bogus.mkdir()
+    (bogus / "stray.txt").write_text("not a pack", encoding="utf-8")
+
+    with pytest.raises(VoicePackError):
+        export_pack(bogus, tmp_path / "out.zip")
+
+
+def test_export_then_install_round_trip(tmp_path: Path) -> None:
+    source = _make_few_shot_pack(tmp_path / "src", name="Round Trip")
+    archive = export_pack(source, tmp_path / "rt.abvpack.zip")
+
+    dest_root = tmp_path / "installed"
+    pack = install_pack_source(archive, dest_root)
+
+    assert pack.meta.name == "Round Trip"
+    assert pack.root.parent == dest_root
+    # Reloading from disk confirms a complete, valid pack landed.
+    assert load_pack(pack.root).meta.name == "Round Trip"
+    assert (pack.root / "reference.wav").exists()
+
+
+def test_install_pack_source_accepts_directory(tmp_path: Path) -> None:
+    source = _make_few_shot_pack(tmp_path / "src", name="Dir Source")
+    dest_root = tmp_path / "installed"
+
+    pack = install_pack_source(source, dest_root)
+    assert pack.meta.name == "Dir Source"
+
+
+def test_install_pack_source_missing_source_raises(tmp_path: Path) -> None:
+    with pytest.raises(VoicePackError, match="not found"):
+        install_pack_source(tmp_path / "nope.zip", tmp_path / "installed")
+
+
+def test_install_pack_source_non_zip_file_raises(tmp_path: Path) -> None:
+    bad = tmp_path / "notes.txt"
+    bad.write_text("hello", encoding="utf-8")
+    with pytest.raises(VoicePackError, match="unsupported"):
+        install_pack_source(bad, tmp_path / "installed")
+
+
+def test_install_pack_source_honours_overwrite(tmp_path: Path) -> None:
+    source = _make_few_shot_pack(tmp_path / "src", name="Twice")
+    archive = export_pack(source, tmp_path / "twice.zip")
+    dest_root = tmp_path / "installed"
+
+    install_pack_source(archive, dest_root)
+    # Re-importing the same pack collides on the slug.
+    with pytest.raises(FileExistsError):
+        install_pack_source(archive, dest_root)
+    # overwrite=True replaces it cleanly.
+    pack = install_pack_source(archive, dest_root, overwrite=True)
+    assert pack.meta.name == "Twice"
+
+
+# ---------------------------------------------------------------------------
+# _extract_pack_archive — zip-slip protection
+# ---------------------------------------------------------------------------
+
+
+def test_extract_pack_archive_rejects_parent_escape(tmp_path: Path) -> None:
+    import zipfile
+
+    evil = tmp_path / "evil.zip"
+    with zipfile.ZipFile(evil, "w") as zf:
+        zf.writestr("../escape.txt", "nope")
+        zf.writestr("pack/meta.yaml", "x")
+
+    with pytest.raises(VoicePackError, match="unsafe path"):
+        _extract_pack_archive(evil, tmp_path / "dest")
+    # Nothing escaped to the parent.
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_extract_pack_archive_rejects_absolute_member(tmp_path: Path) -> None:
+    import zipfile
+
+    evil = tmp_path / "abs.zip"
+    with zipfile.ZipFile(evil, "w") as zf:
+        # A leading-slash member name attempts an absolute write.
+        zf.writestr("/abs_escape.txt", "nope")
+
+    with pytest.raises(VoicePackError, match="unsafe path"):
+        _extract_pack_archive(evil, tmp_path / "dest")
+
+
+def test_extract_pack_archive_bad_zip_raises(tmp_path: Path) -> None:
+    notzip = tmp_path / "broken.zip"
+    notzip.write_bytes(b"this is not a zip file")
+
+    with pytest.raises(VoicePackError, match="not a valid zip"):
+        _extract_pack_archive(notzip, tmp_path / "dest")
+
+
+def test_extract_pack_archive_no_meta_raises(tmp_path: Path) -> None:
+    import zipfile
+
+    nometa = tmp_path / "nometa.zip"
+    with zipfile.ZipFile(nometa, "w") as zf:
+        zf.writestr("pack/sample.wav", "x")
+
+    with pytest.raises(VoicePackError, match="no meta.yaml"):
+        _extract_pack_archive(nometa, tmp_path / "dest")
+
+
+def test_extract_pack_archive_ambiguous_multiple_packs_raises(tmp_path: Path) -> None:
+    import zipfile
+
+    multi = tmp_path / "multi.zip"
+    with zipfile.ZipFile(multi, "w") as zf:
+        zf.writestr("pack_a/meta.yaml", "x")
+        zf.writestr("pack_b/meta.yaml", "y")
+
+    with pytest.raises(VoicePackError, match="multiple packs"):
+        _extract_pack_archive(multi, tmp_path / "dest")

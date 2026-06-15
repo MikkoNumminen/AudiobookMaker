@@ -68,12 +68,14 @@ from src.tts_base import EngineStatus, TTSEngine, Voice, get_engine, list_engine
 from src.version_manifest import is_engine_load_failure
 from src.tts_engine import TTSConfig, chapters_to_speech
 from src.voice_pack import (
+    PACK_ARCHIVE_SUFFIX,
     VoicePack,
     VoicePackError,
+    base_model_requirements,
     default_voice_packs_root,
-    install_pack,
+    export_pack,
+    install_pack_source,
     list_packs,
-    validate_pack_dir,
 )
 
 # Single import point for every TTS engine. See src/engine_registry.py
@@ -295,10 +297,17 @@ _STRINGS = {
         "lang_name_en": "englanninkielist\u00e4",
         "chunk_chars_label": "Chatterbox-palan pituus (merkki\u00e4):",
         "import_pack_btn": "Tuo \u00e4\u00e4nipaketti\u2026",
-        "import_pack_title": "Valitse \u00e4\u00e4nipakettikansio",
+        "import_pack_title": "Valitse \u00e4\u00e4nipakettitiedosto",
         "import_pack_success": "\u00c4\u00e4nipaketti tuotu: {name}",
         "import_pack_error": "\u00c4\u00e4nipaketin tuonti ep\u00e4onnistui: {error}",
-        "import_pack_invalid": "Kansio ei ole kelvollinen \u00e4\u00e4nipaketti: {issues}",
+        "import_pack_base_models": "Huom: t\u00e4m\u00e4 \u00e4\u00e4ni tarvitsee koneella: {models} (ladataan ensimm\u00e4isell\u00e4 k\u00e4yt\u00f6ll\u00e4)",
+        "export_pack_btn": "Vie \u00e4\u00e4nipaketti\u2026",
+        "export_pack_title": "Tallenna \u00e4\u00e4nipaketti",
+        "export_pack_success": "\u00c4\u00e4nipaketti viety: {path}",
+        "export_pack_error": "\u00c4\u00e4nipaketin vienti ep\u00e4onnistui: {error}",
+        "export_pack_no_selection": "Valitse ensin tuotu \u00e4\u00e4nipaketti \u00c4\u00e4ni-valikosta.",
+        "pack_archive_filter": "\u00c4\u00e4nipaketti (.zip)",
+        "all_files_filter": "Kaikki tiedostot",
         "voice_pack_tag": "\u00e4\u00e4nipaketti",
         "report_bug_btn": "Ilmoita bugista\u2026",
     },
@@ -408,10 +417,17 @@ _STRINGS = {
         "lang_name_en": "English",
         "chunk_chars_label": "Chatterbox chunk size (chars):",
         "import_pack_btn": "Import voice pack\u2026",
-        "import_pack_title": "Select voice pack folder",
+        "import_pack_title": "Select voice pack file",
         "import_pack_success": "Voice pack imported: {name}",
         "import_pack_error": "Voice pack import failed: {error}",
-        "import_pack_invalid": "Folder is not a valid voice pack: {issues}",
+        "import_pack_base_models": "Note: this voice needs {models} on this computer (downloads on first use)",
+        "export_pack_btn": "Export voice pack\u2026",
+        "export_pack_title": "Save voice pack",
+        "export_pack_success": "Voice pack exported: {path}",
+        "export_pack_error": "Voice pack export failed: {error}",
+        "export_pack_no_selection": "Select an imported voice pack from the Voice menu first.",
+        "pack_archive_filter": "Voice pack (.zip)",
+        "all_files_filter": "All files",
         "voice_pack_tag": "voice pack",
         "report_bug_btn": "Report a bug\u2026",
     },
@@ -712,8 +728,9 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._ref_browse_btn.configure(text=s("browse").rstrip("\u2026"))
         self._ref_clear_btn.configure(text=s("clear"))
 
-        # Voice pack import button (visible in Settings regardless of engine).
+        # Voice pack import/export buttons (visible in Settings regardless of engine).
         self._import_pack_btn.configure(text=s("import_pack_btn"))
+        self._export_pack_btn.configure(text=s("export_pack_btn"))
 
         # Report-a-bug button (always visible in Settings).
         if hasattr(self, "_report_bug_btn"):
@@ -1846,35 +1863,36 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             pass
 
     def _import_voice_pack(self) -> None:
-        """Folder picker → ``install_pack`` → refresh Voice dropdown.
+        """File picker → ``install_pack_source`` → refresh Voice dropdown.
 
-        Copies the chosen pack into the user-data voice-packs root
-        (``~/.audiobookmaker/voice_packs/``) so the app owns the
-        canonical copy; the source folder can be moved or deleted
-        afterwards without breaking the imported voice.
+        Accepts a portable ``.abvpack.zip`` archive — the form produced by
+        Export voice pack… and the easy thing to send between machines.
+        The pack is copied into the user-data voice-packs root
+        (``~/.audiobookmaker/voice_packs/``) so the app owns the canonical
+        copy; the source file can be moved or deleted afterwards without
+        breaking the imported voice.
         """
-        source = filedialog.askdirectory(title=self._s("import_pack_title"))
+        source = filedialog.askopenfilename(
+            title=self._s("import_pack_title"),
+            filetypes=[
+                (self._s("pack_archive_filter"), "*.zip"),
+                (self._s("all_files_filter"), "*.*"),
+            ],
+        )
         if not source:
             return
-        source_path = Path(source)
-        issues = validate_pack_dir(source_path)
-        if issues:
-            messagebox.showerror(
-                self._s("error"),
-                self._s("import_pack_invalid").format(issues="; ".join(issues)),
-            )
-            return
         try:
-            pack = install_pack(source_path)
+            pack = install_pack_source(source)
         except (VoicePackError, FileExistsError, OSError) as exc:
             messagebox.showerror(
                 self._s("error"),
                 self._s("import_pack_error").format(error=str(exc)),
             )
             return
-        self._append_log(
+        self._append_log_success(
             self._s("import_pack_success").format(name=pack.display_name)
         )
+        self._warn_missing_base_models(pack)
         self._refresh_voice_list()
         # If the active engine is Chatterbox, jump straight to the newly
         # imported pack so the user doesn't have to re-open the dropdown.
@@ -1884,6 +1902,60 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             values = list(self._voice_cb.cget("values"))
             if target_name in values:
                 self._voice_cb.set(target_name)
+
+    def _warn_missing_base_models(self, pack: VoicePack) -> None:
+        """Log which base models the imported pack needs to actually speak.
+
+        A pack ships only the voice-specific layer (a reference clip or a
+        LoRA adapter); the multi-gigabyte base TTS weights download on
+        first synthesis. Naming the requirement at import time means a
+        missing-model failure later isn't a surprise on a fresh machine.
+        """
+        requirements = base_model_requirements(pack.meta)
+        if not requirements:
+            return
+        self._append_log_warning(
+            self._s("import_pack_base_models").format(models=", ".join(requirements))
+        )
+
+    def _export_voice_pack(self) -> None:
+        """Bundle the selected voice pack into a portable ``.abvpack.zip``.
+
+        Export targets the currently-selected voice. If the selection is
+        not a voice pack (e.g. a built-in voice), there's nothing to
+        export, so we tell the user to pick a pack first. Otherwise a Save
+        dialog chooses the destination and ``export_pack`` writes the zip.
+        """
+        voice = self._current_voice()
+        pack = self._resolve_voice_pack(voice.id) if voice is not None else None
+        if pack is None:
+            messagebox.showinfo(
+                self._s("export_pack_btn").rstrip("…"),
+                self._s("export_pack_no_selection"),
+            )
+            return
+        dest = filedialog.asksaveasfilename(
+            title=self._s("export_pack_title"),
+            defaultextension=".zip",
+            initialfile=f"{pack.root.name}{PACK_ARCHIVE_SUFFIX}",
+            filetypes=[
+                (self._s("pack_archive_filter"), "*.zip"),
+                (self._s("all_files_filter"), "*.*"),
+            ],
+        )
+        if not dest:
+            return
+        try:
+            out = export_pack(pack.root, dest)
+        except (VoicePackError, OSError) as exc:
+            messagebox.showerror(
+                self._s("error"),
+                self._s("export_pack_error").format(error=str(exc)),
+            )
+            return
+        self._append_log_success(
+            self._s("export_pack_success").format(path=str(out))
+        )
 
     def _browse_reference_audio(self) -> None:
         path = filedialog.askopenfilename(
