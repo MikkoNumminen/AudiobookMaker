@@ -454,6 +454,25 @@ class TestSeamKind:
         )
 
 
+class TestHfHubWarningMuted:
+    """The Hub server's "set a HF_TOKEN" advisory rides the `logging` channel
+    on the huggingface_hub.utils._http logger; muting the parent namespace is
+    the only thing that stops it (the warnings-module filter cannot reach a
+    logging-module record). Importing the module runs the suppression block."""
+
+    def test_parent_namespace_muted_to_error(self) -> None:
+        import logging
+        assert logging.getLogger("huggingface_hub").level == logging.ERROR
+
+    def test_http_child_inherits_error(self) -> None:
+        import logging
+        # The advisory is emitted on the .utils._http child; with no explicit
+        # level of its own it inherits ERROR from the parent we muted, so the
+        # WARNING record is dropped before it can reach any handler.
+        child = logging.getLogger("huggingface_hub.utils._http")
+        assert child.getEffectiveLevel() == logging.ERROR
+
+
 class TestCapInternalSilences:
     """_cap_internal_silences shortens an over-long pause in the MIDDLE of a
     chunk (the Finnish model renders 1–1.5s gaps at some punctuation) without

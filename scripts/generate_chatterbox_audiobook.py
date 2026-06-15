@@ -101,6 +101,17 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"contextlib")
 # them at the logger level. We keep ERROR so real failures still surface.
 logging.getLogger("chatterbox").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
+# The "unauthenticated requests to the HF Hub / set a HF_TOKEN" advisory is
+# NOT a hardcoded library string and has nothing to do with our app's account
+# surface (we removed all of that). The Hub *server* sends the text in an
+# `X-HF-Warning` response header on anonymous model downloads, and
+# huggingface_hub relays it verbatim via `logger.warning` on the
+# `huggingface_hub.utils._http` logger. It is purely informational — the
+# public Chatterbox-Finnish models download fine without a token. That makes
+# it the `logging` channel, which the warnings-module filter above cannot
+# reach; mute the namespace here instead. ERROR still surfaces real
+# download failures.
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 
 class _RefMelFilter(logging.Filter):
