@@ -890,6 +890,35 @@ def _apply_voice_pack_adapter(engine, voice_pack_dir: Path | None) -> None:
         )
 
 
+def _voice_pack_clip_warning(
+    voice_pack_dir: Path | None,
+    pack_ref: str | None,
+    *,
+    has_override: bool,
+) -> str | None:
+    """Return a warning when a voice pack yields no clone clip, else None.
+
+    A missing/typo'd ``--voice-pack`` path or a pack with neither
+    ``reference.wav`` nor ``sample.wav`` leaves ``pack_ref`` ``None``, so
+    synthesis would silently fall back to the language default voice (Isoäiti
+    in Finnish) — the exact "wrong voice, no error" failure this path is meant
+    to avoid. Surface it instead. No warning when the caller passed an explicit
+    ``--ref-audio`` override (the pack clip is intentionally bypassed) or when a
+    clip was found.
+    """
+    if voice_pack_dir is None or has_override or pack_ref is not None:
+        return None
+    if not voice_pack_dir.exists():
+        return (
+            f"voice pack directory not found: {voice_pack_dir}; "
+            f"using the default voice"
+        )
+    return (
+        f"voice pack {voice_pack_dir} has no reference.wav or sample.wav; "
+        f"using the default voice"
+    )
+
+
 def _load_engine(device: str, ref_override: str | None, language: str = "fi",
                  voice_pack_dir: Path | None = None):
     """Load Chatterbox. Returns (engine, ref_wav_path).
@@ -920,6 +949,11 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
         if voice_pack_dir is not None and not ref_override
         else None
     )
+    pack_warning = _voice_pack_clip_warning(
+        voice_pack_dir, pack_ref, has_override=bool(ref_override)
+    )
+    if pack_warning:
+        print(f"[warn] {pack_warning}", flush=True)
 
     if language == "en":
         # Native English path — base multilingual model + a reference clip

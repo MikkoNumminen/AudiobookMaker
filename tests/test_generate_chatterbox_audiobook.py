@@ -957,3 +957,37 @@ class TestApplyVoicePackAdapter:
         with patch.object(gca, "_apply_lora_adapter") as m:
             gca._apply_voice_pack_adapter(object(), d)  # must NOT raise
         m.assert_not_called()
+
+
+class TestVoicePackClipWarning:
+    """_voice_pack_clip_warning surfaces the 'pack requested but no clone clip'
+    case (missing dir, or a pack with no reference.wav/sample.wav) so synthesis
+    doesn't silently fall back to the default voice — and stays quiet when a
+    clip was found or the caller passed an explicit --ref-audio override."""
+
+    def test_no_warning_without_pack(self):
+        assert gca._voice_pack_clip_warning(None, None, has_override=False) is None
+
+    def test_no_warning_when_clip_found(self, tmp_path):
+        d = tmp_path / "pack"
+        d.mkdir()
+        assert gca._voice_pack_clip_warning(
+            d, str(d / "sample.wav"), has_override=False
+        ) is None
+
+    def test_no_warning_when_override_given(self, tmp_path):
+        # User passed --ref-audio: the pack clip is intentionally bypassed.
+        d = tmp_path / "pack"
+        d.mkdir()
+        assert gca._voice_pack_clip_warning(d, None, has_override=True) is None
+
+    def test_warns_missing_directory(self, tmp_path):
+        missing = tmp_path / "typo_pack"
+        msg = gca._voice_pack_clip_warning(missing, None, has_override=False)
+        assert msg is not None and "not found" in msg
+
+    def test_warns_pack_without_clip(self, tmp_path):
+        d = tmp_path / "pack"
+        d.mkdir()  # exists but no reference.wav / sample.wav
+        msg = gca._voice_pack_clip_warning(d, None, has_override=False)
+        assert msg is not None and "no reference.wav or sample.wav" in msg
