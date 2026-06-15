@@ -265,6 +265,18 @@ class TestUpdateBannerWhatsNew:
         assert app._whatsnew_expanded is False
         assert not app._update_whatsnew_text.grid_info(), "notes hidden after collapse"
 
+    def test_reshow_clears_stale_notes_across_releases(self, app) -> None:
+        # notes -> no-notes -> notes: the hidden text must never retain a
+        # previous release's notes.
+        app._show_update_banner(self._info("### What's new\n- first release note"))
+        assert "first release note" in app._update_whatsnew_text.cget("text")
+        app._show_update_banner(self._info("plain body, no section"))
+        assert not app._update_whatsnew_toggle.grid_info()
+        assert app._update_whatsnew_text.cget("text") == ""
+        app._show_update_banner(self._info("### What's new\n- second release note"))
+        assert "second release note" in app._update_whatsnew_text.cget("text")
+        assert "first release note" not in app._update_whatsnew_text.cget("text")
+
 
 # ---------------------------------------------------------------------------
 # Chatterbox language-aware voice helper

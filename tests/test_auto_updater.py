@@ -110,6 +110,17 @@ class TestExtractWhatsNew:
         body = "### What's new\n- only change\n\nSHA-256: " + "d" * 64
         assert extract_whats_new(body) == "- only change"
 
+    def test_handles_crlf_line_endings(self) -> None:
+        # GitHub serves release bodies with CRLF; splitlines() must cope and
+        # the result must carry no stray carriage returns.
+        body = "### What's new\r\n- a change\r\n- another\r\n### Installation\r\nx"
+        assert extract_whats_new(body) == "- a change\n- another"
+
+    def test_empty_section_returns_empty(self) -> None:
+        # Heading present but immediately followed by the next section.
+        body = "### What's new\n### Installation\nRun it.\nSHA-256: " + "e" * 64
+        assert extract_whats_new(body) == ""
+
 
 class TestUpdateInfoSha256Field:
     def test_dataclass_has_sha256_field(self) -> None:

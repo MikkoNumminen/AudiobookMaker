@@ -2166,7 +2166,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self._update_whatsnew_toggle.configure(text=self._whatsnew_toggle_text())
             self._update_whatsnew_toggle.grid()
         else:
+            # Clear the text too, not just unmap it — otherwise a previous
+            # release's notes linger in the hidden widget and could resurface
+            # if anything re-grids it later.
             self._update_whatsnew_toggle.grid_remove()
+            self._update_whatsnew_text.configure(text="")
             self._update_whatsnew_text.grid_remove()
 
         self._update_banner.grid()
