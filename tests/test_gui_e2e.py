@@ -1339,6 +1339,37 @@ class TestVoicePackExport:
             app._export_voice_pack()
         assert not wrote, "export_pack must not run when the Save dialog is cancelled"
 
+    def test_export_shows_error_dialog_on_failure(
+        self, app, monkeypatch, tmp_path
+    ) -> None:
+        """If export_pack raises, the user gets an error dialog and no
+        success line is logged."""
+        from src.voice_pack import VoicePackError
+
+        pack = self._import_one(app, monkeypatch, tmp_path, "Boom")
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({tag})")
+
+        def _boom(*a, **k):
+            raise VoicePackError("disk on fire")
+
+        monkeypatch.setattr("src.gui_unified.export_pack", _boom)
+        logged: list[str] = []
+        monkeypatch.setattr(app, "_append_log_success", lambda line: logged.append(line))
+
+        errors: list[tuple[str, str]] = []
+        with patch(
+            "src.gui_unified.filedialog.asksaveasfilename",
+            return_value=str(tmp_path / "out.zip"),
+        ), patch(
+            "src.gui_unified.messagebox.showerror",
+            side_effect=lambda title, msg: errors.append((title, msg)),
+        ):
+            app._export_voice_pack()
+
+        assert errors, "export failure should raise an error dialog"
+        assert not logged, "no success line should be logged on failure"
+
 
 class TestInlineAudioPlayer:
     """The Preview button hands off to the in-process AudioPlayer instead

@@ -730,8 +730,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
 
         # Voice pack import/export buttons (visible in Settings regardless of engine).
         self._import_pack_btn.configure(text=s("import_pack_btn"))
-        if hasattr(self, "_export_pack_btn"):
-            self._export_pack_btn.configure(text=s("export_pack_btn"))
+        self._export_pack_btn.configure(text=s("export_pack_btn"))
 
         # Report-a-bug button (always visible in Settings).
         if hasattr(self, "_report_bug_btn"):

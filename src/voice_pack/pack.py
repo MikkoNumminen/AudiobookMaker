@@ -367,7 +367,10 @@ def base_model_requirements(meta: VoicePackMeta) -> list[str]:
     """
 
     requirements = ["Chatterbox multilingual base model"]
-    if (meta.language or "").strip().lower().startswith("fi"):
+    lang = (meta.language or "").strip().lower()
+    # Match Finnish (fi / fin / fi-FI / fi_FI) but not lookalike codes that
+    # merely start with "fi" — e.g. "fil" (Filipino), "fij" (Fijian).
+    if lang in ("fi", "fin") or lang.startswith("fi-") or lang.startswith("fi_"):
         requirements.append("Finnish Chatterbox finetune (chatterbox_fi)")
     return requirements
 
@@ -441,7 +444,17 @@ def _extract_pack_archive(zip_path: str | Path, dest_dir: str | Path) -> Path:
     meta_files = sorted(dest_dir.rglob("meta.yaml"), key=lambda p: len(p.parts))
     if not meta_files:
         raise VoicePackError(f"voice pack archive has no meta.yaml: {zip_path}")
-    return meta_files[0].parent
+    # A well-formed archive holds exactly one pack. If two meta.yaml sit at
+    # the same shallowest depth the source is ambiguous — refuse it rather
+    # than silently install whichever the filesystem listed first.
+    shallowest_depth = len(meta_files[0].parts)
+    shallowest = [p for p in meta_files if len(p.parts) == shallowest_depth]
+    if len(shallowest) > 1:
+        raise VoicePackError(
+            f"voice pack archive contains multiple packs "
+            f"({len(shallowest)} meta.yaml at the same depth): {zip_path}"
+        )
+    return shallowest[0].parent
 
 
 def install_pack_source(

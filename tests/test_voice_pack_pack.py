@@ -349,13 +349,24 @@ def test_base_model_requirements_finnish_adds_finetune() -> None:
 
 
 def test_base_model_requirements_finnish_case_and_region_insensitive() -> None:
-    # "FI", "fi-FI" and leading/trailing space all count as Finnish.
-    for lang in ("FI", "fi-FI", " fi "):
+    # "FI", "fin", "fi-FI", "fi_FI" and leading/trailing space all count.
+    for lang in ("FI", "fin", "fi-FI", "fi_FI", " fi "):
         meta = VoicePackMeta(
             name="X", language=lang, tier="few_shot",
             tier_reason="r", total_source_minutes=1.0,
         )
         assert len(base_model_requirements(meta)) == 2, lang
+
+
+def test_base_model_requirements_lookalike_codes_not_finnish() -> None:
+    # Codes that merely start with "fi" but aren't Finnish must NOT pull in
+    # the Finnish finetune requirement.
+    for lang in ("fil", "fij", "filipino"):
+        meta = VoicePackMeta(
+            name="X", language=lang, tier="few_shot",
+            tier_reason="r", total_source_minutes=1.0,
+        )
+        assert base_model_requirements(meta) == ["Chatterbox multilingual base model"], lang
 
 
 # ---------------------------------------------------------------------------
@@ -498,3 +509,15 @@ def test_extract_pack_archive_no_meta_raises(tmp_path: Path) -> None:
 
     with pytest.raises(VoicePackError, match="no meta.yaml"):
         _extract_pack_archive(nometa, tmp_path / "dest")
+
+
+def test_extract_pack_archive_ambiguous_multiple_packs_raises(tmp_path: Path) -> None:
+    import zipfile
+
+    multi = tmp_path / "multi.zip"
+    with zipfile.ZipFile(multi, "w") as zf:
+        zf.writestr("pack_a/meta.yaml", "x")
+        zf.writestr("pack_b/meta.yaml", "y")
+
+    with pytest.raises(VoicePackError, match="multiple packs"):
+        _extract_pack_archive(multi, tmp_path / "dest")

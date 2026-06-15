@@ -462,7 +462,7 @@ class TestPacksImportZip:
     """`packs import` accepts a portable .zip archive, not just a folder."""
 
     def test_import_from_zip_installs(self, tmp_path):
-        from src.voice_pack import export_pack
+        from src.voice_pack import export_pack, load_pack
 
         source = _make_fake_pack(tmp_path / "src_root", "zip_voice")
         archive = export_pack(source, tmp_path / "zip_voice.abvpack.zip")
@@ -470,8 +470,11 @@ class TestPacksImportZip:
 
         rc, out, err = _run(installed_root, "import", str(archive))
         assert rc == 0, err
-        assert installed_root.exists()
-        assert any(installed_root.iterdir())
+        # Exactly one pack landed, and it's the one we zipped — not just
+        # "some file extracted somewhere".
+        installed = list(installed_root.iterdir())
+        assert len(installed) == 1
+        assert load_pack(installed[0]).meta.name == "Test Voice zip_voice"
 
     def test_import_from_zip_json(self, tmp_path):
         from src.voice_pack import export_pack
