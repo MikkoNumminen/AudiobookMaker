@@ -135,6 +135,10 @@ class UpdateMixin(_Base):
                 )
             )
         except Exception as exc:
+            # Auto-update is P0: capture the full traceback (SHA mismatch, 404,
+            # network blip) in the diagnostic log so a failed update is in the
+            # file the user sends, not just the transient error dialog.
+            logger.exception("Update download/verify failed")
             self._event_queue.put(
                 ProgressEvent(kind="update_failed", raw_line=str(exc))
             )

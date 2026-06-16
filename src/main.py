@@ -28,6 +28,18 @@ def _close_splash() -> None:
 
 
 def main() -> None:
+    # Install diagnostic logging FIRST so any failure from here on — including
+    # the ffmpeg/OCR setup and the GUI import — lands in a file the user can
+    # send us. Best-effort: install() never raises.
+    import logging
+
+    from src import error_log
+
+    log_path = error_log.install()
+    logging.getLogger("audiobookmaker").info(
+        "AudiobookMaker starting (log: %s)", log_path
+    )
+
     # Must be called before any pydub import (e.g. tts_engine.py) so that
     # ffmpeg.exe is on PATH when pydub initialises its converter lookup.
     setup_ffmpeg_path()

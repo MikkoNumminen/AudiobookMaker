@@ -99,6 +99,41 @@ def _isolate_voice_packs_root(monkeypatch, tmp_path):
     )
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _isolate_error_log(tmp_path_factory):
+    """Keep diagnostic-log writes off the developer's real ~/.audiobookmaker.
+
+    The shared UnifiedApp installs file logging in its constructor; redirect the
+    log path to a tmp dir and re-point the handler so the whole GUI module logs
+    there instead of the user's home, then restore on teardown.
+    """
+    import logging
+
+    from src import error_log
+
+    log_dir = tmp_path_factory.mktemp("gui_error_log")
+    saved_dir, saved_file = error_log.LOG_DIR, error_log.LOG_FILE
+    error_log.LOG_DIR = log_dir
+    error_log.LOG_FILE = log_dir / "audiobookmaker.log"
+
+    root = logging.getLogger()
+    for h in [h for h in root.handlers
+              if getattr(h, "name", None) == error_log._HANDLER_NAME]:
+        root.removeHandler(h)
+        h.close()
+    error_log._installed = False
+    error_log.install()
+
+    yield
+
+    for h in [h for h in root.handlers
+              if getattr(h, "name", None) == error_log._HANDLER_NAME]:
+        root.removeHandler(h)
+        h.close()
+    error_log.LOG_DIR, error_log.LOG_FILE = saved_dir, saved_file
+    error_log._installed = False
+
+
 @pytest.fixture(autouse=True)
 def _reset_app_state(app):
     """Reset shared app to a known baseline before each test.
@@ -1515,3 +1550,180 @@ class TestRobustVoicePackSelection:
         app._voice_cb.set(f"Ghost Pack ({tag})")
         assert app._selection_is_voice_pack() is True
         assert app._selected_voice_pack() is None
+
+
+class TestErrorLogExport:
+    """Diagnostic-log capture + the Save-error-log export button.
+
+    The app writes a persistent log so users can hand a developer a record of a
+    failed run; the button exports it. The diagnostic file path is isolated to a
+    tmp dir for this module by the _isolate_error_log fixture. See
+    src/error_log.py.
+    """
+
+    def test_save_log_button_exists(self, app):
+        assert hasattr(app, "_save_log_btn")
+
+    def test_save_log_button_relocalizes(self, app):
+        original = app._ui_lang
+        try:
+            app._ui_lang = "en"
+            app._apply_ui_language()
+            assert app._save_log_btn.cget("text") == app._s("save_error_log")
+            app._ui_lang = "fi"
+            app._apply_ui_language()
+            assert app._save_log_btn.cget("text") == app._s("save_error_log")
+        finally:
+            app._ui_lang = original
+            app._apply_ui_language()
+
+    def test_append_log_tees_info(self, app, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "src.error_log.tee_line",
+            lambda line, severity="info": calls.append((line, severity)),
+        )
+        app._append_log("plain transcript line")
+        assert ("plain transcript line", "info") in calls
+
+    def test_append_log_error_tees_error_severity(self, app, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "src.error_log.tee_line",
+            lambda line, severity="info": calls.append((line, severity)),
+        )
+        app._append_log_error("something failed")
+        assert ("something failed", "error") in calls
+
+    def test_fail_records_to_log(self, app, monkeypatch):
+        from src import error_log
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showerror", lambda *a, **k: None
+        )
+        app._fail("synthesis exploded marker")
+        assert "synthesis exploded marker" in error_log.read_log_text()
+
+    def test_save_error_log_writes_chosen_file(self, app, monkeypatch, tmp_path):
+        monkeypatch.setattr("src.error_log.read_log_text", lambda: "")
+        app._clear_log()
+        app._log_text.configure(state="normal")
+        app._log_text.insert("end", "session line to export\n")
+        app._log_text.configure(state="disabled")
+        dest = tmp_path / "exported-log.txt"
+        monkeypatch.setattr(
+            "src.gui_unified.filedialog.asksaveasfilename", lambda **k: str(dest)
+        )
+        app._save_error_log()
+        assert dest.exists()
+        assert "session line to export" in dest.read_text(encoding="utf-8")
+
+    def test_save_error_log_includes_persistent_file(self, app, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "src.error_log.read_log_text",
+            lambda: "2026 ERROR audiobookmaker.crash: persisted traceback marker",
+        )
+        app._clear_log()
+        dest = tmp_path / "exported-log.txt"
+        monkeypatch.setattr(
+            "src.gui_unified.filedialog.asksaveasfilename", lambda **k: str(dest)
+        )
+        app._save_error_log()
+        assert "persisted traceback marker" in dest.read_text(encoding="utf-8")
+
+    def test_save_error_log_cancel_writes_nothing(self, app, monkeypatch):
+        monkeypatch.setattr("src.error_log.read_log_text", lambda: "x")
+        monkeypatch.setattr(
+            "src.gui_unified.filedialog.asksaveasfilename", lambda **k: ""
+        )
+        app._save_error_log()  # cancelled -> no exception, nothing written
+
+    def test_save_error_log_empty_shows_info_no_dialog(self, app, monkeypatch):
+        monkeypatch.setattr("src.error_log.read_log_text", lambda: "")
+        app._clear_log()
+        shown = {}
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showinfo",
+            lambda title, msg: shown.update(title=title, msg=msg),
+        )
+        opened = {"dialog": False}
+        monkeypatch.setattr(
+            "src.gui_unified.filedialog.asksaveasfilename",
+            lambda **k: opened.update(dialog=True) or "",
+        )
+        app._save_error_log()
+        assert shown  # told the user there's nothing to save
+        assert opened["dialog"] is False  # never opened the save dialog
+
+    def test_report_callback_exception_logs_and_shows(self, app, monkeypatch):
+        import sys
+
+        from src import error_log
+
+        shown = {}
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showerror",
+            lambda title, msg: shown.update(title=title, msg=msg),
+        )
+        try:
+            raise RuntimeError("callback-crash-marker")
+        except RuntimeError:
+            app.report_callback_exception(*sys.exc_info())
+        assert "callback-crash-marker" in shown.get("msg", "")
+        assert "callback-crash-marker" in error_log.read_log_text()
+
+    def test_save_error_log_no_duplication(self, app, monkeypatch, tmp_path):
+        # The file already mirrors the on-screen log via the tee. When the file
+        # has content, the widget block must NOT be appended too (no double).
+        monkeypatch.setattr(
+            "src.error_log.read_log_text",
+            lambda: "2026 INFO audiobookmaker.gui: shared marker line",
+        )
+        app._clear_log()
+        app._log_text.configure(state="normal")
+        app._log_text.insert("end", "shared marker line\n")
+        app._log_text.configure(state="disabled")
+        dest = tmp_path / "exported.txt"
+        monkeypatch.setattr(
+            "src.gui_unified.filedialog.asksaveasfilename", lambda **k: str(dest)
+        )
+        app._save_error_log()
+        content = dest.read_text(encoding="utf-8")
+        assert "shared marker line" in content
+        # The widget block is skipped when the file has content -> no dup.
+        assert "=== Current session" not in content
+
+    def test_report_callback_exception_silent_on_tclerror(self, app, monkeypatch):
+        import sys
+
+        from src import error_log
+
+        shown = {"called": False}
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showerror",
+            lambda *a, **k: shown.update(called=True),
+        )
+        try:
+            raise tk.TclError("invalid command name .!ctkframe")
+        except tk.TclError:
+            app.report_callback_exception(*sys.exc_info())
+        # Teardown-class TclError: logged for the record, but NO modal dialog.
+        assert "invalid command name" in error_log.read_log_text()
+        assert shown["called"] is False
+
+    def test_report_callback_exception_silent_while_closing(self, app, monkeypatch):
+        import sys
+
+        shown = {"called": False}
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showerror",
+            lambda *a, **k: shown.update(called=True),
+        )
+        app._closing = True
+        try:
+            try:
+                raise RuntimeError("boom-during-close")
+            except RuntimeError:
+                app.report_callback_exception(*sys.exc_info())
+        finally:
+            app._closing = False
+        assert shown["called"] is False  # no dialog spam during teardown
