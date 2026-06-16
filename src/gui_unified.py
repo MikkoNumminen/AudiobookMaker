@@ -2259,6 +2259,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 # Must exit so the installer can replace our files.
                 self.after(100, lambda: os._exit(0))
             except Exception as exc:
+                logger.exception("Visible-installer fallback failed")
                 messagebox.showerror(title, str(exc))
                 clear_pending_marker()
         else:

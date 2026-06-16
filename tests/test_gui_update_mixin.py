@@ -132,6 +132,27 @@ class TestDownloadFailureClearsPending:
         # User got the error dialog.
         fake_messagebox.showerror.assert_called_once()
 
+    def test_download_failure_logs_for_the_diagnostic_file(
+        self, caplog: Any
+    ) -> None:
+        # Auto-update is P0: a download/verify failure must land in the log
+        # file (via the root handler) so it's in what the user sends us, not
+        # only in the transient error dialog.
+        host = _FakeHost()
+        host._pending_update = _make_update_info()
+        with patch(
+            "src.gui_update_mixin.download_update",
+            side_effect=RuntimeError("sha mismatch"),
+        ), caplog.at_level(logging.ERROR, logger="src.gui_update_mixin"):
+            host._download_update_worker()  # must not raise
+
+        ev = host._event_queue.get_nowait()
+        assert ev.kind == "update_failed"
+        assert any(
+            "Update download/verify failed" in rec.message
+            for rec in caplog.records
+        ), "download failure must be logged with a traceback"
+
 
 
 class TestApplyUpdateRecovery:
