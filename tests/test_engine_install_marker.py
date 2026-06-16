@@ -84,6 +84,80 @@ class TestBaseRevisionPinnedHelper:
     def test_bad_path_is_not_blocked(self):
         assert is_base_revision_pinned("") is True
 
+    def test_unreadable_library_is_not_blocked(self, tmp_path, monkeypatch):
+        # File present (found) but read_text raises → conservative True, never
+        # block a working engine over an I/O hiccup.
+        venv_python = self._write_mtl(tmp_path, 'revision="main"')
+        import src.engine_installer as ei
+
+        def _boom(*a, **k):
+            raise OSError("unreadable")
+
+        monkeypatch.setattr(ei.Path, "read_text", _boom)
+        assert is_base_revision_pinned(venv_python) is True
+
+
+class TestChatterboxPkgFile:
+    """_chatterbox_pkg_file resolves the installed chatterbox source across the
+    Windows and POSIX venv layouts, with the POSIX interpreter dir derived from
+    PYTHON_VERSION so the install patches and the pin check never desync."""
+
+    def test_posix_dir_tracks_python_version(self):
+        from src.engine_installer import _VENV_POSIX_SITE, PYTHON_VERSION
+
+        major, minor = PYTHON_VERSION.split(".")[:2]
+        assert _VENV_POSIX_SITE == f"python{major}.{minor}"
+
+    def test_finds_windows_layout(self, tmp_path):
+        from src.engine_installer import _chatterbox_pkg_file
+
+        f = tmp_path / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x", encoding="utf-8")
+        assert _chatterbox_pkg_file(tmp_path, "mtl_tts.py") == f
+
+    def test_finds_posix_nested_layout(self, tmp_path):
+        from src.engine_installer import _chatterbox_pkg_file, _VENV_POSIX_SITE
+
+        f = (
+            tmp_path / "lib" / _VENV_POSIX_SITE / "site-packages" / "chatterbox"
+            / "models" / "t3" / "inference" / "alignment_stream_analyzer.py"
+        )
+        f.parent.mkdir(parents=True)
+        f.write_text("x", encoding="utf-8")
+        assert _chatterbox_pkg_file(
+            tmp_path, "models", "t3", "inference", "alignment_stream_analyzer.py"
+        ) == f
+
+    def test_missing_returns_none(self, tmp_path):
+        from src.engine_installer import _chatterbox_pkg_file
+
+        assert _chatterbox_pkg_file(tmp_path, "mtl_tts.py") is None
+
+
+class TestBaseModelPinLogsOnSkip:
+    """_pin_base_model_revision logs loudly when it can't pin (count != 1).
+    With check_status now gating on the pin, a silent skip would look like a
+    Repair that does nothing — the log makes the diagnosis visible."""
+
+    def test_warns_on_multiple_revision_main(self, tmp_path, caplog):
+        import logging
+
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        f = (
+            tmp_path / "venv" / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py"
+        )
+        f.parent.mkdir(parents=True)
+        # Two occurrences → the count guard skips the patch.
+        f.write_text('a = revision="main"\nb = revision="main"\n', encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="src.engine_installer"):
+            inst._pin_base_model_revision()
+
+        assert any("cannot pin" in r.getMessage().lower() for r in caplog.records)
+        # Graceful: the source is left unpatched (install must not break).
+        assert f.read_text(encoding="utf-8").count('revision="main"') == 2
+
 
 class TestIsInstalledMarkerAware:
     def test_present_venv_with_marker_reads_not_installed(self, tmp_path):
