@@ -603,6 +603,7 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     from src.single_instance import release as release_mutex
 
     app_exe = str(Path(sys.executable).resolve())
+    app_exe_name = Path(app_exe).name  # e.g. "AudiobookMaker.exe"
     current_install_dir = str(Path(sys.executable).parent)
     my_pid = os.getpid()
 
@@ -692,6 +693,16 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         # 25 s self-destruct timer so it can never zombie-persist).
         'start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%SPLASH%"',
         "waitfor /t 3 AudiobookMakerDummy 2>NUL",
+        # Close any app instance still holding the install files open before we
+        # overwrite them. This process already exited (os._exit below), but a
+        # SECOND window — or an old app that a prior failed update relaunched —
+        # would otherwise lock the files and abort the silent install with Inno
+        # exit code 5, which then relaunches the old app and snowballs into a
+        # multi-instance jam (observed in the field). Killing our own image by
+        # name is safe here: the only thing that starts the app again is the
+        # relaunch below, which runs after the install completes.
+        f'taskkill /F /IM "{app_exe_name}" >NUL 2>&1',
+        "waitfor /t 2 AudiobookMakerSettle 2>NUL",
         'echo [%date% %time%] Running installer... >> "%LOG%"',
         '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"',
         'echo [%date% %time%] Installer exit code: %ERRORLEVEL% >> "%LOG%"',
