@@ -309,6 +309,7 @@ _STRINGS = {
         "pack_archive_filter": "\u00c4\u00e4nipaketti (.zip)",
         "all_files_filter": "Kaikki tiedostot",
         "voice_pack_tag": "\u00e4\u00e4nipaketti",
+        "voice_pack_unresolved": "Valitun \u00e4\u00e4nipaketin lataus ep\u00e4onnistui. Tuo \u00e4\u00e4nipaketti uudelleen ja valitse se \u00c4\u00e4ni-valikosta.",
         "report_bug_btn": "Ilmoita bugista\u2026",
     },
     "en": {
@@ -429,6 +430,7 @@ _STRINGS = {
         "pack_archive_filter": "Voice pack (.zip)",
         "all_files_filter": "All files",
         "voice_pack_tag": "voice pack",
+        "voice_pack_unresolved": "Couldn't load the selected voice pack. Re-import it and pick it again from the Voice menu.",
         "report_bug_btn": "Report a bug\u2026",
     },
 }
@@ -1453,6 +1455,60 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 return pack
         return None
 
+    def _voice_pack_tag_suffixes(self) -> tuple[str, ...]:
+        """Every `` (<tag>)`` suffix the Voice dropdown could carry — one per
+        UI language.
+
+        The dropdown builds a pack entry with whatever UI language was active
+        when it was last populated, and a later UI-language switch does NOT
+        repopulate it (``_apply_ui_language`` leaves the Voice list alone). So
+        the live suffix can be in a different language than ``_s()`` currently
+        returns. Matching against ALL languages' tags keeps pack detection and
+        resolution working across a UI-language toggle instead of silently
+        falling back to the default voice — the exact silent-fallback class this
+        whole resolver exists to kill.
+        """
+        return tuple(
+            f" ({strings['voice_pack_tag']})" for strings in _STRINGS.values()
+        )
+
+    def _selection_is_voice_pack(self) -> bool:
+        """True when the Voice dropdown currently shows a voice-pack entry.
+
+        A pack entry reads ``"<name> (<tag>)"`` in some UI language; a built-in
+        voice ends with no tag suffix. Used to refuse a silent fall-back to the
+        default voice when a pack is selected but can't be resolved.
+        """
+        display = self._voice_cb.get() if hasattr(self, "_voice_cb") else ""
+        return bool(display) and display.endswith(self._voice_pack_tag_suffixes())
+
+    def _selected_voice_pack(self) -> Optional[VoicePack]:
+        """Resolve the voice pack selected in the Voice dropdown, robustly.
+
+        :meth:`_current_voice` re-derives the pick by regenerating the
+        language-filtered pack list and matching the combobox display exactly.
+        That can miss — a language toggle, a transient pack-list read, an
+        engine-resolution hiccup — and then synthesis silently falls back to
+        the default voice (the field bug where an imported pack came out
+        sounding like Grandmom). This resolves the selection directly: match the
+        shown display against each installed pack's full ``"<name> (<tag>)"``
+        form, in every UI language, with no language filter and no
+        ``_current_voice`` dependency. Exact full-string matching (rather than
+        stripping a fixed-length suffix) survives a UI-language switch that left
+        a stale tag, and can't be fooled by a built-in voice whose own name
+        happens to end with the tag text. Returns ``None`` only when the
+        selection is a built-in voice or no installed pack matches the shown
+        name.
+        """
+        if not self._selection_is_voice_pack():
+            return None
+        display = self._voice_cb.get()
+        for pack in self._list_installed_voice_packs():
+            for suffix in self._voice_pack_tag_suffixes():
+                if display == f"{pack.display_name}{suffix}":
+                    return pack
+        return None
+
     def _voice_pack_reference_path(self, pack: VoicePack) -> Optional[str]:
         """Pick the audio file Chatterbox should clone from.
 
@@ -1478,12 +1534,22 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         the user having to browse to it manually. If the user has an
         explicit entry in the Ref. ääni field, that wins — lets power
         users override pack choice on a per-run basis.
+
+        Pack resolution prefers the ``voice``-id route (correct for callers
+        that pass an explicit voice), but falls back to the robust
+        dropdown-based :meth:`_selected_voice_pack` when that route misses —
+        e.g. after a UI-language switch, where ``_current_voice`` rebuilds the
+        pack list with the current-language tag and no longer matches the stale
+        display, so ``voice`` arrives as ``None``. Without the fallback the
+        preview/clone paths would silently lose the pack reference and run in
+        the default voice (the same silent-fallback class this resolver exists
+        to kill).
         """
         if manual_ref:
             return manual_ref
-        if voice is None:
-            return None
-        pack = self._resolve_voice_pack(voice.id)
+        pack = self._resolve_voice_pack(voice.id) if voice is not None else None
+        if pack is None:
+            pack = self._selected_voice_pack()
         if pack is None:
             return None
         return self._voice_pack_reference_path(pack)

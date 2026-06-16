@@ -170,19 +170,27 @@ class SynthMixin(_Base):
             except (ValueError, tk.TclError):
                 chunk_chars = 300
 
-        # Voice pack root: when the user picked a ``voicepack:<slug>`` voice
-        # the subprocess needs --voice-pack <dir> so it can load the bundled
-        # LoRA / metadata alongside the reference clip. The Ref. ääni field
-        # is already populated separately by _effective_reference_audio for
-        # the sample.wav / reference.wav path.
+        # Voice pack root: when the user picked a ``voicepack:<slug>`` voice the
+        # subprocess needs --voice-pack <dir> so the runner clones from the
+        # pack's clip and loads its LoRA adapter. Resolve it ROBUSTLY (see
+        # _selected_voice_pack — independent of the language-filtered
+        # re-derivation _current_voice relies on, which could miss and silently
+        # synthesize in the default voice: the field bug where an imported pack
+        # came out sounding like Grandmom).
         voice_pack_path: Optional[str] = None
-        voice = self._current_voice() if hasattr(self, "_current_voice") else None
-        voice_id = getattr(voice, "id", None) if voice is not None else None
-        resolver = getattr(self, "_resolve_voice_pack", None)
-        if voice_id and resolver is not None:
-            pack = resolver(voice_id)
+        selector = getattr(self, "_selected_voice_pack", None)
+        if selector is not None:
+            pack = selector()
             if pack is not None:
                 voice_pack_path = str(pack.root)
+
+        # Non-silent guard: a pack IS selected but couldn't be resolved to a
+        # directory — never degrade to a Grandmom run that looks fine but is the
+        # wrong voice. Surface it so the user can re-import the pack.
+        pack_selected = getattr(self, "_selection_is_voice_pack", lambda: False)()
+        if pack_selected and voice_pack_path is None:
+            self._fail(self._s("voice_pack_unresolved"))
+            return
 
         request = ChatterboxRequest(
             input_mode=self._input_mode,
