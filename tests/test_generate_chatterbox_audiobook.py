@@ -1008,3 +1008,42 @@ class TestBaseRevisionPinned:
     def test_no_revision_call_treated_as_pinned(self):
         # No revision="main" present → don't fail the smoke test (conservative).
         assert gca._base_revision_pinned("def from_pretrained(cls): ...") is True
+
+
+class TestVerifyBaseRevisionPin:
+    """_verify_base_revision_pin is the runner smoke test's pin-check glue:
+    reads the imported chatterbox.mtl_tts source, returns 2 on a positive
+    revision="main" sighting, 0 when pinned, and 0 (best-effort, with a warn)
+    when the library can't be imported/read — it never fails-closed on an
+    env it merely couldn't verify."""
+
+    def _fake_mtl(self, tmp_path, monkeypatch, body: str) -> None:
+        import sys
+        import types
+
+        f = tmp_path / "mtl_tts.py"
+        f.write_text(body, encoding="utf-8")
+        pkg = types.ModuleType("chatterbox")
+        mod = types.ModuleType("chatterbox.mtl_tts")
+        mod.__file__ = str(f)
+        pkg.mtl_tts = mod  # so `import chatterbox.mtl_tts` resolves cleanly
+        monkeypatch.setitem(sys.modules, "chatterbox", pkg)
+        monkeypatch.setitem(sys.modules, "chatterbox.mtl_tts", mod)
+
+    def test_unpinned_returns_2(self, tmp_path, monkeypatch, capsys):
+        self._fake_mtl(tmp_path, monkeypatch, 'x = revision="main"\n')
+        assert gca._verify_base_revision_pin() == 2
+        assert "not pinned" in capsys.readouterr().out
+
+    def test_pinned_returns_0(self, tmp_path, monkeypatch):
+        self._fake_mtl(tmp_path, monkeypatch, 'x = revision="ef85ce7"\n')
+        assert gca._verify_base_revision_pin() == 0
+
+    def test_unverifiable_is_best_effort_0(self, monkeypatch, capsys):
+        import sys
+
+        # `import chatterbox` halts on a None sys.modules entry → ImportError,
+        # which the best-effort branch swallows and returns 0 (does not fail).
+        monkeypatch.setitem(sys.modules, "chatterbox", None)
+        assert gca._verify_base_revision_pin() == 0
+        assert "could not verify" in capsys.readouterr().out

@@ -96,6 +96,23 @@ class TestBaseRevisionPinnedHelper:
         monkeypatch.setattr(ei.Path, "read_text", _boom)
         assert is_base_revision_pinned(venv_python) is True
 
+    def test_corrupt_non_utf8_library_is_not_blocked(self, tmp_path):
+        # A non-UTF-8 mtl_tts.py (plausible on a partially-overwritten file
+        # during the interrupted install this targets) raises UnicodeDecodeError
+        # — a ValueError, not OSError. The conservative contract must still hold
+        # (return True), not crash check_status.
+        venv = tmp_path / "venv"
+        sp = venv / "Lib" / "site-packages" / "chatterbox"
+        sp.mkdir(parents=True)
+        (sp / "mtl_tts.py").write_bytes(b'\xff\xfe revision="main"')
+        venv_python = venv / "Scripts" / "python.exe"
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_malformed_path_is_not_blocked(self):
+        # A null-byte path makes Path.resolve raise ValueError → the venv-root
+        # guard returns the conservative True (covers that except branch).
+        assert is_base_revision_pinned("v\x00env/Scripts/python.exe") is True
+
 
 class TestChatterboxPkgFile:
     """_chatterbox_pkg_file resolves the installed chatterbox source across the
@@ -206,6 +223,33 @@ class TestInstallMarkerLifecycle:
         # correctly reads as incomplete and the user is told it failed.
         assert inst._install_marker.exists()
         assert any(e.error for e in events)
+
+
+class TestInstallPinsUnconditionally:
+    """install() pins the base-model revision even when _apply_patch
+    early-returns (e.g. a reused venv whose gemination patch is already
+    applied). The pin used to be nested inside _apply_patch and got skipped on
+    those paths, so a plain Install over a geminated-but-unpinned venv failed
+    its smoke test with only Repair able to recover."""
+
+    def test_pin_runs_when_apply_patch_is_a_noop(self, tmp_path):
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        inst._venv_path.mkdir(parents=True)
+
+        # _mocked_install_steps stubs _apply_patch to a no-op — the same effect
+        # as its early-return when gemination is already applied.
+        pin_mock = MagicMock()
+        ctxs = _mocked_install_steps(inst)
+        ctxs.append(patch.object(inst, "_smoke_test", return_value=None))
+        ctxs.append(patch.object(inst, "_pin_base_model_revision", pin_mock))
+        with ctxs[0], ctxs[1], ctxs[2], ctxs[3], ctxs[4], ctxs[5], ctxs[6]:
+            events = []
+            inst.install(events.append, threading.Event())
+
+        # The pin ran independently of _apply_patch — this is the regression
+        # guard: with the old nesting it would not have been called at all.
+        pin_mock.assert_called_once()
+        assert any(e.done for e in events)
 
 
 class TestRepairEscalation:

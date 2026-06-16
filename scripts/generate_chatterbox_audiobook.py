@@ -1351,9 +1351,22 @@ def _selftest() -> int:
         traceback.print_exc(file=sys.stdout)
         sys.stdout.flush()
         return 2
-    # Verify the base-model revision pin actually landed. Only a positive
-    # unpinned sighting fails the smoke test; an inability to read the source
-    # must not block an otherwise-working install.
+    rc = _verify_base_revision_pin()
+    if rc:
+        return rc
+    print("OK", flush=True)
+    return 0
+
+
+def _verify_base_revision_pin() -> int:
+    """Return 2 if the chatterbox base-model revision is provably unpinned.
+
+    Reads the *imported* ``chatterbox.mtl_tts`` source (so it follows whatever
+    the venv actually loads) and fails only on a positive ``revision="main"``
+    sighting. Best-effort: any inability to import/read the library is a
+    ``[warn]`` and returns 0, so the smoke test never fails-closed on an
+    otherwise-working install it just couldn't verify.
+    """
     try:
         import chatterbox.mtl_tts as _mtl
         if not _base_revision_pinned(
@@ -1369,7 +1382,6 @@ def _selftest() -> int:
     except Exception as exc:  # noqa: BLE001 — verification is best-effort
         print(f"[warn] could not verify base-model revision pin: {exc}",
               flush=True)
-    print("OK", flush=True)
     return 0
 
 

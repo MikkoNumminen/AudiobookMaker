@@ -204,7 +204,10 @@ def is_base_revision_pinned(venv_python) -> bool:
         return True
     try:
         source = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError (a corrupt/non-UTF-8 source) —
+        # an unreadable file must honour the conservative "treat as pinned"
+        # contract, not crash check_status with an unhandled decode error.
         return True
     return 'revision="main"' not in source
 
@@ -927,7 +930,7 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
-        # Step 5: Gemination patch
+        # Step 5: Gemination patch + base-model revision pin
         progress_cb(
             InstallProgress(
                 5, total, "Sovelletaan korjaukset",
@@ -935,6 +938,13 @@ class ChatterboxInstaller(EngineInstaller):
             )
         )
         self._apply_patch(progress_cb)
+        # Pin the base-model revision UNCONDITIONALLY here — not nested inside
+        # _apply_patch, which early-returns (and so skipped the pin) when the
+        # gemination patch is already applied. A reused venv that is geminated
+        # but unpinned (e.g. installed before the pin patch existed) must still
+        # get pinned on a plain Install, or the step-6 smoke test fails and the
+        # user is told Install failed with only Repair able to recover.
+        self._pin_base_model_revision()
 
         if cancel_event.is_set():
             return
@@ -1470,7 +1480,9 @@ class ChatterboxInstaller(EngineInstaller):
                 message="Gemination-korjaus asennettu.",
             )
         )
-        self._pin_base_model_revision()
+        # NOTE: the base-model revision pin is NOT applied here — install()
+        # calls _pin_base_model_revision() unconditionally so it runs even on
+        # this method's early-return paths (gemination already applied, etc.).
 
     def _pin_base_model_revision(self) -> None:
         """Pin the base-model download revision in the chatterbox library.
