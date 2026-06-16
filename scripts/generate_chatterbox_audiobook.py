@@ -1385,6 +1385,53 @@ def _verify_base_revision_pin() -> int:
     return 0
 
 
+def _ensure_flow_token_clamp() -> None:
+    """Self-heal: clamp out-of-range s3gen flow tokens on disk before import.
+
+    ``chatterbox/models/s3gen/flow.py::inference()`` detects out-of-range speech
+    tokens but then feeds them into an ``nn.Embedding`` lookup unclamped — an
+    index >= vocab_size is an out-of-bounds read -> CUDA device-side assert ->
+    the whole multi-hour synthesis run dies mid-book.
+
+    The installer applies this clamp at install/repair, but an app auto-update
+    ships a new runner WITHOUT touching the separate engine venv, so an existing
+    install would stay vulnerable until a manual Repair. Patch the venv source
+    here, BEFORE the first chatterbox import in this process, so the fix lands on
+    the next synthesis with no Repair. Idempotent; every miss is a silent no-op
+    (best-effort — never let the self-heal itself break a run).
+    """
+    try:
+        import sysconfig
+
+        purelib = sysconfig.get_paths().get("purelib")
+        if not purelib:
+            return
+        flow = Path(purelib) / "chatterbox" / "models" / "s3gen" / "flow.py"
+        if not flow.is_file():
+            return
+        original = flow.read_text(encoding="utf-8")
+        old = "token = self.input_embedding(token.long()) * mask"
+        new = (
+            "token = self.input_embedding("
+            "token.clamp(0, self.vocab_size - 1).long()) * mask"
+        )
+        if new in original or original.count(old) != 1:
+            return  # already clamped, or upstream shape changed — leave it
+        # Atomic replace: a crash mid-write must never leave a half-written
+        # flow.py — an unimportable module here would break ALL future
+        # synthesis, not just this run. Write a sibling temp on the same
+        # filesystem, then os.replace() it into place (atomic on Win + POSIX).
+        tmp = flow.with_name(flow.name + ".clamp-tmp")
+        tmp.write_text(original.replace(old, new), encoding="utf-8")
+        os.replace(tmp, flow)
+        print(
+            "[runner] applied s3gen flow token clamp (out-of-range crash-guard)",
+            flush=True,
+        )
+    except Exception as exc:  # noqa: BLE001 — self-heal is strictly best-effort
+        print(f"[warn] could not apply flow token clamp: {exc}", flush=True)
+
+
 def main() -> int:
     args = parse_args()
 
@@ -1411,6 +1458,10 @@ def main() -> int:
     # Catch broadly — any failure of these three core imports means the engine
     # is unusable — and point the user at the one-click (re)install, which now
     # repairs a version-drifted venv because the installer pins are exact.
+    # Self-heal the s3gen flow token clamp BEFORE importing chatterbox, so an
+    # out-of-range T3 token degrades one frame instead of CUDA-asserting the run.
+    _ensure_flow_token_clamp()
+
     try:
         import torch  # noqa: F401
         import torchaudio  # noqa: F401
