@@ -82,10 +82,10 @@ jobs:
       - name: Download ffmpeg
         if: github.event_name == 'push'
         env:
-          FFMPEG_RELEASE: autobuild-2026-06-03-14-37
-          FFMPEG_ZIP: ffmpeg-n7.1.4-9-gc06af95f12-win64-gpl-7.1.zip
-          FFMPEG_SHA256: 305f5ac85ab794431fd32c724a30e2a8638b54fee6d2d983233685d937ccb9c7
-          FFMPEG_DIR: ffmpeg-n7.1.4-9-gc06af95f12-win64-gpl-7.1
+          FFMPEG_RELEASE: autobuild-2026-06-15-15-03
+          FFMPEG_ZIP: ffmpeg-n7.1.4-39-ga5faeca88f-win64-gpl-7.1.zip
+          FFMPEG_SHA256: a56d312d8453b9d1674314cab98378cdfca2a40a1bd8221f309048924adce2e3
+          FFMPEG_DIR: ffmpeg-n7.1.4-39-ga5faeca88f-win64-gpl-7.1
         run: |
           curl -L -o ffmpeg.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_ZIP}"
           echo "${FFMPEG_SHA256}  ffmpeg.zip" | sha256sum -c -
