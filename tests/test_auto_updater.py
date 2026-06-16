@@ -1105,3 +1105,56 @@ class TestApplyUpdatePopenCleanup:
         assert not (tmp_path / "audiobookmaker_relaunch.bat").exists(), (
             "relaunch .bat leaked after Popen failure"
         )
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="apply_update's relaunch path is Windows-only (CREATE_NO_WINDOW, os._exit)",
+)
+class TestApplyUpdateClosesOrphans:
+    """The relaunch .bat must close any remaining app instance BEFORE running
+    the silent installer. A second window — or an old app a prior failed
+    update relaunched — otherwise locks the install files and Inno aborts with
+    exit code 5 (observed in the field), which snowballs into a multi-instance
+    jam. The kill targets the real exe image name and runs before the install."""
+
+    def test_relaunch_bat_kills_app_before_installer(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from src import auto_updater
+
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+        fake_installer = tmp_path / "installer.exe"
+        fake_installer.write_bytes(b"fake")
+        icon_dir = tmp_path / "app" / "_internal" / "assets"
+        icon_dir.mkdir(parents=True)
+        (icon_dir / "icon.png").write_bytes(b"\x89PNG")
+        # Use a DISTINCT exe name so the assertion proves the taskkill image
+        # name is DERIVED from the running exe (Path(sys.executable).name), not
+        # a hardcoded "AudiobookMaker.exe" literal that would pass either way.
+        app_exe = tmp_path / "app" / "CustomName.exe"
+        app_exe.write_bytes(b"fake")
+        monkeypatch.setattr("src.auto_updater.sys.executable", str(app_exe))
+
+        fake_single_instance = type("M", (), {"release": staticmethod(lambda: None)})()
+        monkeypatch.setitem(sys.modules, "src.single_instance", fake_single_instance)
+
+        class _ExitCalled(Exception):
+            pass
+
+        def fake_exit(_code):
+            raise _ExitCalled()
+
+        # Popen is a no-op (so the .bat is written and NOT cleaned up); os._exit
+        # is intercepted so the test process survives and the .bat persists.
+        with patch("src.auto_updater.subprocess.Popen", lambda *a, **k: None), \
+             patch("src.auto_updater._write_pending_marker", lambda *a, **k: None), \
+             patch("src.auto_updater.os._exit", fake_exit):
+            with pytest.raises(_ExitCalled):
+                auto_updater.apply_update(fake_installer)
+
+        bat = (tmp_path / "audiobookmaker_relaunch.bat").read_text(encoding="utf-8")
+        assert 'taskkill /F /IM "CustomName.exe"' in bat, bat
+        # And it must precede the installer invocation (else it can't unlock).
+        assert bat.index("taskkill") < bat.index("/VERYSILENT"), (
+            "taskkill must run before the silent install"
+        )
