@@ -1485,6 +1485,24 @@ class TestRobustVoicePackSelection:
         assert resolved is not None
         assert resolved.root == pack.root
 
+    def test_effective_reference_falls_back_to_robust_resolver(self, app, monkeypatch, tmp_path) -> None:
+        # The Listen/preview + clone paths get the pack's reference via
+        # _effective_reference_audio(voice, ...). After a UI-language switch
+        # _current_voice() returns None for the pack (the dropdown display
+        # carries the stale Finnish tag), so the explicit-voice route misses.
+        # The robust dropdown fallback must still find the pack's reference
+        # artefact instead of returning None and previewing the default voice.
+        pack = self._install_pack(app, monkeypatch, tmp_path, "Pack Ref")
+        app._ui_lang = "fi"
+        fi_tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({fi_tag})")  # built under Finnish
+        app._ui_lang = "en"  # _current_voice() would now miss the stale display
+        ref = app._effective_reference_audio(None, None)  # voice=None == the miss
+        assert ref is not None
+        assert str(pack.root) in ref  # resolved to this pack's own artefact
+        # An explicit manual ref still wins over the pack (power-user override).
+        assert app._effective_reference_audio(None, "C:/my/ref.wav") == "C:/my/ref.wav"
+
     def test_guard_fires_when_pack_selected_but_unresolvable(self, app, monkeypatch, tmp_path) -> None:
         # Empty packs root: the display says a pack is selected, but nothing
         # resolves -> the guard condition (is_pack AND no path) must hold, so

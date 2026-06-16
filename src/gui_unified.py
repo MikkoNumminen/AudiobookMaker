@@ -1534,12 +1534,22 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         the user having to browse to it manually. If the user has an
         explicit entry in the Ref. ääni field, that wins — lets power
         users override pack choice on a per-run basis.
+
+        Pack resolution prefers the ``voice``-id route (correct for callers
+        that pass an explicit voice), but falls back to the robust
+        dropdown-based :meth:`_selected_voice_pack` when that route misses —
+        e.g. after a UI-language switch, where ``_current_voice`` rebuilds the
+        pack list with the current-language tag and no longer matches the stale
+        display, so ``voice`` arrives as ``None``. Without the fallback the
+        preview/clone paths would silently lose the pack reference and run in
+        the default voice (the same silent-fallback class this resolver exists
+        to kill).
         """
         if manual_ref:
             return manual_ref
-        if voice is None:
-            return None
-        pack = self._resolve_voice_pack(voice.id)
+        pack = self._resolve_voice_pack(voice.id) if voice is not None else None
+        if pack is None:
+            pack = self._selected_voice_pack()
         if pack is None:
             return None
         return self._voice_pack_reference_path(pack)
