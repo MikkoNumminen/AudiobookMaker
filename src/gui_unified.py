@@ -33,7 +33,7 @@ from typing import Any, Optional
 
 import customtkinter as ctk
 
-from src import _audio_player, app_config
+from src import _audio_player, app_config, error_log
 from src.auto_updater import (
     check_for_update, download_update, apply_update,
     APP_VERSION, GITHUB_REPO, UpdateInfo,
@@ -524,11 +524,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # therefore correct: after this point _scheduled_afters tracks only
         # our own callbacks.
         self._scheduled_afters: set[str] = set()
+        # Set in destroy(); read by report_callback_exception to suppress the
+        # error dialog for the transient TclErrors a closing window produces.
+        self._closing = False
 
         # Diagnostic logging. Idempotent with src/main.py's install(), so the
         # GUI still captures failures when launched via gui_unified.run()
         # directly (dev / tests / --self-test) rather than through main().
-        from src import error_log
         error_log.install()
         logger.info("AudiobookMaker %s — GUI window starting", APP_VERSION)
 
@@ -1978,17 +1980,21 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         a Save dialog. Always available — the whole point is to make handing a
         developer one complete file trivial.
         """
-        from src import error_log
-
         parts: list[str] = []
         file_text = error_log.read_log_text().strip()
         if file_text:
             parts.append(file_text)
-        widget_text = self._log_text.get("1.0", tk.END).strip()
-        if widget_text:
-            parts.append(
-                "=== Current session (on-screen log) ===\n" + widget_text
-            )
+        else:
+            # Fall back to the on-screen log ONLY when the persistent file is
+            # empty/unavailable (e.g. logging setup failed). The file already
+            # mirrors every on-screen line via tee_line, so adding the widget
+            # text whenever the file exists would duplicate the current run in
+            # the export.
+            widget_text = self._log_text.get("1.0", tk.END).strip()
+            if widget_text:
+                parts.append(
+                    "=== Current session (on-screen log) ===\n" + widget_text
+                )
         content = "\n\n".join(parts)
         title = self._s("save_error_log").rstrip("…")
         if not content:
@@ -2598,6 +2604,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 book = parse_pdf(self._pdf_path)
                 text = book.full_text
             except Exception as exc:
+                # A thrown parse error (corrupt/encrypted/empty PDF) is a real
+                # failure — log it so it lands in the exported error log, not
+                # only the transient dialog.
+                logger.exception("Listen preview: PDF parse failed")
+                self._append_log_error(str(exc))
                 messagebox.showerror(self._s("error"), str(exc))
                 return
             if not text:
@@ -2774,6 +2785,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         Each step is wrapped individually so a single failure cannot abort the
         rest of teardown.
         """
+        # Mark teardown so report_callback_exception stays silent for the
+        # transient TclErrors that a closing window naturally produces.
+        self._closing = True
+
         # Step 1 — cancel every after-callback WE scheduled.
         # We use our own tracking set (_scheduled_afters, populated by the
         # overridden after() / after_idle() methods) instead of the previous
@@ -2970,6 +2985,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             try:
                 source_text = parse_book(self._pdf_path).full_text
             except Exception as exc:
+                # Same as the Listen path: a thrown parse error is a real
+                # failure and must reach the exported error log.
+                logger.exception("Make sample: PDF parse failed")
+                self._append_log_error(str(exc))
                 messagebox.showerror(self._s("error"), str(exc))
                 return
         else:
@@ -3462,7 +3481,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         self._log_text.configure(state="disabled")
 
     def _append_log(self, line: str) -> None:
-        from src import error_log
         error_log.tee_line(line, "info")
         self._log_text.configure(state="normal")
         self._log_text.insert(tk.END, line + "\n")
@@ -3483,7 +3501,6 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         accept (light, dark) tuples, so we pick the index that matches
         the current ``ctk.get_appearance_mode()`` at render time.
         """
-        from src import error_log
         error_log.tee_line(line, severity)
         self._log_text.configure(state="normal")
         start_index = self._log_text.index(tk.END + "-1c")
@@ -3563,15 +3580,27 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """Capture exceptions raised inside Tk widget callbacks.
 
         Tk's default handler prints the traceback to stderr — invisible in a
-        frozen windowed .exe, so these crashes used to vanish entirely. Log the
-        full traceback to the diagnostic file and surface a dialog so the user
-        knows something broke (and can hit Save error log).
+        frozen windowed .exe, so these crashes used to vanish entirely. Always
+        log the full traceback to the diagnostic file. Surface a dialog for a
+        genuine unexpected bug (so the user knows to hit Save error log), but
+        stay SILENT for the teardown-class ``TclError``s ("application has been
+        destroyed" / "invalid command name") and while the window is closing —
+        Tk used to print those to stderr and a modal dialog there is pure noise
+        (it could pop on a transient close-time fault the user gains nothing
+        from seeing).
         """
         import traceback
         logger.error(
             "Unhandled exception in a GUI callback:\n%s",
             "".join(traceback.format_exception(exc, val, tb)),
         )
+        if getattr(self, "_closing", False) or isinstance(val, tk.TclError):
+            return
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:  # noqa: BLE001 — root may already be torn down
+            return
         try:
             messagebox.showerror(self._s("error"), str(val) or exc.__name__)
         except Exception:  # noqa: BLE001 — the error dialog must never re-raise

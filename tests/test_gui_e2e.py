@@ -1670,3 +1670,60 @@ class TestErrorLogExport:
             app.report_callback_exception(*sys.exc_info())
         assert "callback-crash-marker" in shown.get("msg", "")
         assert "callback-crash-marker" in error_log.read_log_text()
+
+    def test_save_error_log_no_duplication(self, app, monkeypatch, tmp_path):
+        # The file already mirrors the on-screen log via the tee. When the file
+        # has content, the widget block must NOT be appended too (no double).
+        monkeypatch.setattr(
+            "src.error_log.read_log_text",
+            lambda: "2026 INFO audiobookmaker.gui: shared marker line",
+        )
+        app._clear_log()
+        app._log_text.configure(state="normal")
+        app._log_text.insert("end", "shared marker line\n")
+        app._log_text.configure(state="disabled")
+        dest = tmp_path / "exported.txt"
+        monkeypatch.setattr(
+            "src.gui_unified.filedialog.asksaveasfilename", lambda **k: str(dest)
+        )
+        app._save_error_log()
+        content = dest.read_text(encoding="utf-8")
+        assert "shared marker line" in content
+        # The widget block is skipped when the file has content -> no dup.
+        assert "=== Current session" not in content
+
+    def test_report_callback_exception_silent_on_tclerror(self, app, monkeypatch):
+        import sys
+
+        from src import error_log
+
+        shown = {"called": False}
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showerror",
+            lambda *a, **k: shown.update(called=True),
+        )
+        try:
+            raise tk.TclError("invalid command name .!ctkframe")
+        except tk.TclError:
+            app.report_callback_exception(*sys.exc_info())
+        # Teardown-class TclError: logged for the record, but NO modal dialog.
+        assert "invalid command name" in error_log.read_log_text()
+        assert shown["called"] is False
+
+    def test_report_callback_exception_silent_while_closing(self, app, monkeypatch):
+        import sys
+
+        shown = {"called": False}
+        monkeypatch.setattr(
+            "src.gui_unified.messagebox.showerror",
+            lambda *a, **k: shown.update(called=True),
+        )
+        app._closing = True
+        try:
+            try:
+                raise RuntimeError("boom-during-close")
+            except RuntimeError:
+                app.report_callback_exception(*sys.exc_info())
+        finally:
+            app._closing = False
+        assert shown["called"] is False  # no dialog spam during teardown

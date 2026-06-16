@@ -123,7 +123,13 @@ def test_excepthook_captures_uncaught_exception(temp_log, monkeypatch):
     assert "Traceback" in text  # exc_info rendered the full traceback
 
 
-def test_thread_excepthook_captures_worker_crash(temp_log):
+def test_thread_excepthook_captures_and_chains(temp_log, monkeypatch):
+    # Install a no-op predecessor so we can assert chaining without tripping
+    # pytest's own thread-exception warning hook.
+    chained = []
+    monkeypatch.setattr(
+        threading, "excepthook", lambda args: chained.append(args.exc_type)
+    )
     error_log.install()
 
     def crash():
@@ -133,4 +139,27 @@ def test_thread_excepthook_captures_worker_crash(temp_log):
     t.start()
     t.join()
     text = temp_log.read_text(encoding="utf-8")
-    assert "worker-thread-marker" in text
+    assert "worker-thread-marker" in text  # captured to the file
+    assert RuntimeError in chained  # AND chained to the previous hook (stderr)
+
+
+def test_read_log_text_includes_rotated_backups(temp_log):
+    # RotatingFileHandler rolls older content into .1/.2; read_log_text must
+    # stitch them back oldest -> newest so an early traceback isn't dropped.
+    temp_log.parent.mkdir(parents=True, exist_ok=True)
+    (temp_log.parent / (temp_log.name + ".2")).write_text(
+        "oldest-rotated\n", encoding="utf-8"
+    )
+    (temp_log.parent / (temp_log.name + ".1")).write_text(
+        "middle-rotated\n", encoding="utf-8"
+    )
+    temp_log.write_text("live-line\n", encoding="utf-8")
+    text = error_log.read_log_text()
+    assert "oldest-rotated" in text
+    assert "middle-rotated" in text
+    assert "live-line" in text
+    assert (
+        text.index("oldest-rotated")
+        < text.index("middle-rotated")
+        < text.index("live-line")
+    )

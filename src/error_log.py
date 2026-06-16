@@ -54,11 +54,26 @@ def log_file_path() -> Path:
 
 
 def read_log_text() -> str:
-    """Best-effort read of the current log file; ``""`` if missing/unreadable."""
+    """Best-effort read of the diagnostic log, oldest rotated backup first.
+
+    RotatingFileHandler rolls older content into ``.1``/``.2``/``.3``;
+    concatenate those (oldest -> newest) ahead of the live file so a "Save error
+    log" export carries the whole retained window — not just the last ~2 MB,
+    which on a long run would have rotated the early traceback out of reach.
+    Missing/unreadable parts are skipped; returns ``""`` if nothing is readable.
+    """
+    chunks: list[str] = []
+    for i in range(_BACKUP_COUNT, 0, -1):
+        backup = LOG_FILE.with_name(f"{LOG_FILE.name}.{i}")
+        try:
+            chunks.append(backup.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
     try:
-        return LOG_FILE.read_text(encoding="utf-8", errors="replace")
+        chunks.append(LOG_FILE.read_text(encoding="utf-8", errors="replace"))
     except OSError:
-        return ""
+        pass
+    return "".join(chunks)
 
 
 def install() -> Path:
@@ -119,6 +134,8 @@ def _install_excepthooks() -> None:
 
     sys.excepthook = _hook
 
+    prev_thread_hook = threading.excepthook
+
     def _thread_hook(args):
         if args.exc_type is SystemExit:
             return
@@ -127,5 +144,8 @@ def _install_excepthooks() -> None:
             getattr(args.thread, "name", "?"),
             exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
         )
+        # Chain to the previous hook so the default stderr traceback survives
+        # (parity with the sys.excepthook path above), not just the log file.
+        prev_thread_hook(args)
 
     threading.excepthook = _thread_hook
