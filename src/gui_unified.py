@@ -1455,19 +1455,32 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 return pack
         return None
 
-    def _voice_pack_tag_suffix(self) -> str:
-        """The `` (<tag>)`` suffix the Voice dropdown appends to pack entries."""
-        return f" ({self._s('voice_pack_tag')})"
+    def _voice_pack_tag_suffixes(self) -> tuple[str, ...]:
+        """Every `` (<tag>)`` suffix the Voice dropdown could carry — one per
+        UI language.
+
+        The dropdown builds a pack entry with whatever UI language was active
+        when it was last populated, and a later UI-language switch does NOT
+        repopulate it (``_apply_ui_language`` leaves the Voice list alone). So
+        the live suffix can be in a different language than ``_s()`` currently
+        returns. Matching against ALL languages' tags keeps pack detection and
+        resolution working across a UI-language toggle instead of silently
+        falling back to the default voice — the exact silent-fallback class this
+        whole resolver exists to kill.
+        """
+        return tuple(
+            f" ({strings['voice_pack_tag']})" for strings in _STRINGS.values()
+        )
 
     def _selection_is_voice_pack(self) -> bool:
         """True when the Voice dropdown currently shows a voice-pack entry.
 
-        A pack entry reads ``"<name> (<tag>)"``; a built-in voice does not end
-        with the tag suffix. Used to refuse a silent fall-back to the default
-        voice when a pack is selected but can't be resolved.
+        A pack entry reads ``"<name> (<tag>)"`` in some UI language; a built-in
+        voice ends with no tag suffix. Used to refuse a silent fall-back to the
+        default voice when a pack is selected but can't be resolved.
         """
         display = self._voice_cb.get() if hasattr(self, "_voice_cb") else ""
-        return bool(display) and display.endswith(self._voice_pack_tag_suffix())
+        return bool(display) and display.endswith(self._voice_pack_tag_suffixes())
 
     def _selected_voice_pack(self) -> Optional[VoicePack]:
         """Resolve the voice pack selected in the Voice dropdown, robustly.
@@ -1477,19 +1490,23 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         That can miss — a language toggle, a transient pack-list read, an
         engine-resolution hiccup — and then synthesis silently falls back to
         the default voice (the field bug where an imported pack came out
-        sounding like Grandmom). This resolves the selection directly: strip
-        the `` (<tag>)`` suffix from the display and match the name against
-        installed packs, with no language filter and no ``_current_voice``
-        dependency. Returns ``None`` only when the selection is a built-in
-        voice or no installed pack matches the shown name.
+        sounding like Grandmom). This resolves the selection directly: match the
+        shown display against each installed pack's full ``"<name> (<tag>)"``
+        form, in every UI language, with no language filter and no
+        ``_current_voice`` dependency. Exact full-string matching (rather than
+        stripping a fixed-length suffix) survives a UI-language switch that left
+        a stale tag, and can't be fooled by a built-in voice whose own name
+        happens to end with the tag text. Returns ``None`` only when the
+        selection is a built-in voice or no installed pack matches the shown
+        name.
         """
         if not self._selection_is_voice_pack():
             return None
         display = self._voice_cb.get()
-        name = display[: -len(self._voice_pack_tag_suffix())]
         for pack in self._list_installed_voice_packs():
-            if pack.display_name == name:
-                return pack
+            for suffix in self._voice_pack_tag_suffixes():
+                if display == f"{pack.display_name}{suffix}":
+                    return pack
         return None
 
     def _voice_pack_reference_path(self, pack: VoicePack) -> Optional[str]:

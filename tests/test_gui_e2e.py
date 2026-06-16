@@ -1465,6 +1465,26 @@ class TestRobustVoicePackSelection:
         app._voice_cb.set(f"{pack.display_name} ({tag})")
         assert app._selected_voice_pack() is not None
 
+    def test_resolves_after_ui_language_switch(self, app, monkeypatch, tmp_path) -> None:
+        # The real field path: a pack is picked while the UI is in Finnish, so
+        # the dropdown entry carries the Finnish "(äänipaketti)" tag. The user
+        # then flips the UI to English. _apply_ui_language does NOT repopulate
+        # the Voice list, so the STALE Finnish suffix stays on the combobox
+        # while _s() now returns the English tag. A current-language-only suffix
+        # check would miss it and silently use the default voice; matching every
+        # language's tag must still detect and resolve the pack.
+        pack = self._install_pack(app, monkeypatch, tmp_path, "Pack Switch")
+        app._ui_lang = "fi"
+        fi_tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({fi_tag})")  # built under Finnish
+        app._ui_lang = "en"  # user flips UI; combobox is NOT rebuilt
+        en_tag = app._s("voice_pack_tag")
+        assert fi_tag != en_tag  # the scenario only bites because tags differ
+        assert app._selection_is_voice_pack() is True
+        resolved = app._selected_voice_pack()
+        assert resolved is not None
+        assert resolved.root == pack.root
+
     def test_guard_fires_when_pack_selected_but_unresolvable(self, app, monkeypatch, tmp_path) -> None:
         # Empty packs root: the display says a pack is selected, but nothing
         # resolves -> the guard condition (is_pack AND no path) must hold, so
