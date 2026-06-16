@@ -1128,8 +1128,10 @@ class TestApplyUpdateClosesOrphans:
         icon_dir = tmp_path / "app" / "_internal" / "assets"
         icon_dir.mkdir(parents=True)
         (icon_dir / "icon.png").write_bytes(b"\x89PNG")
-        # The exe basename is what the taskkill /IM line must target.
-        app_exe = tmp_path / "app" / "AudiobookMaker.exe"
+        # Use a DISTINCT exe name so the assertion proves the taskkill image
+        # name is DERIVED from the running exe (Path(sys.executable).name), not
+        # a hardcoded "AudiobookMaker.exe" literal that would pass either way.
+        app_exe = tmp_path / "app" / "CustomName.exe"
         app_exe.write_bytes(b"fake")
         monkeypatch.setattr("src.auto_updater.sys.executable", str(app_exe))
 
@@ -1151,7 +1153,7 @@ class TestApplyUpdateClosesOrphans:
                 auto_updater.apply_update(fake_installer)
 
         bat = (tmp_path / "audiobookmaker_relaunch.bat").read_text(encoding="utf-8")
-        assert 'taskkill /F /IM "AudiobookMaker.exe"' in bat, bat
+        assert 'taskkill /F /IM "CustomName.exe"' in bat, bat
         # And it must precede the installer invocation (else it can't unlock).
         assert bat.index("taskkill") < bat.index("/VERYSILENT"), (
             "taskkill must run before the silent install"
