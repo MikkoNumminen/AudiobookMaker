@@ -354,7 +354,6 @@ class TestStartChatterboxSubprocess:
 
         pack_root = tmp_path / "packs" / "my_voice"
         pack_root.mkdir(parents=True)
-        fake_voice = SimpleNamespace(id="voicepack:my_voice")
         fake_pack = SimpleNamespace(root=pack_root)
 
         captured: dict = {}
@@ -368,8 +367,9 @@ class TestStartChatterboxSubprocess:
         fake_tmp = MagicMock()
         fake_tmp.name = str(tmp_path / "sample.txt")
 
-        with patch.object(app, "_current_voice", return_value=fake_voice), \
-             patch.object(app, "_resolve_voice_pack", return_value=fake_pack), \
+        # The mixin now resolves the selection via _selected_voice_pack (robust,
+        # bypasses the language-filtered _current_voice re-derivation).
+        with patch.object(app, "_selected_voice_pack", return_value=fake_pack), \
              patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
                    side_effect=_fake_runner), \
              patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,
@@ -387,12 +387,9 @@ class TestStartChatterboxSubprocess:
         assert extra[idx + 1] == str(pack_root)
 
     def test_non_voicepack_voice_omits_voice_pack_flag(self, app, tmp_path):
-        # A regular (non-voicepack) voice id must NOT trigger --voice-pack.
-        # The resolver returns None in that case and the mixin skips the flag.
-        from types import SimpleNamespace
-
-        fake_voice = SimpleNamespace(id="edge:en-US-JennyNeural")
-
+        # A regular (non-voicepack) voice must NOT trigger --voice-pack and must
+        # NOT trip the non-silent guard: no pack is selected, so _selected_voice_pack
+        # is None and _selection_is_voice_pack is False.
         captured: dict = {}
 
         def _fake_runner(**kwargs):
@@ -404,8 +401,8 @@ class TestStartChatterboxSubprocess:
         fake_tmp = MagicMock()
         fake_tmp.name = str(tmp_path / "sample.txt")
 
-        with patch.object(app, "_current_voice", return_value=fake_voice), \
-             patch.object(app, "_resolve_voice_pack", return_value=None), \
+        with patch.object(app, "_selected_voice_pack", return_value=None), \
+             patch.object(app, "_selection_is_voice_pack", return_value=False), \
              patch("src.synthesis_orchestrator.ChatterboxRunner", autospec=True,
                    side_effect=_fake_runner), \
              patch("src.synthesis_orchestrator.resolve_chatterbox_python", autospec=True,

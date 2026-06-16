@@ -309,6 +309,7 @@ _STRINGS = {
         "pack_archive_filter": "\u00c4\u00e4nipaketti (.zip)",
         "all_files_filter": "Kaikki tiedostot",
         "voice_pack_tag": "\u00e4\u00e4nipaketti",
+        "voice_pack_unresolved": "Valitun \u00e4\u00e4nipaketin lataus ep\u00e4onnistui. Tuo \u00e4\u00e4nipaketti uudelleen ja valitse se \u00c4\u00e4ni-valikosta.",
         "report_bug_btn": "Ilmoita bugista\u2026",
     },
     "en": {
@@ -429,6 +430,7 @@ _STRINGS = {
         "pack_archive_filter": "Voice pack (.zip)",
         "all_files_filter": "All files",
         "voice_pack_tag": "voice pack",
+        "voice_pack_unresolved": "Couldn't load the selected voice pack. Re-import it and pick it again from the Voice menu.",
         "report_bug_btn": "Report a bug\u2026",
     },
 }
@@ -1450,6 +1452,43 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         slug = voice_id.split(":", 1)[1]
         for pack in self._list_installed_voice_packs():
             if pack.root.name == slug:
+                return pack
+        return None
+
+    def _voice_pack_tag_suffix(self) -> str:
+        """The `` (<tag>)`` suffix the Voice dropdown appends to pack entries."""
+        return f" ({self._s('voice_pack_tag')})"
+
+    def _selection_is_voice_pack(self) -> bool:
+        """True when the Voice dropdown currently shows a voice-pack entry.
+
+        A pack entry reads ``"<name> (<tag>)"``; a built-in voice does not end
+        with the tag suffix. Used to refuse a silent fall-back to the default
+        voice when a pack is selected but can't be resolved.
+        """
+        display = self._voice_cb.get() if hasattr(self, "_voice_cb") else ""
+        return bool(display) and display.endswith(self._voice_pack_tag_suffix())
+
+    def _selected_voice_pack(self) -> Optional[VoicePack]:
+        """Resolve the voice pack selected in the Voice dropdown, robustly.
+
+        :meth:`_current_voice` re-derives the pick by regenerating the
+        language-filtered pack list and matching the combobox display exactly.
+        That can miss — a language toggle, a transient pack-list read, an
+        engine-resolution hiccup — and then synthesis silently falls back to
+        the default voice (the field bug where an imported pack came out
+        sounding like Grandmom). This resolves the selection directly: strip
+        the `` (<tag>)`` suffix from the display and match the name against
+        installed packs, with no language filter and no ``_current_voice``
+        dependency. Returns ``None`` only when the selection is a built-in
+        voice or no installed pack matches the shown name.
+        """
+        if not self._selection_is_voice_pack():
+            return None
+        display = self._voice_cb.get()
+        name = display[: -len(self._voice_pack_tag_suffix())]
+        for pack in self._list_installed_voice_packs():
+            if pack.display_name == name:
                 return pack
         return None
 

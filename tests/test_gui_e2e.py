@@ -1415,3 +1415,65 @@ class TestInlineAudioPlayer:
             app._on_listen_click()
 
         fake_player.play.assert_called_once_with(str(fake_clip))
+
+
+class TestRobustVoicePackSelection:
+    """_selected_voice_pack resolves the dropdown's pack selection directly
+    from the display name (no language filter, no _current_voice re-derivation),
+    so an imported pack reliably reaches the runner instead of silently
+    falling back to the default voice (the field bug where an imported pack
+    came out as the default voice). _selection_is_voice_pack drives the
+    non-silent guard."""
+
+    def _install_pack(self, app, monkeypatch, tmp_path, name, language="fi"):
+        root = tmp_path / "packs_root"
+        src = tmp_path / f"src_{name.replace(' ', '_')}"
+        _make_few_shot_pack(src, name=name)
+        if language != "fi":
+            import yaml
+            meta_path = src / "meta.yaml"
+            data = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+            data["language"] = language
+            meta_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+        from src.voice_pack import install_pack
+        monkeypatch.setattr("src.voice_pack.pack.default_voice_packs_root", lambda: root)
+        monkeypatch.setattr("src.gui_unified.default_voice_packs_root", lambda: root)
+        return install_pack(src, root)
+
+    def test_selection_is_voice_pack_detects_pack_vs_builtin(self, app) -> None:
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"Test Pack ({tag})")
+        assert app._selection_is_voice_pack() is True
+        app._voice_cb.set("Grandmom (suomi)")
+        assert app._selection_is_voice_pack() is False
+
+    def test_resolves_pack_from_display(self, app, monkeypatch, tmp_path) -> None:
+        pack = self._install_pack(app, monkeypatch, tmp_path, "Pack Alpha")
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({tag})")
+        resolved = app._selected_voice_pack()
+        assert resolved is not None
+        assert resolved.root == pack.root
+
+    def test_resolves_regardless_of_current_language(self, app, monkeypatch, tmp_path) -> None:
+        # A Finnish pack must still resolve while the app is in English — the
+        # language-filtered _current_voice path would drop it, the robust
+        # resolver must not.
+        pack = self._install_pack(app, monkeypatch, tmp_path, "Pack Fi", language="fi")
+        app._ui_lang = "en"  # English tag + _current_language() == "en"
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"{pack.display_name} ({tag})")
+        assert app._selected_voice_pack() is not None
+
+    def test_guard_fires_when_pack_selected_but_unresolvable(self, app, monkeypatch, tmp_path) -> None:
+        # Empty packs root: the display says a pack is selected, but nothing
+        # resolves -> the guard condition (is_pack AND no path) must hold, so
+        # synthesis errors instead of silently using the default voice.
+        root = tmp_path / "empty"
+        root.mkdir()
+        monkeypatch.setattr("src.voice_pack.pack.default_voice_packs_root", lambda: root)
+        monkeypatch.setattr("src.gui_unified.default_voice_packs_root", lambda: root)
+        tag = app._s("voice_pack_tag")
+        app._voice_cb.set(f"Ghost Pack ({tag})")
+        assert app._selection_is_voice_pack() is True
+        assert app._selected_voice_pack() is None
