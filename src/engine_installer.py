@@ -945,6 +945,11 @@ class ChatterboxInstaller(EngineInstaller):
         # get pinned on a plain Install, or the step-6 smoke test fails and the
         # user is told Install failed with only Repair able to recover.
         self._pin_base_model_revision()
+        # Clamp out-of-range s3gen flow tokens (prevents a CUDA device-side
+        # assert that aborts a whole synthesis run). Also self-healed by the
+        # runner at startup, so existing venvs get it without a Repair; applied
+        # here too so a freshly built venv is correct before first synthesis.
+        self._patch_flow_token_clamp()
 
         if cancel_event.is_set():
             return
@@ -1522,6 +1527,59 @@ class ChatterboxInstaller(EngineInstaller):
                 "[base-pin] expected exactly one revision=\"main\" in %s, found "
                 "%d; cannot pin the base model — it will follow upstream main. "
                 "The pin patch needs updating for this chatterbox version.",
+                path,
+                count,
+            )
+            return
+        path.write_text(original.replace(old, new), encoding="utf-8")
+
+    def _patch_flow_token_clamp(self) -> None:
+        """Clamp out-of-range s3gen flow tokens instead of crashing.
+
+        ``chatterbox/models/s3gen/flow.py::inference()`` detects out-of-range
+        speech tokens (it logs "out-of-range special tokens found in flow") but
+        then feeds them straight into an ``nn.Embedding`` lookup unclamped. An
+        index >= ``vocab_size`` is an out-of-bounds read -> CUDA device-side
+        assert -> the whole multi-hour synthesis run dies mid-book. The sibling
+        ``forward()`` already clamps ``min=0``; clamp both ends in ``inference``
+        so a single bad T3 token degrades one frame instead of aborting the run.
+
+        Fully graceful — every miss is a no-op skip, so this can never break the
+        install (worst case the library stays unclamped, exactly as before this
+        patch existed). The runner self-heals the same edit at startup for venvs
+        that an app update refreshed without re-running the installer.
+        """
+        path = _chatterbox_pkg_file(
+            self._venv_path, "models", "s3gen", "flow.py",
+        )
+        if path is None:
+            log.warning(
+                "[flow-clamp] chatterbox/models/s3gen/flow.py not found under "
+                "%s; out-of-range flow tokens will still crash synthesis",
+                self._venv_path,
+            )
+            return
+        try:
+            original = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            log.warning("[flow-clamp] could not read %s: %s", path, exc)
+            return
+        old = "token = self.input_embedding(token.long()) * mask"
+        new = (
+            "token = self.input_embedding("
+            "token.clamp(0, self.vocab_size - 1).long()) * mask"
+        )
+        if new in original:
+            return  # already clamped
+        # Only patch when there is exactly one occurrence — more than one (or
+        # zero) means the source shape changed upstream and a blind replace
+        # could mis-edit. Log loudly so a drifted chatterbox version is visible.
+        count = original.count(old)
+        if count != 1:
+            log.warning(
+                "[flow-clamp] expected exactly one embedding lookup in %s, "
+                "found %d; cannot clamp flow tokens — the patch needs updating "
+                "for this chatterbox version.",
                 path,
                 count,
             )
