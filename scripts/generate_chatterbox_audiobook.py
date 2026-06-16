@@ -1308,6 +1308,18 @@ class _StopRequested(Exception):
     pass
 
 
+def _base_revision_pinned(mtl_source: str) -> bool:
+    """False when the chatterbox library still has the unpatched
+    ``revision="main"`` for the base-model download (install pin step skipped).
+
+    A venv that imports fine but is unpinned re-downloads the floating ``main``
+    weights at synthesis — huge, the wrong revision, and silent. The smoke test
+    checks this so an unpinned venv fails verification instead of passing
+    false-green.
+    """
+    return 'revision="main"' not in mtl_source
+
+
 def _selftest() -> int:
     """Verify the venv loads the full synthesis stack via THIS script.
 
@@ -1339,7 +1351,37 @@ def _selftest() -> int:
         traceback.print_exc(file=sys.stdout)
         sys.stdout.flush()
         return 2
+    rc = _verify_base_revision_pin()
+    if rc:
+        return rc
     print("OK", flush=True)
+    return 0
+
+
+def _verify_base_revision_pin() -> int:
+    """Return 2 if the chatterbox base-model revision is provably unpinned.
+
+    Reads the *imported* ``chatterbox.mtl_tts`` source (so it follows whatever
+    the venv actually loads) and fails only on a positive ``revision="main"``
+    sighting. Best-effort: any inability to import/read the library is a
+    ``[warn]`` and returns 0, so the smoke test never fails-closed on an
+    otherwise-working install it just couldn't verify.
+    """
+    try:
+        import chatterbox.mtl_tts as _mtl
+        if not _base_revision_pinned(
+            Path(_mtl.__file__).read_text(encoding="utf-8")
+        ):
+            print(
+                '[error] Chatterbox base model revision is not pinned '
+                '(revision="main" still present) — the install patch step did '
+                "not run; synthesis would re-download the wrong model.",
+                flush=True,
+            )
+            return 2
+    except Exception as exc:  # noqa: BLE001 — verification is best-effort
+        print(f"[warn] could not verify base-model revision pin: {exc}",
+              flush=True)
     return 0
 
 

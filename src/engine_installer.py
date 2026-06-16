@@ -11,6 +11,7 @@ from where it left off.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -25,11 +26,40 @@ from typing import Callable, Optional
 
 from src.system_checks import find_python311, detect_gpu, check_disk_space
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
 
 PYTHON_VERSION = "3.11.9"
+
+# POSIX venvs nest site-packages under lib/python<major>.<minor>/. Derive the
+# interpreter dir from PYTHON_VERSION (the single source of truth) so the
+# install's source-patch paths and the pin-verification path can never desync
+# on a future Python bump — a desync would make Repair silently no-op forever.
+_VENV_POSIX_SITE = "python" + ".".join(PYTHON_VERSION.split(".")[:2])
+
+
+def _chatterbox_pkg_file(venv_path: Path, *relative_parts: str) -> Optional[Path]:
+    """Locate ``chatterbox/<relative_parts>`` inside an installed venv.
+
+    Covers the Windows (``Lib/site-packages``) and POSIX
+    (``lib/python3.X/site-packages``) layouts the in-app installer produces,
+    with the POSIX interpreter dir derived from :data:`PYTHON_VERSION`.
+    Returns the first existing match, or ``None`` (caller treats that as
+    "can't verify / nothing to patch"). Used by both the install-time source
+    patches and the runtime pin check so they always resolve the same file.
+    """
+    bases = [
+        venv_path / "Lib" / "site-packages",
+        venv_path / "lib" / _VENV_POSIX_SITE / "site-packages",
+    ]
+    for base in bases:
+        candidate = base.joinpath("chatterbox", *relative_parts)
+        if candidate.is_file():
+            return candidate
+    return None
 PYTHON_INSTALLER_URL = (
     f"https://www.python.org/ftp/python/{PYTHON_VERSION}/"
     f"python-{PYTHON_VERSION}-amd64.exe"
@@ -139,6 +169,47 @@ def is_install_incomplete(venv_python) -> bool:
         return (venv_root / INSTALL_INCOMPLETE_MARKER).exists()
     except (OSError, ValueError):
         return False
+
+
+def is_base_revision_pinned(venv_python) -> bool:
+    """False only when the venv's chatterbox library still carries the
+    unpatched ``revision="main"`` for the base-model download.
+
+    The install pins ``ChatterboxMultilingualTTS.from_pretrained``'s hardcoded
+    ``revision="main"`` to a validated SHA (see
+    :meth:`ChatterboxInstaller._pin_base_model_revision`). If that patch step
+    never ran — an interrupted install, or a graceful skip that still let the
+    install complete and clear its marker — synthesis re-downloads the floating
+    ``main`` weights: multi-GB, the wrong (unvalidated) revision, and silent.
+    This lets :meth:`ChatterboxEngine.check_status` surface it as "needs
+    repair" instead of letting a Convert quietly pull the wrong model.
+
+    Conservative: returns ``True`` (pinned / OK) whenever the library source
+    can't be read, so a working engine is never wrongly blocked — only a
+    positive ``revision="main"`` sighting reports unpinned. Cheap (one file
+    read), matching ``check_status``'s "no heavy imports" contract.
+
+    Reads the standard ``site-packages`` layout the in-app installer produces
+    (a normal ``pip install`` of ``chatterbox-tts`` into the venv). A dev
+    editable install puts the source outside the venv where this can't reach
+    it, so it conservatively reads as pinned there — the runner's ``--selftest``
+    (which follows the actual import) is the stricter check for that case.
+    """
+    try:
+        venv_root = Path(venv_python).resolve(strict=False).parent.parent
+    except (OSError, ValueError):
+        return True
+    path = _chatterbox_pkg_file(venv_root, "mtl_tts.py")
+    if path is None:
+        return True
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError (a corrupt/non-UTF-8 source) —
+        # an unreadable file must honour the conservative "treat as pinned"
+        # contract, not crash check_status with an unhandled decode error.
+        return True
+    return 'revision="main"' not in source
 
 
 # Smoke-test error substrings that mean missing/broken PACKAGES — the failure a
@@ -859,7 +930,7 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
-        # Step 5: Gemination patch
+        # Step 5: Gemination patch + base-model revision pin
         progress_cb(
             InstallProgress(
                 5, total, "Sovelletaan korjaukset",
@@ -867,6 +938,13 @@ class ChatterboxInstaller(EngineInstaller):
             )
         )
         self._apply_patch(progress_cb)
+        # Pin the base-model revision UNCONDITIONALLY here — not nested inside
+        # _apply_patch, which early-returns (and so skipped the pin) when the
+        # gemination patch is already applied. A reused venv that is geminated
+        # but unpinned (e.g. installed before the pin patch existed) must still
+        # get pinned on a plain Install, or the step-6 smoke test fails and the
+        # user is told Install failed with only Repair able to recover.
+        self._pin_base_model_revision()
 
         if cancel_event.is_set():
             return
@@ -1350,20 +1428,10 @@ class ChatterboxInstaller(EngineInstaller):
     def _apply_patch(self, progress_cb: ProgressCallback) -> None:
         """Apply Finnish gemination patch to alignment_stream_analyzer.py."""
         # Reuse logic from post_install_chatterbox.py.
-        candidates = [
-            self._venv_path / "Lib" / "site-packages" / "chatterbox"
-            / "models" / "t3" / "inference"
-            / "alignment_stream_analyzer.py",
-            self._venv_path / "lib" / "python3.11" / "site-packages"
-            / "chatterbox" / "models" / "t3" / "inference"
-            / "alignment_stream_analyzer.py",
-        ]
-
-        path = None
-        for c in candidates:
-            if c.exists():
-                path = c
-                break
+        path = _chatterbox_pkg_file(
+            self._venv_path,
+            "models", "t3", "inference", "alignment_stream_analyzer.py",
+        )
 
         if path is None:
             progress_cb(
@@ -1412,7 +1480,9 @@ class ChatterboxInstaller(EngineInstaller):
                 message="Gemination-korjaus asennettu.",
             )
         )
-        self._pin_base_model_revision()
+        # NOTE: the base-model revision pin is NOT applied here — install()
+        # calls _pin_base_model_revision() unconditionally so it runs even on
+        # this method's early-return paths (gemination already applied, etc.).
 
     def _pin_base_model_revision(self) -> None:
         """Pin the base-model download revision in the chatterbox library.
@@ -1424,17 +1494,18 @@ class ChatterboxInstaller(EngineInstaller):
         skip, so this can never break the install (worst case the base model
         stays on main, exactly as before this patch existed).
         """
-        candidates = [
-            self._venv_path / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py",
-            self._venv_path / "lib" / "python3.11" / "site-packages"
-            / "chatterbox" / "mtl_tts.py",
-        ]
-        path = next((c for c in candidates if c.exists()), None)
+        path = _chatterbox_pkg_file(self._venv_path, "mtl_tts.py")
         if path is None:
+            log.warning(
+                "[base-pin] chatterbox/mtl_tts.py not found under %s; base "
+                "model left on 'main' (check_status will flag needs-repair)",
+                self._venv_path,
+            )
             return
         try:
             original = path.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            log.warning("[base-pin] could not read %s: %s", path, exc)
             return
         new = f'revision="{CHATTERBOX_BASE_REVISION}"'
         if new in original:
@@ -1442,8 +1513,18 @@ class ChatterboxInstaller(EngineInstaller):
         old = 'revision="main"'
         # Only patch when there is exactly one occurrence — more than one means
         # the source shape changed and a blind replace could mis-pin a
-        # different repo's download.
-        if original.count(old) != 1:
+        # different repo's download. Log loudly: combined with check_status now
+        # gating on the pin, a silent skip here would look like a Repair that
+        # does nothing. This needs the pin patch updated for the new upstream.
+        count = original.count(old)
+        if count != 1:
+            log.warning(
+                "[base-pin] expected exactly one revision=\"main\" in %s, found "
+                "%d; cannot pin the base model — it will follow upstream main. "
+                "The pin patch needs updating for this chatterbox version.",
+                path,
+                count,
+            )
             return
         path.write_text(original.replace(old, new), encoding="utf-8")
 

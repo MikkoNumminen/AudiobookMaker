@@ -93,7 +93,10 @@ class ChatterboxEngine(TTSEngine):
         # the runner against a half-built environment (and can corrupt the
         # in-progress pip install). The install writes a sentinel for exactly
         # this window; see engine_installer.is_install_incomplete.
-        from src.engine_installer import is_install_incomplete
+        from src.engine_installer import (
+            is_base_revision_pinned,
+            is_install_incomplete,
+        )
         if is_install_incomplete(venv_python):
             return EngineStatus(
                 available=False,
@@ -104,6 +107,23 @@ class ChatterboxEngine(TTSEngine):
                     "Chatterbox-asennus on kesken tai keskeytyi — odota "
                     "asennuksen valmistumista tai asenna se uudelleen "
                     "moottoreiden hallinnasta."
+                ),
+            )
+        # A venv that imports fine but whose base-model revision pin never
+        # landed would silently re-download the floating 'main' weights (huge,
+        # wrong model) at first synthesis. Treat it as needs-repair rather than
+        # letting a Convert quietly pull the wrong model.
+        if not is_base_revision_pinned(venv_python):
+            return EngineStatus(
+                available=False,
+                reason=(
+                    "Chatterbox's base model is not pinned — the install's "
+                    "patch step didn't finish, so synthesis would re-download "
+                    "the wrong model. Repair the engine from the Engine "
+                    "manager.\n"
+                    "Chatterbox-perusmallia ei ole kiinnitetty — asennuksen "
+                    "korjausvaihe jäi kesken. Korjaa moottori moottoreiden "
+                    "hallinnasta."
                 ),
             )
         repo_root = Path(__file__).resolve().parent.parent

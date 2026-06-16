@@ -20,6 +20,7 @@ import pytest
 from src.engine_installer import (
     ChatterboxInstaller,
     INSTALL_INCOMPLETE_MARKER,
+    is_base_revision_pinned,
     is_install_incomplete,
 )
 
@@ -49,6 +50,130 @@ class TestIncompleteMarkerHelper:
     def test_bad_path_is_not_incomplete(self):
         # A nonsense path must not raise — just report "not incomplete".
         assert is_install_incomplete("") is False
+
+
+class TestBaseRevisionPinnedHelper:
+    """is_base_revision_pinned flags a venv whose chatterbox library still has
+    the unpatched revision="main" — the state that makes synthesis silently
+    re-download the floating 'main' weights. Conservative: only a positive
+    sighting reports unpinned; anything unreadable reads as OK."""
+
+    def _write_mtl(self, tmp_path, body: str) -> Path:
+        sp = tmp_path / "venv" / "Lib" / "site-packages" / "chatterbox"
+        sp.mkdir(parents=True)
+        (sp / "mtl_tts.py").write_text(body, encoding="utf-8")
+        return tmp_path / "venv" / "Scripts" / "python.exe"  # need not exist
+
+    def test_unpinned_source_reads_not_pinned(self, tmp_path):
+        venv_python = self._write_mtl(
+            tmp_path, 'def from_pretrained(cls):\n    dl(repo, revision="main")\n'
+        )
+        assert is_base_revision_pinned(venv_python) is False
+
+    def test_pinned_source_reads_pinned(self, tmp_path):
+        venv_python = self._write_mtl(
+            tmp_path, 'def from_pretrained(cls):\n    dl(repo, revision="ef85ce7")\n'
+        )
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_missing_library_is_not_blocked(self, tmp_path):
+        # No chatterbox lib present → can't tell → don't block a working engine.
+        venv_python = tmp_path / "venv" / "Scripts" / "python.exe"
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_bad_path_is_not_blocked(self):
+        assert is_base_revision_pinned("") is True
+
+    def test_unreadable_library_is_not_blocked(self, tmp_path, monkeypatch):
+        # File present (found) but read_text raises → conservative True, never
+        # block a working engine over an I/O hiccup.
+        venv_python = self._write_mtl(tmp_path, 'revision="main"')
+        import src.engine_installer as ei
+
+        def _boom(*a, **k):
+            raise OSError("unreadable")
+
+        monkeypatch.setattr(ei.Path, "read_text", _boom)
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_corrupt_non_utf8_library_is_not_blocked(self, tmp_path):
+        # A non-UTF-8 mtl_tts.py (plausible on a partially-overwritten file
+        # during the interrupted install this targets) raises UnicodeDecodeError
+        # — a ValueError, not OSError. The conservative contract must still hold
+        # (return True), not crash check_status.
+        venv = tmp_path / "venv"
+        sp = venv / "Lib" / "site-packages" / "chatterbox"
+        sp.mkdir(parents=True)
+        (sp / "mtl_tts.py").write_bytes(b'\xff\xfe revision="main"')
+        venv_python = venv / "Scripts" / "python.exe"
+        assert is_base_revision_pinned(venv_python) is True
+
+    def test_malformed_path_is_not_blocked(self):
+        # A null-byte path makes Path.resolve raise ValueError → the venv-root
+        # guard returns the conservative True (covers that except branch).
+        assert is_base_revision_pinned("v\x00env/Scripts/python.exe") is True
+
+
+class TestChatterboxPkgFile:
+    """_chatterbox_pkg_file resolves the installed chatterbox source across the
+    Windows and POSIX venv layouts, with the POSIX interpreter dir derived from
+    PYTHON_VERSION so the install patches and the pin check never desync."""
+
+    def test_posix_dir_tracks_python_version(self):
+        from src.engine_installer import _VENV_POSIX_SITE, PYTHON_VERSION
+
+        major, minor = PYTHON_VERSION.split(".")[:2]
+        assert _VENV_POSIX_SITE == f"python{major}.{minor}"
+
+    def test_finds_windows_layout(self, tmp_path):
+        from src.engine_installer import _chatterbox_pkg_file
+
+        f = tmp_path / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x", encoding="utf-8")
+        assert _chatterbox_pkg_file(tmp_path, "mtl_tts.py") == f
+
+    def test_finds_posix_nested_layout(self, tmp_path):
+        from src.engine_installer import _chatterbox_pkg_file, _VENV_POSIX_SITE
+
+        f = (
+            tmp_path / "lib" / _VENV_POSIX_SITE / "site-packages" / "chatterbox"
+            / "models" / "t3" / "inference" / "alignment_stream_analyzer.py"
+        )
+        f.parent.mkdir(parents=True)
+        f.write_text("x", encoding="utf-8")
+        assert _chatterbox_pkg_file(
+            tmp_path, "models", "t3", "inference", "alignment_stream_analyzer.py"
+        ) == f
+
+    def test_missing_returns_none(self, tmp_path):
+        from src.engine_installer import _chatterbox_pkg_file
+
+        assert _chatterbox_pkg_file(tmp_path, "mtl_tts.py") is None
+
+
+class TestBaseModelPinLogsOnSkip:
+    """_pin_base_model_revision logs loudly when it can't pin (count != 1).
+    With check_status now gating on the pin, a silent skip would look like a
+    Repair that does nothing — the log makes the diagnosis visible."""
+
+    def test_warns_on_multiple_revision_main(self, tmp_path, caplog):
+        import logging
+
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        f = (
+            tmp_path / "venv" / "Lib" / "site-packages" / "chatterbox" / "mtl_tts.py"
+        )
+        f.parent.mkdir(parents=True)
+        # Two occurrences → the count guard skips the patch.
+        f.write_text('a = revision="main"\nb = revision="main"\n', encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="src.engine_installer"):
+            inst._pin_base_model_revision()
+
+        assert any("cannot pin" in r.getMessage().lower() for r in caplog.records)
+        # Graceful: the source is left unpatched (install must not break).
+        assert f.read_text(encoding="utf-8").count('revision="main"') == 2
 
 
 class TestIsInstalledMarkerAware:
@@ -98,6 +223,33 @@ class TestInstallMarkerLifecycle:
         # correctly reads as incomplete and the user is told it failed.
         assert inst._install_marker.exists()
         assert any(e.error for e in events)
+
+
+class TestInstallPinsUnconditionally:
+    """install() pins the base-model revision even when _apply_patch
+    early-returns (e.g. a reused venv whose gemination patch is already
+    applied). The pin used to be nested inside _apply_patch and got skipped on
+    those paths, so a plain Install over a geminated-but-unpinned venv failed
+    its smoke test with only Repair able to recover."""
+
+    def test_pin_runs_when_apply_patch_is_a_noop(self, tmp_path):
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        inst._venv_path.mkdir(parents=True)
+
+        # _mocked_install_steps stubs _apply_patch to a no-op — the same effect
+        # as its early-return when gemination is already applied.
+        pin_mock = MagicMock()
+        ctxs = _mocked_install_steps(inst)
+        ctxs.append(patch.object(inst, "_smoke_test", return_value=None))
+        ctxs.append(patch.object(inst, "_pin_base_model_revision", pin_mock))
+        with ctxs[0], ctxs[1], ctxs[2], ctxs[3], ctxs[4], ctxs[5], ctxs[6]:
+            events = []
+            inst.install(events.append, threading.Event())
+
+        # The pin ran independently of _apply_patch — this is the regression
+        # guard: with the old nesting it would not have been called at all.
+        pin_mock.assert_called_once()
+        assert any(e.done for e in events)
 
 
 class TestRepairEscalation:
@@ -364,6 +516,26 @@ class TestBridgeCheckStatusIncomplete:
         low = status.reason.lower()
         assert "installing" in low or "kesken" in low
 
+    def test_check_status_unavailable_when_unpinned(self):
+        # Marker gone (install "completed") but the base-model revision pin
+        # never landed → needs-repair, not a silent re-download of 'main'.
+        from src.tts_chatterbox_bridge import ChatterboxEngine
+
+        eng = ChatterboxEngine()
+        with patch(
+            "src.tts_chatterbox_bridge.resolve_chatterbox_python",
+            return_value=Path("/fake/venv/bin/python"),
+        ), patch(
+            "src.engine_installer.is_install_incomplete", return_value=False
+        ), patch(
+            "src.engine_installer.is_base_revision_pinned", return_value=False
+        ):
+            status = eng.check_status()
+
+        assert status.available is False
+        low = status.reason.lower()
+        assert "pinned" in low or "kiinnitet" in low
+
     def test_check_status_available_when_complete(self):
         from src.tts_chatterbox_bridge import ChatterboxEngine
 
@@ -371,7 +543,11 @@ class TestBridgeCheckStatusIncomplete:
         with patch(
             "src.tts_chatterbox_bridge.resolve_chatterbox_python",
             return_value=Path("/fake/venv/bin/python"),
-        ), patch("src.engine_installer.is_install_incomplete", return_value=False):
+        ), patch(
+            "src.engine_installer.is_install_incomplete", return_value=False
+        ), patch(
+            "src.engine_installer.is_base_revision_pinned", return_value=True
+        ):
             status = eng.check_status()
 
         assert status.available is True
