@@ -158,7 +158,10 @@ class UpdateMixin(_Base):
                     self._pending_update.latest_version
                     if self._pending_update else ""
                 )
-                self.after(200, lambda: apply_update(installer_path, expected))
+                self.after(
+                    200,
+                    lambda: self._apply_update_and_recover(installer_path, expected),
+                )
                 return
             elif ev.kind == "update_failed":
                 self._update_btn.configure(
@@ -181,3 +184,25 @@ class UpdateMixin(_Base):
                 return
 
         self.after(self.POLL_INTERVAL_MS, self._pump_update_download)
+
+    def _apply_update_and_recover(self, installer_path: Path, expected: str) -> None:
+        """Hand off to the installer; recover the banner if the launch fails.
+
+        ``apply_update`` normally never returns — it spawns the installer via a
+        detached helper script and ``os._exit``'s this process. If it raises
+        (or returns) instead, the hand-off failed; without this the banner
+        would sit frozen on "installing" and read as a hang (field-observed).
+        Re-enable the button and surface the error so the user can retry,
+        mirroring the download-failure path above.
+        """
+        try:
+            apply_update(installer_path, expected)
+        except Exception as exc:  # noqa: BLE001 — any hand-off failure must show
+            logger.exception("apply_update failed to launch the installer")
+            self._update_btn.configure(state="normal", text=self._s("update_now"))
+            self._progress_bar.set(0)
+            from tkinter import messagebox
+            messagebox.showerror(
+                self._s("error"),
+                self._s("update_error_detail").format(error=str(exc)),
+            )

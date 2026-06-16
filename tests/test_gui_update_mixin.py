@@ -132,3 +132,31 @@ class TestDownloadFailureClearsPending:
         # User got the error dialog.
         fake_messagebox.showerror.assert_called_once()
 
+
+
+class TestApplyUpdateRecovery:
+    """A failed installer hand-off must recover the banner (re-enable the
+    button + surface the error) instead of leaving it frozen on 'installing'
+    — the silent freeze observed in the field when apply_update aborts."""
+
+    def test_failed_handoff_reenables_button_and_shows_error(self) -> None:
+        host = _FakeHost()
+        with patch(
+            "src.gui_update_mixin.apply_update",
+            side_effect=RuntimeError("installer locked"),
+        ), patch("tkinter.messagebox.showerror") as showerr:
+            host._apply_update_and_recover("setup.exe", "3.0.0")
+        assert {"state": "normal", "text": "update_now"} in host._update_btn.calls
+        assert {"set": 0} in host._progress_bar.calls
+        showerr.assert_called_once()
+
+    def test_successful_handoff_leaves_banner_untouched(self) -> None:
+        # apply_update normally os._exit's; mocked as a no-op here. The recovery
+        # branch must NOT run on success (no spurious re-enable / error popup).
+        host = _FakeHost()
+        with patch("src.gui_update_mixin.apply_update", return_value=None) as au, \
+             patch("tkinter.messagebox.showerror") as showerr:
+            host._apply_update_and_recover("setup.exe", "3.0.0")
+        au.assert_called_once()
+        assert host._update_btn.calls == []
+        showerr.assert_not_called()
