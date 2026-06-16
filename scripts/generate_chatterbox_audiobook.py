@@ -1417,7 +1417,13 @@ def _ensure_flow_token_clamp() -> None:
         )
         if new in original or original.count(old) != 1:
             return  # already clamped, or upstream shape changed — leave it
-        flow.write_text(original.replace(old, new), encoding="utf-8")
+        # Atomic replace: a crash mid-write must never leave a half-written
+        # flow.py — an unimportable module here would break ALL future
+        # synthesis, not just this run. Write a sibling temp on the same
+        # filesystem, then os.replace() it into place (atomic on Win + POSIX).
+        tmp = flow.with_name(flow.name + ".clamp-tmp")
+        tmp.write_text(original.replace(old, new), encoding="utf-8")
+        os.replace(tmp, flow)
         print(
             "[runner] applied s3gen flow token clamp (out-of-range crash-guard)",
             flush=True,

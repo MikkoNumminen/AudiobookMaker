@@ -117,6 +117,9 @@ def test_runner_self_heal_clamps_before_import(monkeypatch, tmp_path) -> None:
     text = flow.read_text(encoding="utf-8")
     assert _CLAMPED in text
     assert _UNPATCHED not in text
+    # Atomic write: the sibling temp must be os.replace()'d into place, never
+    # left behind in site-packages.
+    assert not list(flow.parent.glob("*.clamp-tmp"))
 
 
 def test_runner_self_heal_is_idempotent(monkeypatch, tmp_path) -> None:
