@@ -50,8 +50,8 @@ Edge-TTS is the default and what most users want. Don't overthink it unless you 
 Microsoft's free online neural TTS. Fast, no model downloads, Finnish voices Noora and Harri are the best in their class. Requires an internet connection during synthesis. If Microsoft ever deprecates this service, all of us are in trouble — but it has been stable for years.
 
 - Finnish voices: Noora, Harri
-- English US voices: Jenny, Aria, Ava, Guy, Andrew
-- English GB voices: Sonia, Ryan
+- English US voices: Jenny, Aria, Ava, Guy, Andrew, and more
+- English GB voices: Sonia, Ryan, and more
 - No GPU. No voice cloning.
 
 ### Piper (offline, CPU)
@@ -67,7 +67,7 @@ Local neural TTS that runs entirely on CPU. After the first voice download (~60 
 
 The interesting one. Chatterbox is an open-source neural TTS from Resemble AI; `Finnish-NLP/Chatterbox-Finnish` is a Finnish fine-tune by the Finnish-NLP organization. Together they produce the best Finnish voice quality in this app — close to commercial audiobook quality on prepared text — and the engine supports **reference-clip voice imitation** at synthesis time (no training step).
 
-**How end users get Chatterbox.** The model weights (~15 GB) aren't bundled into the installer — they would balloon it past usability. Instead, open the app, click **Install engines…** in the Settings panel, and the GUI downloads the Chatterbox venv and the Finnish-NLP model on demand. After that initial setup, Chatterbox works fully offline. The default voice is **Grandmom** (Isoäiti in the app), a warm elderly speaker — nobody recorded her; she's the natural default of the upstream Finnish-NLP finetune. How Grandmom is produced in each language is documented in two companion docs: [docs/finnish_grandmom.md](docs/finnish_grandmom.md) (Isoäiti — Finnish T3 finetune default voice + 16-pass Finnish normalizer) and [docs/english_grandmom.md](docs/english_grandmom.md) (Route B v2 — multilingual base + Grandmom reference WAV, plus known prosody quirks).
+**How end users get Chatterbox.** The model weights (~15 GB) aren't bundled into the installer — they would balloon it past usability. Instead, open the app, click **Install engines…** in the Settings panel, and the GUI downloads the Chatterbox venv and the Finnish-NLP model on demand. After that initial setup, Chatterbox works fully offline. The default voice is **Grandmom** (Isoäiti in the app), a warm elderly speaker — nobody recorded her; she's the natural default of the upstream Finnish-NLP finetune. How Grandmom is produced in each language is documented in two companion docs: [docs/finnish_grandmom.md](docs/finnish_grandmom.md) (Isoäiti — Finnish T3 finetune default voice + 19-pass Finnish normalizer) and [docs/english_grandmom.md](docs/english_grandmom.md) (Route B v2 — multilingual base + Grandmom reference WAV, plus known prosody quirks).
 
 **How developers get voice cloning.** The voice-cloning pipeline that produces a custom voice pack from a sample of your own voice (analyze → export → train → package) lives in `scripts/voice_pack_*.py` and is **dev-only** — it needs a `HF_TOKEN` and a Python environment with CUDA. See [docs/DEVELOPER_SETUP.md](docs/DEVELOPER_SETUP.md). The GUI consumes the resulting voice packs via its **Import voice pack…** button; it does not produce them.
 
@@ -103,7 +103,7 @@ Requires Python ≥ 3.10, PyTorch ≥ 2.5 with CUDA ≥ 12.0, NVIDIA GPU with ~8
 - **OCR fallback for scanned PDFs** via ocrmypdf + Tesseract. If PyMuPDF can't extract selectable text (because the PDF is image-based), the app falls back to OCR. The Windows installer bundles Tesseract + Finnish and English language packs; developers install Tesseract separately. Details: [docs/OCR_FALLBACK.md](docs/OCR_FALLBACK.md).
 - **Automatic chapter detection.**
 - **Context-aware sentence splitter** handling Finnish and English abbreviations, initials, decimals, and domain names.
-- **Finnish text normalizer** with 16 normalization passes covering `-ismi` / `-tio` stems, abbreviations, ordinals, Latin phrases, Roman numerals, compound-word seam splitting, and acronym handling. 330+ unit tests for this module alone. The reason this is here at all is that Finnish TTS pronunciation gets weird in predictable ways, and the normalizer is what makes the difference between "robotic" and "audiobook-grade".
+- **Finnish text normalizer** with 19 normalization passes covering `-ismi` / `-tio` stems, abbreviations, ordinals, Latin phrases, Roman numerals, compound-word seam splitting, and acronym handling. 330+ unit tests for this module alone. The reason this is here at all is that Finnish TTS pronunciation gets weird in predictable ways, and the normalizer is what makes the difference between "robotic" and "audiobook-grade".
 - **Preview button** — auditions an engine + voice on short text before committing to a full conversion. Use it. A 6-hour conversion in the wrong voice is no fun.
 - **Make sample** — synthesizes only the first ~30 seconds and saves it next to where the full run would land, so you can A/B engines or voices in under a minute.
 - **Import voice pack** — point the GUI at a voice pack folder produced by the dev-only voice-cloning pipeline and the cloned voice appears in the Voice dropdown.
@@ -269,7 +269,7 @@ Run tests:
 pytest tests/
 ```
 
-The suite is 2400+ tests in flat `tests/test_*.py` files that mirror the `src/` module names — to test one module, run its file (`pytest tests/test_tts_audio.py`). Three things worth knowing before you dig in:
+The suite is 3000+ tests in flat `tests/test_*.py` files that mirror the `src/` module names — to test one module, run its file (`pytest tests/test_tts_audio.py`). Three things worth knowing before you dig in:
 
 - Tests marked `slow` run a real TTS engine end-to-end. The pre-commit hook skips them (`-m "not slow"`); a plain `pytest tests/` runs everything.
 - `tests/conftest.py` blocks outbound network connections, so a test that needs an external service must mock it explicitly — a hung "downloading model" test means a missing mock, not a slow network.
@@ -330,7 +330,7 @@ AudiobookMaker/
 │   ├── tts_piper.py               # Piper offline TTS engine
 │   ├── tts_chatterbox_bridge.py   # Chatterbox + Finnish-NLP/Chatterbox-Finnish
 │   ├── tts_voxcpm.py              # VoxCPM2 GPU engine (dev only)
-│   ├── tts_normalizer_fi.py       # Finnish text normalizer (16-pass)
+│   ├── tts_normalizer_fi.py       # Finnish text normalizer (19-pass)
 │   ├── tts_normalizer_en.py       # English text normalizer
 │   ├── app_config.py              # Session preference persistence
 │   ├── gui_unified.py             # CustomTkinter UI (main entry)
@@ -338,7 +338,7 @@ AudiobookMaker/
 │   ├── ffmpeg_path.py             # Runtime ffmpeg path helper for bundled builds
 │   └── main.py                    # Application entry point
 ├── scripts/                       # CLI tools, voice sample recorder, voice-pack pipeline
-├── tests/                         # Unit tests (2400+)
+├── tests/                         # Unit tests (3000+)
 ├── docs/                          # Architecture, CLI, OCR, conventions, audits
 ├── installer/                     # Inno Setup script
 ├── .github/workflows/             # CI: build Windows installer, publish releases, run lightweight codegen-smell checks (4 greppable: 2 gating, 2 warn-only)
@@ -360,7 +360,7 @@ AudiobookMaker/
 | Audio processing | pydub + ffmpeg |
 | In-process audio playback | pygame |
 | GUI | CustomTkinter |
-| Finnish text normalization | num2words + custom 16-pass normalizer |
+| Finnish text normalization | num2words + custom 19-pass normalizer |
 | Windows packaging | PyInstaller |
 | Installer | Inno Setup |
 
