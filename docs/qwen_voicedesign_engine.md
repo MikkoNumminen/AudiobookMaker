@@ -152,4 +152,105 @@ python scripts/qwen_voicedesign_poc.py --out-dir D:\some\where
 - Peak VRAM is in the expected ballpark (~4–6 GB).
 - The three samples sound like three distinctly different, usable voices.
 
-If the samples sound good, the engine integration (Phase 2+) is the next step.
+If the samples sound good, enable the engine (below).
+
+---
+
+## Using the engine
+
+The engine is `src/tts_qwen_voicedesign.py` (`QwenVoiceDesignEngine`, id
+`qwen_voicedesign`). It is built exactly like the VoxCPM2 adapter — one more
+implementation of the shared `TTSEngine` interface, not a parallel system.
+
+### Enabling it (developer-only)
+
+```bash
+pip install qwen-tts          # not in requirements.txt; never bundled
+audiobookmaker-cli engines list   # qwen_voicedesign should now show "yes"
+```
+
+It registers itself **only when running from source** (the same `sys.frozen`
+gate VoxCPM2 uses), so it can never reach the Windows installer. It is never a
+default engine.
+
+### Synthesizing from the CLI
+
+The voice is the description. Pass it with `--voice-description` (or pick one of
+the built-in preset voices with `--voice`):
+
+```bash
+# Free-text described voice:
+audiobookmaker-cli convert book.txt \
+    --engine qwen_voicedesign \
+    --language en \
+    --voice-description "A warm male narrator in his mid-30s, calm and measured."
+
+# Or a built-in preset voice (no description needed):
+audiobookmaker-cli convert book.txt \
+    --engine qwen_voicedesign --language en --voice qwen-bright-female
+```
+
+Built-in preset voices (`--voice`): `qwen-neutral-narrator` (default),
+`qwen-warm-male`, `qwen-bright-female`. A free-text `--voice-description` always
+overrides the preset.
+
+Optional environment variables:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AUDIOBOOKMAKER_QWEN_ATTN` | `sdpa` | Attention impl; set to `flash_attention_2` if flash-attn is built |
+| `AUDIOBOOKMAKER_QWEN_DEVICE` | `cuda:0` | Which GPU to load the model on |
+
+### Language limitation & guard
+
+Qwen3-TTS speaks **10 languages**: Chinese, English, Japanese, Korean, German,
+French, Russian, Portuguese, Spanish, Italian. **Finnish is not supported.**
+
+Two layers enforce this:
+
+1. `supported_languages()` returns those 10 short codes **without `fi`**, so the
+   GUI's Language → Engine funnel never offers this engine for a Finnish book
+   (and never auto-selects it for one).
+2. `synthesize()` hard-fails with a clear `ValueError` on any language outside
+   the 10 — so even a direct CLI call with `--language fi` is blocked rather
+   than producing garbage.
+
+Text normalization runs before chunking **only** for the languages the
+project's normalizer handles (`fi`/`en`); the other Qwen languages pass through
+unmodified, because the normalizer is Finnish/English-specific and would
+mis-handle (or reject) them.
+
+### What is deliberately NOT here
+
+- **No voice cloning.** Qwen3-TTS's reference-audio (Base) mode is not wired up;
+  `supports_voice_cloning` is `False` and any `reference_audio` passed in is
+  ignored. This keeps the engine consistent with the project's ethical stance —
+  VoiceDesign creates a *synthetic* voice from words, it does not copy a real
+  person.
+- **No preset-speaker (CustomVoice) mode.** The only control is the
+  natural-language description.
+
+### Example voice descriptions
+
+- *"A warm male narrator in his mid-30s, calm and measured, with a friendly,
+  reassuring tone."*
+- *"A bright, expressive young woman with a light, energetic voice and clear
+  diction."*
+- *"A deep, resonant documentary voice, slow and authoritative, with dramatic
+  gravitas."*
+- *"An older gentleman with a gentle, grandfatherly voice and a slow, soothing
+  pace."*
+
+### Testing
+
+`tests/test_tts_qwen_voicedesign.py` mocks the heavy model (it is never
+installed in CI) and covers status, voices, the language guard, the
+description-vs-preset resolution, and the chunk/combine wiring. One real
+end-to-end test, `test_real_synthesis_smoke`, is gated behind the `gpu` (plus
+`slow` + `network`) markers and is skipped unless a CUDA GPU and `qwen-tts` are
+actually present:
+
+```bash
+pytest tests/test_tts_qwen_voicedesign.py            # mocked unit tests
+pytest -m gpu tests/test_tts_qwen_voicedesign.py     # real smoke test (needs GPU + qwen-tts)
+```
