@@ -16,12 +16,19 @@ from __future__ import annotations
 import builtins
 from unittest.mock import MagicMock, patch
 
+# Imported at module scope on purpose: synthesize() lazily `import numpy`, and
+# the patch.dict("sys.modules", ...) helpers below restore sys.modules on exit.
+# If numpy were first imported inside a patched context it would be dropped on
+# restore, and re-importing its C extension fails with "cannot load module more
+# than once per process". Keeping it in the baseline snapshot avoids that.
+import numpy as np
 import pytest
 
 from src.tts_base import EngineStatus, Voice, get_engine
 from src.tts_qwen_voicedesign import (
     QwenVoiceDesignEngine,
     _DEFAULT_VOICE_ID,
+    _HF_MODEL_ID,
     _INSTALL_HINT,
     _QWEN_LANGUAGES,
     _VOICE_PRESETS,
@@ -116,6 +123,8 @@ class TestCheckStatus:
             status = QwenVoiceDesignEngine().check_status()
         assert isinstance(status, EngineStatus)
         assert not status.available
+        # Pin the exact hint text (makes the imported constant load-bearing).
+        assert status.reason == _INSTALL_HINT
         assert "qwen-tts" in status.reason.lower()
 
     def test_unavailable_when_torch_missing(self) -> None:
@@ -241,7 +250,9 @@ class TestSynthesizeGuards:
 
     def test_raises_on_finnish(self) -> None:
         # Finnish must be hard-blocked before any GPU work — no mocks needed.
-        with pytest.raises(ValueError, match="Finnish|does not support"):
+        # Match "Finnish" specifically so the test fails if the Finnish-naming
+        # is ever dropped from the error (the constraint worth pinning).
+        with pytest.raises(ValueError, match="Finnish"):
             QwenVoiceDesignEngine().synthesize("moi", "/tmp/out.mp3", "", "fi")
 
     def test_raises_on_unsupported_language(self) -> None:
@@ -405,6 +416,189 @@ class TestNormalization:
 
 
 # ---------------------------------------------------------------------------
+# _load_model — from_pretrained signature + attn validation
+# ---------------------------------------------------------------------------
+
+
+class TestLoadModelSignature:
+    """The real from_pretrained call is otherwise only exercised by the
+    GPU-gated smoke test, so a wrong kwarg name (e.g. torch_dtype vs dtype) or
+    model id would pass CI silently. Pin it with a mocked qwen_tts."""
+
+    def _load_with_mocks(self, monkeypatch):
+        monkeypatch.delenv("AUDIOBOOKMAKER_QWEN_ATTN", raising=False)
+        monkeypatch.delenv("AUDIOBOOKMAKER_QWEN_DEVICE", raising=False)
+        fake_qwen = MagicMock()
+        fake_torch = MagicMock()
+        engine = QwenVoiceDesignEngine()
+        with patch.dict("sys.modules", {"qwen_tts": fake_qwen, "torch": fake_torch}):
+            engine._load_model()
+        return fake_qwen.Qwen3TTSModel.from_pretrained.call_args
+
+    def test_from_pretrained_model_id_and_kwargs(self, monkeypatch) -> None:
+        call = self._load_with_mocks(monkeypatch)
+        # model id is the first positional arg.
+        assert call.args[0] == _HF_MODEL_ID
+        # exact kwarg names matter (dtype, NOT the historical torch_dtype).
+        assert {"device_map", "dtype", "attn_implementation"} <= set(call.kwargs)
+        assert call.kwargs["device_map"] == "cuda:0"
+        assert call.kwargs["attn_implementation"] == "sdpa"
+
+    def test_attn_env_var_is_forwarded(self, monkeypatch) -> None:
+        monkeypatch.delenv("AUDIOBOOKMAKER_QWEN_DEVICE", raising=False)
+        monkeypatch.setenv("AUDIOBOOKMAKER_QWEN_ATTN", "flash_attention_2")
+        fake_qwen = MagicMock()
+        fake_torch = MagicMock()
+        engine = QwenVoiceDesignEngine()
+        with patch.dict("sys.modules", {"qwen_tts": fake_qwen, "torch": fake_torch}):
+            engine._load_model()
+        call = fake_qwen.Qwen3TTSModel.from_pretrained.call_args
+        assert call.kwargs["attn_implementation"] == "flash_attention_2"
+
+    def test_invalid_attn_env_var_raises(self, monkeypatch) -> None:
+        monkeypatch.setenv("AUDIOBOOKMAKER_QWEN_ATTN", "sdap")  # typo
+        fake_qwen = MagicMock()
+        fake_torch = MagicMock()
+        engine = QwenVoiceDesignEngine()
+        with patch.dict("sys.modules", {"qwen_tts": fake_qwen, "torch": fake_torch}):
+            with pytest.raises(ValueError, match="AUDIOBOOKMAKER_QWEN_ATTN"):
+                engine._load_model()
+
+
+# ---------------------------------------------------------------------------
+# Language short-code -> Qwen NAME mapping (at the model-call boundary)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("code,name", sorted(_QWEN_LANGUAGES.items()))
+def test_language_code_maps_to_qwen_name(tmp_path, code, name) -> None:
+    """A swapped mapping (e.g. de -> French) would silently synthesize the
+    wrong language; assert each code reaches the model as its correct NAME."""
+    engine, fake_model, modules = _ready_engine_and_mocks()
+    out = tmp_path / "out.mp3"
+    with patch.dict("sys.modules", modules), patch(
+        "src.tts_qwen_voicedesign.combine_audio_files"
+    ), patch(
+        "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=["hello"]
+    ):
+        engine.synthesize("hello", str(out), _DEFAULT_VOICE_ID, code)
+    assert fake_model.generate_voice_design.call_args.kwargs["language"] == name
+
+
+# ---------------------------------------------------------------------------
+# Empty voice id resolves to the default preset
+# ---------------------------------------------------------------------------
+
+
+def test_empty_voice_id_resolves_to_default_preset(tmp_path) -> None:
+    engine, fake_model, modules = _ready_engine_and_mocks()
+    out = tmp_path / "out.mp3"
+    with patch.dict("sys.modules", modules), patch(
+        "src.tts_qwen_voicedesign.combine_audio_files"
+    ), patch(
+        "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=["hello"]
+    ):
+        engine.synthesize("hello", str(out), "", "en")
+    instruct = fake_model.generate_voice_design.call_args.kwargs["instruct"]
+    assert instruct == _VOICE_PRESETS[_DEFAULT_VOICE_ID][1]
+
+
+# ---------------------------------------------------------------------------
+# Multi-chunk wiring: combine args, wavs[0] selection, progress, ignored rate
+# ---------------------------------------------------------------------------
+
+
+def test_multichunk_wiring_progress_and_rate(tmp_path) -> None:
+    engine, fake_model, modules = _ready_engine_and_mocks()
+    # Distinguishable waveforms so wavs[0] selection (not [-1] or the whole
+    # list) is actually pinned.
+    fake_model.generate_voice_design.return_value = ([[1.0, 1.0], [2.0, 2.0]], 24000)
+
+    captured: list = []
+
+    def fake_write(path, wav, rate):
+        captured.append(np.asarray(wav, dtype=np.float32))
+
+    modules["soundfile"].write = fake_write
+
+    events: list = []
+
+    def progress(cur, total, msg):
+        events.append((cur, total, msg))
+
+    out = tmp_path / "out.mp3"
+    with patch.dict("sys.modules", modules), patch(
+        "src.tts_qwen_voicedesign.combine_audio_files"
+    ) as fake_combine, patch(
+        "src.tts_qwen_voicedesign.split_text_into_chunks",
+        return_value=["chunk one", "chunk two"],
+    ):
+        engine.synthesize(
+            "x", str(out), _DEFAULT_VOICE_ID, "en",
+            progress_cb=progress, rate="+25%",  # rate must be silently ignored
+        )
+
+    # combine_audio_files received exactly the two chunk paths and the caller's
+    # output_path (catches a dropped chunk or a misrouted destination).
+    combine_args = fake_combine.call_args.args
+    assert len(combine_args[0]) == 2
+    assert combine_args[1] == str(out)
+
+    # Every written waveform is the FIRST element of the returned list.
+    assert len(captured) == 2
+    assert all(np.allclose(w, [1.0, 1.0]) for w in captured)
+
+    # Progress fired per chunk plus the combine/done milestones.
+    synth_msgs = [m for _, _, m in events if "Synthesizing" in m]
+    assert len(synth_msgs) == 2
+    assert any("Combining" in m for _, _, m in events)
+    assert any("Done" in m for _, _, m in events)
+
+
+def test_empty_model_output_raises(tmp_path) -> None:
+    engine, fake_model, modules = _ready_engine_and_mocks()
+    fake_model.generate_voice_design.return_value = ([], 24000)  # no waveforms
+    out = tmp_path / "out.mp3"
+    with patch.dict("sys.modules", modules), patch(
+        "src.tts_qwen_voicedesign.combine_audio_files"
+    ), patch(
+        "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=["hello"]
+    ):
+        with pytest.raises(RuntimeError, match="no audio"):
+            engine.synthesize("hello", str(out), _DEFAULT_VOICE_ID, "en")
+
+
+# ---------------------------------------------------------------------------
+# Installer exclusion (brief constraint 3) — qwen_tts must stay out of the bundle
+# ---------------------------------------------------------------------------
+
+
+def _spec_excludes() -> set[str]:
+    """Parse the `excludes = [...]` list literal out of audiobookmaker.spec."""
+    import ast
+    from pathlib import Path
+
+    spec = Path(__file__).resolve().parent.parent / "audiobookmaker.spec"
+    tree = ast.parse(spec.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "excludes" for t in node.targets
+        ):
+            return {
+                el.value
+                for el in node.value.elts
+                if isinstance(el, ast.Constant) and isinstance(el.value, str)
+            }
+    return set()
+
+
+def test_qwen_tts_excluded_from_installer() -> None:
+    # Regression guard for constraint 3: a future edit that drops the exclude
+    # (bundling torch into the end-user installer) must fail here.
+    assert "qwen_tts" in _spec_excludes()
+
+
+# ---------------------------------------------------------------------------
 # Real GPU smoke test (skipped unless CUDA + qwen-tts are actually present)
 # ---------------------------------------------------------------------------
 
@@ -422,11 +616,12 @@ def _gpu_and_qwen_available() -> bool:
 @pytest.mark.gpu
 @pytest.mark.slow
 @pytest.mark.network  # first run downloads the weights from Hugging Face
-@pytest.mark.skipif(
-    not _gpu_and_qwen_available(),
-    reason="needs a CUDA GPU and `pip install qwen-tts`",
-)
 def test_real_synthesis_smoke(tmp_path) -> None:
+    # Probe at runtime, not in a skipif decorator: a decorator condition is
+    # evaluated at collection time, which would import torch and init a CUDA
+    # context on a GPU box even for a fast mocked-only run.
+    if not _gpu_and_qwen_available():
+        pytest.skip("needs a CUDA GPU and `pip install qwen-tts`")
     out = tmp_path / "qwen_smoke.mp3"
     QwenVoiceDesignEngine().synthesize(
         "Hello there, and welcome to this short test.",

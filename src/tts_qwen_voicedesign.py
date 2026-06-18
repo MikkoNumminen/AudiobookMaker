@@ -84,6 +84,10 @@ _ATTN_ENV = "AUDIOBOOKMAKER_QWEN_ATTN"
 _DEVICE_ENV = "AUDIOBOOKMAKER_QWEN_DEVICE"
 _DEFAULT_ATTN = "sdpa"
 _DEFAULT_DEVICE = "cuda:0"
+# Accepted attn_implementation values (the transformers set Qwen3-TTS forwards).
+# A typo'd AUDIOBOOKMAKER_QWEN_ATTN otherwise surfaces only as a deep
+# from_pretrained traceback after the model-load wait, so validate up front.
+_VALID_ATTN = ("sdpa", "flash_attention_2", "eager")
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +228,11 @@ class QwenVoiceDesignEngine(TTSEngine):
 
         device = os.environ.get(_DEVICE_ENV, _DEFAULT_DEVICE)
         attn = os.environ.get(_ATTN_ENV, _DEFAULT_ATTN)
+        if attn not in _VALID_ATTN:
+            raise ValueError(
+                f"{_ATTN_ENV}={attn!r} is not a valid attention implementation; "
+                f"choose one of {', '.join(_VALID_ATTN)}."
+            )
         self._model = Qwen3TTSModel.from_pretrained(
             _HF_MODEL_ID,
             device_map=device,
@@ -262,7 +271,9 @@ class QwenVoiceDesignEngine(TTSEngine):
             )
 
         if not voice_id:
-            voice_id = self.default_voice(language) or _DEFAULT_VOICE_ID
+            # default_voice is guaranteed non-None here: the language guard
+            # above already proved `language` is one of _QWEN_LANGUAGES.
+            voice_id = self.default_voice(language)
         if voice_id not in _VOICE_PRESETS:
             raise ValueError(f"Unknown Qwen VoiceDesign voice id: {voice_id}")
 
@@ -290,7 +301,7 @@ class QwenVoiceDesignEngine(TTSEngine):
         # have no normalizer and ``normalize_text`` would raise on them, so
         # they pass through unmodified — an unnormalized read is correct, a
         # mis-normalized one is not.
-        if language.lower() in SUPPORTED_LANGS:
+        if language in SUPPORTED_LANGS:
             text = normalize_text(text, language)
         chunks = split_text_into_chunks(text)
         if not chunks:
@@ -305,17 +316,23 @@ class QwenVoiceDesignEngine(TTSEngine):
                     progress_cb(i, total, f"Synthesizing chunk {i + 1}/{total}…")
 
                 # generate_voice_design returns (list_of_waveforms, sample_rate).
-                # We take the first waveform and trust the model-reported rate
-                # rather than hard-coding one.
                 wavs, sr = model.generate_voice_design(
                     text=chunk,
                     language=qwen_language,
                     instruct=instruct,
                 )
-                wav = wavs[0]
+                if not wavs:
+                    raise RuntimeError(
+                        f"Qwen3-TTS returned no audio for chunk {i + 1}/{total}."
+                    )
+                # The return dtype/device is not a documented contract, so coerce
+                # to a flat 1-D CPU float32 array: soundfile cannot write a CUDA
+                # or bfloat16 buffer, and a [1, N] shape would be mis-read. Trust
+                # the model-reported rate, cast to int for libsndfile.
+                wav = _to_cpu_float32_mono(wavs[0])
 
                 chunk_path = os.path.join(tmp_dir, f"chunk_{i:04d}.wav")
-                sf.write(chunk_path, wav, sr)
+                sf.write(chunk_path, wav, int(sr))
                 chunk_paths.append(chunk_path)
 
             if progress_cb:
@@ -324,6 +341,21 @@ class QwenVoiceDesignEngine(TTSEngine):
 
         if progress_cb:
             progress_cb(total, total, "Done!")
+
+
+def _to_cpu_float32_mono(wav):
+    """Coerce a model waveform to a flat 1-D CPU float32 numpy array.
+
+    The exact return type of ``generate_voice_design`` is not a documented
+    contract — it may be a CUDA/bfloat16 torch tensor or a numpy array, shaped
+    ``[N]`` or ``[1, N]``. soundfile can only serialize a CPU float array, so we
+    normalize here rather than assume the happy shape.
+    """
+    import numpy as np
+
+    if hasattr(wav, "detach"):  # a torch tensor — move to CPU, cast bf16 -> f32
+        wav = wav.detach().to("cpu").float().numpy()
+    return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
 def _resolve_instruct(voice_description: Optional[str], voice_id: str) -> str:
