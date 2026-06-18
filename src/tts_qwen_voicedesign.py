@@ -227,6 +227,10 @@ class QwenVoiceDesignEngine(TTSEngine):
         from qwen_tts import Qwen3TTSModel  # type: ignore[import-not-found]
 
         device = os.environ.get(_DEVICE_ENV, _DEFAULT_DEVICE)
+        # device is intentionally not validated here: device_map accepts many
+        # forms (cuda, cuda:N, cpu, auto) and even a clean torch.device() parse
+        # can't confirm the GPU index exists, so an up-front check would be
+        # leaky. attn is a closed three-value set, so it is worth validating.
         attn = os.environ.get(_ATTN_ENV, _DEFAULT_ATTN)
         if attn not in _VALID_ATTN:
             raise ValueError(

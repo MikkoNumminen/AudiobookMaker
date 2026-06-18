@@ -33,6 +33,7 @@ from src.tts_qwen_voicedesign import (
     _QWEN_LANGUAGES,
     _VOICE_PRESETS,
     _resolve_instruct,
+    _to_cpu_float32_mono,
 )
 
 
@@ -566,6 +567,62 @@ def test_empty_model_output_raises(tmp_path) -> None:
     ):
         with pytest.raises(RuntimeError, match="no audio"):
             engine.synthesize("hello", str(out), _DEFAULT_VOICE_ID, "en")
+
+
+# ---------------------------------------------------------------------------
+# _to_cpu_float32_mono — the output coercion helper (the key robustness fix)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTensor:
+    """Minimal stand-in for a torch tensor: exposes the .detach().to().float()
+    .numpy() chain the coercion relies on, recording the calls so the test can
+    confirm the full chain ran."""
+
+    def __init__(self, arr):
+        self._arr = arr
+        self.calls: list = []
+
+    def detach(self):
+        self.calls.append("detach")
+        return self
+
+    def to(self, device, **kwargs):
+        self.calls.append(("to", device))
+        return self
+
+    def float(self):
+        self.calls.append("float")
+        return self
+
+    def numpy(self):
+        self.calls.append("numpy")
+        return self._arr
+
+
+class TestCoerceWaveform:
+    def test_torch_tensor_branch_runs_full_chain(self) -> None:
+        # A [1, N] payload behind the tensor interface — exercises the
+        # detach/to-cpu/float/numpy path AND the [1, N] -> [N] flatten.
+        t = _FakeTensor(np.array([[1.0, 2.0, 3.0]], dtype=np.float64))
+        out = _to_cpu_float32_mono(t)
+        assert t.calls == ["detach", ("to", "cpu"), "float", "numpy"]
+        assert out.dtype == np.float32
+        assert out.ndim == 1
+        assert out.tolist() == [1.0, 2.0, 3.0]
+
+    def test_numpy_2d_is_flattened_and_cast(self) -> None:
+        arr = np.array([[0.5, 0.25]], dtype=np.float64)  # [1, N], not a tensor
+        out = _to_cpu_float32_mono(arr)
+        assert out.dtype == np.float32
+        assert out.ndim == 1
+        assert out.tolist() == [0.5, 0.25]
+
+    def test_plain_list_is_coerced(self) -> None:
+        out = _to_cpu_float32_mono([0.0, 0.1, 0.0])
+        assert out.dtype == np.float32
+        assert out.ndim == 1
+        assert out.tolist() == pytest.approx([0.0, 0.1, 0.0])
 
 
 # ---------------------------------------------------------------------------
