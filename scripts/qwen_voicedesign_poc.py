@@ -33,6 +33,22 @@ from pathlib import Path
 # The official VoiceDesign model id, confirmed from the Hugging Face model card.
 DEFAULT_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
 
+# The 10 languages Qwen3-TTS supports, by the NAME the model expects. Finnish is
+# deliberately absent — passing it (or any other unsupported name) is rejected by
+# argparse below rather than handed to the model.
+QWEN_LANGUAGE_NAMES = [
+    "Chinese",
+    "English",
+    "Japanese",
+    "Korean",
+    "German",
+    "French",
+    "Russian",
+    "Portuguese",
+    "Spanish",
+    "Italian",
+]
+
 # Three deliberately different descriptions so the listener can judge whether
 # VoiceDesign produces genuinely distinct, usable narration voices.
 DEFAULT_SAMPLES: list[tuple[str, str]] = [
@@ -90,10 +106,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--language",
         default="English",
+        choices=QWEN_LANGUAGE_NAMES,
         help=(
-            "Language NAME as Qwen expects it (English, Chinese, Japanese, "
-            "Korean, German, French, Russian, Portuguese, Spanish, Italian). "
-            "Finnish is not supported."
+            "Language NAME as Qwen expects it. One of the 10 supported "
+            "languages; Finnish is not available and is rejected here."
         ),
     )
     p.add_argument(
@@ -107,7 +123,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         choices=["sdpa", "flash_attention_2", "eager"],
         help=(
             "Attention implementation. 'sdpa' is built into PyTorch and needs "
-            "nothing extra; 'flash_attention_2' is faster but needs flash-attn."
+            "nothing extra; 'flash_attention_2' is faster but needs flash-attn; "
+            "'eager' is the always-available transformers fallback."
         ),
     )
     p.add_argument(
@@ -126,6 +143,16 @@ def _import_deps():
         print(
             "ERROR: PyTorch is not installed. Install the model package first:\n"
             "    pip install -U qwen-tts",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        print(
+            "ERROR: numpy is not installed (normally pulled in by qwen-tts):\n"
+            "    pip install -U qwen-tts numpy",
             file=sys.stderr,
         )
         raise SystemExit(2)
@@ -150,16 +177,30 @@ def _import_deps():
         )
         raise SystemExit(2)
 
+    import numpy as np
     import torch
     import soundfile as sf
     from qwen_tts import Qwen3TTSModel
 
-    return torch, sf, Qwen3TTSModel
+    return torch, np, sf, Qwen3TTSModel
+
+
+def _to_cpu_float32_mono(wav, np):
+    """Coerce a model waveform to a flat 1-D CPU float32 numpy array.
+
+    The exact return type of generate_voice_design is not documented — it could
+    be a CUDA/bfloat16 torch tensor or a numpy array, and shaped [N] or [1, N].
+    soundfile can only write CPU float arrays, and the duration math needs a
+    flat sample count, so normalize both here.
+    """
+    if hasattr(wav, "detach"):  # a torch tensor — move to CPU, cast bf16->f32
+        wav = wav.detach().to("cpu").float().numpy()
+    return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    torch, sf, Qwen3TTSModel = _import_deps()
+    torch, np, sf, Qwen3TTSModel = _import_deps()
 
     if not torch.cuda.is_available():
         print(
@@ -169,18 +210,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    # Report VRAM/name for the device the model actually loads on, not always 0.
+    try:
+        dev_idx = torch.device(args.device).index
+    except Exception:
+        dev_idx = None
+    if dev_idx is None:
+        dev_idx = 0
+
     out_dir = Path(args.out_dir) if args.out_dir else _default_out_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    gpu_name = torch.cuda.get_device_name(0)
-    print(f"GPU:        {gpu_name}")
+    gpu_name = torch.cuda.get_device_name(dev_idx)
+    print(f"GPU:        {gpu_name} (cuda:{dev_idx})")
     print(f"Model:      {args.model_id}")
     print(f"Attention:  {args.attn}")
     print(f"Output dir: {out_dir}")
     print("Loading model (first run downloads ~4 GB of weights)...")
 
     load_start = time.perf_counter()
-    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.reset_peak_memory_stats(dev_idx)
     model = Qwen3TTSModel.from_pretrained(
         args.model_id,
         device_map=args.device,
@@ -188,13 +237,13 @@ def main(argv: list[str] | None = None) -> int:
         attn_implementation=args.attn,
     )
     load_secs = time.perf_counter() - load_start
-    load_vram_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    load_vram_gb = torch.cuda.max_memory_allocated(dev_idx) / (1024**3)
     print(f"Loaded in {load_secs:.1f}s. VRAM after load: {load_vram_gb:.2f} GB\n")
 
     peak_vram_gb = load_vram_gb
     for label, instruct in DEFAULT_SAMPLES:
         print(f"[{label}] {instruct}")
-        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.reset_peak_memory_stats(dev_idx)
         gen_start = time.perf_counter()
         wavs, sr = model.generate_voice_design(
             text=args.text,
@@ -203,10 +252,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         gen_secs = time.perf_counter() - gen_start
 
-        wav = wavs[0]
+        if not wavs:
+            print(f"  -> ERROR: model returned no audio for {label}", file=sys.stderr)
+            continue
+        wav = _to_cpu_float32_mono(wavs[0], np)
+        sr = int(sr)
         audio_secs = len(wav) / float(sr)
         rtf = audio_secs / gen_secs if gen_secs > 0 else float("inf")
-        sample_vram_gb = torch.cuda.max_memory_allocated() / (1024**3)
+        sample_vram_gb = torch.cuda.max_memory_allocated(dev_idx) / (1024**3)
         peak_vram_gb = max(peak_vram_gb, sample_vram_gb)
 
         out_path = out_dir / f"{label}.wav"
@@ -217,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             f"peak VRAM {sample_vram_gb:.2f} GB\n"
         )
 
-    print(f"Done. {len(DEFAULT_SAMPLES)} samples in {out_dir}")
+    print(f"Done. Samples in {out_dir}")
     print(f"Peak VRAM across the run: {peak_vram_gb:.2f} GB")
     print("Listen to the .wav files and decide GO / NO-GO before integration.")
     return 0
