@@ -11,10 +11,10 @@ Before this module existed, ``src/gui.py``, ``src/gui_unified.py``, and
 imports, which made "add a new engine" an edit in four places. Now the
 list lives here and nowhere else.
 
-Optional / developer-only engines (currently VoxCPM2, which isn't
-bundled in frozen installs) are guarded so their registration failure
-does not crash the rest of the app on older Python versions or
-missing-optional-dep machines.
+Optional / developer-only engines (currently VoxCPM2 and Qwen3-TTS
+VoiceDesign, which aren't bundled in frozen installs) are guarded so
+their registration failure does not crash the rest of the app on older
+Python versions or missing-optional-dep machines.
 """
 
 from __future__ import annotations
@@ -33,5 +33,13 @@ from src import tts_chatterbox_bridge  # noqa: F401  (registers ChatterboxEngine
 if not getattr(sys, "frozen", False):
     try:
         from src import tts_voxcpm  # noqa: F401  (registers VoxCPM2Engine)
+    except Exception:
+        pass
+
+    # Qwen3-TTS VoiceDesign — same developer-only treatment as VoxCPM2:
+    # depends on torch + a GPU we don't bundle, so it's sys.frozen-gated and
+    # registration failure is swallowed when the optional dep is absent.
+    try:
+        from src import tts_qwen_voicedesign  # noqa: F401  (registers QwenVoiceDesignEngine)
     except Exception:
         pass
