@@ -220,15 +220,14 @@ project's normalizer handles (`fi`/`en`); the other Qwen languages pass through
 unmodified, because the normalizer is Finnish/English-specific and would
 mis-handle (or reject) them.
 
-### What is deliberately NOT here
+### What is NOT in the VoiceDesign engine
 
-- **No voice cloning.** Qwen3-TTS's reference-audio (Base) mode is not wired up;
-  `supports_voice_cloning` is `False` and any `reference_audio` passed in is
-  ignored. This keeps the engine consistent with the project's ethical stance —
-  VoiceDesign creates a *synthetic* voice from words, it does not copy a real
-  person.
-- **No preset-speaker (CustomVoice) mode.** The only control is the
-  natural-language description.
+- **No preset speakers here.** The preset-speaker mode is the separate
+  **CustomVoice engine** (`qwen_customvoice`, see below) — VoiceDesign's only
+  control is the natural-language description.
+- **No voice cloning here.** Reference-audio cloning is its own path (a separate
+  Clone engine, planned); `supports_voice_cloning` is `False` and any
+  `reference_audio` passed to VoiceDesign is ignored.
 
 ### Example voice descriptions
 
@@ -254,3 +253,52 @@ actually present:
 pytest tests/test_tts_qwen_voicedesign.py            # mocked unit tests
 pytest -m gpu tests/test_tts_qwen_voicedesign.py     # real smoke test (needs GPU + qwen-tts)
 ```
+
+---
+
+## CustomVoice engine (preset speakers)
+
+`src/tts_qwen_customvoice.py` (`QwenCustomVoiceEngine`, id `qwen_customvoice`) is
+the sibling engine for Qwen3-TTS's **preset-speaker** mode. Instead of describing
+a voice, you pick one of **9 built-in premium speakers** and optionally steer the
+delivery with a free-text style instruction.
+
+It is a **separate ~4 GB checkpoint** (`Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`),
+downloaded on demand the first time you use it. Same dev-only / GPU / no-Finnish
+gating as VoiceDesign; the shared plumbing lives in `src/tts_qwen_common.py`.
+
+### Speakers (`--voice`)
+
+`Vivian`, `Serena`, `Uncle_Fu`, `Dylan`, `Eric`, `Ryan`, `Aiden`, `Ono_Anna`,
+`Sohee` (default: `Vivian`). Each speaker can read any of the 10 languages, best
+in its native one.
+
+### Synthesizing from the CLI
+
+```bash
+# Pick a preset speaker:
+audiobookmaker-cli convert book.txt \
+    --engine qwen_customvoice --language en --voice Ryan
+
+# Steer the delivery style with --voice-description (optional):
+audiobookmaker-cli convert book.txt \
+    --engine qwen_customvoice --language en --voice Vivian \
+    --voice-description "read this in a calm, slow, soothing tone"
+```
+
+The difference from VoiceDesign: here `--voice` is the **speaker** (the voice
+identity) and `--voice-description` is an **optional style/emotion** layered on
+top, whereas in VoiceDesign the description *is* the voice. The same
+`AUDIOBOOKMAKER_QWEN_ATTN` / `AUDIOBOOKMAKER_QWEN_DEVICE` env vars and the same
+Finnish/language guard apply. Tests: `tests/test_tts_qwen_customvoice.py`.
+
+---
+
+## Shared code
+
+Both engines subclass `QwenEngineBase` in `src/tts_qwen_common.py`, which holds
+everything they have in common: the 10-language map (no Finnish), the model
+load (with `attn` validation), the GPU/availability check, the waveform
+coercion to CPU float32, and the chunk → generate → combine driver. Each engine
+only adds its voice catalogue and its one `generate_*` call. A third engine
+(reference-audio Clone) is planned and will slot in the same way.
