@@ -285,9 +285,9 @@ class TestSynthesizeHappyPath:
         engine, fake_model, modules = _ready_engine_and_mocks()
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.combine_audio_files"
+            "src.tts_qwen_common.combine_audio_files"
         ) as fake_combine, patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks",
+            "src.tts_qwen_common.split_text_into_chunks",
             return_value=["Hello world."],
         ):
             engine.synthesize("Hello world.", str(out), _DEFAULT_VOICE_ID, "en")
@@ -304,9 +304,9 @@ class TestSynthesizeHappyPath:
         engine, fake_model, modules = _ready_engine_and_mocks()
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.combine_audio_files"
+            "src.tts_qwen_common.combine_audio_files"
         ), patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks",
+            "src.tts_qwen_common.split_text_into_chunks",
             return_value=["Hello world."],
         ):
             engine.synthesize(
@@ -325,9 +325,9 @@ class TestSynthesizeHappyPath:
         engine, fake_model, modules = _ready_engine_and_mocks()
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.combine_audio_files"
+            "src.tts_qwen_common.combine_audio_files"
         ), patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks",
+            "src.tts_qwen_common.split_text_into_chunks",
             return_value=["Hello world."],
         ):
             engine.synthesize(
@@ -355,9 +355,9 @@ class TestSynthesizeHappyPath:
 
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.combine_audio_files"
+            "src.tts_qwen_common.combine_audio_files"
         ), patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks",
+            "src.tts_qwen_common.split_text_into_chunks",
             return_value=["chunk one", "chunk two"],
         ):
             engine.synthesize("whatever", str(out), _DEFAULT_VOICE_ID, "en")
@@ -369,7 +369,7 @@ class TestSynthesizeHappyPath:
         engine, _fake_model, modules = _ready_engine_and_mocks()
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=[]
+            "src.tts_qwen_common.split_text_into_chunks", return_value=[]
         ):
             with pytest.raises(ValueError, match="no chunks"):
                 engine.synthesize("   .", str(out), _DEFAULT_VOICE_ID, "en")
@@ -389,9 +389,9 @@ class TestNormalization:
         engine, _fake_model, modules = _ready_engine_and_mocks()
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.normalize_text", return_value="NORMALIZED"
+            "src.tts_qwen_common.normalize_text", return_value="NORMALIZED"
         ) as spy, patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=[]
+            "src.tts_qwen_common.split_text_into_chunks", return_value=[]
         ) as chunker:
             with pytest.raises(ValueError):  # empty chunks raise right after
                 engine.synthesize("Mr. Smith paid $5.", str(out), _DEFAULT_VOICE_ID, "en")
@@ -405,9 +405,9 @@ class TestNormalization:
         engine, _fake_model, modules = _ready_engine_and_mocks()
         out = tmp_path / "out.mp3"
         with patch.dict("sys.modules", modules), patch(
-            "src.tts_qwen_voicedesign.normalize_text"
+            "src.tts_qwen_common.normalize_text"
         ) as spy, patch(
-            "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=[]
+            "src.tts_qwen_common.split_text_into_chunks", return_value=[]
         ) as chunker:
             with pytest.raises(ValueError):
                 engine.synthesize("Guten Tag.", str(out), _DEFAULT_VOICE_ID, "de")
@@ -478,9 +478,9 @@ def test_language_code_maps_to_qwen_name(tmp_path, code, name) -> None:
     engine, fake_model, modules = _ready_engine_and_mocks()
     out = tmp_path / "out.mp3"
     with patch.dict("sys.modules", modules), patch(
-        "src.tts_qwen_voicedesign.combine_audio_files"
+        "src.tts_qwen_common.combine_audio_files"
     ), patch(
-        "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=["hello"]
+        "src.tts_qwen_common.split_text_into_chunks", return_value=["hello"]
     ):
         engine.synthesize("hello", str(out), _DEFAULT_VOICE_ID, code)
     assert fake_model.generate_voice_design.call_args.kwargs["language"] == name
@@ -495,9 +495,9 @@ def test_empty_voice_id_resolves_to_default_preset(tmp_path) -> None:
     engine, fake_model, modules = _ready_engine_and_mocks()
     out = tmp_path / "out.mp3"
     with patch.dict("sys.modules", modules), patch(
-        "src.tts_qwen_voicedesign.combine_audio_files"
+        "src.tts_qwen_common.combine_audio_files"
     ), patch(
-        "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=["hello"]
+        "src.tts_qwen_common.split_text_into_chunks", return_value=["hello"]
     ):
         engine.synthesize("hello", str(out), "", "en")
     instruct = fake_model.generate_voice_design.call_args.kwargs["instruct"]
@@ -529,9 +529,9 @@ def test_multichunk_wiring_progress_and_rate(tmp_path) -> None:
 
     out = tmp_path / "out.mp3"
     with patch.dict("sys.modules", modules), patch(
-        "src.tts_qwen_voicedesign.combine_audio_files"
+        "src.tts_qwen_common.combine_audio_files"
     ) as fake_combine, patch(
-        "src.tts_qwen_voicedesign.split_text_into_chunks",
+        "src.tts_qwen_common.split_text_into_chunks",
         return_value=["chunk one", "chunk two"],
     ):
         engine.synthesize(
@@ -561,9 +561,9 @@ def test_empty_model_output_raises(tmp_path) -> None:
     fake_model.generate_voice_design.return_value = ([], 24000)  # no waveforms
     out = tmp_path / "out.mp3"
     with patch.dict("sys.modules", modules), patch(
-        "src.tts_qwen_voicedesign.combine_audio_files"
+        "src.tts_qwen_common.combine_audio_files"
     ), patch(
-        "src.tts_qwen_voicedesign.split_text_into_chunks", return_value=["hello"]
+        "src.tts_qwen_common.split_text_into_chunks", return_value=["hello"]
     ):
         with pytest.raises(RuntimeError, match="no audio"):
             engine.synthesize("hello", str(out), _DEFAULT_VOICE_ID, "en")
