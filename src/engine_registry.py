@@ -48,3 +48,8 @@ if not getattr(sys, "frozen", False):
         from src import tts_qwen_customvoice  # noqa: F401  (registers QwenCustomVoiceEngine)
     except Exception:
         pass
+
+    try:
+        from src import tts_qwen_clone  # noqa: F401  (registers QwenVoiceCloneEngine)
+    except Exception:
+        pass

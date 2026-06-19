@@ -225,8 +225,8 @@ mis-handle (or reject) them.
 - **No preset speakers here.** The preset-speaker mode is the separate
   **CustomVoice engine** (`qwen_customvoice`, see below) — VoiceDesign's only
   control is the natural-language description.
-- **No voice cloning here.** Reference-audio cloning is its own path (a separate
-  Clone engine, planned); `supports_voice_cloning` is `False` and any
+- **No voice cloning here.** Reference-audio cloning is its own path (the
+  `qwen_clone` engine, below); `supports_voice_cloning` is `False` and any
   `reference_audio` passed to VoiceDesign is ignored.
 
 ### Example voice descriptions
@@ -294,11 +294,59 @@ Finnish/language guard apply. Tests: `tests/test_tts_qwen_customvoice.py`.
 
 ---
 
+## Voice Clone engine (clone from a sample)
+
+`src/tts_qwen_clone.py` (`QwenVoiceCloneEngine`, id `qwen_clone`) clones a voice
+from a short **reference clip**: give it a few seconds of someone's speech and it
+reads your text in that voice. It loads the separate ~4 GB Base checkpoint
+(`Qwen/Qwen3-TTS-12Hz-1.7B-Base`). Same dev-only / GPU / no-Finnish gating.
+
+> **Local-use only.** This clones real voices. It is a developer engine that
+> produces local output; do not redistribute clones of real people. The
+> reference transcript is treated as potentially personal and is never logged.
+
+### The reference transcript
+
+Qwen's clone path wants a transcript of the reference clip (`ref_text`) for best
+quality. You only pass the **audio**, so the engine fills the transcript in
+priority order:
+
+1. an explicit transcript in `AUDIOBOOKMAKER_QWEN_REF_TEXT` (skips Whisper);
+2. otherwise it auto-transcribes the clip with **faster-whisper** (best quality
+   — `pip install faster-whisper`; model size via `AUDIOBOOKMAKER_QWEN_WHISPER_MODEL`,
+   default `small`);
+3. if faster-whisper is absent or fails, it falls back to Qwen's
+   `x_vector_only_mode` (no transcript, slightly lower quality) so it still runs.
+
+### Synthesizing from the CLI
+
+```bash
+# Clone the voice in a reference clip (auto-transcribed if faster-whisper is present):
+audiobookmaker-cli convert book.txt \
+    --engine qwen_clone --language en --ref-audio path/to/voice_sample.wav
+
+# Provide the transcript yourself to skip Whisper:
+AUDIOBOOKMAKER_QWEN_REF_TEXT="exact words spoken in the clip" \
+audiobookmaker-cli convert book.txt \
+    --engine qwen_clone --language en --ref-audio path/to/voice_sample.wav
+```
+
+The reference clip should be a few seconds of clean speech. There are no preset
+voices — the clip *is* the voice. Tests: `tests/test_tts_qwen_clone.py`.
+
+---
+
 ## Shared code
 
-Both engines subclass `QwenEngineBase` in `src/tts_qwen_common.py`, which holds
-everything they have in common: the 10-language map (no Finnish), the model
-load (with `attn` validation), the GPU/availability check, the waveform
-coercion to CPU float32, and the chunk → generate → combine driver. Each engine
-only adds its voice catalogue and its one `generate_*` call. A third engine
-(reference-audio Clone) is planned and will slot in the same way.
+All three engines subclass `QwenEngineBase` in `src/tts_qwen_common.py`, which
+holds everything they have in common: the 10-language map (no Finnish), the model
+load (with `attn` validation), the GPU/availability check, the waveform coercion
+to CPU float32, and the chunk → generate → combine driver. Each engine only adds
+its voice catalogue (or, for Clone, the reference handling) and its one
+`generate_*` call:
+
+| Engine | id | "Custom reader" via | `generate_*` |
+|--------|-----|--------------------|--------------|
+| VoiceDesign | `qwen_voicedesign` | describe a voice in words | `generate_voice_design` |
+| CustomVoice | `qwen_customvoice` | pick 1 of 9 preset speakers (+ style) | `generate_custom_voice` |
+| Voice Clone | `qwen_clone` | clone from a reference clip | `generate_voice_clone` |

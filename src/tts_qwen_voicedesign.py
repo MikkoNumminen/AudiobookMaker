@@ -126,7 +126,10 @@ class QwenVoiceDesignEngine(QwenEngineBase):
         return voice_id
 
     def _prepare_generation(
-        self, voice_id: str, voice_description: Optional[str]
+        self,
+        voice_id: str,
+        voice_description: Optional[str],
+        reference_audio: Optional[str] = None,  # ignored: VoiceDesign has no cloning
     ) -> dict:
         # An explicit free-text description wins; otherwise fall back to the
         # selected preset's canned description.

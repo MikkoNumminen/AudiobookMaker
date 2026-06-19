@@ -208,10 +208,18 @@ class QwenEngineBase(TTSEngine):
 
     @abstractmethod
     def _prepare_generation(
-        self, voice_id: str, voice_description: Optional[str]
+        self,
+        voice_id: str,
+        voice_description: Optional[str],
+        reference_audio: Optional[str],
     ) -> dict:
         """Return an opaque dict of per-call state (resolved once, reused per
-        chunk) — e.g. the instruct text and/or speaker id."""
+        chunk) — e.g. the instruct text, speaker id, or cloning ref/transcript.
+
+        Runs before model load, so this is also where a mode validates its own
+        inputs (raising ValueError) — e.g. the Clone engine requires
+        ``reference_audio`` here. Engines that don't clone ignore it.
+        """
 
     @abstractmethod
     def _generate(self, model, chunk: str, qwen_language: str, prepared: dict):
@@ -248,7 +256,9 @@ class QwenEngineBase(TTSEngine):
             )
 
         voice_id = self._resolve_voice(voice_id, language)
-        prepared = self._prepare_generation(voice_id, voice_description)
+        prepared = self._prepare_generation(
+            voice_id, voice_description, reference_audio
+        )
 
         # Re-check availability so the user gets a clear error instead of an
         # opaque ImportError when they skipped the status line.

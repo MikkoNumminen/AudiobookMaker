@@ -98,7 +98,10 @@ class QwenCustomVoiceEngine(QwenEngineBase):
         return voice_id
 
     def _prepare_generation(
-        self, voice_id: str, voice_description: Optional[str]
+        self,
+        voice_id: str,
+        voice_description: Optional[str],
+        reference_audio: Optional[str] = None,  # ignored: CustomVoice has no cloning
     ) -> dict:
         # The speaker is the voice; an optional free-text description becomes the
         # style ``instruct`` (omitted entirely when not supplied).
