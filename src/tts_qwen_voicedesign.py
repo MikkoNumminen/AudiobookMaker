@@ -29,12 +29,7 @@ from __future__ import annotations
 from typing import Optional
 
 from src.tts_base import Voice, register_engine
-from src.tts_qwen_common import (
-    INSTALL_HINT as _INSTALL_HINT,  # noqa: F401  re-exported for tests
-    QWEN_LANGUAGES as _QWEN_LANGUAGES,
-    QwenEngineBase,
-    to_cpu_float32_mono as _to_cpu_float32_mono,  # noqa: F401  re-exported for tests
-)
+from src.tts_qwen_common import QWEN_LANGUAGES as _QWEN_LANGUAGES, QwenEngineBase
 
 
 # The natural-language voice-design variant. Confirmed from the Hugging Face

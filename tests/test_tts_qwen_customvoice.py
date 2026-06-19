@@ -144,6 +144,14 @@ class TestLanguagesAndVoices:
         assert voices["Vivian"].gender == "female"
         assert voices["Ryan"].gender == "male"
 
+    def test_display_name_formats_underscored_speakers(self) -> None:
+        # Underscore -> space in the label, gender appended. Expected strings
+        # are written out literally so this pins the formatting, not echoes it.
+        voices = {v.id: v for v in QwenCustomVoiceEngine().list_voices("en")}
+        assert voices["Uncle_Fu"].display_name == "Uncle Fu (male)"
+        assert voices["Ono_Anna"].display_name == "Ono Anna (female)"
+        assert voices["Vivian"].display_name == "Vivian (female)"
+
     def test_finnish_lists_no_voices(self) -> None:
         assert QwenCustomVoiceEngine().list_voices("fi") == []
 
@@ -224,6 +232,18 @@ class TestSynthesize:
         kwargs = fake_model.generate_custom_voice.call_args.kwargs
         assert kwargs["instruct"] == "read this in an excited tone"
         assert kwargs["speaker"] == "Vivian"
+
+    def test_whitespace_only_description_omits_instruct(self, tmp_path) -> None:
+        engine, fake_model, modules = _ready_engine_and_mocks()
+        out = tmp_path / "o.mp3"
+        with patch.dict("sys.modules", modules), patch(
+            "src.tts_qwen_common.combine_audio_files"
+        ), patch(
+            "src.tts_qwen_common.split_text_into_chunks", return_value=["hi"]
+        ):
+            engine.synthesize("hi", str(out), "Vivian", "en", voice_description="   ")
+        # A whitespace-only style description is treated as "no instruct".
+        assert "instruct" not in fake_model.generate_custom_voice.call_args.kwargs
 
     def test_empty_voice_id_uses_default_speaker(self, tmp_path) -> None:
         engine, fake_model, modules = _ready_engine_and_mocks()

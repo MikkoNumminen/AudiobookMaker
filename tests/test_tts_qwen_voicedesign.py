@@ -25,15 +25,14 @@ import numpy as np
 import pytest
 
 from src.tts_base import EngineStatus, Voice, get_engine
+from src.tts_qwen_common import INSTALL_HINT, to_cpu_float32_mono
 from src.tts_qwen_voicedesign import (
     QwenVoiceDesignEngine,
     _DEFAULT_VOICE_ID,
     _HF_MODEL_ID,
-    _INSTALL_HINT,
     _QWEN_LANGUAGES,
     _VOICE_PRESETS,
     _resolve_instruct,
-    _to_cpu_float32_mono,
 )
 
 
@@ -125,7 +124,7 @@ class TestCheckStatus:
         assert isinstance(status, EngineStatus)
         assert not status.available
         # Pin the exact hint text (makes the imported constant load-bearing).
-        assert status.reason == _INSTALL_HINT
+        assert status.reason == INSTALL_HINT
         assert "qwen-tts" in status.reason.lower()
 
     def test_unavailable_when_torch_missing(self) -> None:
@@ -605,7 +604,7 @@ class TestCoerceWaveform:
         # A [1, N] payload behind the tensor interface — exercises the
         # detach/to-cpu/float/numpy path AND the [1, N] -> [N] flatten.
         t = _FakeTensor(np.array([[1.0, 2.0, 3.0]], dtype=np.float64))
-        out = _to_cpu_float32_mono(t)
+        out = to_cpu_float32_mono(t)
         assert t.calls == ["detach", ("to", "cpu"), "float", "numpy"]
         assert out.dtype == np.float32
         assert out.ndim == 1
@@ -613,13 +612,13 @@ class TestCoerceWaveform:
 
     def test_numpy_2d_is_flattened_and_cast(self) -> None:
         arr = np.array([[0.5, 0.25]], dtype=np.float64)  # [1, N], not a tensor
-        out = _to_cpu_float32_mono(arr)
+        out = to_cpu_float32_mono(arr)
         assert out.dtype == np.float32
         assert out.ndim == 1
         assert out.tolist() == [0.5, 0.25]
 
     def test_plain_list_is_coerced(self) -> None:
-        out = _to_cpu_float32_mono([0.0, 0.1, 0.0])
+        out = to_cpu_float32_mono([0.0, 0.1, 0.0])
         assert out.dtype == np.float32
         assert out.ndim == 1
         assert out.tolist() == pytest.approx([0.0, 0.1, 0.0])
@@ -653,6 +652,46 @@ def test_qwen_tts_excluded_from_installer() -> None:
     # Regression guard for constraint 3: a future edit that drops the exclude
     # (bundling torch into the end-user installer) must fail here.
     assert "qwen_tts" in _spec_excludes()
+
+
+def test_dev_engines_not_registered_when_frozen() -> None:
+    """Behavioral half of constraint 3: under ``sys.frozen`` the dev-only GPU
+    engines (both Qwen engines + VoxCPM2) must NOT register, so they can never
+    surface in a shipped installer build. The package-exclude test above only
+    proves the qwen-tts *dependency* is unbundled — the adapter modules are
+    plain ``src/*.py`` that ARE bundled and would register if the frozen gate in
+    engine_registry were dropped.
+
+    Run in a fresh subprocess: ``sys.frozen`` must be set before
+    ``engine_registry`` is imported, and module caching makes an in-process
+    reload unreliable.
+    """
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    code = (
+        "import sys\n"
+        "sys.frozen = True\n"
+        "import src.engine_registry\n"
+        "from src.tts_base import registered_ids\n"
+        "ids = registered_ids()\n"
+        "assert 'qwen_voicedesign' not in ids, ids\n"
+        "assert 'qwen_customvoice' not in ids, ids\n"
+        "assert 'voxcpm2' not in ids, ids\n"
+        "assert 'edge' in ids and 'piper' in ids, ids\n"
+        "print('FROZEN_GATE_OK')\n"
+    )
+    result = subprocess.run(
+        [_sys.executable, "-c", code],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert "FROZEN_GATE_OK" in result.stdout, (result.stdout, result.stderr)
 
 
 # ---------------------------------------------------------------------------
