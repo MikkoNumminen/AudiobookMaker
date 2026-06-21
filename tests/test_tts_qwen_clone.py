@@ -161,6 +161,31 @@ class TestRefTextResolution:
         assert kwargs["ref_audio"] == ref
         assert "x_vector_only_mode" not in kwargs
 
+    def test_env_override_is_trimmed(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("AUDIOBOOKMAKER_QWEN_REF_TEXT", "  padded words  ")
+        ref = _ref_wav(tmp_path)
+        engine, fake_model, modules = _ready_engine_and_mocks()
+        with patch.dict("sys.modules", modules), patch(
+            "src.tts_qwen_common.combine_audio_files"
+        ), patch(
+            "src.tts_qwen_common.split_text_into_chunks", return_value=["hi"]
+        ):
+            engine.synthesize("hi", str(tmp_path / "o.mp3"), "", "en", reference_audio=ref)
+        assert fake_model.generate_voice_clone.call_args.kwargs["ref_text"] == "padded words"
+
+    def test_x_vector_fallback_warns_on_stderr(self, tmp_path, monkeypatch, capsys) -> None:
+        monkeypatch.delenv("AUDIOBOOKMAKER_QWEN_REF_TEXT", raising=False)
+        ref = _ref_wav(tmp_path)
+        engine, fake_model, modules = _ready_engine_and_mocks()
+        with patch.dict("sys.modules", modules), patch(
+            "src.tts_qwen_clone._transcribe_reference", return_value=None
+        ), patch("src.tts_qwen_common.combine_audio_files"), patch(
+            "src.tts_qwen_common.split_text_into_chunks", return_value=["hi"]
+        ):
+            engine.synthesize("hi", str(tmp_path / "o.mp3"), "", "en", reference_audio=ref)
+        # A silent quality downgrade is bad UX — there must be a breadcrumb.
+        assert "x-vector-only" in capsys.readouterr().err
+
     def test_whisper_transcript_used_when_no_override(self, tmp_path, monkeypatch) -> None:
         monkeypatch.delenv("AUDIOBOOKMAKER_QWEN_REF_TEXT", raising=False)
         ref = _ref_wav(tmp_path)
@@ -228,6 +253,21 @@ class TestTranscribeReference:
         fake_fw.WhisperModel.side_effect = RuntimeError("cuda oom")
         with patch.dict("sys.modules", {"faster_whisper": fake_fw}):
             assert _transcribe_reference("/ref.wav") is None
+
+    def test_uses_configured_device(self, monkeypatch) -> None:
+        # Whisper must target the same GPU as the TTS model, not a hardcoded one.
+        monkeypatch.setenv("AUDIOBOOKMAKER_QWEN_DEVICE", "cuda:1")
+        seg = MagicMock()
+        seg.text = "hi"
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = ([seg], MagicMock())
+        fake_fw = MagicMock()
+        fake_fw.WhisperModel.return_value = fake_model
+        with patch.dict("sys.modules", {"faster_whisper": fake_fw}):
+            _transcribe_reference("/ref.wav")
+        kwargs = fake_fw.WhisperModel.call_args.kwargs
+        assert kwargs["device"] == "cuda"
+        assert kwargs["device_index"] == 1
 
 
 # ---------------------------------------------------------------------------

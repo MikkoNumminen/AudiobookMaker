@@ -27,10 +27,11 @@ auto-transcribe path). Shared plumbing lives in ``src/tts_qwen_common.py``.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Optional
 
 from src.tts_base import Voice, register_engine
-from src.tts_qwen_common import QwenEngineBase
+from src.tts_qwen_common import QwenEngineBase, qwen_device
 
 
 # The voice-cloning (Base) variant. Confirmed from the Hugging Face model card:
@@ -44,13 +45,27 @@ _WHISPER_MODEL_ENV = "AUDIOBOOKMAKER_QWEN_WHISPER_MODEL"
 _DEFAULT_WHISPER_MODEL = "small"
 
 
+def _whisper_device() -> tuple[str, int, str]:
+    """Map AUDIOBOOKMAKER_QWEN_DEVICE to faster-whisper's (device, index,
+    compute_type) so transcription targets the same GPU as the TTS model."""
+    raw = qwen_device()
+    if raw.startswith("cuda"):
+        idx = raw.split(":", 1)[1] if ":" in raw else "0"
+        try:
+            return "cuda", int(idx), "float16"
+        except ValueError:
+            return "cuda", 0, "float16"
+    return "cpu", 0, "int8"
+
+
 def _transcribe_reference(ref_path: str) -> Optional[str]:
     """Transcribe the reference clip with faster-whisper to get ``ref_text``.
 
     Returns ``None`` when faster-whisper is not installed or transcription
     fails, so the caller can fall back to ``x_vector_only_mode``. The transcript
     is returned to the caller but never logged here — it can contain personal
-    speech.
+    speech. The Whisper model is freed before returning so it is not co-resident
+    with the ~4 GB TTS model the caller loads next (one heavy model at a time).
     """
     try:
         from faster_whisper import WhisperModel  # type: ignore[import-not-found]
@@ -58,10 +73,20 @@ def _transcribe_reference(ref_path: str) -> Optional[str]:
         return None
 
     model_size = os.environ.get(_WHISPER_MODEL_ENV, _DEFAULT_WHISPER_MODEL)
+    device, device_index, compute_type = _whisper_device()
     try:
-        whisper = WhisperModel(model_size, device="cuda", compute_type="float16")
-        segments, _info = whisper.transcribe(ref_path)
-        text = " ".join(seg.text for seg in segments).strip()
+        whisper = WhisperModel(
+            model_size,
+            device=device,
+            device_index=device_index,
+            compute_type=compute_type,
+        )
+        try:
+            segments, _info = whisper.transcribe(ref_path)
+            text = " ".join(seg.text for seg in segments).strip()
+        finally:
+            # Release the transcription model's VRAM before the TTS model loads.
+            del whisper
         return text or None
     except Exception:
         # Any transcription failure -> let the caller use x-vector-only mode.
@@ -127,17 +152,28 @@ class QwenVoiceCloneEngine(QwenEngineBase):
             raise ValueError(f"Reference audio not found: {reference_audio}")
 
         # ref_text priority: explicit override -> Whisper -> x-vector fallback.
-        ref_text = os.environ.get(_REF_TEXT_ENV) or None
-        if ref_text is not None and not ref_text.strip():
-            ref_text = None
+        # The override is trimmed (whitespace-only collapses to "no override").
+        ref_text = (os.environ.get(_REF_TEXT_ENV) or "").strip() or None
         if ref_text is None:
             ref_text = _transcribe_reference(ref_path)
+
+        x_vector_only = ref_text is None
+        if x_vector_only:
+            # Diagnostic breadcrumb — there is no transcript to leak here. Tells
+            # the developer why clone quality may be lower and how to fix it,
+            # instead of silently downgrading.
+            print(
+                "[qwen_clone] no reference transcript available; cloning in "
+                "x-vector-only mode (lower quality). Set "
+                "AUDIOBOOKMAKER_QWEN_REF_TEXT or `pip install faster-whisper` "
+                "for best quality.",
+                file=sys.stderr,
+            )
 
         return {
             "ref_audio": ref_path,
             "ref_text": ref_text,
-            # No transcript available -> let the model run in x-vector-only mode.
-            "x_vector_only": ref_text is None,
+            "x_vector_only": x_vector_only,
         }
 
     def _generate(self, model, chunk: str, qwen_language: str, prepared: dict):

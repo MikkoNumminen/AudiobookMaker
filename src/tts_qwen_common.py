@@ -109,6 +109,15 @@ def qwen_check_status(install_hint: str = INSTALL_HINT) -> EngineStatus:
     return EngineStatus(available=True)
 
 
+def qwen_device() -> str:
+    """The device string for Qwen loads (``AUDIOBOOKMAKER_QWEN_DEVICE``).
+
+    Single source of the device setting so every Qwen engine — including the
+    clone engine's Whisper transcription — targets the same GPU.
+    """
+    return os.environ.get(_DEVICE_ENV, _DEFAULT_DEVICE)
+
+
 def load_qwen_model(model_id: str):
     """Load a Qwen3TTSModel checkpoint with the env-configured device/attn.
 
@@ -121,7 +130,7 @@ def load_qwen_model(model_id: str):
     import torch
     from qwen_tts import Qwen3TTSModel  # type: ignore[import-not-found]
 
-    device = os.environ.get(_DEVICE_ENV, _DEFAULT_DEVICE)
+    device = qwen_device()
     attn = os.environ.get(_ATTN_ENV, _DEFAULT_ATTN)
     if attn not in _VALID_ATTN:
         raise ValueError(
