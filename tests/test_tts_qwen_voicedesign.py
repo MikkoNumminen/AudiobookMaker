@@ -679,6 +679,7 @@ def test_dev_engines_not_registered_when_frozen() -> None:
         "ids = registered_ids()\n"
         "assert 'qwen_voicedesign' not in ids, ids\n"
         "assert 'qwen_customvoice' not in ids, ids\n"
+        "assert 'qwen_clone' not in ids, ids\n"
         "assert 'voxcpm2' not in ids, ids\n"
         "assert 'edge' in ids and 'piper' in ids, ids\n"
         "print('FROZEN_GATE_OK')\n"

@@ -49,6 +49,10 @@ def _whisper_device() -> tuple[str, int, str]:
     """Map AUDIOBOOKMAKER_QWEN_DEVICE to faster-whisper's (device, index,
     compute_type) so transcription targets the same GPU as the TTS model."""
     raw = qwen_device()
+    # device_map="auto" lands a single ~4 GB model on cuda:0 on a one-GPU box,
+    # so transcribe there too rather than silently dropping to CPU.
+    if raw == "auto":
+        return "cuda", 0, "float16"
     if raw.startswith("cuda"):
         idx = raw.split(":", 1)[1] if ":" in raw else "0"
         try:
@@ -56,6 +60,16 @@ def _whisper_device() -> tuple[str, int, str]:
         except ValueError:
             return "cuda", 0, "float16"
     return "cpu", 0, "int8"
+
+
+def _faster_whisper_installed() -> bool:
+    """True when faster-whisper can be imported (used only to word the
+    x-vector-fallback breadcrumb accurately)."""
+    try:
+        import faster_whisper  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def _transcribe_reference(ref_path: str) -> Optional[str]:
@@ -82,6 +96,9 @@ def _transcribe_reference(ref_path: str) -> Optional[str]:
             compute_type=compute_type,
         )
         try:
+            # No language= on purpose: the reference clip's language may differ
+            # from the synthesis language (cross-lingual cloning is valid), so
+            # let Whisper auto-detect the clip's own language.
             segments, _info = whisper.transcribe(ref_path)
             text = " ".join(seg.text for seg in segments).strip()
         finally:
@@ -151,6 +168,16 @@ class QwenVoiceCloneEngine(QwenEngineBase):
         if not os.path.isfile(ref_path):
             raise ValueError(f"Reference audio not found: {reference_audio}")
 
+        # Fail fast before the heavy Whisper transcription if the TTS engine
+        # itself isn't installable — otherwise an unavailable engine would burn a
+        # Whisper download + GPU transcription only to abort later. (The base
+        # driver re-checks availability after this hook; that re-check is cheap
+        # and harmless.) Input errors above still surface first, so a bad
+        # --ref-audio path gives a precise message even without qwen-tts.
+        status = self.check_status()
+        if not status.available:
+            raise RuntimeError(f"{self._LABEL} unavailable: {status.reason}")
+
         # ref_text priority: explicit override -> Whisper -> x-vector fallback.
         # The override is trimmed (whitespace-only collapses to "no override").
         ref_text = (os.environ.get(_REF_TEXT_ENV) or "").strip() or None
@@ -161,12 +188,14 @@ class QwenVoiceCloneEngine(QwenEngineBase):
         if x_vector_only:
             # Diagnostic breadcrumb — there is no transcript to leak here. Tells
             # the developer why clone quality may be lower and how to fix it,
-            # instead of silently downgrading.
+            # instead of silently downgrading. The pip hint only shows when
+            # faster-whisper is genuinely missing (vs installed-but-failed).
+            hint = "Set AUDIOBOOKMAKER_QWEN_REF_TEXT"
+            if not _faster_whisper_installed():
+                hint += " or `pip install faster-whisper`"
             print(
                 "[qwen_clone] no reference transcript available; cloning in "
-                "x-vector-only mode (lower quality). Set "
-                "AUDIOBOOKMAKER_QWEN_REF_TEXT or `pip install faster-whisper` "
-                "for best quality.",
+                f"x-vector-only mode (lower quality). {hint} for best quality.",
                 file=sys.stderr,
             )
 

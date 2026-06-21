@@ -88,10 +88,10 @@ excludes = [
     'sphinx',
     'docutils',
     # Heavy ML stack — Chatterbox SYNTHESIS reaches torch through a separate
-    # post-install venv (`.venv-chatterbox`), NOT in-process; VoxCPM2 and
-    # Qwen3-TTS VoiceDesign are sys.frozen-gated developer engines; voice-pack
-    # cloning runs as subprocess scripts that use the chatterbox venv's Python.
-    # None of these belong in the frozen main bundle.
+    # post-install venv (`.venv-chatterbox`), NOT in-process; VoxCPM2 and the
+    # Qwen3-TTS engines (VoiceDesign / CustomVoice / Clone) are sys.frozen-gated
+    # developer engines; voice-pack cloning runs as subprocess scripts that use
+    # the chatterbox venv's Python. None of these belong in the frozen main bundle.
     'torch',
     'torchaudio',
     'torchvision',

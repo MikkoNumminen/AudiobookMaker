@@ -7,7 +7,7 @@ generate call and the voice catalogue differ between modes:
 
 - VoiceDesign  (``src/tts_qwen_voicedesign.py``) — describe a voice in words.
 - CustomVoice  (``src/tts_qwen_customvoice.py``) — pick a preset speaker.
-- (Clone/Base — planned) — read text in a voice copied from a reference clip.
+- Clone/Base   (``src/tts_qwen_clone.py``) — read text in a voice copied from a reference clip.
 
 This module holds the parts they all share so each engine is a thin subclass of
 :class:`QwenEngineBase` rather than a copy-paste. Like VoxCPM2, these engines are
@@ -29,7 +29,6 @@ from src.tts_base import (
     EngineStatus,
     ProgressCallback,
     TTSEngine,
-    Voice,
 )
 from src.tts_engine import (
     combine_audio_files,

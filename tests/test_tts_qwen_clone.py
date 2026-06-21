@@ -23,6 +23,7 @@ from src.tts_qwen_clone import (
     QwenVoiceCloneEngine,
     _HF_MODEL_ID,
     _transcribe_reference,
+    _whisper_device,
 )
 
 
@@ -138,6 +139,17 @@ class TestGuards:
         with patch("builtins.__import__", side_effect=_force_import_error({"qwen_tts"})):
             with pytest.raises(RuntimeError, match="unavailable"):
                 engine.synthesize("hi", "/tmp/o.mp3", "", "en", reference_audio=ref)
+
+    def test_unavailable_skips_whisper_transcription(self, tmp_path) -> None:
+        # Fail fast: an unavailable engine must not burn a Whisper transcription.
+        ref = _ref_wav(tmp_path)
+        engine = QwenVoiceCloneEngine()
+        with patch("src.tts_qwen_clone._transcribe_reference") as fake_tx, patch(
+            "builtins.__import__", side_effect=_force_import_error({"qwen_tts"})
+        ):
+            with pytest.raises(RuntimeError, match="unavailable"):
+                engine.synthesize("hi", "/tmp/o.mp3", "", "en", reference_audio=ref)
+        fake_tx.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +280,23 @@ class TestTranscribeReference:
         kwargs = fake_fw.WhisperModel.call_args.kwargs
         assert kwargs["device"] == "cuda"
         assert kwargs["device_index"] == 1
+
+
+class TestWhisperDeviceParsing:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("cuda:0", ("cuda", 0, "float16")),
+            ("cuda:1", ("cuda", 1, "float16")),
+            ("cuda", ("cuda", 0, "float16")),
+            ("auto", ("cuda", 0, "float16")),  # device_map=auto lands on cuda:0
+            ("cpu", ("cpu", 0, "int8")),
+            ("cuda:bogus", ("cuda", 0, "float16")),  # malformed index -> 0
+        ],
+    )
+    def test_parsing(self, monkeypatch, raw, expected) -> None:
+        monkeypatch.setenv("AUDIOBOOKMAKER_QWEN_DEVICE", raw)
+        assert _whisper_device() == expected
 
 
 # ---------------------------------------------------------------------------
