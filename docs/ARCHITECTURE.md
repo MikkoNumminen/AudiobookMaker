@@ -516,15 +516,20 @@ new work should touch:
   `gui_unified.py` and has hardcoded Finnish literals instead of the
   `_STRINGS` table. Kept so older build paths and any external callers
   that still import `src.gui` do not break.
-- `src/launcher.py` — the first minimal launcher ("pick PDF, click
-  button, get MP3"). Still frozen by `audiobookmaker_launcher.spec` and
-  installed by `installer/launcher.iss`, plus exercised by
-  `.github/workflows/build-launcher.yml`, so it cannot simply be
-  deleted.
+The legacy `src/launcher.py` minimal launcher and its separate build
+(`audiobookmaker_launcher.spec`, `installer/launcher.iss`,
+`.github/workflows/build-launcher.yml`) were **retired on 2026-06-22** — the
+unified app fully replaces them, and the second installer was the structural
+cause of "the GUI sounds worse than dev" (it launched the Chatterbox runner
+without `--voice-pack`/`--language`, silently dropping imported voice packs).
+`installer/post_install_chatterbox.py` was kept — the in-app "Install engines"
+flow shells out to it and its parity tests depend on it.
+`installer/ensure_python311.ps1` was orphaned by the retirement (only the
+Launcher installer ran it; the in-app install uses
+`engine_installer._ensure_python311`) and removed too.
 
-Both files carry a header docstring marking them as legacy. Extend
-`src/gui_unified.py` instead — these two modules exist only for
-backward compatibility.
+`src/gui.py` carries a header docstring marking it legacy. Extend
+`src/gui_unified.py` instead — it exists only for backward compatibility.
 
 ## Updating this document
 

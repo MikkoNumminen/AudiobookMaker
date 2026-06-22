@@ -1,10 +1,11 @@
 """Post-install setup for the Chatterbox-Finnish engine.
 
-Invoked by the Launcher Inno Setup wizard (``installer/launcher.iss``) only
-when the user ticked the "Chatterbox Finnish (GPU)" component. Pure Python
-so it can be driven by the installer without hitting Windows' PowerShell
-execution-policy wall; also the code path the in-app "Install engines…"
-button shells out to when a user installs Chatterbox post-install.
+The code path the in-app "Install engines…" button shells out to when a user
+installs the Chatterbox-Finnish (GPU) engine post-install. Pure Python so it can
+be driven without hitting Windows' PowerShell execution-policy wall. Its pinned
+dependency list is the canonical one that tests/test_chatterbox_requirements.py
+checks installer/requirements-chatterbox.txt and src/engine_installer.py against.
+(Formerly also invoked by the retired Launcher Inno Setup wizard.)
 
 Responsibilities (in order):
 

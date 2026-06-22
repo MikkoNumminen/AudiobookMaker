@@ -76,7 +76,6 @@ flowchart TD
 | Bundled-binary search order | [ocr_path.py](../src/ocr_path.py#L29) | `_candidate_dirs` |
 | TTS-lang -> Tesseract-lang map | [ocr_path.py](../src/ocr_path.py#L103) | `tesseract_lang_for` |
 | Convert path (GUI) caller | [gui_unified.py](../src/gui_unified.py#L1433) | `_get_input_text` |
-| Launcher subprocess caller | [launcher.py](../src/launcher.py#L426) | `_run_inprocess` |
 | Dispatcher signature | [synthesis_orchestrator.py](../src/synthesis_orchestrator.py#L45) | `parse_book` |
 | PATH setup at boot | [main.py](../src/main.py#L39) | `main` |
 | Bundle wiring | [audiobookmaker.spec](../audiobookmaker.spec#L241) | `_OCR_SRC` block |
