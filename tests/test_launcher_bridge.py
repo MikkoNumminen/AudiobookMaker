@@ -568,6 +568,14 @@ class TestFlowTokenNoiseRewrite:
         line = "ERROR: something actually went wrong"
         assert ChatterboxLineParser.rewrite_upstream_noise(line) == line
 
+    def test_same_logger_non_oor_error_is_not_swallowed(self) -> None:
+        # A genuinely fatal error from the SAME logger that is NOT the
+        # out-of-range-token shape (no "<token> > <limit>") must pass through
+        # untouched and still route red. The reframe is deliberately narrow:
+        # widening it later must not start hiding real s3gen failures as info.
+        line = "ERROR:chatterbox.models.s3gen.flow: CUDA out of memory"
+        assert ChatterboxLineParser.rewrite_upstream_noise(line) == line
+
 
 class TestProgressEvent:
     def test_default_construction(self) -> None:
