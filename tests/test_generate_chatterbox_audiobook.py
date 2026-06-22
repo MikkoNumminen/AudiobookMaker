@@ -408,6 +408,44 @@ class TestCapSilence:
         assert len(gca._cap_trailing_silence(seg, keep_ms=70)) == len(seg)
         assert len(gca._cap_leading_silence(seg, keep_ms=40)) == len(seg)
 
+    # ---- faint-blip robustness (the reason the caps use a *windowed* scan) ----
+    # A faint click/breath in the dead air sits ABOVE absolute zero but BELOW
+    # the silence threshold. A sample-exact reverse scan halts at it and leaves
+    # the hundreds of ms of near-silence before it; the windowed detect_silence
+    # scan absorbs it and collapses to keep_ms. The pure-silence tests above
+    # can't tell those two implementations apart — these inject a real
+    # sub-threshold blip, so a regression back to a sample-exact scan fails.
+
+    @staticmethod
+    def _faint(ms: int):
+        """A tone ~15 dB below the silence threshold: loud enough to stop a
+        sample-exact scan, quiet enough that detect_silence calls it silence."""
+        from pydub.generators import Sine
+        loud = Sine(220).to_audio_segment(duration=ms)
+        return loud.apply_gain((gca.MID_JOIN_SILENCE_DB - 15) - loud.dBFS)
+
+    def test_faint_blip_in_trailing_dead_air_is_collapsed(self) -> None:
+        # 300 speech | 500 dead air | 20 faint blip | 480 dead air.
+        # Windowed: collapses the whole tail to ~keep_ms (~370 total).
+        # Sample-exact would halt at the blip and leave ~820 — the regression.
+        seg = self._tone(300) + self._sil(500) + self._faint(20) + self._sil(480)
+        out = gca._cap_trailing_silence(seg, keep_ms=70)
+        assert len(out) < 500  # not the ~820 a sample-exact reverse scan leaves
+        assert 300 <= len(out) <= 300 + 70 + 2 * gca.SILENCE_SCAN_STEP_MS
+
+    def test_faint_blip_in_leading_dead_air_is_collapsed(self) -> None:
+        seg = self._sil(480) + self._faint(20) + self._sil(500) + self._tone(300)
+        out = gca._cap_leading_silence(seg, keep_ms=40)
+        assert len(out) < 500
+        assert 300 <= len(out) <= 300 + 40 + 2 * gca.SILENCE_SCAN_STEP_MS
+
+    def test_loud_blip_is_real_audio_and_preserved(self) -> None:
+        # A blip ABOVE the threshold is genuine sound, not dead air: the cap
+        # must not eat it. Only the silence AFTER it is trimmed toward keep_ms.
+        seg = self._tone(300) + self._sil(500) + self._tone(20) + self._sil(480)
+        out = gca._cap_trailing_silence(seg, keep_ms=70)
+        assert len(out) >= 300 + 500 + 20  # everything up to the blip survives
+
 
 class TestSeamKind:
     """_seam_kind tiers the inter-chunk pause: sentence > clause > mid-word."""
