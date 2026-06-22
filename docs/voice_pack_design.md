@@ -19,8 +19,8 @@ second set of weights to keep in VRAM, no forked inference loop to maintain.
 
 The payoff of that design: cloning adds no VRAM cost beyond the adapter itself,
 and every correctness fix to the core Chatterbox engine benefits cloned voices
-for free. (See **What's wired today** at the bottom for the gap between this
-design target and the current implementation.)
+for free. (This is the *dev pipeline's* design rationale — see **What the app
+actually uses** at the bottom for which parts the app runs.)
 
 The main alternative considered was Coqui XTTS v2. It was ruled out for two
 reasons. First, its license (CPML) is non-commercial only, which would block any
@@ -203,22 +203,20 @@ on one machine.
 
 ---
 
-## What's wired today (design target vs. current state)
+## What the app actually uses (scope)
 
-The "one engine, one inference path" thesis above is the **design target**, and
-the build is not all the way there yet:
+Voice-pack **creation is a dev-only CLI tool — the app never creates a clone.**
+The app is the simple "make an audiobook" surface; the advanced kit (this whole
+pipeline) lives on the dev side. What the app does with packs and clips:
 
-- **Few-shot (reference-clip) tier — wired.** A `few_shot` pack carries a
-  `reference.wav`, and synthesis conditions Chatterbox on that clip via the
-  existing reference-audio path in `src/tts_chatterbox_bridge.py`. This plays
-  today.
-- **LoRA-adapter tiers (`full_lora` / `reduced_lora`) — analyze→train→package is
-  wired, inference is not.** The pipeline produces `adapter.pt` files, but the
-  synthesis bridge does not yet load a trained adapter at generation time. Until
-  that runtime lands, a LoRA pack falls back toward the base voice rather than
-  driving voicing from its adapter.
-
-So the value of the LoRA design — small adapters on a shared inference path — is
-realized for few-shot today and is the target for the trained tiers. Wiring the
-adapter-load step into `tts_chatterbox_bridge` is the remaining piece (tracked in
-the project task list).
+- **Reference-clip path — wired.** The GUI accepts a reference clip (the
+  `Ref. audio:` field) or an imported pack via **Import voice pack**, and feeds
+  it to Chatterbox's reference-audio path in `src/tts_chatterbox_bridge.py`,
+  which conditions generation on that clip. An imported pack contributes its
+  reference clip; this is what plays in the app today, for every pack tier.
+- **LoRA-adapter inference — not wired, and not an app feature.** The dev
+  pipeline produces `adapter.pt` files for `full_lora` / `reduced_lora` packs,
+  but the synthesis bridge never loads a trained adapter at generation time — it
+  uses the reference-audio path for all packs. Wiring in-app adapter playback is
+  **not** on the roadmap: cloning is a dev-side tool, so the trained adapters
+  exist for dev experimentation, not as an app-shipped voicing path.
