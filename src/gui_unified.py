@@ -1,4 +1,4 @@
-"""Unified AudiobookMaker GUI — single window replacing gui.py and launcher.py.
+"""Unified AudiobookMaker GUI — single window that replaced gui.py and the retired launcher.py.
 
 Combines the simple launcher's one-click workflow with the advanced settings
 panel from the original gui.py. All engines are dispatched through the same

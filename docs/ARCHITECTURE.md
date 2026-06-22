@@ -43,7 +43,6 @@ classDiagram
       +_handle_event(ProgressEvent)
     }
     class UpdateMixin {
-      +_check_update_worker()
       +_on_update_click()
       +_download_update_worker()
     }

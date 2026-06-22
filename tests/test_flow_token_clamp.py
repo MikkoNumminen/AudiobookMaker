@@ -19,6 +19,7 @@ must never break an install or a run).
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import sysconfig
 from pathlib import Path
@@ -62,6 +63,22 @@ def _write_installer_flow(venv_root: Path, body: str) -> Path:
     return p
 
 
+def _force_purelib_resolution(monkeypatch) -> None:
+    """Make _flow_py_for_active_install fall back to the monkeypatched purelib.
+
+    The self-heal resolves chatterbox via importlib.find_spec FIRST; on a box
+    where chatterbox is importable in the TEST interpreter that would resolve
+    (and patch) the real installed flow.py instead of our controlled copy. Force
+    find_spec to miss for 'chatterbox' so the purelib fallback is exercised.
+    """
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a, **k: None if name == "chatterbox" else real(name, *a, **k),
+    )
+
+
 def _write_runner_flow(monkeypatch, purelib: Path, body: str) -> Path:
     flow = purelib / "chatterbox" / "models" / "s3gen" / "flow.py"
     flow.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +86,7 @@ def _write_runner_flow(monkeypatch, purelib: Path, body: str) -> Path:
     monkeypatch.setattr(
         sysconfig, "get_paths", lambda *a, **k: {"purelib": str(purelib)}
     )
+    _force_purelib_resolution(monkeypatch)
     return flow
 
 
@@ -135,6 +153,7 @@ def test_runner_self_heal_graceful_when_missing(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path)}
     )
+    _force_purelib_resolution(monkeypatch)
     gca._ensure_flow_token_clamp()  # must not raise
 
 

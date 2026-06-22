@@ -289,11 +289,6 @@ sessions don't try to "fix" them again without context.
   block on file-pick — not the right trade for an estimate. The Convert
   path is the one place where the user has already committed to waiting,
   so it's the one place that runs OCR.
-- **Launcher hardcodes `ocr_language="fin"`** at
-  [launcher.py:426](../src/launcher.py#L426). The launcher only ships
-  the Finnish voice path today, so the hardcode is correct. When (if)
-  the launcher gains a language picker, route through
-  `ocr_path.tesseract_lang_for` instead.
 - **No OCR-confidence filtering.** Tesseract emits confidence scores
   per word; we currently use every word it emits. If real-world OCR
   garbage starts producing false chapter headings (the

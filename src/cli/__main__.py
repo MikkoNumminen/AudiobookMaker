@@ -25,9 +25,9 @@ from src.cli._common import EXIT_INTERNAL
 from src.ffmpeg_path import setup_ffmpeg_path
 
 # Configure ffmpeg before any synthesis path can import pydub. Matches
-# what src/main.py and src/launcher.py do for the GUI entry points so
-# the CLI honours dist/ffmpeg/ in dev mode and the bundled ffmpeg.exe
-# next to the frozen .exe in installed mode.
+# what src/main.py does for the GUI entry point so the CLI honours
+# dist/ffmpeg/ in dev mode and the bundled ffmpeg.exe next to the
+# frozen .exe in installed mode.
 setup_ffmpeg_path()
 
 
