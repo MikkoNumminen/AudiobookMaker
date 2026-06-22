@@ -209,4 +209,46 @@ audiobookmaker-cli report-bug --print     # just prints the URL
 
 ---
 
+## Troubleshooting — `audiobookmaker-cli` doesn't work
+
+Three things break this command, and they look identical from the outside.
+Run the built-in check first — it tells you which one you have:
+
+```powershell
+audiobookmaker-cli doctor
+# or, straight after install (before the shim is on PATH yet):
+python scripts\check_cli_install.py
+```
+
+Look at the `cli:` rows, then match your case:
+
+**1. No shim — "command not found", nothing named `audiobookmaker-cli`.**
+You never ran the editable install (or ran it against a different Python).
+From the repo root, in the venv you intend to use:
+```powershell
+.venv\Scripts\activate
+pip install -e .
+```
+
+**2. Shadowed by the GUI — the command opens the app window instead of the CLI.**
+You typed the bare `audiobookmaker`, and the installed `AudiobookMaker.exe`
+won on the case-insensitive Windows PATH. Always use the hyphen:
+```powershell
+audiobookmaker-cli --version
+```
+`doctor` flags this as the `cli:gui_shadow` row and prints the resolved GUI path.
+
+**3. On PATH nowhere — installed, but the shell still can't find it.**
+`pip` put the shim in a Scripts dir that isn't on PATH (common with
+user-site installs). Find where it landed and add that folder to PATH:
+```powershell
+python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+```
+Add the printed folder to your user PATH, open a fresh shell, and retry.
+
+The `cli:python` row shows which interpreter and venv you're on — if that
+isn't the venv you installed into, you're simply in the wrong shell.
+
+---
+
 That's the whole route.
