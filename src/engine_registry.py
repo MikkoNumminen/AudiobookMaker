@@ -6,10 +6,9 @@ module populates the registry. The GUI, launcher, and tests can then
 enumerate engines via ``src.tts_base.list_engines`` without worrying
 which engine modules have been imported yet.
 
-Before this module existed, ``src/gui.py``, ``src/gui_unified.py``, and
-``src/launcher.py`` each maintained their own copy of the engine
-imports, which made "add a new engine" an edit in four places. Now the
-list lives here and nowhere else.
+Before this module existed, the GUI modules each maintained their own
+copy of the engine imports, which made "add a new engine" an edit in
+several places. Now the list lives here and nowhere else.
 
 Optional / developer-only engines (currently VoxCPM2 and the Qwen3-TTS
 engines, which aren't bundled in frozen installs) are guarded so their

@@ -76,7 +76,6 @@ flowchart TD
 | Bundled-binary search order | [ocr_path.py](../src/ocr_path.py#L29) | `_candidate_dirs` |
 | TTS-lang -> Tesseract-lang map | [ocr_path.py](../src/ocr_path.py#L103) | `tesseract_lang_for` |
 | Convert path (GUI) caller | [gui_unified.py](../src/gui_unified.py#L1433) | `_get_input_text` |
-| Launcher subprocess caller | [launcher.py](../src/launcher.py#L426) | `_run_inprocess` |
 | Dispatcher signature | [synthesis_orchestrator.py](../src/synthesis_orchestrator.py#L45) | `parse_book` |
 | PATH setup at boot | [main.py](../src/main.py#L39) | `main` |
 | Bundle wiring | [audiobookmaker.spec](../audiobookmaker.spec#L241) | `_OCR_SRC` block |
@@ -290,11 +289,6 @@ sessions don't try to "fix" them again without context.
   block on file-pick — not the right trade for an estimate. The Convert
   path is the one place where the user has already committed to waiting,
   so it's the one place that runs OCR.
-- **Launcher hardcodes `ocr_language="fin"`** at
-  [launcher.py:426](../src/launcher.py#L426). The launcher only ships
-  the Finnish voice path today, so the hardcode is correct. When (if)
-  the launcher gains a language picker, route through
-  `ocr_path.tesseract_lang_for` instead.
 - **No OCR-confidence filtering.** Tesseract emits confidence scores
   per word; we currently use every word it emits. If real-world OCR
   garbage starts producing false chapter headings (the

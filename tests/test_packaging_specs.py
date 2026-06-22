@@ -13,15 +13,9 @@ broken in 3.15.0 because it is reachable only transitively (runner →
 ``tts_normalizer`` → ``tts_normalizer_fi`` → ``tts_normalizer_fi_legal``). The
 closure walk lives in ``scripts/check_spec_runner_imports.py`` and is reused
 here so the CI guard and this test can never drift apart.
-
-The launcher spec (``audiobookmaker_launcher.spec``) is different: it freezes
-a GUI entry point, so PyInstaller follows top-level imports automatically and
-only the LAZILY-imported normalizer modules need explicit ``hidden_imports``
-— hence the narrower seed for that assertion.
 """
 from __future__ import annotations
 
-import ast
 import sys
 from pathlib import Path
 
@@ -35,12 +29,8 @@ if str(_SCRIPTS) not in sys.path:
 import check_spec_runner_imports as guard  # noqa: E402
 
 _SRC = _REPO_ROOT / "src"
-_TTS_ENGINE = _SRC / "tts_engine.py"
-_TTS_NORMALIZER = _SRC / "tts_normalizer.py"
-_TTS_NORMALIZER_EN = _SRC / "tts_normalizer_en.py"
 _APP_SPEC = _REPO_ROOT / "audiobookmaker.spec"
 _CLI_SPEC = _REPO_ROOT / "audiobookmaker_cli.spec"
-_LAUNCHER_SPEC = _REPO_ROOT / "audiobookmaker_launcher.spec"
 
 # Full transitive src closure of the Chatterbox runner — every flat src/X.py
 # module it can reach directly or via a chain. Both shipped datas specs must
@@ -81,48 +71,6 @@ def test_runner_closure_includes_known_transitive_deps() -> None:
     stop checking them, so assert their presence directly."""
     assert "tts_normalizer_fi_legal" in _RUNNER_CLOSURE
     assert "ocr_path" in _RUNNER_CLOSURE
-
-
-def _src_siblings_imported_by(path: Path) -> set[str]:
-    """Return the set of ``src.X`` module basenames imported by ``path``.
-
-    Walks both top-level ``from src.X import …`` statements and lazy imports
-    nested inside function bodies — the dispatcher uses the latter to keep
-    the FI and EN normalizers from being eagerly loaded.
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    self_module = f"src.{path.stem}"
-    siblings: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            if node.module.startswith("src.") and node.module != self_module:
-                siblings.add(node.module.removeprefix("src."))
-    return siblings
-
-
-def _lazy_normalizer_siblings() -> set[str]:
-    """Modules the launcher must declare as hidden_imports: the lazily-imported
-    normalizer chain that PyInstaller's static analysis cannot follow. Their
-    own top-level imports (e.g. tts_normalizer_fi → tts_normalizer_fi_legal)
-    are followed automatically by PyInstaller once the parent is a
-    hidden_import, so they are not required here."""
-    return (
-        _src_siblings_imported_by(_TTS_ENGINE)
-        | _src_siblings_imported_by(_TTS_NORMALIZER)
-        | _src_siblings_imported_by(_TTS_NORMALIZER_EN)
-    )
-
-
-@pytest.mark.parametrize("sibling", sorted(_lazy_normalizer_siblings()))
-def test_launcher_spec_declares_sibling_hidden_import(sibling: str) -> None:
-    """Each lazily-imported normalizer sibling must appear in
-    audiobookmaker_launcher.spec hidden_imports."""
-    spec_text = _LAUNCHER_SPEC.read_text(encoding="utf-8")
-    needle = f'"src.{sibling}"'
-    assert needle in spec_text, (
-        f"audiobookmaker_launcher.spec is missing hidden_imports entry "
-        f"for src.{sibling}; PyInstaller will not freeze it into the launcher."
-    )
 
 
 # ---------------------------------------------------------------------------

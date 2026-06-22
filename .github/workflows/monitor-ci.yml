@@ -13,7 +13,6 @@ on:
   workflow_run:
     workflows:
       - "Build and Release"
-      - "Build Launcher Installer"
       - "Test master"
       - "Tests (macOS)"
       - "GUI tests (Linux + xvfb)"

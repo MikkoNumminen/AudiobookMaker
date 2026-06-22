@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
-from src.auto_updater import UpdateInfo, check_for_update, download_update, apply_update, APP_VERSION
+from src.auto_updater import UpdateInfo, download_update, apply_update
 from src.launcher_bridge import ProgressEvent
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,12 @@ else:
 
 
 class UpdateMixin(_Base):
-    """Mixin providing auto-update check, download, and install UI logic.
+    """Mixin providing auto-update download + install UI logic.
+
+    The update check / poll / banner live on the host (``UnifiedApp``); this
+    mixin owns only the click -> download -> verify -> apply hand-off. (An
+    earlier check/poll copy lived here too and was silently shadowed by the
+    host's — it has been removed so a fix can't land on a dead copy.)
 
     Expects the host class to provide:
     - self._update_queue: queue.Queue[UpdateInfo]
@@ -50,51 +55,6 @@ class UpdateMixin(_Base):
     - self.after(ms, callback)  (Tk scheduling)
     - self.POLL_INTERVAL_MS: int
     """
-
-    # How often to re-check for updates after a "no update" result (4 hours).
-    _UPDATE_RECHECK_MS = 4 * 60 * 60 * 1000
-
-    def _check_update_worker(self) -> None:
-        """Background thread: check GitHub for a newer version."""
-        try:
-            info = check_for_update(APP_VERSION)
-            self._update_queue.put(info)
-        except Exception:
-            # Keep the no-banner behaviour — we don't want to scare the
-            # user with a popup just because GitHub was unreachable — but
-            # log the traceback so flaky auto-update checks show up in
-            # diagnostics instead of disappearing silently.
-            logger.debug("Update check failed", exc_info=True)
-
-    def _poll_update_check(self) -> None:
-        """Tk main-thread poller: pick up the update-check result."""
-        try:
-            info = self._update_queue.get_nowait()
-        except queue.Empty:
-            self.after(500, self._poll_update_check)
-            return
-
-        if info.available:
-            self._pending_update = info
-            self._update_label.configure(
-                text=self._s("update_available").format(
-                    version=info.latest_version
-                )
-            )
-            self._update_btn.configure(text=self._s("update_now"))
-            self._update_banner.grid()
-        else:
-            # No update now — re-check after a delay.
-            self.after(self._UPDATE_RECHECK_MS, self._schedule_update_recheck)
-
-    def _schedule_update_recheck(self) -> None:
-        """Launch another background update check."""
-        import threading
-        threading.Thread(
-            target=self._check_update_worker, daemon=True,
-            name="update-recheck",
-        ).start()
-        self.after(500, self._poll_update_check)
 
     def _on_update_click(self) -> None:
         """User clicked the update button — download and install."""

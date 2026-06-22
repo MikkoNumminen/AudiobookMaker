@@ -1,4 +1,4 @@
-"""Unified AudiobookMaker GUI — single window replacing gui.py and launcher.py.
+"""Unified AudiobookMaker GUI — single window that replaced gui.py and the retired launcher.py.
 
 Combines the simple launcher's one-click workflow with the advanced settings
 panel from the original gui.py. All engines are dispatched through the same
@@ -2226,6 +2226,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         marker = verify_pending_update(APP_VERSION)
         if marker is None:
+            # Clean launch (or the update succeeded): no failed-update recovery
+            # is pending, so any leftover downloaded installers are dead weight.
+            from src.auto_updater import prune_old_installers
+            prune_old_installers()
             return  # No marker, or update succeeded — nothing to do.
 
         expected = marker.get("expected_version", "")

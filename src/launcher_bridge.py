@@ -8,8 +8,7 @@ spawns the runner as a subprocess and streams its stdout through the parser
 in this module to drive the progress bar.
 
 Edge-TTS and Piper engines don't need this bridge — they run in-process via
-``src.tts_engine.text_to_speech`` on a background thread. See ``launcher.py``
-for the dispatch logic.
+``src.tts_engine.text_to_speech`` on a background thread.
 
 Why a parser instead of a ``--json-progress`` flag: the runner already uses
 ``print(..., flush=True)`` for every meaningful event, stdout is line-

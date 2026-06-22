@@ -404,6 +404,10 @@ def download_update(
     UPDATE_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"AudiobookMaker-Setup-{update.latest_version}.exe"
     dest = UPDATE_DIR / filename
+    # Clear any earlier downloads before fetching this one so the update dir
+    # never accumulates stale installers; spare *dest* in case a prior partial
+    # of the same version is being re-fetched.
+    prune_old_installers(keep=dest)
 
     req = Request(update.download_url)
     req.add_header("User-Agent", f"AudiobookMaker/{update.current_version}")
@@ -460,6 +464,39 @@ def download_update(
     logger.info("SHA-256 verified: %s", file_hash[:16])
 
     return dest
+
+
+def prune_old_installers(keep: Path | None = None) -> int:
+    """Delete stale downloaded installers from :data:`UPDATE_DIR`.
+
+    Every auto-update downloads a full ~170 MB ``AudiobookMaker-Setup-*.exe``
+    into ``UPDATE_DIR`` and never needs it again once the silent install has
+    run — but :func:`apply_update` ``os._exit``'s the process before it could
+    clean up, so the installers pile up (field-observed: three stale files
+    ≈ 520 MB). Call this on a clean launch and before each fresh download.
+    *keep*, when given, spares that one file (the download in flight). Returns
+    the number removed. Never raises — a cleanup failure must not break launch
+    or the update flow.
+    """
+    try:
+        if not UPDATE_DIR.exists():
+            return 0
+        keep_resolved = keep.resolve() if keep is not None else None
+        removed = 0
+        for exe in UPDATE_DIR.glob("AudiobookMaker-Setup-*.exe"):
+            try:
+                if keep_resolved is not None and exe.resolve() == keep_resolved:
+                    continue
+                exe.unlink()
+                removed += 1
+            except OSError as exc:
+                logger.debug("Could not remove stale installer %s: %s", exe, exc)
+        if removed:
+            logger.info("Pruned %d stale downloaded installer(s)", removed)
+        return removed
+    except OSError as exc:
+        logger.debug("Installer prune skipped: %s", exc)
+        return 0
 
 
 def _write_pending_marker(expected_version: str, installer_path: Path) -> None:

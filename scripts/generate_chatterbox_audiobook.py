@@ -1385,6 +1385,49 @@ def _verify_base_revision_pin() -> int:
     return 0
 
 
+def _flow_py_for_active_install() -> "Path | None":
+    """Locate ``chatterbox/models/s3gen/flow.py`` for the ACTIVE install.
+
+    Resolve via the package's real import location first
+    (``importlib.util.find_spec``), which is the ONLY path that works for an
+    EDITABLE/dev install (a ``.pth`` that points at a source tree). The previous
+    purelib-only lookup silently no-op'd on an editable install, so a dev box's
+    ``flow.py`` stayed unclamped and kept hitting the very CUDA device-side
+    assert this guard exists to prevent. Fall back to the purelib site-packages
+    layout (the pip-installed end-user venv) for robustness. Never imports
+    chatterbox — ``find_spec`` only locates it, so this stays safe to call
+    before the first chatterbox import.
+    """
+    candidates: list[Path] = []
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("chatterbox")
+    except (ImportError, ValueError):
+        spec = None
+    if spec is not None:
+        locs = list(getattr(spec, "submodule_search_locations", None) or [])
+        if not locs and spec.origin:
+            locs = [str(Path(spec.origin).parent)]
+        candidates += [
+            Path(loc) / "models" / "s3gen" / "flow.py" for loc in locs
+        ]
+    try:
+        import sysconfig
+
+        purelib = sysconfig.get_paths().get("purelib")
+        if purelib:
+            candidates.append(
+                Path(purelib) / "chatterbox" / "models" / "s3gen" / "flow.py"
+            )
+    except Exception:  # noqa: BLE001 — resolution is best-effort
+        pass
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _ensure_flow_token_clamp() -> None:
     """Self-heal: clamp out-of-range s3gen flow tokens on disk before import.
 
@@ -1401,13 +1444,8 @@ def _ensure_flow_token_clamp() -> None:
     (best-effort — never let the self-heal itself break a run).
     """
     try:
-        import sysconfig
-
-        purelib = sysconfig.get_paths().get("purelib")
-        if not purelib:
-            return
-        flow = Path(purelib) / "chatterbox" / "models" / "s3gen" / "flow.py"
-        if not flow.is_file():
+        flow = _flow_py_for_active_install()
+        if flow is None:
             return
         original = flow.read_text(encoding="utf-8")
         old = "token = self.input_embedding(token.long()) * mask"
