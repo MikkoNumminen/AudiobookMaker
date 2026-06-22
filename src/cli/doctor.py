@@ -228,6 +228,24 @@ def run(args: argparse.Namespace) -> int:
             })
 
     # ------------------------------------------------------------------
+    # 6. CLI install health (shim on PATH, GUI shadow, which venv)
+    # ------------------------------------------------------------------
+    # Advisory: if doctor is running, the CLI works in *this* shell — but the
+    # console-script shim may still be missing from PATH for a fresh shell, or
+    # the bare `audiobookmaker` name may be shadowed by the installed GUI on
+    # Windows. Surface those so "the CLI command doesn't work" is diagnosable.
+    try:
+        from src.cli.install_check import diagnose as diagnose_cli_install
+        checks.extend(diagnose_cli_install())
+    except Exception as exc:  # noqa: BLE001 — never let the probe break doctor
+        checks.append({
+            "name": "cli:install",
+            "status": "error",
+            "required": False,
+            "detail": f"CLI install check failed: {exc}",
+        })
+
+    # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
     exit_code = EXIT_MISSING_DEP if any_required_missing else EXIT_OK
