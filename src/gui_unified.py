@@ -2226,6 +2226,10 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         marker = verify_pending_update(APP_VERSION)
         if marker is None:
+            # Clean launch (or the update succeeded): no failed-update recovery
+            # is pending, so any leftover downloaded installers are dead weight.
+            from src.auto_updater import prune_old_installers
+            prune_old_installers()
             return  # No marker, or update succeeded — nothing to do.
 
         expected = marker.get("expected_version", "")

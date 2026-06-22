@@ -24,7 +24,59 @@ from src.auto_updater import (
     read_pending_marker,
     verify_pending_update,
     _write_pending_marker,
+    prune_old_installers,
 )
+
+
+class TestPruneOldInstallers:
+    """prune_old_installers clears stale downloaded installers from UPDATE_DIR."""
+
+    @staticmethod
+    def _make(d, *names):
+        for n in names:
+            (d / n).write_bytes(b"x")
+
+    def test_removes_all_installers(self, tmp_path) -> None:
+        self._make(
+            tmp_path,
+            "AudiobookMaker-Setup-3.17.3.exe",
+            "AudiobookMaker-Setup-3.18.1.exe",
+            "AudiobookMaker-Setup-3.19.0.exe",
+        )
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            removed = prune_old_installers()
+        assert removed == 3
+        assert not list(tmp_path.glob("AudiobookMaker-Setup-*.exe"))
+
+    def test_keep_spares_one(self, tmp_path) -> None:
+        self._make(
+            tmp_path,
+            "AudiobookMaker-Setup-3.18.1.exe",
+            "AudiobookMaker-Setup-3.19.0.exe",
+        )
+        keep = tmp_path / "AudiobookMaker-Setup-3.19.0.exe"
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            removed = prune_old_installers(keep=keep)
+        assert removed == 1
+        assert keep.exists()
+        assert not (tmp_path / "AudiobookMaker-Setup-3.18.1.exe").exists()
+
+    def test_ignores_non_installers(self, tmp_path) -> None:
+        self._make(
+            tmp_path,
+            "AudiobookMaker-Setup-3.19.0.exe",
+            "notes.txt",
+            "unrelated-tool.exe",
+        )
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            removed = prune_old_installers()
+        assert removed == 1
+        assert (tmp_path / "notes.txt").exists()
+        assert (tmp_path / "unrelated-tool.exe").exists()
+
+    def test_missing_dir_returns_zero(self, tmp_path) -> None:
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path / "does-not-exist"):
+            assert prune_old_installers() == 0
 
 
 class TestExtractSha256:
