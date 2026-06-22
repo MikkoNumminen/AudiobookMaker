@@ -14,6 +14,7 @@ http.server-based fixtures, and similar infrastructure rely on it.
 
 from __future__ import annotations
 
+import logging
 import socket
 import urllib.request
 
@@ -24,6 +25,49 @@ import pytest
 # return None in tests that do not themselves import the engine modules.
 from src import engine_registry  # noqa: F401
 from src.tts_base import _ALIASES, _REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic-log isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_diagnostic_log(tmp_path_factory):
+    """Keep test-induced log records out of the real diagnostic log file.
+
+    ``src.error_log.install()`` attaches a ``RotatingFileHandler`` to the ROOT
+    logger pointed at ``~/.audiobookmaker/logs/audiobookmaker.log`` — the same
+    file the GUI's "Save error log" button exports for field support. The GUI
+    constructor calls ``install()``, so without this redirect every test that
+    builds the GUI (or otherwise triggers ``install()``) appends its
+    deterministic, fixture-induced ERROR/WARNING records to that real file.
+    An exported field log then reads as ~95% test noise (``RuntimeError: boom``,
+    "installer locked", the simulated ``LlamaModel`` import failure, ...),
+    burying genuine field errors a user actually hit.
+
+    Point the log at a throwaway session temp dir for the whole run, and strip
+    any handler that ``install()`` attached so it cannot keep the real file —
+    or this temp file — open past the session.
+    """
+    from src import error_log
+
+    log_dir = tmp_path_factory.mktemp("diagnostic-log")
+    saved = (error_log.LOG_DIR, error_log.LOG_FILE, error_log._installed)
+    error_log.LOG_DIR = log_dir
+    error_log.LOG_FILE = log_dir / "audiobookmaker.log"
+    # Force a fresh install against the redirected path even if a prior import
+    # already flipped the idempotency latch.
+    error_log._installed = False
+    try:
+        yield
+    finally:
+        root = logging.getLogger()
+        for handler in list(root.handlers):
+            if getattr(handler, "name", None) == error_log._HANDLER_NAME:
+                root.removeHandler(handler)
+                handler.close()
+        error_log.LOG_DIR, error_log.LOG_FILE, error_log._installed = saved
 
 
 # ---------------------------------------------------------------------------
