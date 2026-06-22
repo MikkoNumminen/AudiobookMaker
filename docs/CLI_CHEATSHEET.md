@@ -21,6 +21,12 @@ pip install -e .
 audiobookmaker-cli engines install chatterbox_grandmom
 ```
 
+> **One-shot shortcut.** The four lines above (venv + deps + editable install,
+> minus the GPU engine) are wrapped in a bootstrap script that also puts the
+> CLI shim on your PATH for you: `scripts\bootstrap_dev.ps1` on Windows,
+> `bash scripts/bootstrap_dev.sh` on Linux/macOS. It's idempotent — safe to
+> re-run.
+
 > **The CLI command is `audiobookmaker-cli` (with the hyphen).** The
 > installed Windows app ships an `AudiobookMaker.exe` that, on the case-
 > insensitive Windows filesystem, can shadow a bare `audiobookmaker.exe`
