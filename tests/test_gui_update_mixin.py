@@ -69,39 +69,34 @@ def _make_update_info(available: bool = True) -> UpdateInfo:
     )
 
 
-class TestCheckUpdateWorker:
-    """Background update-check worker must never bubble exceptions,
-    but also must not swallow them silently — they have to show up
-    in `logger.debug` so diagnostics can catch flaky update checks."""
+class TestNoShadowedUpdaterMethods:
+    """The update check / poll / banner moved to the host (UnifiedApp). Guard
+    that the mixin no longer ALSO defines them — a re-introduced copy would be
+    silently shadowed, so a fix could land on dead code (the bug this collapse
+    removed). The check worker is verified end-to-end on the host in
+    tests/test_update_banner_poll.py."""
 
-    def test_success_enqueues_info(self) -> None:
-        host = _FakeHost()
-        with patch(
-            "src.gui_update_mixin.check_for_update",
-            return_value=_make_update_info(),
+    def test_mixin_does_not_redefine_host_owned_methods(self) -> None:
+        for name in (
+            "_check_update_worker",
+            "_poll_update_check",
+            "_schedule_update_recheck",
         ):
-            host._check_update_worker()
-        result = host._update_queue.get_nowait()
-        assert result.available is True
-        assert result.latest_version == "3.0.0"
+            assert name not in vars(UpdateMixin), (
+                f"{name} was re-added to UpdateMixin; it belongs to the host "
+                "(UnifiedApp) only. A mixin copy is silently shadowed by MRO."
+            )
 
-    def test_exception_logs_but_does_not_raise(
-        self, caplog: Any
-    ) -> None:
-        host = _FakeHost()
-        with patch(
-            "src.gui_update_mixin.check_for_update",
-            side_effect=RuntimeError("network down"),
-        ), caplog.at_level(logging.DEBUG, logger="src.gui_update_mixin"):
-            # Must not raise.
-            host._check_update_worker()
-
-        # Queue is empty (no info to put).
-        assert host._update_queue.empty()
-        # The debug log records the failure for diagnostics.
-        assert any(
-            "Update check failed" in rec.message for rec in caplog.records
-        ), "Expected 'Update check failed' log record (exc_info=True)"
+    def test_mixin_still_owns_download_install_flow(self) -> None:
+        for name in (
+            "_on_update_click",
+            "_download_update_worker",
+            "_pump_update_download",
+            "_apply_update_and_recover",
+        ):
+            assert name in vars(UpdateMixin), (
+                f"{name} must stay on UpdateMixin (the download/install hand-off)."
+            )
 
 
 class TestDownloadFailureClearsPending:
