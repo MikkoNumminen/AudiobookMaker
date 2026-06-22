@@ -130,6 +130,29 @@ class ChatterboxLineParser:
         re.IGNORECASE,
     )
 
+    # Upstream chatterbox's s3gen flow decoder prints two more scary lines
+    # whenever a single out-of-range speech token slips through from T3. Our
+    # flow-token clamp (scripts/generate_chatterbox_audiobook.py +
+    # engine_installer._patch_flow_token_clamp) already degrades that one frame
+    # instead of crashing, so synthesis carries on — but the library still logs
+    # it: line one via the logging module, line two as a bare print:
+    #     "ERROR:chatterbox.models.s3gen.flow:6901.0>6561"
+    #     " out-of-range special tokens found in flow, fix inputs!"
+    # The literal "ERROR:" prefix would route the first to the GUI's red error
+    # color AND the diagnostic log's ERROR level, alarming the user about a
+    # condition the clamp already handled (observed flooding a real run's log).
+    # Reframe the first into a neutral "[info]" line and drop the second,
+    # exactly like the alignment noise above. The token value prints as a float
+    # ("6901.0"), so the optional decimal is tolerated and dropped.
+    _FLOW_OOR_TOKEN_RE = re.compile(
+        r"chatterbox\.models\.s3gen\.flow:\s*(\d+)(?:\.\d+)?\s*>\s*(\d+)",
+        re.IGNORECASE,
+    )
+    _FLOW_OOR_FOLLOWUP_RE = re.compile(
+        r"out-of-range special tokens found in flow",
+        re.IGNORECASE,
+    )
+
     @classmethod
     def parse_hms(cls, s: str) -> float:
         """Parse ``"12m30s"`` / ``"1h23m"`` / ``"45s"`` into seconds."""
@@ -142,12 +165,21 @@ class ChatterboxLineParser:
         return h * 3600 + mi * 60 + se
 
     @classmethod
-    def rewrite_alignment_noise(cls, line: str) -> Optional[str]:
-        """Reframe the upstream AlignmentStreamAnalyzer noise.
+    def rewrite_upstream_noise(cls, line: str) -> Optional[str]:
+        """Reframe known-benign upstream chatterbox stderr noise.
+
+        Two upstream conditions print scary WARNING/ERROR lines for events our
+        own fixes already handle, so they would mislead the user (red/yellow in
+        the GUI log, ERROR level in the diagnostic file) about a healthy run:
+
+        * the AlignmentStreamAnalyzer repetition guard — our gemination fix
+          forcing an EOS to break a loop, and
+        * the s3gen flow out-of-range token — our flow-token clamp degrading a
+          single frame instead of crashing the whole run.
 
         Returns the rewritten line to emit, or ``None`` to drop it entirely
-        (used for the "Forcing EOS generation..." follow-up). Returns the
-        input unchanged if no pattern matches.
+        (the "Forcing EOS..." / "out-of-range...fix inputs!" follow-ups).
+        Returns the input unchanged if no pattern matches.
         """
         m = cls._ALIGNMENT_WARN_RE.search(line)
         if m:
@@ -156,6 +188,15 @@ class ChatterboxLineParser:
             where = f" at position {pos}" if pos else ""
             return f"[info] alignment fix applied on token {token}{where}"
         if cls._FORCING_EOS_RE.search(line):
+            return None
+        m = cls._FLOW_OOR_TOKEN_RE.search(line)
+        if m:
+            token, limit = m.group(1), m.group(2)
+            return (
+                f"[info] flow token clamp applied "
+                f"(out-of-range token {token} > {limit})"
+            )
+        if cls._FLOW_OOR_FOLLOWUP_RE.search(line):
             return None
         return line
 
@@ -458,10 +499,12 @@ class ChatterboxRunner:
                 line = raw.rstrip("\r\n")
                 if not line:
                     continue
-                # Reframe upstream AlignmentStreamAnalyzer "WARNING" + "Forcing
-                # EOS" noise into a single neutral info line before the line
-                # enters the tail buffer or the severity-routing pipeline.
-                rewritten = parser.rewrite_alignment_noise(line)
+                # Reframe known-benign upstream chatterbox noise (the
+                # AlignmentStreamAnalyzer "WARNING" + "Forcing EOS" pair and the
+                # s3gen flow out-of-range "ERROR" + follow-up pair) into a
+                # single neutral info line — or drop the follow-up — before the
+                # line enters the tail buffer or the severity-routing pipeline.
+                rewritten = parser.rewrite_upstream_noise(line)
                 if rewritten is None:
                     continue
                 line = rewritten
