@@ -465,7 +465,7 @@ class TestAlignmentNoiseRewrite:
     def test_warning_line_becomes_neutral_info(
         self, parser: ChatterboxLineParser
     ) -> None:
-        out = ChatterboxLineParser.rewrite_alignment_noise(
+        out = ChatterboxLineParser.rewrite_upstream_noise(
             "WARNING: Detected 2x repetition of token 123 at position 45, "
             "forcing EOS"
         )
@@ -483,7 +483,7 @@ class TestAlignmentNoiseRewrite:
     def test_warning_without_position_still_rewrites(
         self, parser: ChatterboxLineParser
     ) -> None:
-        out = ChatterboxLineParser.rewrite_alignment_noise(
+        out = ChatterboxLineParser.rewrite_upstream_noise(
             "WARNING: Detected 3x repetition of token 42"
         )
         assert out is not None
@@ -491,19 +491,19 @@ class TestAlignmentNoiseRewrite:
         assert "WARNING" not in out.upper()
 
     def test_forcing_eos_line_is_suppressed(self) -> None:
-        out = ChatterboxLineParser.rewrite_alignment_noise(
+        out = ChatterboxLineParser.rewrite_upstream_noise(
             "Forcing EOS generation to prevent loop."
         )
         assert out is None
 
     def test_unrelated_line_passes_through(self) -> None:
         line = "[setup] total chunks to synthesize: 10"
-        assert ChatterboxLineParser.rewrite_alignment_noise(line) == line
+        assert ChatterboxLineParser.rewrite_upstream_noise(line) == line
 
     def test_rewritten_line_parses_as_plain_log(
         self, parser: ChatterboxLineParser
     ) -> None:
-        rewritten = ChatterboxLineParser.rewrite_alignment_noise(
+        rewritten = ChatterboxLineParser.rewrite_upstream_noise(
             "WARNING: Detected 2x repetition of token 7 at position 3"
         )
         assert rewritten is not None
@@ -514,6 +514,59 @@ class TestAlignmentNoiseRewrite:
         assert ev.kind == "log"
         assert "WARNING" not in ev.raw_line.upper()
         assert "ERROR" not in ev.raw_line.upper()
+
+
+class TestFlowTokenNoiseRewrite:
+    """Upstream chatterbox's s3gen flow decoder logs an ERROR-level line for a
+    single out-of-range speech token, then a follow-up. Our flow-token clamp
+    already degrades that one frame instead of crashing the run, so reframe the
+    ERROR into a neutral ``[info]`` line and drop the follow-up — otherwise the
+    GUI log goes red and the diagnostic file records an ERROR for a handled
+    condition (it flooded a real multi-hour run's log).
+    """
+
+    def test_error_line_becomes_neutral_info(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        out = ChatterboxLineParser.rewrite_upstream_noise(
+            "ERROR:chatterbox.models.s3gen.flow:6901.0>6561"
+        )
+        assert out is not None
+        assert "[info]" in out
+        assert "flow token clamp applied" in out
+        # The token and its limit survive for diagnostics; the float's trailing
+        # ".0" is dropped.
+        assert "6901" in out
+        assert "6901.0" not in out
+        assert "6561" in out
+        # Must NOT carry the severity keywords the GUI router keys on, or it
+        # would still land red in the log.
+        upper = out.upper()
+        assert "ERROR:" not in upper
+        assert "WARNING" not in upper
+
+    def test_followup_line_is_suppressed(self) -> None:
+        out = ChatterboxLineParser.rewrite_upstream_noise(
+            " out-of-range special tokens found in flow, fix inputs!"
+        )
+        assert out is None
+
+    def test_reframed_line_parses_as_plain_log(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        rewritten = ChatterboxLineParser.rewrite_upstream_noise(
+            "ERROR:chatterbox.models.s3gen.flow:8070.0>6561"
+        )
+        assert rewritten is not None
+        ev = parser.parse(rewritten)
+        assert ev.kind == "log"
+        assert "ERROR:" not in ev.raw_line.upper()
+
+    def test_genuine_error_line_is_not_swallowed(self) -> None:
+        # Only the known flow line is reframed — a real error must pass through
+        # untouched so it still surfaces red.
+        line = "ERROR: something actually went wrong"
+        assert ChatterboxLineParser.rewrite_upstream_noise(line) == line
 
 
 class TestProgressEvent:
@@ -603,7 +656,7 @@ class TestReaderLoopFinallyClose:
 
         class _ExplodingParser:
             @staticmethod
-            def rewrite_alignment_noise(line):
+            def rewrite_upstream_noise(line):
                 return line  # pass-through
 
             def parse(self, line):
