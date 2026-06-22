@@ -1220,25 +1220,50 @@ def _assemble_chunks(seg_iter, chunk_texts):
     (``_seam_gap_ms``: sentence > clause > mid-word). Returns the combined
     ``AudioSegment`` (before ``_postprocess``).
 
-    Streams one segment at a time so a long book never holds every chunk's audio
-    in memory at once. This is the single source of the assembly pause logic —
-    drive it from a test to pin the seam-gap behaviour.
+    Accumulates raw PCM frames into one growing buffer and builds the segment
+    once at the end. The obvious ``combined += seg`` per chunk is O(n²) in total
+    audio length — pydub copies the whole growing buffer on every concat, which
+    on a ~10 h book (~2700 chunks) is minutes of pure assembly overhead; frame
+    accumulation does the same job in O(n) (seconds). Still streams one segment
+    at a time, so a long book never holds every chunk's ``AudioSegment`` in
+    memory at once. This is the single source of the assembly pause logic — drive
+    it from a test to pin the seam-gap behaviour.
+
+    All chunks in a run share the engine's output frame format; the first chunk
+    fixes the canonical ``(frame_rate, sample_width, channels)`` and every later
+    piece (chunk or gap) is synced to it before its frames are appended — making
+    the output byte-identical to the old per-chunk concat for uniform-format
+    input.
     """
     from pydub import AudioSegment
-    combined = AudioSegment.empty()
     n = len(chunk_texts)
+    data = bytearray()
+    rate = width = channels = None
     for chi, seg in enumerate(seg_iter):
         seg = _cap_internal_silences(seg, MAX_INTERNAL_SILENCE_MS)
         if chi > 0:  # not the chapter opening — tighten the seam lead-in
             seg = _cap_leading_silence(seg, MID_JOIN_HEAD_KEEP_MS)
         if chi < n - 1:  # not the chapter close — tighten the seam tail
             seg = _cap_trailing_silence(seg, MID_JOIN_TAIL_KEEP_MS)
-        combined += seg
+        if rate is None:  # first chunk fixes the canonical frame format
+            rate, width, channels = seg.frame_rate, seg.sample_width, seg.channels
+        # set_* are no-ops when already canonical (the common case); they only
+        # do work if a chunk's format somehow differs, mirroring pydub's _sync.
+        seg = seg.set_channels(channels).set_frame_rate(rate).set_sample_width(width)
+        data += seg.raw_data
         if chi < n - 1:
             gap_ms = _seam_gap_ms(chunk_texts[chi])
             if gap_ms:
-                combined += AudioSegment.silent(duration=gap_ms)
-    return combined
+                gap = (AudioSegment.silent(duration=gap_ms)
+                       .set_channels(channels)
+                       .set_frame_rate(rate)
+                       .set_sample_width(width))
+                data += gap.raw_data
+    if rate is None:  # no chunks yielded at all
+        return AudioSegment.empty()
+    return AudioSegment(
+        bytes(data), frame_rate=rate, sample_width=width, channels=channels,
+    )
 
 
 def _iter_trimmed_chunks(chunks_dir, pos, n, vad_model, get_speech_timestamps):

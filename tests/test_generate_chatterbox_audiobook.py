@@ -670,6 +670,48 @@ class TestAssembleChunks:
         assert detect_leading_silence(out, silence_threshold=-40) >= 200
         assert detect_leading_silence(out.reverse(), silence_threshold=-40) >= 200
 
+    def test_output_is_byte_identical_to_reference_concat(self) -> None:
+        # The O(n) frame-accumulation must produce EXACTLY the bytes the old
+        # `combined += seg` / `combined += silent(gap)` concat produced, for the
+        # uniform-format chunks real runs (and these tests) use. Build a small
+        # reference the original way and assert byte-for-byte equality, so the
+        # perf rewrite can never silently change the audio.
+        from pydub import AudioSegment
+
+        def canon(seg):  # the engine's uniform output format: 24 kHz mono 16-bit
+            return seg.set_channels(1).set_frame_rate(24000).set_sample_width(2)
+
+        chunks = [
+            canon(self._tone(300) + self._sil(600)),
+            canon(self._tone(250) + self._sil(700)),
+            canon(self._sil(120) + self._tone(280) + self._sil(500)),
+        ]
+        texts = ["A full stop.", "a clause,", "last."]
+
+        def reference(seg_list, chunk_texts):  # the original `+=` implementation
+            combined = AudioSegment.empty()
+            n = len(chunk_texts)
+            for chi, seg in enumerate(seg_list):
+                seg = gca._cap_internal_silences(seg, gca.MAX_INTERNAL_SILENCE_MS)
+                if chi > 0:
+                    seg = gca._cap_leading_silence(seg, gca.MID_JOIN_HEAD_KEEP_MS)
+                if chi < n - 1:
+                    seg = gca._cap_trailing_silence(seg, gca.MID_JOIN_TAIL_KEEP_MS)
+                combined += seg
+                if chi < n - 1:
+                    gap_ms = gca._seam_gap_ms(chunk_texts[chi])
+                    if gap_ms:
+                        combined += AudioSegment.silent(duration=gap_ms)
+            return combined
+
+        ref = reference(list(chunks), texts)
+        out = gca._assemble_chunks(list(chunks), texts)
+
+        assert (out.frame_rate, out.sample_width, out.channels) == \
+               (ref.frame_rate, ref.sample_width, ref.channels)
+        assert len(out) == len(ref)
+        assert out.raw_data == ref.raw_data
+
 
 class TestCachedChunkHealth:
     """_cached_chunk_healthy treats a too-short cached chunk as a miss so the
