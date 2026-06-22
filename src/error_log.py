@@ -25,7 +25,20 @@ from pathlib import Path
 
 from src.app_config import CONFIG_DIR
 
-LOG_DIR = CONFIG_DIR / "logs"
+
+def _default_log_dir() -> Path:
+    """Production location of the diagnostic log directory.
+
+    Under the per-user config dir (the same root as ``config.json``) so it is
+    writable and stable in BOTH dev and frozen mode, with no ``sys._MEIPASS``
+    trap and no install-dir pollution. Factored out as a named seam so this
+    default stays explicitly testable even when the test suite redirects the
+    live ``LOG_DIR`` / ``LOG_FILE`` globals to a throwaway dir for isolation.
+    """
+    return CONFIG_DIR / "logs"
+
+
+LOG_DIR = _default_log_dir()
 LOG_FILE = LOG_DIR / "audiobookmaker.log"
 
 _HANDLER_NAME = "audiobookmaker-file"

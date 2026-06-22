@@ -60,9 +60,12 @@ def _handler_count() -> int:
 def test_log_file_path_under_config_dir():
     from src.app_config import CONFIG_DIR
 
-    p = error_log.log_file_path()
-    assert p.parent == CONFIG_DIR / "logs"
-    assert p.name == "audiobookmaker.log"
+    # Production invariant: the diagnostic log lives under the per-user config
+    # dir. The test session redirects the live LOG_DIR/LOG_FILE globals to a
+    # throwaway dir for isolation (see conftest _isolate_diagnostic_log), so
+    # assert the default derivation rather than the redirected global.
+    assert error_log._default_log_dir() == CONFIG_DIR / "logs"
+    assert error_log.log_file_path().name == "audiobookmaker.log"
 
 
 def test_install_creates_file_and_captures_module_logging(temp_log):
