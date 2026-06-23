@@ -235,10 +235,11 @@ def _mock_github_response(
     return resp
 
 
-def _mock_download_response(content: bytes):
+def _mock_download_response(content: bytes, status: int = 200):
     """Build a mock urllib response that yields *content* as the download body."""
     buf = BytesIO(content)
     resp = MagicMock()
+    resp.status = status
     resp.read = buf.read
     resp.headers = {"Content-Length": str(len(content))}
     resp.__enter__ = lambda s: s
@@ -753,7 +754,39 @@ class TestDownloadUpdate:
             dest = download_update(update)
             assert dest.exists()
             assert dest.read_bytes() == content
+            # The verified file is promoted from .part — no .part left behind.
+            assert not (tmp_path / (dest.name + ".part")).exists()
             dest.unlink(missing_ok=True)
+
+    @patch("src.auto_updater.urlopen")
+    def test_failure_leaves_no_exe_or_part(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """A failed download (here, a SHA mismatch) must leave neither a fake
+        .exe nor an orphaned .part — only a verified file becomes the .exe."""
+        import pytest
+        content = b"fake-installer-bytes"
+        mock_urlopen.return_value = _mock_download_response(content)
+        update = self._make_update_info(sha256="b" * 64)  # wrong
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(RuntimeError, match="Integrity check failed"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.exe")) == []
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
+
+    @patch("src.auto_updater.urlopen")
+    def test_http_non_200_raises_clear_error(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        import pytest
+        mock_urlopen.return_value = _mock_download_response(b"err", status=500)
+        update = self._make_update_info(sha256="a" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(RuntimeError, match="HTTP 500"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
 
     @patch("src.auto_updater.urlopen")
     def test_cancel_event_stops_download(

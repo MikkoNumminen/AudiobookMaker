@@ -4,6 +4,7 @@ Checks GitHub Releases for new versions, downloads the installer,
 and launches a silent update.
 """
 
+import errno
 import hashlib
 import json
 import logging
@@ -427,12 +428,24 @@ def download_update(
             "to install the new version manually."
         )
 
-    UPDATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        UPDATE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot create the update folder {UPDATE_DIR} "
+            f"(check permissions / disk space): {exc}"
+        ) from exc
+
     filename = f"AudiobookMaker-Setup-{update.latest_version}.exe"
     dest = UPDATE_DIR / filename
+    # Download into a .part file and only rename it to the real .exe AFTER the
+    # SHA-256 verifies, so a force-kill / power-loss mid-download can't leave a
+    # truncated file that LOOKS like a complete installer (prune + retry paths
+    # key off the .exe name).
+    dest_tmp = UPDATE_DIR / (filename + ".part")
     # Clear any earlier downloads before fetching this one so the update dir
-    # never accumulates stale installers; spare *dest* in case a prior partial
-    # of the same version is being re-fetched.
+    # never accumulates stale installers or orphaned .part files; spare *dest*
+    # in case a prior partial of the same version is being re-fetched.
     prune_old_installers(keep=dest)
 
     req = Request(update.download_url)
@@ -440,20 +453,26 @@ def download_update(
 
     # Any exception in the body (network error, cancel, disk-full, even a
     # KeyboardInterrupt or BaseException subclass from a thread cancel) must
-    # leave no partial .exe behind. A stale partial would look like a fully
-    # downloaded installer to a retry path and could get executed. The outer
-    # try/except/BaseException ensures cleanup happens before the exception
-    # propagates; the inner branch normalises common I/O failures to a
-    # RuntimeError for the caller.
+    # leave no .part behind. The outer try/except/BaseException ensures cleanup
+    # happens before the exception propagates; the inner branches normalise
+    # common I/O failures to a clear RuntimeError for the caller.
     try:
         try:
             with urlopen(req, timeout=60) as resp:
+                status = getattr(resp, "status", 200)
+                if status != 200:
+                    # urlopen already raises HTTPError for 4xx/5xx; this guards
+                    # an unexpected non-200 (e.g. a CDN error page served 2xx)
+                    # so a non-installer body never reaches the hash step.
+                    raise RuntimeError(
+                        f"Server returned HTTP {status} for the installer download"
+                    )
                 total = update.asset_size_bytes or int(
                     resp.headers.get("Content-Length", 0)
                 )
                 done = 0
 
-                with open(dest, "wb") as fp:
+                with open(dest_tmp, "wb") as fp:
                     while True:
                         if cancel_event and cancel_event.is_set():
                             raise RuntimeError("Download cancelled")
@@ -470,25 +489,45 @@ def download_update(
 
         except RuntimeError:
             raise
+        except OSError as exc:
+            # Disk-full deserves a specific, actionable message; HTTPError is
+            # also an OSError subclass and falls through to the generic text.
+            if exc.errno == errno.ENOSPC:
+                raise RuntimeError(
+                    f"Not enough disk space to download the update in {UPDATE_DIR}."
+                ) from exc
+            raise RuntimeError(f"Download failed: {exc}") from exc
         except Exception as exc:
             raise RuntimeError(f"Download failed: {exc}") from exc
     except BaseException:
         # Includes RuntimeError, KeyboardInterrupt, SystemExit, and any
-        # thread-cancel exception. Delete the partial file before
-        # re-raising so we never leave a truncated .exe in UPDATE_DIR.
-        dest.unlink(missing_ok=True)
+        # thread-cancel exception. Delete the partial .part before re-raising
+        # so we never leave a truncated download behind.
+        dest_tmp.unlink(missing_ok=True)
         raise
 
     # Verify integrity — SHA-256 is mandatory (checked at function entry).
-    file_hash = hashlib.sha256(dest.read_bytes()).hexdigest()
+    try:
+        file_hash = hashlib.sha256(dest_tmp.read_bytes()).hexdigest()
+    except OSError as exc:
+        # The file vanished or became unreadable between write and hash —
+        # most often antivirus quarantining a freshly-written .exe.
+        dest_tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            "Cannot read the downloaded installer to verify it "
+            f"(antivirus may have quarantined it): {exc}"
+        ) from exc
     if file_hash != update.sha256:
-        dest.unlink(missing_ok=True)
+        dest_tmp.unlink(missing_ok=True)
         raise IntegrityError(
             f"Integrity check failed: expected SHA-256 {update.sha256[:16]}…, "
             f"got {file_hash[:16]}…. Download may be corrupted."
         )
     logger.info("SHA-256 verified: %s", file_hash[:16])
 
+    # Promote the verified .part to the real installer name (atomic on the
+    # same filesystem). Only now does a complete, verified .exe exist.
+    dest_tmp.replace(dest)
     return dest
 
 
@@ -509,7 +548,13 @@ def prune_old_installers(keep: Path | None = None) -> int:
             return 0
         keep_resolved = keep.resolve() if keep is not None else None
         removed = 0
-        for exe in UPDATE_DIR.glob("AudiobookMaker-Setup-*.exe"):
+        # Verified installers (*.exe) plus any orphaned in-progress downloads
+        # (*.exe.part) left by a force-killed run — a verified file is always a
+        # plain .exe, so .part files are never worth keeping.
+        stale = list(UPDATE_DIR.glob("AudiobookMaker-Setup-*.exe")) + list(
+            UPDATE_DIR.glob("AudiobookMaker-Setup-*.exe.part")
+        )
+        for exe in stale:
             try:
                 if keep_resolved is not None and exe.resolve() == keep_resolved:
                     continue
