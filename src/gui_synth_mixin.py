@@ -126,6 +126,16 @@ class SynthMixin(_Base):
         # (e.g. successful "done" event handling in UnifiedApp).
         self._open_folder_btn.configure(state="normal")
         self._chatterbox_runner = None
+        # Delete any tempfiles the Chatterbox build materialised (a .docx
+        # pre-extraction, or a sample / pasted-text snippet). The subprocess
+        # has finished reading them by the time the run reaches idle, so they
+        # are safe to remove; cleanup() is best-effort and idempotent. Storing
+        # only plan.runner used to drop the plan, leaking these on every
+        # Chatterbox run with .docx or sample input.
+        plan = getattr(self, "_chatterbox_plan", None)
+        if plan is not None:
+            plan.cleanup()
+            self._chatterbox_plan = None
         self._cancel_btn.grid_remove()
         # Idle means nothing is converting — the bar is conversion-only
         # clutter now. Status label stays so "Valmis!" / sample path is
@@ -245,6 +255,9 @@ class SynthMixin(_Base):
             return
 
         self._chatterbox_runner = plan.runner
+        # Keep the whole plan, not just plan.runner — _set_idle_state calls
+        # plan.cleanup() to delete the build's tempfiles when the run ends.
+        self._chatterbox_plan = plan
         self._append_log(f"Input: {plan.input_label}")
         self._append_log(f"Output: {plan.out_dir}")
         self._append_log("Engine: chatterbox_grandmom")

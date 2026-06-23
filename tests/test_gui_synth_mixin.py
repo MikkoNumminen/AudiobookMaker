@@ -75,6 +75,7 @@ def _reset_synth_state(app):
     app._output_path = None
     app._text_has_placeholder = True
     app._chatterbox_runner = None
+    app._chatterbox_plan = None
     # Drain any pending events from previous tests.
     try:
         while True:
@@ -617,3 +618,29 @@ class TestProgressIndeterminate:
             app._pump_events()
         assert app._progress_indeterminate is False
         assert app._progress_bar.cget("mode") == "determinate"
+
+
+class TestChatterboxPlanCleanup:
+    """The Chatterbox build's tempfiles (a .docx pre-extraction, a sample/text
+    snippet) must be cleaned when the run reaches idle. The GUI keeps the whole
+    plan so _set_idle_state can call plan.cleanup(); keeping only plan.runner
+    used to leak those tempfiles on every Chatterbox run with .docx/sample."""
+
+    def test_idle_cleans_up_stored_plan(self, app):
+        calls = {"n": 0}
+
+        class _FakePlan:
+            def cleanup(self) -> None:
+                calls["n"] += 1
+
+        app._chatterbox_plan = _FakePlan()
+        app._set_idle_state()
+        assert calls["n"] == 1, "plan.cleanup() must run when the run goes idle"
+        assert app._chatterbox_plan is None, "plan handle must be cleared after cleanup"
+
+    def test_idle_without_plan_does_not_crash(self, app):
+        # In-process (Edge/Piper) runs never build a Chatterbox plan; idle must
+        # tolerate the absence (getattr-guarded) without raising.
+        app._chatterbox_plan = None
+        app._set_idle_state()
+        assert app._chatterbox_plan is None
