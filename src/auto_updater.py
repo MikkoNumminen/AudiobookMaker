@@ -489,9 +489,14 @@ def download_update(
 
         except RuntimeError:
             raise
+        except HTTPError as exc:
+            # The asset URL returned an error status (404 if the asset was
+            # removed, 5xx on a CDN hiccup). Surface the code/reason. Caught
+            # before OSError because HTTPError is an OSError subclass and would
+            # otherwise hit the disk-full branch with a meaningless errno.
+            raise RuntimeError(f"HTTP {exc.code}: {exc.reason}") from exc
         except OSError as exc:
-            # Disk-full deserves a specific, actionable message; HTTPError is
-            # also an OSError subclass and falls through to the generic text.
+            # Disk-full deserves a specific, actionable message.
             if exc.errno == errno.ENOSPC:
                 raise RuntimeError(
                     f"Not enough disk space to download the update in {UPDATE_DIR}."
