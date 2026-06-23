@@ -282,6 +282,30 @@ def _asyncio_run_with_retry(
         return result[0]
 
 
+def _rmtree_with_retry(tmp_dir, attempts: int = 3, delay: float = 0.5) -> bool:
+    """Remove a temp dir, retrying on transient OSError (Windows file locks).
+
+    pydub / edge-tts can hold a brief lock on a just-closed file, so the first
+    rmtree may raise; we back off and retry. Returns True if removed, False if
+    it still couldn't be after all attempts (best-effort — a leaked temp dir is
+    not fatal to the run).
+
+    Do NOT pass ``ignore_errors=True`` to rmtree here: it swallows the OSError,
+    which made this retry dead code and leaked the dir on the very first lock.
+    """
+    import shutil
+    import time
+
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(tmp_dir)
+            return True
+        except OSError:
+            if attempt < attempts - 1:
+                time.sleep(delay)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -361,14 +385,7 @@ def text_to_speech(
     finally:
         # Clean up temp files. On Windows, pydub may hold locks briefly
         # so we retry with a small delay if deletion fails.
-        import shutil
-        import time
-        for attempt in range(3):
-            try:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-                break
-            except OSError:
-                time.sleep(0.5)
+        _rmtree_with_retry(tmp_dir)
 
     if progress_cb:
         progress_cb(len(chunks), len(chunks), "Valmis!")
