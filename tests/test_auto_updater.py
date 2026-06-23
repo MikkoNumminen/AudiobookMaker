@@ -1445,3 +1445,71 @@ class TestApplyUpdateClosesOrphans:
         assert 'set "EXITCODE=%ERRORLEVEL%"' in bat, bat
         assert '>"%RESULT%" echo {"exit_code": %EXITCODE%}' in bat, bat
         assert bat.index("EXITCODE") < bat.index('start "" "%APPEXE%"')
+
+
+class TestInstallConsistency:
+    """A bundled build stamp lets the app detect a partial update (new .exe +
+    stale bundled data files) that the version check alone can't see."""
+
+    def _patch_frozen(self, tmp_path):
+        from contextlib import ExitStack
+        stack = ExitStack()
+        stack.enter_context(
+            patch("src.auto_updater.sys.frozen", True, create=True)
+        )
+        stack.enter_context(
+            patch("src.auto_updater.sys._MEIPASS", str(tmp_path), create=True)
+        )
+        return stack
+
+    def test_installed_build_version_none_in_dev(self) -> None:
+        from src.auto_updater import installed_build_version
+        # Not frozen → None (the test process isn't a frozen build).
+        assert installed_build_version() is None
+
+    def test_installed_build_version_reads_stamp(self, tmp_path) -> None:
+        from src.auto_updater import installed_build_version, BUILD_STAMP_NAME
+        (tmp_path / BUILD_STAMP_NAME).write_text("3.20.1\n", encoding="utf-8")
+        with self._patch_frozen(tmp_path):
+            assert installed_build_version() == "3.20.1"
+
+    def test_installed_build_version_missing_stamp(self, tmp_path) -> None:
+        from src.auto_updater import installed_build_version
+        with self._patch_frozen(tmp_path):
+            assert installed_build_version() is None
+
+    def test_detect_consistent_when_stamp_matches(self, tmp_path) -> None:
+        from src import auto_updater
+        from src.auto_updater import detect_inconsistent_install, BUILD_STAMP_NAME
+        (tmp_path / BUILD_STAMP_NAME).write_text(
+            auto_updater.APP_VERSION, encoding="utf-8"
+        )
+        with self._patch_frozen(tmp_path):
+            assert detect_inconsistent_install() is None
+
+    def test_detect_inconsistent_when_stamp_differs(self, tmp_path) -> None:
+        from src.auto_updater import detect_inconsistent_install, BUILD_STAMP_NAME
+        # Stamp from an OLDER build than the running APP_VERSION → mismatch.
+        (tmp_path / BUILD_STAMP_NAME).write_text("0.0.1", encoding="utf-8")
+        with self._patch_frozen(tmp_path):
+            assert detect_inconsistent_install() == "0.0.1"
+
+    def test_detect_none_in_dev_mode(self) -> None:
+        from src.auto_updater import detect_inconsistent_install
+        assert detect_inconsistent_install() is None
+
+    def test_detect_none_when_stamp_absent(self, tmp_path) -> None:
+        # Frozen build with no stamp (a pre-stamp release) must NOT false-alarm.
+        from src.auto_updater import detect_inconsistent_install
+        with self._patch_frozen(tmp_path):
+            assert detect_inconsistent_install() is None
+
+    def test_spec_regex_still_matches_app_version(self) -> None:
+        """The PyInstaller spec extracts APP_VERSION with this regex to write
+        the build stamp; guard that it still matches the real declaration."""
+        import re
+        from pathlib import Path
+        from src.auto_updater import APP_VERSION
+        text = Path("src/auto_updater.py").read_text(encoding="utf-8")
+        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+        assert m is not None and m.group(1) == APP_VERSION

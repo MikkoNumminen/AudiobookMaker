@@ -299,6 +299,52 @@ def get_current_version() -> str:
     return APP_VERSION
 
 
+# Tiny file the PyInstaller spec writes into the bundle root, carrying the
+# APP_VERSION this bundle was built from. See ``detect_inconsistent_install``.
+BUILD_STAMP_NAME = "build_stamp.txt"
+
+
+def installed_build_version() -> str | None:
+    """Return the version recorded in the bundled build stamp, or None.
+
+    Only meaningful in a frozen build; the spec writes ``build_stamp.txt``
+    into ``_internal/`` (``sys._MEIPASS`` at runtime). Returns None in dev
+    mode or when the stamp is missing/unreadable.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return None
+    try:
+        text = (Path(meipass) / BUILD_STAMP_NAME).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return text.strip() or None
+
+
+def detect_inconsistent_install() -> str | None:
+    """Return the stale bundled version if the install is internally inconsistent.
+
+    A clean install has the bundle's build stamp equal to the ``APP_VERSION``
+    compiled into the ``.exe``. After a *partial* update — the ``.exe`` was
+    replaced but a bundled data file was skipped (a silent Inno install can
+    leave a locked file at its old version and still report success) — the
+    stamp and ``APP_VERSION`` disagree, meaning some bundled files are from a
+    different build than the running binary.
+
+    Returns the stamp's version string on mismatch so the GUI can tell the
+    user to reinstall; returns None when consistent, in dev mode, or when the
+    stamp is absent (so pre-stamp builds never false-alarm).
+    """
+    stamp = installed_build_version()
+    if stamp is None:
+        return None
+    if stamp != APP_VERSION:
+        return stamp
+    return None
+
+
 def check_for_update(current_version: str) -> UpdateInfo:
     """Check GitHub Releases API for a newer version.
 

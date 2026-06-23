@@ -612,6 +612,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             # offer a visible-installer fallback.
             self.after(800, self._check_pending_update_marker)
 
+            # Detect a partial/inconsistent install — a new .exe sitting on top
+            # of stale bundled data files, which the version check alone can't
+            # catch (the .exe reports the new version). Field-observed on
+            # 3.20.0. Runs after the marker check so we don't double-prompt.
+            self.after(1500, self._check_install_consistency)
+
             threading.Thread(
                 target=self._check_update_worker, daemon=True, name="update-check",
             ).start()
@@ -2241,6 +2247,44 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self.focus_force()
         except Exception:
             pass  # never break the app over a foreground hint
+
+    def _check_install_consistency(self) -> None:
+        """Warn + offer a reinstall if the bundle is internally inconsistent.
+
+        A build stamp bundled at build time should equal the running
+        APP_VERSION. When it doesn't, a partial update left the .exe and the
+        bundled data files (scripts, src modules, assets) from different
+        builds — the exact failure behind the field 'new exe + stale runner'
+        report. The version check can't see this because the .exe IS new. A
+        direct reinstall (Releases page) replaces every file and fixes it.
+        """
+        from src.auto_updater import detect_inconsistent_install, APP_VERSION
+
+        stale = detect_inconsistent_install()
+        if stale is None:
+            return
+        logger.error(
+            "Inconsistent install: bundled files stamped %s but app is %s",
+            stale, APP_VERSION,
+        )
+        if self._ui_lang == "fi":
+            msg = (
+                "Asennus on epätäydellinen: osa ohjelman tiedostoista on "
+                f"vanhemmasta versiosta ({stale}) kuin sovellus itse "
+                f"({APP_VERSION}). Tämä voi aiheuttaa virheitä. Korjaa "
+                "asentamalla uusin versio uudelleen.\n\nAvataanko lataussivu?"
+            )
+            title = "Asennus on epätäydellinen"
+        else:
+            msg = (
+                "Your installation is incomplete: some program files are from "
+                f"an older version ({stale}) than the app itself "
+                f"({APP_VERSION}). This can cause errors. Reinstalling the "
+                "latest version fixes it.\n\nOpen the download page?"
+            )
+            title = "Installation is incomplete"
+        if messagebox.askyesno(title, msg):
+            self._on_update_browser_click()
 
     def _check_pending_update_marker(self) -> None:
         """If the last update failed, offer a visible-installer fallback.
