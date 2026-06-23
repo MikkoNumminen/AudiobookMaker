@@ -56,7 +56,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "input",
         metavar="INPUT",
         help=(
-            "Path to a PDF, EPUB, or TXT file, or '-' to read from stdin. "
+            "Path to a PDF, EPUB, TXT, or DOCX file, or '-' to read from stdin. "
             "When '-' is used, --input-format must also be provided."
         ),
     )
@@ -69,7 +69,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "File format when reading from stdin ('-'). "
             "Required when INPUT is '-'; not valid otherwise. "
-            "Choices: pdf, epub, txt."
+            "Choices: pdf, epub, txt, docx."
         ),
     )
     p.add_argument(
@@ -134,7 +134,7 @@ def run(args: argparse.Namespace) -> int:
         if input_format is None:
             print(
                 "Error: --input-format is required when INPUT is '-' (stdin). "
-                "Choices: pdf, epub, txt.",
+                "Choices: pdf, epub, txt, docx.",
                 file=sys.stderr,
             )
             return EXIT_BAD_INPUT

@@ -136,8 +136,9 @@ it stays ~200 MB.
 
 ```mermaid
 flowchart LR
-    PDF[PDF] --> Parsers[pdf_parser.py / epub_parser.py]
+    PDF[PDF] --> Parsers[pdf_parser.py / epub_parser.py / docx_parser.py]
     EPUB[EPUB] --> Parsers
+    DOCX[DOCX] --> Parsers
     Text[Plain text] --> Disp
     Parsers --> Disp[tts_normalizer.py<br/>language dispatcher]
     Disp -->|fi| Fi[tts_normalizer_fi.py<br/>16 passes]
@@ -152,6 +153,8 @@ flowchart LR
 
 - `pdf_parser.py` — PyMuPDF, extracts chapters heuristically
 - `epub_parser.py` — EPUB chapter extraction (same output shape as `pdf_parser`)
+- `docx_parser.py` — DOCX chapter extraction via the stdlib (`zipfile` +
+  `xml.etree`); same output shape as `pdf_parser`, no third-party dependency
 - `tts_normalizer.py` — language dispatcher. `normalize_text(text, lang)`
   routes to the per-language module; lazy-imports it so the unused side
   stays out of memory. Supported codes: `"fi"`, `"en"`. Unknown codes
@@ -228,7 +231,7 @@ parsers by `id()` so `docs/CLI.md` doesn't get duplicate sections.
 ### Stdin materialization
 
 A `-` in place of the INPUT positional means "read stdin". Binary
-inputs (`pdf`/`epub`) also require `--input-format` because stdin
+inputs (`pdf`/`epub`/`docx`) also require `--input-format` because stdin
 carries no extension. `_common.materialize_stdin_to_tempfile(fmt)` does
 the actual `sys.stdin.buffer.read()` into `.local/scratch/stdin_<8hex>.<ext>`
 and `cleanup_stdin_tempfile(path)` deletes it in a `try/finally` so the
@@ -476,6 +479,7 @@ src/
   tts_engine.py              # TTSConfig + chapters_to_speech pipeline
   pdf_parser.py              # PyMuPDF chapter extraction
   epub_parser.py             # EPUB chapter extraction (same shape as pdf_parser)
+  docx_parser.py             # DOCX chapter extraction, stdlib-only (same shape)
   fi_loanwords.py            # loanword respelling lookup
   sample_helpers.py          # extract_sample_text + sample output path helpers
   duration_estimate.py       # pre-synthesis ETA estimate

@@ -1,6 +1,6 @@
 # AudiobookMaker
 
-Turn PDFs, EPUBs, and scanned books into audiobooks. Load a file, pick a voice, get an MP3.
+Turn PDFs, EPUBs, Word documents, and scanned books into audiobooks. Load a file, pick a voice, get an MP3.
 
 Finnish-first, English supported. Windows installer for end users; full Python source for developers who want voice cloning, OCR fallback, and Chatterbox.
 
@@ -100,6 +100,7 @@ Requires Python ≥ 3.10, PyTorch ≥ 2.5 with CUDA ≥ 12.0, NVIDIA GPU with ~8
 
 - **PDF text extraction** via PyMuPDF, with cleanup heuristics: strips soft hyphens, fixes line-wrap hyphenation, flattens in-paragraph wraps, preserves compound hyphens.
 - **EPUB support** via ebooklib + BeautifulSoup.
+- **DOCX (Word) support** via the Python standard library — no extra dependency. Splits chapters on Word heading styles, falling back to the same heuristics as the PDF path.
 - **OCR fallback for scanned PDFs** via ocrmypdf + Tesseract. If PyMuPDF can't extract selectable text (because the PDF is image-based), the app falls back to OCR. The Windows installer bundles Tesseract + Finnish and English language packs; developers install Tesseract separately. Details: [docs/OCR_FALLBACK.md](docs/OCR_FALLBACK.md).
 - **Automatic chapter detection.**
 - **Context-aware sentence splitter** handling Finnish and English abbreviations, initials, decimals, and domain names.
@@ -147,7 +148,7 @@ If you don't trust an unsigned installer (a reasonable default), build it yourse
 ## Usage
 
 1. Open AudiobookMaker.
-2. Click **Select book file** and pick your PDF, EPUB, or `.txt`.
+2. Click **Select book file** and pick your PDF, EPUB, DOCX, or `.txt`.
 3. Choose TTS engine from the dropdown. **Edge-TTS** is the default and the right answer unless you have a specific reason otherwise.
 4. Pick **Language** (Finnish / English).
 5. Pick a **Voice**.
@@ -175,7 +176,7 @@ After `pip install -e .` (see [Development setup](#development-setup)), `audiobo
 
 ```bash
 audiobookmaker-cli doctor                 # check ffmpeg, GPU, disk, engines
-audiobookmaker-cli convert book.pdf       # PDF/EPUB/TXT → MP3
+audiobookmaker-cli convert book.pdf       # PDF/EPUB/TXT/DOCX → MP3
 audiobookmaker-cli preview "Hello there"  # speak text, no file
 ```
 
@@ -353,6 +354,7 @@ AudiobookMaker/
 |---|---|
 | PDF parsing | PyMuPDF |
 | EPUB parsing | ebooklib + beautifulsoup4 |
+| DOCX parsing | Python stdlib (zipfile + xml.etree) |
 | OCR | ocrmypdf + Tesseract (system binary) |
 | Online TTS | edge-tts |
 | Offline CPU TTS | piper-tts (ONNX Runtime) |

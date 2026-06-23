@@ -32,7 +32,7 @@ EXIT_INTERNAL = 5
 # Stdin support — shared by convert and sample
 # ---------------------------------------------------------------------------
 
-STDIN_INPUT_FORMATS = ("pdf", "epub", "txt")
+STDIN_INPUT_FORMATS = ("pdf", "epub", "txt", "docx")
 """File formats acceptable for the ``-`` (stdin) sentinel on convert/sample."""
 
 OUTPUT_MODE_CHOICES = ("single", "per-chapter")
@@ -517,9 +517,10 @@ def validate_input_path(path: str) -> tuple[int, str]:
     if not resolved.exists():
         return EXIT_BAD_INPUT, f"input file not found: {resolved}"
     ext = resolved.suffix.lower()
-    if ext not in (".pdf", ".epub", ".txt"):
+    if ext not in (".pdf", ".epub", ".txt", ".docx"):
         return (
             EXIT_BAD_INPUT,
-            f"unsupported file type '{ext}'. Supported formats: .pdf, .epub, .txt",
+            f"unsupported file type '{ext}'. "
+            "Supported formats: .pdf, .epub, .txt, .docx",
         )
     return EXIT_OK, ""

@@ -37,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "AudiobookMaker — convert books to speech from the command line.\n\n"
             "Subcommands:\n"
-            "  convert     Convert PDF/EPUB/TXT to MP3\n"
+            "  convert     Convert PDF/EPUB/TXT/DOCX to MP3\n"
             "  sample      Synthesize a ~500 char preview\n"
             "  preview     Speak a short string through the system audio\n"
             "  voices      List available voices\n"

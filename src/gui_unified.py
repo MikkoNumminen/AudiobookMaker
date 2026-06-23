@@ -233,7 +233,7 @@ _STRINGS = {
         "cancelling": "Peruuta\u2026",
         "done": "Valmis!",
         "error": "Virhe",
-        "no_pdf": "Valitse ensin kirjatiedosto (PDF, EPUB tai TXT).",
+        "no_pdf": "Valitse ensin kirjatiedosto (PDF, EPUB, DOCX tai TXT).",
         "no_text": "Kirjoita tai liitä ensin teksti.",
         "select_pdf": "Valitse kirjatiedosto",
         "save_as": "Tallenna nimellä",
@@ -358,7 +358,7 @@ _STRINGS = {
         "cancelling": "Cancelling\u2026",
         "done": "Done!",
         "error": "Error",
-        "no_pdf": "Please select a book file first (PDF, EPUB, or TXT).",
+        "no_pdf": "Please select a book file first (PDF, EPUB, DOCX, or TXT).",
         "no_text": "Please enter or paste text first.",
         "select_pdf": "Select book file",
         "save_as": "Save as",
@@ -1863,18 +1863,20 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         if self._ui_lang == "fi":
             types = [
                 ("Kaikki tiedostot", "*.*"),
-                ("Kirjatiedostot", "*.pdf *.epub *.txt"),
+                ("Kirjatiedostot", "*.pdf *.epub *.txt *.docx"),
                 ("PDF-tiedostot", "*.pdf"),
                 ("EPUB-tiedostot", "*.epub"),
                 ("Tekstitiedostot", "*.txt"),
+                ("Word-asiakirjat", "*.docx"),
             ]
         else:
             types = [
                 ("All files", "*.*"),
-                ("Book files", "*.pdf *.epub *.txt"),
+                ("Book files", "*.pdf *.epub *.txt *.docx"),
                 ("PDF files", "*.pdf"),
                 ("EPUB files", "*.epub"),
                 ("Text files", "*.txt"),
+                ("Word documents", "*.docx"),
             ]
         path = filedialog.askopenfilename(
             title=self._s("select_pdf"),
