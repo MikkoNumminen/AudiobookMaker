@@ -2310,12 +2310,30 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         installer_path = Path(marker.get("installer_path", ""))
 
         if not installer_path.exists():
-            # The installer file is gone — can't recover automatically.
-            clear_pending_marker()
-            self._append_log(
-                f"Aiempi päivitys v{expected} epäonnistui; "
-                "asennustiedosto ei ole enää saatavilla."
+            # The downloaded installer is gone (manual delete, antivirus, disk
+            # cleanup). We can't run it, but don't silently strand the user on a
+            # failed update — offer the Releases page for a manual reinstall,
+            # then clear the marker either way.
+            logger.warning(
+                "Pending update v%s: installer file missing (%s)",
+                expected, installer_path,
             )
+            if self._ui_lang == "fi":
+                msg = (
+                    f"Aiempi päivitys versioon {expected} ei onnistunut, eikä "
+                    "asennustiedosto ole enää saatavilla. Avataanko lataussivu?"
+                )
+                title = "Päivityksen korjaus"
+            else:
+                msg = (
+                    f"The earlier update to version {expected} did not complete, "
+                    "and the installer file is no longer available. Open the "
+                    "download page?"
+                )
+                title = "Update recovery"
+            if messagebox.askyesno(title, msg):
+                self._on_update_browser_click()
+            clear_pending_marker()
             return
 
         # Tell the user and offer the visible fallback.
@@ -2352,7 +2370,13 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 messagebox.showerror(title, str(exc))
                 clear_pending_marker()
         else:
-            # User declined — clear the marker so we don't nag them again.
+            # User declined — clear the marker so we don't nag them again, but
+            # log it: the app stays on the old version until a manual reinstall,
+            # so this leaves a breadcrumb in the diagnostic file.
+            logger.warning(
+                "User declined update recovery for v%s; staying on v%s",
+                expected, APP_VERSION,
+            )
             clear_pending_marker()
 
     # ------------------------------------------------------------------

@@ -200,6 +200,10 @@ class UpdateMixin(_Base):
             # a stale "update available" handle from silently re-triggering
             # a broken download.
             self._pending_update = None
+            # Hide the banner too: with no pending handle the button is now a
+            # no-op, so leaving the banner up presents a dead "Update now". The
+            # periodic check re-shows it if the failure was transient.
+            self._update_banner.grid_remove()
             from tkinter import messagebox
             messagebox.showerror(
                 self._s("error"),
