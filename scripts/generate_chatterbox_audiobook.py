@@ -1551,6 +1551,9 @@ def main() -> int:
     # out-of-range T3 token degrades one frame instead of CUDA-asserting the run.
     _ensure_flow_token_clamp()
 
+    # Importing torch + chatterbox is slow (seconds) and silent; emit a marker
+    # so the GUI can show "Loading engine…" instead of a frozen-looking bar.
+    print("[setup] starting engine (loading the TTS runtime)...", flush=True)
     try:
         import torch  # noqa: F401
         import torchaudio  # noqa: F401
@@ -1694,6 +1697,14 @@ def main() -> int:
     signal.signal(signal.SIGINT, _on_sigint)
 
     voice_pack_dir = Path(args.voice_pack) if args.voice_pack else None
+    # The model load is the longest silent stretch (tens of seconds; minutes on
+    # the very first run while weights download). Mark it so the GUI keeps a
+    # "Loading engine…" status + animated bar instead of looking hung.
+    print(
+        "[setup] loading TTS engine (first run downloads models — this can "
+        "take a few minutes)...",
+        flush=True,
+    )
     engine, ref_wav_path = _load_engine(device, args.ref_audio,
                                          language=args.language,
                                          voice_pack_dir=voice_pack_dir)

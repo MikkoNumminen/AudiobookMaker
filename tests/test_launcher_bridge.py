@@ -126,6 +126,27 @@ class TestParseSetupLines:
         assert ev.total_done == 0
         assert ev.total_chunks == 1043
 
+    def test_setup_loading_starting_engine(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        ev = parser.parse("[setup] starting engine (loading the TTS runtime)...")
+        assert ev.kind == "setup_loading"
+
+    def test_setup_loading_model(self, parser: ChatterboxLineParser) -> None:
+        ev = parser.parse(
+            "[setup] loading TTS engine (first run downloads models — this "
+            "can take a few minutes)..."
+        )
+        assert ev.kind == "setup_loading"
+
+    def test_other_setup_line_is_plain_log(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        # Only the engine-load markers map to setup_loading; other [setup]
+        # lines stay plain log events.
+        assert parser.parse("[setup] parsing PDF: book.pdf").kind == "log"
+        assert parser.parse("[setup] out=/tmp/x").kind == "log"
+
 
 class TestParseChapterLines:
     def test_chapter_start(self, parser: ChatterboxLineParser) -> None:

@@ -102,7 +102,11 @@ class SynthMixin(_Base):
         self._cancel_btn.grid()
         self._open_folder_btn.configure(state="disabled")
         self._progress_bar.grid()
-        self._progress_bar.set(0)
+        # Animate immediately (indeterminate) instead of sitting at a static 0:
+        # the Chatterbox engine can take tens of seconds — minutes on a first
+        # run — to load its models before the first chunk, and a frozen 0% bar
+        # reads as a hang. The first chunk switches it to a real percentage.
+        self._begin_progress_indeterminate()
         self._status_label_val.configure(
             text=self._s("making_sample") if getattr(self, "_is_sample_run", False)
             else self._s("converting")
@@ -125,8 +129,28 @@ class SynthMixin(_Base):
         self._cancel_btn.grid_remove()
         # Idle means nothing is converting — the bar is conversion-only
         # clutter now. Status label stays so "Valmis!" / sample path is
-        # still readable.
+        # still readable. Stop any indeterminate animation and reset to a
+        # clean determinate state so the next run starts fresh.
+        self._progress_to_determinate()
         self._progress_bar.grid_remove()
+
+    def _begin_progress_indeterminate(self) -> None:
+        """Animate the progress bar with no known total yet.
+
+        Used at run start (and while the Chatterbox engine loads) so the run
+        shows motion before the first chunk arrives. ``_progress_to_determinate``
+        switches it back to a real 0..1 fraction once progress is known.
+        """
+        self._progress_indeterminate = True
+        self._progress_bar.configure(mode="indeterminate")
+        self._progress_bar.start()
+
+    def _progress_to_determinate(self) -> None:
+        """Switch the bar to a real 0..1 fraction (idempotent)."""
+        if getattr(self, "_progress_indeterminate", False):
+            self._progress_bar.stop()
+            self._progress_bar.configure(mode="determinate")
+            self._progress_indeterminate = False
 
     # ---- Chatterbox subprocess ----------------------------------------
 

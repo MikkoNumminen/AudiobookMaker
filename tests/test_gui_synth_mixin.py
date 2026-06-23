@@ -523,3 +523,53 @@ class TestRelayChatterboxEvents:
             "relay thread crashed" in rec.getMessage().lower()
             for rec in caplog.records
         ), f"expected log about relay crash, got {[r.getMessage() for r in caplog.records]}"
+
+
+class TestProgressIndeterminate:
+    """The progress bar animates (indeterminate) while the engine loads — the
+    Chatterbox model load is a long silent window — and switches to a real
+    percentage on the first chunk, so the run never looks frozen."""
+
+    def test_begin_sets_indeterminate(self, app) -> None:
+        app._begin_progress_indeterminate()
+        try:
+            assert app._progress_indeterminate is True
+            assert app._progress_bar.cget("mode") == "indeterminate"
+        finally:
+            app._progress_to_determinate()
+
+    def test_to_determinate_switches_back(self, app) -> None:
+        app._begin_progress_indeterminate()
+        app._progress_to_determinate()
+        assert app._progress_indeterminate is False
+        assert app._progress_bar.cget("mode") == "determinate"
+
+    def test_to_determinate_is_idempotent(self, app) -> None:
+        # Safe to call when already determinate (terminal paths call it
+        # unconditionally).
+        app._progress_to_determinate()
+        app._progress_to_determinate()
+        assert app._progress_indeterminate is False
+
+    def test_pump_setup_loading_sets_status(self, app) -> None:
+        from src.launcher_bridge import ProgressEvent
+
+        app._synth_running = False  # so _pump_events doesn't reschedule
+        app._event_queue.put(
+            ProgressEvent(kind="setup_loading", raw_line="[setup] loading TTS engine...")
+        )
+        app._pump_events()
+        assert app._status_label_val.cget("text") == app._s("loading_engine")
+
+    def test_pump_first_chunk_switches_to_determinate(self, app) -> None:
+        from src.launcher_bridge import ProgressEvent
+
+        app._begin_progress_indeterminate()
+        app._synth_running = False
+        app._event_queue.put(
+            ProgressEvent(kind="chunk", total_done=5, total_chunks=10)
+        )
+        with patch.object(app, "_update_synthesizing_strip", lambda ev: None):
+            app._pump_events()
+        assert app._progress_indeterminate is False
+        assert app._progress_bar.cget("mode") == "determinate"
