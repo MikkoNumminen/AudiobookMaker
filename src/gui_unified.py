@@ -250,6 +250,8 @@ _STRINGS = {
         "update_download_manually": "Lataa selaimella",
         "whats_new": "Mikä on uutta",
         "update_downloading": "Ladataan päivitystä...",
+        "update_downloading_pct": "Ladataan päivitystä… {pct}%",
+        "update_verifying": "Tarkistetaan päivitystä…",
         "update_installing": "Asennetaan päivitys...",
         "update_failed": "Päivitys epäonnistui.",
         "update_error_detail": "Päivitys epäonnistui: {error}",
@@ -276,6 +278,7 @@ _STRINGS = {
         "disk_space_msg": "Levytilaa ei riitä tulostekansiossa.\n\nVapaa: {free} MB\nTarvitaan: ~{need} MB\n\nVapauta tilaa tai valitse toinen tallennuspaikka.",
         "pdf_selected": "PDF valittu.",
         "chatterbox_venv_missing": "Chatterbox-moottoria ei ole asennettu. Asenna se ikkunan oikeasta yläkulmasta löytyvällä \"Asenna moottoreita…\" -painikkeella.",
+        "docx_parse_failed": "Word-tiedoston (.docx) lukeminen epäonnistui. Tiedosto voi olla vioittunut tai salasanasuojattu.",
         "engine_repair_title": "Moottori vaatii korjauksen",
         "engine_repair_prompt": "Chatterbox-moottoria ei voitu ladata — sen ympäristön versiot ovat todennäköisesti yhteensopimattomat. Avataanko \"Asenna moottoreita…\" ja korjataan se nyt?",
         "engine_installing_wait": "Moottoria asennetaan parhaillaan. Odota, että asennus valmistuu, ennen kuin aloitat muunnoksen.",
@@ -375,6 +378,8 @@ _STRINGS = {
         "update_download_manually": "Open in browser",
         "whats_new": "What's new",
         "update_downloading": "Downloading update...",
+        "update_downloading_pct": "Downloading update… {pct}%",
+        "update_verifying": "Verifying update…",
         "update_installing": "Installing update...",
         "update_failed": "Update failed.",
         "update_error_detail": "Update failed: {error}",
@@ -401,6 +406,7 @@ _STRINGS = {
         "disk_space_msg": "Not enough disk space at the output path.\n\nFree: {free} MB\nNeeded: ~{need} MB\n\nFree some space or pick a different save location.",
         "pdf_selected": "PDF selected.",
         "chatterbox_venv_missing": "Chatterbox engine is not installed. Install it via the \"Install engines…\" button in the top-right corner of the main window.",
+        "docx_parse_failed": "Could not read the Word (.docx) file. It may be corrupted or password-protected.",
         "engine_repair_title": "Engine needs repair",
         "engine_repair_prompt": "The Chatterbox engine could not load — its environment likely has incompatible package versions. Open \"Install engines…\" and repair it now?",
         "engine_installing_wait": "An engine is installing right now. Wait for the install to finish before starting a conversion.",
@@ -1160,6 +1166,28 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             padx=(gui_style.PAD_MD, gui_style.PAD_MD), pady=(0, gui_style.PAD_SM),
         )
         self._update_whatsnew_text.grid_remove()
+
+        # Download progress lives INSIDE the banner, not on the synthesis
+        # progress bar elsewhere in the window — so the user sees motion
+        # right where they clicked "Update now". Starts indeterminate (an
+        # animated barber-pole) the instant the click lands, so the banner
+        # never looks frozen even before the first byte arrives, and
+        # switches to a real percentage bar once the download size is known.
+        # Driven by _begin/_render/_end_update_progress in UpdateMixin.
+        self._update_progress = ctk.CTkProgressBar(
+            self._update_banner,
+            mode="indeterminate",
+            progress_color="white",
+            fg_color=("#156326", "#0f7a2a"),
+            height=10,
+            corner_radius=gui_style.RADIUS_SM,
+        )
+        self._update_progress.grid(
+            row=3, column=0, columnspan=3, sticky="ew",
+            padx=(gui_style.PAD_MD, gui_style.PAD_MD),
+            pady=(0, gui_style.PAD_SM),
+        )
+        self._update_progress.grid_remove()
 
         # Hidden by default.
         self._update_banner.grid_remove()

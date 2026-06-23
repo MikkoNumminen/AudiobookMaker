@@ -656,20 +656,45 @@ def test_build_chatterbox_epub_extension_routes_to_epub_flag(
     assert plan.runner.text_path is None
 
 
-def test_build_chatterbox_docx_extension_routes_to_docx_flag(
+def test_build_chatterbox_docx_extracts_to_text_file(
     fake_chatterbox_env, tmp_path: Path
 ):
+    # A .docx is parsed in-process and handed to the runner as --text-file,
+    # NOT via a --docx flag — a separately-updated runner can lag the GUI and
+    # reject newer flags (field-observed on 3.20.0), but every runner version
+    # understands --text-file.
     runner_script, default_out = fake_chatterbox_env
     book = tmp_path / "story.docx"
-    book.write_bytes(b"")
+    _write_minimal_docx(book, "Hello from a Word document.")
     req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
 
     plan = build_chatterbox_runner(req, runner_script, default_out)
 
-    assert plan.runner.docx_path == str(book)
+    assert plan.runner.text_path is not None
     assert plan.runner.pdf_path is None
     assert plan.runner.epub_path is None
-    assert plan.runner.text_path is None
+    assert plan.runner.docx_path is None
+    # The temp file carries the extracted document text...
+    assert "Hello from a Word document." in Path(
+        plan.runner.text_path
+    ).read_text(encoding="utf-8")
+    # ...and is tracked for cleanup after the runner finishes.
+    assert plan.runner.text_path in plan.cleanup_files
+
+
+def test_build_chatterbox_bad_docx_raises_build_error(
+    fake_chatterbox_env, tmp_path: Path
+):
+    # A corrupt .docx surfaces as a ChatterboxBuildError the GUI maps to a
+    # friendly message — not an uncaught parser exception.
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "broken.docx"
+    book.write_bytes(b"not a zip archive")
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
+
+    with pytest.raises(ChatterboxBuildError) as exc_info:
+        build_chatterbox_runner(req, runner_script, default_out)
+    assert exc_info.value.kind == "docx_parse_failed"
 
 
 def test_build_chatterbox_txt_extension_routes_to_text_flag(
