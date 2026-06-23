@@ -187,13 +187,20 @@ class TestPickText:
         result = pick_text(_args(text="Oma lauseeni."))
         assert result == ["Oma lauseeni."]
 
-    def test_explicit_text_wraps_even_long_strings(self) -> None:
-        # pick_text should not chunk a user-supplied --text; the user
-        # is in charge of sizing when they pass it explicitly.
+    def test_explicit_long_text_is_chunked_for_synthesis(self) -> None:
+        # pick_text runs --text through the sentence-aware chunker on purpose
+        # (Chatterbox emits early EOS on multi-sentence chunks, so each chunk
+        # must stay within chunk_chars). A single 5000-char token with no
+        # sentence boundary is hard-split rather than handed over as one
+        # oversized blob. (Previously this returned the blob un-chunked only
+        # because the word splitter left an over-long token intact — audit #20.)
         long_text = "a" * 5000
         result = pick_text(_args(text=long_text))
-        assert result == [long_text]
-        assert len(result) == 1
+        assert len(result) > 1
+        assert all(len(c) <= 300 for c in result), [len(c) for c in result]
+        # No characters dropped (the chunker may insert separators, so count
+        # the payload rather than asserting exact string equality).
+        assert sum(c.count("a") for c in result) == 5000
 
     def test_no_text_no_pdf_returns_default_sentence(self) -> None:
         result = pick_text(_args())
