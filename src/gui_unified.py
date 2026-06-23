@@ -3338,25 +3338,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             daemon=True, name=f"tts-{engine_id}",
         ).start()
 
-    # ------------------------------------------------------------------
-    # Chatterbox subprocess relay
-    # ------------------------------------------------------------------
-
-    def _relay_chatterbox_events(self) -> None:
-        """Drain ChatterboxRunner events into the GUI queue."""
-        runner = self._chatterbox_runner
-        if runner is None:
-            return
-        while not runner.finished:
-            ev = runner.poll_event(timeout=0.2)
-            if ev is not None:
-                self._event_queue.put(ev)
-        # Final drain.
-        while True:
-            ev = runner.poll_event(timeout=0.05)
-            if ev is None:
-                break
-            self._event_queue.put(ev)
+    # Note: _relay_chatterbox_events lives ONLY on SynthMixin. An earlier copy
+    # here shadowed it but lacked the try/except crash guard, so a poll_event
+    # failure silently killed the relay thread and the UI hung forever in
+    # "Converting…". The mixin version has both the crash guard and the final
+    # drain; do not re-add a copy here (a test enforces this).
 
     # ------------------------------------------------------------------
     # Event pump (main thread — processes events from background threads)

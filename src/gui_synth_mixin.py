@@ -280,6 +280,15 @@ class SynthMixin(_Base):
                 ev = runner.poll_event(timeout=0.2)
                 if ev is not None:
                     self._event_queue.put(ev)
+            # Final drain: an event (including the terminating 'done'/'exit')
+            # can be queued in the instant ``finished`` flips True, after the
+            # while-loop's last poll. Without this, that last event is
+            # stranded and _pump_events hangs forever in "Converting…".
+            while True:
+                ev = runner.poll_event(timeout=0.0)
+                if ev is None:
+                    break
+                self._event_queue.put(ev)
         except Exception as exc:
             # Broken pipes, decoder errors, or any other unexpected
             # failure from poll_event must not silently kill the relay
