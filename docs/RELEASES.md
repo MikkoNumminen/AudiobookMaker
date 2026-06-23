@@ -9,6 +9,31 @@ Anything older than the top-of-list entry lives here.
 
 ---
 
+**v3.22.0** -- Convert reliability and a clearer app state:
+
+- **No more stuck "Converting…"** -- if the synthesis engine crashes
+  mid-run, the app now detects the failure, surfaces the error, and
+  returns to a ready state instead of leaving the progress bar spinning
+  forever with every button disabled
+- **"Loading engine…" feedback** -- picking the Chatterbox engine loads
+  several gigabytes of model into memory before the first audio appears.
+  The bar now animates and the status reads "Loading engine…" during
+  that wait, so a slow first run no longer looks like a freeze
+- **Messy documents read cleanly** -- real PDFs, EPUBs, and Word files
+  carry invisible formatting characters (non-breaking spaces, zero-width
+  joiners, exotic Unicode spaces). The shared text cleaner now folds or
+  strips them before synthesis, across every input format
+- **Leak and robustness fixes** -- Chatterbox build tempfiles are cleaned
+  up after every run, an over-long unbroken word is hard-split instead of
+  jamming the chunker, a malformed progress line degrades to a log line
+  instead of silently killing the run, the temp-dir cleanup retry that
+  was previously dead code now actually runs, and a synthesis subprocess
+  is reaped if its relay thread fails to start
+
+*(v3.18.0–v3.21.0 shipped with notes on the GitHub
+[Releases](https://github.com/MikkoNumminen/AudiobookMaker/releases)
+page; the hand-written history below resumes at v3.17.3.)*
+
 **v3.17.3** -- The engine repair button can no longer lie:
 
 - **Install verification now runs the real synthesis path** -- the

@@ -32,6 +32,17 @@ https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/finnish_
 
 https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/english_grandmom_gibbon.mp3
 
+## What's new
+
+**v3.22.0 — Convert is more reliable, and the app shows what it's doing:**
+
+- **No more stuck "Converting…"** — if the synthesis engine crashes mid-run, the app now notices, shows the error, and returns to a ready state instead of leaving the progress bar spinning forever with every button greyed out.
+- **"Loading engine…" while the model loads** — picking the Chatterbox engine loads several gigabytes of model into memory before the first audio appears. The app now animates the bar and says "Loading engine…" during that wait, so a slow first run no longer looks frozen.
+- **Messy documents read cleanly** — real PDFs, EPUBs, and Word files are full of invisible formatting characters (non-breaking spaces, zero-width joiners, odd Unicode spaces). The text cleaner now folds or strips them before synthesis, so the voice reads the actual words instead of choking on hidden markup.
+- **Fewer leaks and crashes under the hood** — temporary build files are cleaned up after every Chatterbox run, an over-long unbroken word can no longer jam the chunker, a malformed progress line can't silently kill a run, and a stalled engine subprocess is cleaned up instead of left orphaned.
+
+Older releases are listed in [docs/RELEASES.md](docs/RELEASES.md).
+
 ## Pick your engine
 
 Four TTS engines, each with different tradeoffs:
