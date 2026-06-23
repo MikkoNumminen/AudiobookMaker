@@ -107,6 +107,19 @@ class TestParseChunkLine:
         assert ev.elapsed_s == 3600 + 23 * 60
         assert ev.eta_s == 3600 + 5 * 60
 
+    def test_malformed_rtf_degrades_to_log_not_crash(
+        self, parser: ChatterboxLineParser
+    ) -> None:
+        # The RTF field's [\d.]+ regex can match a non-float like "1.2.3";
+        # float() would then raise inside the reader thread, killing it
+        # silently and hanging the UI. It must degrade to a plain log event.
+        ev = parser.parse(
+            "[chapter 3/8] chunk 42/126 (215/1043 total) - "
+            "12m30s elapsed, ~65m00s remaining, RTF 1.2.3x"
+        )
+        assert ev.kind == "log"
+        assert "1.2.3" in ev.raw_line
+
 
 class TestParseSetupLines:
     def test_setup_total(self, parser: ChatterboxLineParser) -> None:
@@ -469,6 +482,49 @@ class TestRunnerConstruction:
         runner._state.proc = _FakeProc()  # type: ignore[assignment]
         with pytest.raises(RuntimeError, match="already started"):
             runner.start()
+
+    def test_thread_start_failure_reaps_subprocess(self, tmp_path, monkeypatch) -> None:
+        # If a worker thread fails to start AFTER Popen spawned the child, the
+        # child must be killed + reaped — start() is raising, so nothing else
+        # ever will, and it would orphan.
+        import subprocess as _sp
+
+        killed = {"kill": 0, "wait": 0}
+
+        class _FakeProc:
+            stdout = None
+
+            def poll(self):
+                return None
+
+            def kill(self):
+                killed["kill"] += 1
+
+            def wait(self, timeout=None):
+                killed["wait"] += 1
+                return 0
+
+        monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: _FakeProc())
+
+        class _BoomThread:
+            def __init__(self, *a, **kw):
+                pass
+
+            def start(self):
+                raise RuntimeError("cannot start thread")
+
+        monkeypatch.setattr("src.launcher_bridge.threading.Thread", _BoomThread)
+
+        runner = ChatterboxRunner(
+            python_exe=sys.executable,
+            script_path="scripts/generate_chatterbox_audiobook.py",
+            pdf_path=str(tmp_path / "book.pdf"),
+            out_dir=str(tmp_path / "out"),
+        )
+        with pytest.raises(RuntimeError, match="cannot start thread"):
+            runner.start()
+        assert killed["kill"] == 1, "orphaned child must be killed"
+        assert killed["wait"] == 1, "killed child must be reaped (wait)"
 
 
 # ---------------------------------------------------------------------------

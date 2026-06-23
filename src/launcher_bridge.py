@@ -210,19 +210,26 @@ class ChatterboxLineParser:
 
         m = self._CHUNK_RE.match(line)
         if m:
-            return ProgressEvent(
-                kind="chunk",
-                chapter_idx=int(m.group(1)),
-                chapter_total=int(m.group(2)),
-                chunk_idx=int(m.group(3)),
-                chunk_total=int(m.group(4)),
-                total_done=int(m.group(5)),
-                total_chunks=int(m.group(6)),
-                elapsed_s=self.parse_hms(m.group(7)),
-                eta_s=self.parse_hms(m.group(8)),
-                rtf=float(m.group(9)),
-                raw_line=line,
-            )
+            try:
+                return ProgressEvent(
+                    kind="chunk",
+                    chapter_idx=int(m.group(1)),
+                    chapter_total=int(m.group(2)),
+                    chunk_idx=int(m.group(3)),
+                    chunk_total=int(m.group(4)),
+                    total_done=int(m.group(5)),
+                    total_chunks=int(m.group(6)),
+                    elapsed_s=self.parse_hms(m.group(7)),
+                    eta_s=self.parse_hms(m.group(8)),
+                    rtf=float(m.group(9)),
+                    raw_line=line,
+                )
+            except ValueError:
+                # A numeric field the regex accepted but float()/int() rejects
+                # (e.g. a malformed RTF like "1.2.3") must not raise out of the
+                # reader thread — that would kill it silently and hang the UI.
+                # Degrade to a plain log line so the run keeps moving.
+                return ProgressEvent(kind="log", raw_line=line)
 
         m = self._SETUP_TOTAL_RE.match(line)
         if m:
@@ -430,20 +437,34 @@ class ChatterboxRunner:
             creationflags=creationflags,
         )
 
-        self._state.reader = threading.Thread(
-            target=self._reader_loop,
-            args=(parser,),
-            daemon=True,
-            name="chatterbox-reader",
-        )
-        self._state.reader.start()
+        # If a worker thread fails to start after Popen already spawned the
+        # child (e.g. the OS is out of threads), nothing will reap that child:
+        # start() is raising, so the caller never reaches join()/cancel() and
+        # the subprocess is orphaned. Kill + wait it before propagating.
+        try:
+            self._state.reader = threading.Thread(
+                target=self._reader_loop,
+                args=(parser,),
+                daemon=True,
+                name="chatterbox-reader",
+            )
+            self._state.reader.start()
 
-        self._state.waiter = threading.Thread(
-            target=self._waiter_loop,
-            daemon=True,
-            name="chatterbox-waiter",
-        )
-        self._state.waiter.start()
+            self._state.waiter = threading.Thread(
+                target=self._waiter_loop,
+                daemon=True,
+                name="chatterbox-waiter",
+            )
+            self._state.waiter.start()
+        except BaseException:
+            proc = self._state.proc
+            if proc is not None:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+            raise
 
     def cancel(self) -> None:
         """Send a clean cancel signal. The runner finishes the current chunk
