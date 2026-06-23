@@ -8,7 +8,7 @@ name = "audiobookmaker"
 # When cutting a release, bump both this field and APP_VERSION in the same
 # commit. (The release-cut workflow does not yet automate this — future work.)
 version = "3.19.0"
-description = "Turn PDFs, EPUBs, and scanned books into audiobooks."
+description = "Turn PDFs, EPUBs, Word documents, and scanned books into audiobooks."
 readme = "README.md"
 license = {file = "LICENSE.txt"}
 requires-python = ">=3.11"

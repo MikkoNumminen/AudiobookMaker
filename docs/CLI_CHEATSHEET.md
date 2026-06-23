@@ -52,8 +52,8 @@ You can already make an audiobook with the bundled voice:
 audiobookmaker-cli convert mybook.pdf --engine chatterbox_grandmom --language fi
 ```
 
-`--language fi` = Isoäiti. `--language en` = Grandmom. PDF, EPUB, and TXT all
-work as input.
+`--language fi` = Isoäiti. `--language en` = Grandmom. PDF, EPUB, TXT, and DOCX
+all work as input.
 
 ---
 
@@ -113,7 +113,7 @@ Now `audiobookmaker-cli packs list` shows `myvoice` alongside the bundled voices
 audiobookmaker-cli convert mybook.pdf --engine chatterbox_grandmom --language fi --voice-pack myvoice
 ```
 
-Works with PDF, EPUB, TXT. The final MP3 path is printed when synthesis
+Works with PDF, EPUB, TXT, DOCX. The final MP3 path is printed when synthesis
 finishes.
 
 For English, use `--language en` instead. The voice clone carries across
@@ -167,7 +167,7 @@ Edge-TTS and Piper ignore this flag. See
 helps and when it doesn't.
 
 **Pipe text or files in.** A `-` in place of the input means "read
-stdin." Binary inputs (`pdf`/`epub`) need `--input-format`:
+stdin." Binary inputs (`pdf`/`epub`/`docx`) need `--input-format`:
 ```powershell
 type mybook.txt | audiobookmaker-cli convert - --input-format txt
 curl -s https://example.com/poem.txt | audiobookmaker-cli preview -

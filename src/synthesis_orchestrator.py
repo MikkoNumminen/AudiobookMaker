@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.docx_parser import parse_docx
 from src.epub_parser import parse_epub
 from src.launcher_bridge import (
     ChatterboxRunner,
@@ -52,6 +53,7 @@ def parse_book(
 
     ``.pdf``  -> :func:`src.pdf_parser.parse_pdf`
     ``.epub`` -> :func:`src.epub_parser.parse_epub`
+    ``.docx`` -> :func:`src.docx_parser.parse_docx`
     ``.txt``  -> read UTF-8, wrap as a single-chapter ParsedBook
 
     Keeping the dispatcher in one place means every call site (conversion,
@@ -71,6 +73,8 @@ def parse_book(
         )
     if ext == ".epub":
         return parse_epub(file_path)
+    if ext == ".docx":
+        return parse_docx(file_path)
     if ext == ".txt":
         text = Path(file_path).read_text(encoding="utf-8", errors="replace")
         meta = BookMetadata(
@@ -413,7 +417,7 @@ class ChatterboxRequest:
     """
 
     input_mode: str  # "pdf" or "text"
-    pdf_path: Optional[str] = None  # file on "pdf" mode (pdf/epub/txt)
+    pdf_path: Optional[str] = None  # file on "pdf" mode (pdf/epub/docx/txt)
     input_text: Optional[str] = None  # raw text on "text" mode
     text_override: Optional[str] = None  # sample snippet — wins over the others
     output_basename_override: Optional[str] = None  # tempfile stem for samples
@@ -493,11 +497,12 @@ def build_chatterbox_runner(
     Ordering of the input branches matches the pre-extraction GUI code:
     a ``text_override`` always wins (sample flow), otherwise ``input_mode``
     decides which CLI flag the runner gets (``--pdf`` / ``--epub`` /
-    ``--text-file``).
+    ``--docx`` / ``--text-file``).
     """
     pdf_path: Optional[str] = None
     text_path: Optional[str] = None
     epub_path: Optional[str] = None
+    docx_path: Optional[str] = None
 
     # Every tempfile we materialise below gets tracked here so the
     # except-branch can remove them if a later validation step (e.g.
@@ -530,6 +535,8 @@ def build_chatterbox_runner(
             ext = Path(request.pdf_path).suffix.lower()
             if ext == ".epub":
                 epub_path = request.pdf_path
+            elif ext == ".docx":
+                docx_path = request.pdf_path
             elif ext == ".txt":
                 text_path = request.pdf_path
             else:
@@ -573,6 +580,7 @@ def build_chatterbox_runner(
             pdf_path=pdf_path,
             text_path=text_path,
             epub_path=epub_path,
+            docx_path=docx_path,
             out_dir=str(out_dir),
             extra_args=extra_args,
             language=request.language,
@@ -588,7 +596,7 @@ def build_chatterbox_runner(
                 pass
         raise
 
-    input_label = pdf_path or epub_path or text_path or "text"
+    input_label = pdf_path or epub_path or docx_path or text_path or "text"
     return ChatterboxPlan(
         runner=runner,
         out_dir=out_dir,

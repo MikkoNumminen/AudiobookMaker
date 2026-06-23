@@ -330,9 +330,14 @@ def parse_args() -> argparse.Namespace:
         help="Input EPUB file (alternative to --pdf).",
     )
     p.add_argument(
+        "--docx",
+        default=None,
+        help="Input DOCX (Word) file (alternative to --pdf / --epub).",
+    )
+    p.add_argument(
         "--text-file",
         default=None,
-        help="Input plain text file (alternative to --pdf / --epub).",
+        help="Input plain text file (alternative to --pdf / --epub / --docx).",
     )
     p.add_argument(
         "--out",
@@ -522,6 +527,27 @@ def _dry_run(args) -> int:
         from src.epub_parser import parse_epub
         print(f"[dry-run] parsing {args.epub}", flush=True)
         book = parse_epub(args.epub)
+    elif args.docx:
+        from src.docx_parser import parse_docx
+        print(f"[dry-run] parsing {args.docx}", flush=True)
+        book = parse_docx(args.docx)
+    elif args.text_file:
+        # Mirror main()'s plain-text branch: a single synthetic chapter.
+        # Without this, --dry-run --text-file falls through to parse_pdf(None).
+        from types import SimpleNamespace
+        text_path = Path(args.text_file).expanduser().resolve()
+        if not text_path.is_file():
+            print(f"[dry-run] text file not found: {text_path}", flush=True)
+            return 2
+        print(f"[dry-run] reading {text_path.name}", flush=True)
+        content = text_path.read_text(encoding="utf-8")
+        chapter = SimpleNamespace(
+            index=0, title="Text", content=content, page_start=0, page_end=0,
+        )
+        book = SimpleNamespace(
+            chapters=[chapter],
+            metadata=SimpleNamespace(title=text_path.stem),
+        )
     else:
         from src.pdf_parser import parse_pdf
         print(f"[dry-run] parsing {args.pdf}", flush=True)
@@ -1547,8 +1573,8 @@ def main() -> int:
 
     from pydub import AudioSegment
 
-    if not args.pdf and not args.text_file and not args.epub:
-        print("[error] one of --pdf, --epub, or --text-file is required",
+    if not args.pdf and not args.text_file and not args.epub and not args.docx:
+        print("[error] one of --pdf, --epub, --docx, or --text-file is required",
               flush=True)
         return 2
 
@@ -1583,6 +1609,16 @@ def main() -> int:
         input_stem = epub_path.stem
         source_path = epub_path
         print(f"[setup] parsing EPUB: {epub_path.name}", flush=True)
+    elif args.docx:
+        from src.docx_parser import parse_docx
+        docx_path = Path(args.docx).expanduser().resolve()
+        if not docx_path.is_file():
+            print(f"[error] DOCX not found: {docx_path}", flush=True)
+            return 2
+        book = parse_docx(str(docx_path))
+        input_stem = docx_path.stem
+        source_path = docx_path
+        print(f"[setup] parsing DOCX: {docx_path.name}", flush=True)
     else:
         from src.pdf_parser import parse_pdf
         pdf_path = Path(args.pdf).expanduser().resolve()
