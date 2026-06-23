@@ -275,6 +275,21 @@ datas += collect_data_files('customtkinter')
 # these tables; the Python modules load them lazily from data/.
 for _yaml in glob.glob(os.path.join('data', '*.yaml')):
     datas += [(_yaml, 'data')]
+# Build stamp — a tiny file at the bundle root (_internal/ at runtime)
+# carrying the APP_VERSION this bundle was built from. On startup the app
+# compares it to the APP_VERSION compiled into the .exe; a mismatch means a
+# partial update left the binary and the bundled data files out of sync (see
+# auto_updater.detect_inconsistent_install). Read APP_VERSION straight from
+# the source so the stamp always matches the version baked into this build.
+import re as _re
+with open(os.path.join('src', 'auto_updater.py'), encoding='utf-8') as _avf:
+    _avmatch = _re.search(r'APP_VERSION\s*=\s*"([^"]+)"', _avf.read())
+_app_version = _avmatch.group(1) if _avmatch else '0.0.0'
+os.makedirs('build', exist_ok=True)
+_build_stamp = os.path.join('build', 'build_stamp.txt')
+with open(_build_stamp, 'w', encoding='utf-8') as _bsf:
+    _bsf.write(_app_version)
+datas += [(_build_stamp, '.')]
 # Chatterbox runner script — invoked as a subprocess by the unified GUI
 datas += [(os.path.join('scripts', 'generate_chatterbox_audiobook.py'), 'scripts')]
 # Bundle src modules needed by the Chatterbox subprocess script.
