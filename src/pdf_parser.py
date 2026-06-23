@@ -104,6 +104,43 @@ _HYPHEN_BREAK_WORDWRAP_RE = re.compile(r"([a-zäöA-ZÄÖ])-[ \t]*\n\s*([a-zäö
 _HYPHEN_BREAK_KEEP_RE = re.compile(r"(\w)-[ \t]*\n\s*([A-ZÄÖ0-9a-zäö])")
 
 
+# Invisible zero-width / formatting characters that carry no spoken content
+# but routinely sneak out of PDFs/EPUBs/DOCX: zero-width space, ZW non-joiner,
+# ZW joiner, word joiner, and the BOM / ZW no-break space. Left in, they split
+# a word for the chunker (a ZWSP between letters) or get read as nothing. Soft
+# hyphen (U+00AD) is deliberately NOT here — _fix_hyphenation owns it, since
+# stripping it needs the line-join semantics. Written with \u escapes so the
+# source stays readable (these glyphs are invisible). Dropped outright.
+_ZERO_WIDTH_RE = re.compile("[​‌‍⁠﻿]")
+
+# Every Unicode space separator (category Zs) EXCEPT the ASCII space: NBSP
+# (U+00A0), Ogham space, the en/em/thin/hair/figure family (U+2000-U+200A),
+# narrow NBSP, medium-math space, and the ideographic space. Real documents are
+# full of these (NBSP especially); the downstream passes only collapse literal
+# ASCII spaces, so without this they would survive into the audio text.
+_UNICODE_SPACE_RE = re.compile(
+    "[   -   　]"
+)
+
+
+def _normalize_unicode_whitespace(text: str) -> str:
+    """Fold exotic whitespace to plain ASCII so the rest of the pipeline (and
+    the TTS engine) only ever see regular spaces and newlines.
+
+    Runs first in :func:`clean_text` so the page-number, hyphenation and
+    whitespace passes — which assume plain spaces/newlines — behave. A small
+    set of regex passes (not a per-char ``unicodedata`` loop) keeps it cheap
+    on book-length text.
+    """
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = text.replace("\t", " ")
+    # Unicode line (U+2028) and paragraph (U+2029) separators become real
+    # newlines so the paragraph-break logic downstream applies to them too.
+    text = text.replace(" ", "\n").replace(" ", "\n\n")
+    text = _UNICODE_SPACE_RE.sub(" ", text)
+    return text
+
+
 def _remove_page_numbers(text: str) -> str:
     return _PAGE_NUMBER_RE.sub("", text)
 
@@ -139,7 +176,11 @@ def _normalize_whitespace(text: str) -> str:
 
 def clean_text(raw: str) -> str:
     """Apply all cleaning steps to raw extracted text."""
-    text = _remove_page_numbers(raw)
+    # Fold exotic whitespace / drop zero-width chars FIRST so the page-number,
+    # hyphenation and whitespace passes (which assume plain spaces/newlines)
+    # see normalised input — and so none of it reaches the TTS engine.
+    text = _normalize_unicode_whitespace(raw)
+    text = _remove_page_numbers(text)
     text = _fix_hyphenation(text)
     text = _normalize_whitespace(text)
     return text
