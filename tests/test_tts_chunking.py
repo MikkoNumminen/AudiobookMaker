@@ -62,6 +62,26 @@ class TestSplitTextIntoChunks:
         for chunk in chunks:
             assert chunk.strip() != ""
 
+    def test_single_oversized_word_is_hard_split(self) -> None:
+        # A single token longer than max_chars (a URL, a long compound, or
+        # run-together text) has no word boundary to break on. It must still
+        # be hard-split so no chunk exceeds the limit — and no characters lost.
+        from src.tts_chunking import _word_split
+
+        word = "x" * 250
+        chunks = _word_split(word, max_chars=100)
+        assert all(len(c) <= 100 for c in chunks), [len(c) for c in chunks]
+        assert "".join(chunks) == word  # every char preserved, in order
+
+    def test_oversized_word_among_normal_words(self) -> None:
+        from src.tts_chunking import _word_split
+
+        chunks = _word_split("hi " + "y" * 250 + " bye", max_chars=100)
+        assert all(len(c) <= 100 for c in chunks), [len(c) for c in chunks]
+        assert "y" * 250 in "".join(chunks)
+        assert "hi" in chunks[0]
+        assert "bye" in chunks[-1]
+
 
 # ---------------------------------------------------------------------------
 # _split_sentences — abbreviation and edge-case handling
@@ -249,11 +269,15 @@ class TestForceSplit:
         assert " ".join(parts)  # all words present
 
     def test_single_word_longer_than_max(self) -> None:
-        # Can't split a single word — returns it as-is
+        # A single word longer than max_chars has no boundary to break on, so
+        # it is hard-split into max_chars-sized pieces. (Previously it was
+        # returned as one oversized chunk — a chunk-size-contract violation;
+        # see Convert-path audit finding #20.)
         word = "a" * 500
         parts = _force_split(word, max_chars=100)
-        assert len(parts) == 1
-        assert parts[0] == word
+        assert len(parts) > 1
+        assert all(len(p) <= 100 for p in parts), [len(p) for p in parts]
+        assert "".join(parts) == word  # no characters lost
 
     def test_prefers_clause_boundaries_over_mid_phrase(self) -> None:
         # A too-long sentence must break at commas (natural pause points), not

@@ -272,7 +272,14 @@ def _force_split(text: str, max_chars: int) -> list[str]:
 
 
 def _word_split(text: str, max_chars: int) -> list[str]:
-    """Last-resort split on word boundaries (a single clause exceeds max_chars)."""
+    """Last-resort split on word boundaries (a single clause exceeds max_chars).
+
+    A single token longer than ``max_chars`` (a URL, a long compound word,
+    run-together text with no spaces) has no word boundary to break on, so it
+    is hard-split into ``max_chars``-sized pieces. Without this the oversized
+    token was emitted as one chunk that violated the "each chunk at most
+    max_chars" contract — a downstream TTS engine could then choke on it.
+    """
     words = text.split()
     chunks: list[str] = []
     current = ""
@@ -282,6 +289,13 @@ def _word_split(text: str, max_chars: int) -> list[str]:
         else:
             if current:
                 chunks.append(current)
+                current = ""
+            # Hard-split a single oversized word into max_chars pieces; the
+            # final remainder (< max_chars, possibly empty) seeds ``current``
+            # so the next word can pack onto it.
+            while len(word) > max_chars:
+                chunks.append(word[:max_chars])
+                word = word[max_chars:]
             current = word
     if current:
         chunks.append(current)

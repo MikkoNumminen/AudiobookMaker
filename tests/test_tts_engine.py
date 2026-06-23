@@ -295,3 +295,39 @@ class TestEdgeChunkTimeout:
              patch("src.tts_engine._EDGE_CHUNK_TIMEOUT", 0.1):
             with pytest.raises(RuntimeError, match="timed out"):
                 await _synthesize_chunk("test", "voice", "+0%", "+0%", "/tmp/out.mp3")
+
+
+class TestRmtreeWithRetry:
+    """The temp-dir cleanup retries transient Windows file-locks. It must NOT
+    pass ignore_errors=True (that swallowed the OSError and made the retry dead
+    code, leaking the dir on the first lock)."""
+
+    def test_succeeds_after_transient_lock(self, monkeypatch) -> None:
+        from src import tts_engine
+
+        calls = {"n": 0}
+
+        def _flaky(path, **kw):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise OSError("locked")
+
+        slept = {"n": 0}
+        monkeypatch.setattr("shutil.rmtree", _flaky)
+        monkeypatch.setattr("time.sleep", lambda *_a, **_k: slept.__setitem__("n", slept["n"] + 1))
+
+        assert tts_engine._rmtree_with_retry("/fake/tmp", attempts=3, delay=0.01) is True
+        assert calls["n"] == 3, "must keep retrying until rmtree succeeds"
+        assert slept["n"] == 2, "sleeps between failures, not after the success"
+
+    def test_gives_up_after_all_attempts(self, monkeypatch) -> None:
+        from src import tts_engine
+
+        def _always_fail(path, **kw):
+            raise OSError("locked")
+
+        monkeypatch.setattr("shutil.rmtree", _always_fail)
+        monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
+
+        # Best-effort: returns False rather than raising out of a finally block.
+        assert tts_engine._rmtree_with_retry("/fake/tmp", attempts=3, delay=0.01) is False
