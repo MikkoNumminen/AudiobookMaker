@@ -341,6 +341,7 @@ class ChatterboxRunner:
         pdf_path: Optional[str] = None,
         text_path: Optional[str] = None,
         epub_path: Optional[str] = None,
+        docx_path: Optional[str] = None,
         out_dir: str = "",
         extra_args: Optional[list[str]] = None,
         language: str = "fi",
@@ -350,6 +351,7 @@ class ChatterboxRunner:
         self.pdf_path = pdf_path
         self.text_path = text_path
         self.epub_path = epub_path
+        self.docx_path = docx_path
         self.out_dir = out_dir
         self.extra_args = extra_args or []
         self.language = language
@@ -370,6 +372,8 @@ class ChatterboxRunner:
             input_args = ["--text-file", self.text_path]
         elif self.epub_path:
             input_args = ["--epub", self.epub_path]
+        elif self.docx_path:
+            input_args = ["--docx", self.docx_path]
         elif self.pdf_path:
             input_args = ["--pdf", self.pdf_path]
 

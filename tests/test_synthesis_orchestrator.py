@@ -56,6 +56,32 @@ def test_parse_book_txt_handles_non_utf8_bytes(tmp_path: Path):
     assert book.chapters[0].content  # non-empty
 
 
+def _write_minimal_docx(path: Path, body_text: str) -> None:
+    """Write a minimal valid .docx (one paragraph) for dispatch tests."""
+    import zipfile
+    from xml.sax.saxutils import escape
+
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:body>'
+        f'<w:p><w:r><w:t>{escape(body_text)}</w:t></w:r></w:p>'
+        '</w:body></w:document>'
+    )
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("word/document.xml", document)
+
+
+def test_parse_book_docx_round_trip(tmp_path: Path):
+    src = tmp_path / "my_book.docx"
+    _write_minimal_docx(src, "Hello from a Word document.")
+
+    book = parse_book(str(src))
+
+    assert len(book.chapters) == 1
+    assert "Hello from a Word document." in book.chapters[0].content
+
+
 def test_parse_book_unknown_ext_falls_through_to_pdf(tmp_path: Path):
     """Unknown extensions default to the PDF parser so the error message
     stays familiar. We expect a parser-side failure, not a local crash."""
@@ -627,6 +653,22 @@ def test_build_chatterbox_epub_extension_routes_to_epub_flag(
 
     assert plan.runner.epub_path == str(book)
     assert plan.runner.pdf_path is None
+    assert plan.runner.text_path is None
+
+
+def test_build_chatterbox_docx_extension_routes_to_docx_flag(
+    fake_chatterbox_env, tmp_path: Path
+):
+    runner_script, default_out = fake_chatterbox_env
+    book = tmp_path / "story.docx"
+    book.write_bytes(b"")
+    req = ChatterboxRequest(input_mode="pdf", pdf_path=str(book))
+
+    plan = build_chatterbox_runner(req, runner_script, default_out)
+
+    assert plan.runner.docx_path == str(book)
+    assert plan.runner.pdf_path is None
+    assert plan.runner.epub_path is None
     assert plan.runner.text_path is None
 
 
