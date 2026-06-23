@@ -235,10 +235,11 @@ def _mock_github_response(
     return resp
 
 
-def _mock_download_response(content: bytes):
+def _mock_download_response(content: bytes, status: int = 200):
     """Build a mock urllib response that yields *content* as the download body."""
     buf = BytesIO(content)
     resp = MagicMock()
+    resp.status = status
     resp.read = buf.read
     resp.headers = {"Content-Length": str(len(content))}
     resp.__enter__ = lambda s: s
@@ -753,7 +754,101 @@ class TestDownloadUpdate:
             dest = download_update(update)
             assert dest.exists()
             assert dest.read_bytes() == content
+            # The verified file is promoted from .part — no .part left behind.
+            assert not (tmp_path / (dest.name + ".part")).exists()
             dest.unlink(missing_ok=True)
+
+    @patch("src.auto_updater.urlopen")
+    def test_failure_leaves_no_exe_or_part(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        """A failed download (here, a SHA mismatch) must leave neither a fake
+        .exe nor an orphaned .part — only a verified file becomes the .exe."""
+        import pytest
+        content = b"fake-installer-bytes"
+        mock_urlopen.return_value = _mock_download_response(content)
+        update = self._make_update_info(sha256="b" * 64)  # wrong
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(RuntimeError, match="Integrity check failed"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.exe")) == []
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
+
+    @patch("src.auto_updater.urlopen")
+    def test_http_non_200_raises_clear_error(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        import pytest
+        mock_urlopen.return_value = _mock_download_response(b"err", status=500)
+        update = self._make_update_info(sha256="a" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(RuntimeError, match="HTTP 500"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
+
+    @patch("src.auto_updater.urlopen")
+    def test_http_error_from_asset_url_reports_code(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        # urlopen raises HTTPError for a 4xx/5xx asset URL; the user should see
+        # the status code, not a meaningless disk-full / generic message.
+        import pytest
+        from urllib.error import HTTPError
+        mock_urlopen.side_effect = HTTPError(
+            "https://example.com/dl.exe", 404, "Not Found", {}, None
+        )
+        update = self._make_update_info(sha256="a" * 64)
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path):
+            with pytest.raises(RuntimeError, match="HTTP 404"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
+
+    @patch("src.auto_updater.urlopen")
+    def test_disk_full_reports_space(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        import errno
+        import pytest
+        mock_urlopen.return_value = _mock_download_response(b"data")
+        update = self._make_update_info(sha256="a" * 64)
+
+        class _FullFile:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def write(self, _data):
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path), patch(
+            "src.auto_updater.open", lambda *a, **k: _FullFile(), create=True
+        ):
+            with pytest.raises(RuntimeError, match="disk space"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
+
+    @patch("src.auto_updater.urlopen")
+    def test_unreadable_after_write_reports_quarantine(
+        self, mock_urlopen: MagicMock, tmp_path
+    ) -> None:
+        # The file writes fine but can't be read back to hash it — the typical
+        # signature of antivirus quarantining a fresh .exe.
+        import pytest
+        content = b"data"
+        mock_urlopen.return_value = _mock_download_response(content)
+        update = self._make_update_info(sha256=hashlib.sha256(content).hexdigest())
+
+        with patch("src.auto_updater.UPDATE_DIR", tmp_path), patch(
+            "pathlib.Path.read_bytes", side_effect=OSError("quarantined")
+        ):
+            with pytest.raises(RuntimeError, match="antivirus"):
+                download_update(update)
+            assert list(tmp_path.glob("AudiobookMaker-Setup-*.part")) == []
 
     @patch("src.auto_updater.urlopen")
     def test_cancel_event_stops_download(
