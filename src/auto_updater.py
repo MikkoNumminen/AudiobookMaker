@@ -35,6 +35,13 @@ UPDATE_DIR = Path(tempfile.gettempdir()) / "audiobookmaker-update"
 # user's home directory closes that tampering vector.
 _USER_DIR = Path.home() / ".audiobookmaker"
 PENDING_MARKER = _USER_DIR / "update_pending.json"
+# The relaunch .bat writes the silent installer's exit code here (overwriting
+# any previous run) so the next launch can tell a *failed* silent install from
+# a successful one. Without this, an install that exits non-zero but still
+# swapped the .exe would pass the version check and clear the marker, leaving
+# the user on a silently-broken build with no recovery offered. Lives next to
+# the marker under the per-user dir for the same anti-tampering reason.
+UPDATE_RESULT = _USER_DIR / "update_result.json"
 # One-time migration: the marker used to live in the system temp dir. Old
 # markers at this path are read once (for self-heal on the very next launch
 # after the upgrade) and then removed. Safe to delete this constant and the
@@ -502,6 +509,10 @@ def prune_old_installers(keep: Path | None = None) -> int:
 def _write_pending_marker(expected_version: str, installer_path: Path) -> None:
     """Record that an update is in flight so the next launch can verify it."""
     import time
+    # A new update attempt starts now — drop any exit-code result left over
+    # from a previous attempt so verify_pending_update can't misread it as
+    # this attempt's outcome.
+    clear_update_result()
     try:
         PENDING_MARKER.parent.mkdir(parents=True, exist_ok=True)
         PENDING_MARKER.write_text(json.dumps({
@@ -511,6 +522,29 @@ def _write_pending_marker(expected_version: str, installer_path: Path) -> None:
         }), encoding="utf-8")
     except OSError as exc:
         logger.debug("Could not write pending marker: %s", exc)
+
+
+def read_update_result() -> dict | None:
+    """Return the silent installer's result dict, or None if absent/unreadable.
+
+    Written by the relaunch .bat in :func:`apply_update` as
+    ``{"exit_code": <int>}``. A missing or malformed file degrades to None so
+    callers fall back to the version-only check (the pre-result behaviour).
+    """
+    if not UPDATE_RESULT.exists():
+        return None
+    try:
+        return json.loads(UPDATE_RESULT.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def clear_update_result() -> None:
+    """Remove the installer-result file (best-effort)."""
+    try:
+        UPDATE_RESULT.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def read_pending_marker() -> dict | None:
@@ -539,11 +573,16 @@ def read_pending_marker() -> dict | None:
 
 
 def clear_pending_marker() -> None:
-    """Remove the pending-update marker (after verifying success or giving up)."""
+    """Remove the pending-update marker (after verifying success or giving up).
+
+    Also drops the installer-result file so a later update can't read this
+    attempt's exit code by mistake.
+    """
     try:
         PENDING_MARKER.unlink(missing_ok=True)
     except OSError:
         pass
+    clear_update_result()
 
 
 def is_post_update_launch(current_version: str) -> bool:
@@ -581,11 +620,26 @@ def verify_pending_update(current_version: str) -> dict | None:
     if marker is None:
         return None
 
+    # A silent install that exited non-zero must be treated as failed even if
+    # the .exe was swapped (version advanced): Inno can replace the binary and
+    # still abort on a locked _internal file, leaving a half-updated build.
+    # Keep the marker so the GUI offers the visible-installer fallback.
+    result = read_update_result()
+    installer_failed = bool(result) and result.get("exit_code", 0) != 0
+
     expected = marker.get("expected_version", "")
-    if expected and _parse_version(current_version) >= _parse_version(expected):
+    version_ok = bool(expected) and _parse_version(current_version) >= _parse_version(expected)
+    if version_ok and not installer_failed:
         # Update succeeded.
         clear_pending_marker()
         return None
+
+    if installer_failed:
+        logger.warning(
+            "Silent install reported exit code %s; offering visible-installer "
+            "recovery instead of treating the update as successful.",
+            result.get("exit_code"),
+        )
 
     # Ignore stale markers older than 24h — something went very wrong
     # and the user has since done something else.
@@ -716,6 +770,15 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     _assert_bat_safe_path(Path(current_install_dir), "current_install_dir")
     _assert_bat_safe_path(log_file, "log_file")
     _assert_bat_safe_path(splash_ps1, "splash_ps1")
+    _assert_bat_safe_path(UPDATE_RESULT, "update_result")
+
+    # Ensure the per-user dir exists so the result-file redirect below can't
+    # silently fail (it normally exists from _write_pending_marker, but be
+    # defensive — a missing result file just degrades to the version check).
+    try:
+        UPDATE_RESULT.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.debug("Could not create update-result dir: %s", exc)
 
     lines = [
         "@echo off",
@@ -724,6 +787,7 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         f'set "APPDIR={current_install_dir}"',
         f'set "LOG={log_file}"',
         f'set "SPLASH={splash_ps1}"',
+        f'set "RESULT={UPDATE_RESULT}"',
         "",
         'echo [%date% %time%] Update script started >> "%LOG%"',
         # Bring up the splash immediately (fire-and-forget — has its own
@@ -742,7 +806,15 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         "waitfor /t 2 AudiobookMakerSettle 2>NUL",
         'echo [%date% %time%] Running installer... >> "%LOG%"',
         '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"',
-        'echo [%date% %time%] Installer exit code: %ERRORLEVEL% >> "%LOG%"',
+        # Capture the installer's exit code immediately (the next command would
+        # overwrite %ERRORLEVEL%) and record it where the relaunched app reads
+        # it. A non-zero code means the silent install failed — even if the
+        # .exe was swapped — so the app must offer the visible-installer
+        # fallback instead of pretending the update succeeded.
+        'set "EXITCODE=%ERRORLEVEL%"',
+        'echo [%date% %time%] Installer exit code: %EXITCODE% >> "%LOG%"',
+        '>"%RESULT%" echo {"exit_code": %EXITCODE%}',
+        'if not exist "%APPEXE%" echo [%date% %time%] ERROR: app exe missing after install >> "%LOG%"',
         'echo [%date% %time%] Launching app... >> "%LOG%"',
         'start "" "%APPEXE%"',
         'echo [%date% %time%] Done. >> "%LOG%"',
