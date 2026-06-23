@@ -531,6 +531,23 @@ def _dry_run(args) -> int:
         from src.docx_parser import parse_docx
         print(f"[dry-run] parsing {args.docx}", flush=True)
         book = parse_docx(args.docx)
+    elif args.text_file:
+        # Mirror main()'s plain-text branch: a single synthetic chapter.
+        # Without this, --dry-run --text-file falls through to parse_pdf(None).
+        from types import SimpleNamespace
+        text_path = Path(args.text_file).expanduser().resolve()
+        if not text_path.is_file():
+            print(f"[dry-run] text file not found: {text_path}", flush=True)
+            return 2
+        print(f"[dry-run] reading {text_path.name}", flush=True)
+        content = text_path.read_text(encoding="utf-8")
+        chapter = SimpleNamespace(
+            index=0, title="Text", content=content, page_start=0, page_end=0,
+        )
+        book = SimpleNamespace(
+            chapters=[chapter],
+            metadata=SimpleNamespace(title=text_path.stem),
+        )
     else:
         from src.pdf_parser import parse_pdf
         print(f"[dry-run] parsing {args.pdf}", flush=True)

@@ -1,4 +1,4 @@
-"""convert subcommand — PDF/EPUB/TXT → MP3.
+"""convert subcommand — PDF/EPUB/TXT/DOCX → MP3.
 
 Usage:
     audiobookmaker convert <input> [flags]
@@ -319,7 +319,10 @@ def _run_inner(
     # Resolve overwrite mode (default: replace — preserves legacy behaviour).
     overwrite: str = getattr(args, "overwrite", "replace") or "replace"
 
-    # Resolve output path.
+    # Resolve output path. The "pdf" mode here means "file-based input —
+    # derive the MP3 name from the file stem"; it applies to every file
+    # format (pdf/epub/txt/docx), as opposed to "text" paste mode which
+    # auto-numbers. The label predates the multi-format input support.
     try:
         from src.synthesis_orchestrator import suggest_output_path
         output_path = output_flag or suggest_output_path("pdf", input_path)

@@ -33,8 +33,9 @@ Why the standard library instead of ``python-docx``:
 Strategy:
     1. Open the archive; read ``word/document.xml``.
     2. Walk paragraphs (``<w:p>``) in document order; a paragraph's text
-       is the concatenation of its runs (``<w:t>``), with tabs and line
-       breaks preserved as whitespace.
+       is the concatenation of its runs (``<w:t>``), with tabs, line
+       breaks, and non-breaking hyphens preserved. Tracked deletions
+       (``<w:del>``) are dropped so only accepted text is read.
     3. A paragraph whose style is a heading (``Heading1`` … ``Heading3``
        or ``Title``) starts a new chapter; everything else is body text
        appended to the current chapter.
@@ -114,22 +115,39 @@ def _read_part(zf: zipfile.ZipFile, name: str) -> bytes | None:
 def _paragraph_text(paragraph: ET.Element) -> str:
     """Return the visible text of a ``<w:p>`` paragraph.
 
-    Walks the paragraph's descendants in document order and stitches the
-    pieces together: text runs (``<w:t>``) contribute their text, tabs
-    (``<w:tab>``) become a literal tab, and line/page breaks
-    (``<w:br>`` / ``<w:cr>``) become a newline. ``clean_text`` later
-    normalizes the whitespace, so the goal here is only to avoid words
-    running together across a tab or break.
+    Walks the paragraph in document order and stitches the pieces
+    together: text runs (``<w:t>``) contribute their text, tabs
+    (``<w:tab>``) become a literal tab, line/page breaks (``<w:br>`` /
+    ``<w:cr>``) become a newline, and non-breaking hyphens
+    (``<w:noBreakHyphen>``) become a literal ``-`` — they are visible
+    content, unlike soft hyphens. ``clean_text`` later normalizes the
+    whitespace, so the goal here is only to avoid words running together
+    across a tab or break.
+
+    Tracked deletions (``<w:del>``) are pruned entirely, so only the text
+    a reader would hear with changes accepted is extracted; insertions
+    (``<w:ins>``) carry ordinary ``<w:t>`` runs and are kept. The walk
+    recurses by hand rather than via ``iter()`` precisely so a ``<w:del>``
+    subtree can be skipped — ``iter()`` would still yield its descendants.
     """
     parts: list[str] = []
-    for node in paragraph.iter():
-        tag = node.tag
-        if tag == _W + "t":
-            parts.append(node.text or "")
-        elif tag == _W + "tab":
-            parts.append("\t")
-        elif tag in (_W + "br", _W + "cr"):
-            parts.append("\n")
+
+    def collect(element: ET.Element) -> None:
+        for node in element:
+            tag = node.tag
+            if tag == _W + "del":
+                continue  # tracked deletion — prune the whole subtree
+            if tag == _W + "t":
+                parts.append(node.text or "")
+            elif tag == _W + "tab":
+                parts.append("\t")
+            elif tag in (_W + "br", _W + "cr"):
+                parts.append("\n")
+            elif tag == _W + "noBreakHyphen":
+                parts.append("-")
+            collect(node)
+
+    collect(paragraph)
     return "".join(parts)
 
 
@@ -242,7 +260,10 @@ def _extract_metadata(
             subject = _first_text(root, _DC + "subject")
 
     if not title:
-        title = Path(file_path).stem.replace("_", " ").title()
+        # Mirror pdf_parser's filename-to-title rule (underscores AND hyphens
+        # become spaces) so the same file stem yields the same title in any
+        # format.
+        title = Path(file_path).stem.replace("_", " ").replace("-", " ").title()
 
     return BookMetadata(
         title=title,
@@ -292,7 +313,10 @@ def parse_docx(file_path: str | Path) -> ParsedBook:
         with zipfile.ZipFile(file_path) as zf:
             document_xml = _read_part(zf, _DOCUMENT_PART)
             core_props_xml = _read_part(zf, _CORE_PROPS_PART)
-    except zipfile.BadZipFile as exc:
+    except (zipfile.BadZipFile, OSError) as exc:
+        # BadZipFile: not a ZIP. OSError (PermissionError, IsADirectoryError,
+        # …): the path exists but cannot be opened. Both map to the same
+        # "unreadable archive" contract the sibling parsers expose.
         raise ValueError(f"Cannot open DOCX: {file_path}") from exc
 
     if document_xml is None:

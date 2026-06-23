@@ -124,7 +124,6 @@ class TestHeadingStyleChapters:
             ]
         )
         book = parse_docx(path)
-        assert isinstance(book, ParsedBook)
         titles = [c.title for c in book.chapters]
         assert titles == ["Chapter One", "Chapter Two", "Chapter Three"]
 
@@ -169,6 +168,20 @@ class TestHeadingStyleChapters:
         assert [c.title for c in book.chapters] == ["Real Chapter"]
         assert "Subsection" in book.chapters[0].content
 
+    def test_title_style_splits_chapters(self) -> None:
+        # Word's Title style is in the heading set, so it starts a chapter
+        # just like Heading1-3 (also exercises case-insensitive "title").
+        path = _make_docx(
+            [
+                ("My Book", "Title"),
+                ("Introduction text. " * 20, None),
+                ("First Chapter", "title"),
+                ("Chapter content. " * 20, None),
+            ]
+        )
+        book = parse_docx(path)
+        assert [c.title for c in book.chapters] == ["My Book", "First Chapter"]
+
 
 # ---------------------------------------------------------------------------
 # Fallback chapter detection (no heading styles)
@@ -202,6 +215,21 @@ class TestFallbackChapters:
         titles = [c.title for c in book.chapters]
         assert "INTRODUCTION" in titles
         assert "CONCLUSION" in titles
+
+    def test_only_headings_no_body_still_yields_chapters(self) -> None:
+        # Every paragraph is a heading and there is no body text. The
+        # style-based pass produces nothing, so the parser must fall back to
+        # the heuristic splitter rather than raise EmptyDOCXError.
+        path = _make_docx(
+            [
+                ("Chapter One", "Heading1"),
+                ("Chapter Two", "Heading1"),
+            ]
+        )
+        book = parse_docx(path)
+        assert len(book.chapters) >= 1
+        assert "Chapter One" in book.full_text
+        assert "Chapter Two" in book.full_text
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +275,56 @@ class TestParsedBookContract:
         book = parse_docx(path)
         assert "cell prose" in book.full_text
 
+    def test_non_breaking_hyphen_is_preserved(self) -> None:
+        # <w:noBreakHyphen/> is visible content (unlike a soft hyphen) and
+        # must survive as a literal "-" so compounds stay intact.
+        body = (
+            "<w:p><w:r>"
+            "<w:t>mother</w:t><w:noBreakHyphen/>"
+            "<w:t>in</w:t><w:noBreakHyphen/><w:t>law spoke. </w:t>"
+            "</w:r></w:p>"
+            "<w:p><w:r><w:t>" + ("padding words " * 20) + "</w:t></w:r></w:p>"
+        )
+        path = _write_docx(body)
+        book = parse_docx(path)
+        assert "mother-in-law" in book.full_text
+
+
+class TestTrackedChanges:
+    def test_tracked_deletions_are_dropped(self) -> None:
+        # Text inside a <w:del> (a tracked deletion) must not reach the
+        # audio — only what a reader would hear with changes accepted.
+        # The deleted run here uses a plain <w:t> on purpose: that is the
+        # case the manual subtree-skip handles (real Word also wraps the
+        # run in <w:delText>, which is excluded either way).
+        body = (
+            "<w:p>"
+            "<w:r><w:t>Keep one. </w:t></w:r>"
+            "<w:del><w:r><w:t>drop this entirely. </w:t></w:r></w:del>"
+            "<w:r><w:t>Keep two.</w:t></w:r>"
+            "</w:p>"
+            "<w:p><w:r><w:t>" + ("padding words " * 20) + "</w:t></w:r></w:p>"
+        )
+        path = _write_docx(body)
+        book = parse_docx(path)
+        assert "Keep one." in book.full_text
+        assert "Keep two." in book.full_text
+        assert "drop this" not in book.full_text
+
+    def test_tracked_insertions_are_kept(self) -> None:
+        # The reverse of a deletion: a <w:ins> insertion is accepted content.
+        body = (
+            "<w:p>"
+            "<w:r><w:t>Before </w:t></w:r>"
+            "<w:ins><w:r><w:t>inserted </w:t></w:r></w:ins>"
+            "<w:r><w:t>after.</w:t></w:r>"
+            "</w:p>"
+            "<w:p><w:r><w:t>" + ("padding words " * 20) + "</w:t></w:r></w:p>"
+        )
+        path = _write_docx(body)
+        book = parse_docx(path)
+        assert "Before inserted after." in book.full_text
+
 
 # ---------------------------------------------------------------------------
 # Metadata
@@ -279,6 +357,37 @@ class TestMetadata:
         assert book.metadata.title  # non-empty (from filename)
         assert book.metadata.author == "Someone"
 
+    def test_malformed_core_properties_degrade_gracefully(self, caplog) -> None:
+        # Valid body, but docProps/core.xml is not well-formed XML. The
+        # ParseError must be caught: parse succeeds, title falls back to the
+        # filename, author is empty, and a warning is logged.
+        import logging
+
+        body = "<w:p><w:r><w:t>" + ("Body. " * 30) + "</w:t></w:r></w:p>"
+        document = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<w:document xmlns:w="{_W_NS}"><w:body>{body}</w:body></w:document>'
+        )
+        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+        tmp.close()
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("word/document.xml", document)
+            # Unclosed <dc:title> — not well-formed XML.
+            zf.writestr(
+                "docProps/core.xml",
+                f'<cp:coreProperties xmlns:cp="{_CP_NS}" xmlns:dc="{_DC_NS}">'
+                "<dc:title>Broken",
+            )
+        with caplog.at_level(logging.WARNING, logger="src.docx_parser"):
+            book = parse_docx(tmp.name)
+        assert isinstance(book, ParsedBook)
+        assert book.metadata.title  # filename fallback, non-empty
+        assert "Broken" not in book.metadata.title
+        assert book.metadata.author == ""
+        assert any(
+            "core properties" in r.getMessage().lower() for r in caplog.records
+        )
+
 
 # ---------------------------------------------------------------------------
 # Error paths
@@ -310,6 +419,14 @@ class TestErrors:
         # Whitespace-only paragraphs carry no readable text.
         path = _make_docx([("   ", None), ("", None)])
         with pytest.raises(EmptyDOCXError):
+            parse_docx(path)
+
+    def test_malformed_document_xml_raises_valueerror(self) -> None:
+        # Valid ZIP and DOCX layout, but document.xml is not well-formed XML
+        # (the </w:body> closes before <w:t>/<w:r>/<w:p>). The ParseError is
+        # caught and re-raised as a ValueError carrying the file path.
+        path = _write_docx("<w:p><w:r><w:t>Unclosed</w:body>")
+        with pytest.raises(ValueError, match="Cannot parse DOCX document body"):
             parse_docx(path)
 
 
