@@ -230,6 +230,7 @@ _STRINGS = {
         "log_file_filter": "Lokitiedosto",
         "ui_language": "Käyttöliittymä:",
         "converting": "Muunnetaan...",
+        "loading_engine": "Ladataan moottoria\u2026 (ensimm\u00e4inen kerta lataa mallit, voi kest\u00e4\u00e4 minuutteja)",
         "cancelling": "Peruuta\u2026",
         "done": "Valmis!",
         "error": "Virhe",
@@ -358,6 +359,7 @@ _STRINGS = {
         "log_file_filter": "Log file",
         "ui_language": "Interface:",
         "converting": "Converting...",
+        "loading_engine": "Loading engine\u2026 (first run downloads models, can take a few minutes)",
         "cancelling": "Cancelling\u2026",
         "done": "Done!",
         "error": "Error",
@@ -3377,8 +3379,17 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             if ev.raw_line:
                 self._log_line_by_severity(ev.raw_line, kind=ev.kind)
 
-            if ev.kind == "chunk":
+            if ev.kind == "setup_loading":
+                # Engine import / model load — slow and silent (tens of
+                # seconds; minutes on a first-run download). The bar keeps
+                # animating (indeterminate); just tell the user why.
+                self._status_label_val.configure(text=self._s("loading_engine"))
+
+            elif ev.kind == "chunk":
                 if ev.total_chunks > 0:
+                    # First real progress — leave the loading animation for a
+                    # true percentage bar.
+                    self._progress_to_determinate()
                     pct = ev.total_done / ev.total_chunks
                     self._progress_bar.set(pct)
                     self._status_label_val.configure(
@@ -3391,10 +3402,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 # progress-bar purposes. Chatterbox's final "assembling
                 # MP3" phase doesn't produce chunk events, so the bar
                 # would otherwise stay stuck at the last chunk count.
+                self._progress_to_determinate()
                 self._progress_bar.set(1.0)
                 self._chatterbox_last_mp3 = ev.output_path
 
             elif ev.kind == "done":
+                self._progress_to_determinate()
                 # Force the bar to full and flush pending paint events
                 # so the user sees 100% when Valmis! appears — not the
                 # last partial chunk value left over from progress pulses.

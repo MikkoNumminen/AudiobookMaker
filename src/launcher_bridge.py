@@ -93,6 +93,10 @@ class ChatterboxLineParser:
     )
     _SETUP_TOTAL_RE = re.compile(r"^\[setup\] total chunks to synthesize: (\d+)")
     _SETUP_CACHED_RE = re.compile(r"^\[setup\] cached chunks found: (\d+)/(\d+)")
+    # Slow, silent phases (engine import + model load) the runner now marks so
+    # the GUI can show "Loading engine…" with an animated bar instead of a
+    # frozen-looking 0%.
+    _SETUP_LOADING_RE = re.compile(r"^\[setup\] (?:starting engine|loading TTS engine)")
     _CHAPTER_START_RE = re.compile(
         r"^\[chapter (\d+)/(\d+)\] idx=(\d+) title=(.+?) chunks=(\d+)"
     )
@@ -234,6 +238,9 @@ class ChatterboxLineParser:
                 total_chunks=int(m.group(2)),
                 raw_line=line,
             )
+
+        if self._SETUP_LOADING_RE.match(line):
+            return ProgressEvent(kind="setup_loading", raw_line=line)
 
         m = self._CHAPTER_START_RE.match(line)
         if m:
