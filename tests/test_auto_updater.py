@@ -842,15 +842,19 @@ class TestPendingMarker:
     def _patch_marker(self, tmp_path):
         """Context helper that redirects PENDING_MARKER to tmp_path.
 
-        Also stubs out the legacy-path migration so tests can't accidentally
-        pick up a real stale marker sitting in the developer's %TEMP%.
+        Also redirects UPDATE_RESULT (the installer-exit-code file, which
+        _write_pending_marker / clear_pending_marker now touch) to tmp_path so
+        tests never read or unlink the developer's real one, and stubs out the
+        legacy-path migration so tests can't pick up a real stale marker.
         """
         from contextlib import ExitStack
         from pathlib import Path
         marker = tmp_path / "marker.json"
         legacy = tmp_path / "legacy_marker.json"  # does not exist
+        result = tmp_path / "result.json"
         stack = ExitStack()
         stack.enter_context(patch("src.auto_updater.PENDING_MARKER", marker))
+        stack.enter_context(patch("src.auto_updater.UPDATE_RESULT", result))
         stack.enter_context(
             patch("src.auto_updater._LEGACY_PENDING_MARKER", legacy)
         )
@@ -900,6 +904,66 @@ class TestPendingMarker:
             assert result is not None
             assert result["expected_version"] == "3.0.0"
             assert marker.exists()  # kept for the GUI to handle
+
+    def test_verify_keeps_marker_when_installer_exit_nonzero(self, tmp_path) -> None:
+        """A non-zero silent-installer exit is a FAILURE even if the version
+        advanced — Inno can swap the .exe and still abort on a locked file."""
+        import json
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        result = tmp_path / "result.json"
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            result.write_text(json.dumps({"exit_code": 5}))
+            out = verify_pending_update("3.0.0")  # version matches!
+            assert out is not None
+            assert out["expected_version"] == "3.0.0"
+            assert marker.exists()  # kept so the GUI offers the visible fallback
+
+    def test_verify_success_when_version_matches_and_exit_zero(self, tmp_path) -> None:
+        import json
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        result = tmp_path / "result.json"
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            result.write_text(json.dumps({"exit_code": 0}))
+            assert verify_pending_update("3.0.0") is None
+            assert not marker.exists()
+            assert not result.exists()  # cleared alongside the marker
+
+    def test_write_marker_clears_stale_result(self, tmp_path) -> None:
+        """Starting a new update drops a previous attempt's exit code so it
+        can't be misread as this attempt's outcome."""
+        import json
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        result = tmp_path / "result.json"
+        with ctx:
+            result.write_text(json.dumps({"exit_code": 5}))
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            assert not result.exists()
+
+    def test_clear_pending_marker_also_clears_result(self, tmp_path) -> None:
+        import json
+        from pathlib import Path
+        ctx, marker = self._patch_marker(tmp_path)
+        result = tmp_path / "result.json"
+        with ctx:
+            _write_pending_marker("3.0.0", Path("/fake/installer.exe"))
+            result.write_text(json.dumps({"exit_code": 0}))
+            clear_pending_marker()
+            assert not marker.exists()
+            assert not result.exists()
+
+    def test_read_update_result_missing_and_corrupt(self, tmp_path) -> None:
+        from src.auto_updater import read_update_result
+        ctx, _ = self._patch_marker(tmp_path)
+        result = tmp_path / "result.json"
+        with ctx:
+            assert read_update_result() is None  # missing → None
+            result.write_text("not json")
+            assert read_update_result() is None  # corrupt → None (degrade)
 
     def test_verify_ignores_stale_marker_older_than_24h(self, tmp_path) -> None:
         import json
@@ -1210,3 +1274,41 @@ class TestApplyUpdateClosesOrphans:
         assert bat.index("taskkill") < bat.index("/VERYSILENT"), (
             "taskkill must run before the silent install"
         )
+
+    def test_relaunch_bat_records_installer_exit_code(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from src import auto_updater
+
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+        monkeypatch.setattr(
+            "src.auto_updater.UPDATE_RESULT", tmp_path / "result.json"
+        )
+        fake_installer = tmp_path / "installer.exe"
+        fake_installer.write_bytes(b"fake")
+        icon_dir = tmp_path / "app" / "_internal" / "assets"
+        icon_dir.mkdir(parents=True)
+        (icon_dir / "icon.png").write_bytes(b"\x89PNG")
+        app_exe = tmp_path / "app" / "App.exe"
+        app_exe.write_bytes(b"fake")
+        monkeypatch.setattr("src.auto_updater.sys.executable", str(app_exe))
+        fake_single_instance = type("M", (), {"release": staticmethod(lambda: None)})()
+        monkeypatch.setitem(sys.modules, "src.single_instance", fake_single_instance)
+
+        class _ExitCalled(Exception):
+            pass
+
+        def fake_exit(_code):
+            raise _ExitCalled()
+
+        with patch("src.auto_updater.subprocess.Popen", lambda *a, **k: None), \
+             patch("src.auto_updater._write_pending_marker", lambda *a, **k: None), \
+             patch("src.auto_updater.os._exit", fake_exit):
+            with pytest.raises(_ExitCalled):
+                auto_updater.apply_update(fake_installer)
+
+        bat = (tmp_path / "audiobookmaker_relaunch.bat").read_text(encoding="utf-8")
+        # The installer exit code is captured and written where the relaunched
+        # app reads it, so a failed silent install can't masquerade as success.
+        assert 'set "EXITCODE=%ERRORLEVEL%"' in bat, bat
+        assert '>"%RESULT%" echo {"exit_code": %EXITCODE%}' in bat, bat
+        assert bat.index("EXITCODE") < bat.index('start "" "%APPEXE%"')

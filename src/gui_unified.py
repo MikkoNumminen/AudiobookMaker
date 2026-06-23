@@ -2252,7 +2252,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """
         from src.auto_updater import (
             verify_pending_update, clear_pending_marker, run_installer_visibly,
-            APP_VERSION,
+            clear_update_result, APP_VERSION,
         )
         marker = verify_pending_update(APP_VERSION)
         if marker is None:
@@ -2295,6 +2295,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 f"Käynnistetään näkyvä asennus: {installer_path}"
             )
             try:
+                # Drop the failed silent attempt's exit code before handing off
+                # to the visible installer — otherwise, once it succeeds and we
+                # relaunch at the new version, that stale non-zero code would
+                # make verify_pending_update re-offer recovery on a good build.
+                clear_update_result()
                 run_installer_visibly(installer_path)
                 # Must exit so the installer can replace our files.
                 self.after(100, lambda: os._exit(0))
