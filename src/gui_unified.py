@@ -2400,7 +2400,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             self.after(500, self._poll_update_check)
             return
 
-        if info.available:
+        if info.available and info.sha256:
+            # Only offer an update we can actually install. A release published
+            # with no SHA-256 (notes + sidecar both missing) would make the
+            # button fail with "No SHA-256 published" — misleading the user.
+            # Skip it silently; the next periodic check picks it up once a
+            # SHA-256 sidecar is added to the release.
             self._pending_update = info
             self._show_update_banner(info)
 
