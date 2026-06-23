@@ -428,10 +428,48 @@ class TestStartChatterboxSubprocess:
 class TestRelayChatterboxEvents:
     """Exercise ``SynthMixin._relay_chatterbox_events`` directly.
 
-    UnifiedApp overrides the method with its own variant, so these tests
-    call ``SynthMixin._relay_chatterbox_events(app)`` unbound to pin the
-    mixin's thread-safety + failure-propagation contract.
+    This is the ONE relay implementation — UnifiedApp used to shadow it
+    with a copy that lacked the try/except crash guard (a poll_event failure
+    silently killed the relay thread, hanging the UI in "Converting…"). That
+    override was removed; ``test_host_does_not_shadow_relay`` guards against
+    it coming back. These tests pin the thread-safety + failure-propagation
+    + final-drain contract.
     """
+
+    def test_host_does_not_shadow_relay(self):
+        # The crash-safe relay must live ONLY on SynthMixin. A copy on
+        # UnifiedApp would shadow it via MRO and reintroduce the silent-hang
+        # bug (UI stuck in "Converting…" when poll_event raises).
+        from src.gui_unified import UnifiedApp
+        assert "_relay_chatterbox_events" not in vars(UnifiedApp), (
+            "UnifiedApp re-defined _relay_chatterbox_events; it must inherit "
+            "the crash-safe SynthMixin version."
+        )
+
+    def test_final_drain_relays_events_queued_after_finished(self, app):
+        # An event (incl. the terminating 'done') can land in the instant
+        # `finished` flips True, after the while-loop's last poll. The final
+        # drain must still relay it, or _pump_events hangs forever.
+        from src.launcher_bridge import ProgressEvent
+
+        fake_runner = MagicMock()
+        type(fake_runner).finished = property(lambda _self: True)
+        pending = [ProgressEvent(kind="done", total_done=1, total_chunks=1)]
+        fake_runner.poll_event.side_effect = (
+            lambda *a, **k: pending.pop(0) if pending else None
+        )
+        app._chatterbox_runner = fake_runner
+        SynthMixin._relay_chatterbox_events(app)
+
+        drained: list = []
+        try:
+            while True:
+                drained.append(app._event_queue.get_nowait())
+        except queue.Empty:
+            pass
+        assert any(e.kind == "done" for e in drained), (
+            "final drain must relay a terminating event queued as finished flipped"
+        )
 
     def test_cleared_runner_returns_without_dereferencing_none(self, app):
         # If the main thread cleared self._chatterbox_runner between
@@ -450,10 +488,16 @@ class TestRelayChatterboxEvents:
         fake_runner = MagicMock()
         ev = ProgressEvent(kind="log", raw_line="hello")
 
+        polls = {"n": 0}
+
         def _poll(*_args, **_kwargs):
             # Simulate the main thread clearing the attribute mid-drain.
             app._chatterbox_runner = None
-            return ev
+            polls["n"] += 1
+            # Return the event once, then None — a real runner yields None
+            # when its queue is empty, which the final-drain loop relies on
+            # to terminate.
+            return ev if polls["n"] == 1 else None
 
         fake_runner.poll_event.side_effect = _poll
 
