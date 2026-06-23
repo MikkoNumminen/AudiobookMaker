@@ -137,6 +137,21 @@ class TestDownloadFailureClearsPending:
         # User got the error dialog.
         fake_messagebox.showerror.assert_called_once()
 
+    def test_update_failed_hides_dead_banner(self) -> None:
+        # With the pending handle cleared, the Update button is a no-op, so the
+        # banner must be hidden — otherwise the user is left with a dead
+        # "Update now" button until the next periodic check.
+        host = _FakeHost()
+        host._pending_update = _make_update_info()
+        host._event_queue.put(
+            ProgressEvent(kind="update_failed", raw_line="boom")
+        )
+        with patch.dict(
+            "sys.modules", {"tkinter": MagicMock(messagebox=MagicMock())}
+        ):
+            host._pump_update_download()
+        assert {"grid_remove": True} in host._update_banner.calls
+
     def test_download_failure_logs_for_the_diagnostic_file(
         self, caplog: Any
     ) -> None:
