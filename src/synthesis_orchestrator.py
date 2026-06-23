@@ -437,6 +437,7 @@ class ChatterboxBuildError(Exception):
       - ``no_pdf``: input_mode=="pdf" but pdf_path is missing
       - ``no_text``: input_mode=="text" but the text is empty/blank
       - ``chatterbox_venv_missing``: chatterbox venv or runner script not found
+      - ``docx_parse_failed``: a .docx input could not be parsed to text
     """
 
     def __init__(self, kind: str) -> None:
@@ -497,12 +498,15 @@ def build_chatterbox_runner(
     Ordering of the input branches matches the pre-extraction GUI code:
     a ``text_override`` always wins (sample flow), otherwise ``input_mode``
     decides which CLI flag the runner gets (``--pdf`` / ``--epub`` /
-    ``--docx`` / ``--text-file``).
+    ``--text-file``). A ``.docx`` is parsed here and handed over as
+    ``--text-file`` rather than via a ``--docx`` flag — a separately-updated
+    runner can lag the GUI and reject newer flags, but every runner version
+    understands ``--text-file``.
     """
     pdf_path: Optional[str] = None
     text_path: Optional[str] = None
     epub_path: Optional[str] = None
-    docx_path: Optional[str] = None
+    docx_source: Optional[str] = None  # original .docx path, for the log label
 
     # Every tempfile we materialise below gets tracked here so the
     # except-branch can remove them if a later validation step (e.g.
@@ -536,7 +540,30 @@ def build_chatterbox_runner(
             if ext == ".epub":
                 epub_path = request.pdf_path
             elif ext == ".docx":
-                docx_path = request.pdf_path
+                # Parse the .docx HERE and feed the runner plain text via
+                # --text-file, instead of a --docx flag the runner may not
+                # understand. The Chatterbox runner ships as a separately
+                # updated data file next to the app, so an installed runner
+                # can lag the GUI and reject a newer flag outright
+                # (field-observed on 3.20.0: "unrecognized arguments:
+                # --docx"). --text-file is understood by every runner
+                # version, and the GUI always carries the current parser.
+                # Chatterbox renders a single MP3 regardless of chapter
+                # structure, so flattening to text costs nothing on this
+                # path — the in-process engines still get full chapters via
+                # parse_book.
+                try:
+                    book = parse_docx(request.pdf_path)
+                except Exception as exc:
+                    raise ChatterboxBuildError("docx_parse_failed") from exc
+                tmp = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".txt", delete=False, encoding="utf-8",
+                )
+                tmp.write(book.full_text)
+                tmp.close()
+                text_path = tmp.name
+                tmp_files.append(text_path)
+                docx_source = request.pdf_path
             elif ext == ".txt":
                 text_path = request.pdf_path
             else:
@@ -580,7 +607,6 @@ def build_chatterbox_runner(
             pdf_path=pdf_path,
             text_path=text_path,
             epub_path=epub_path,
-            docx_path=docx_path,
             out_dir=str(out_dir),
             extra_args=extra_args,
             language=request.language,
@@ -596,7 +622,7 @@ def build_chatterbox_runner(
                 pass
         raise
 
-    input_label = pdf_path or epub_path or docx_path or text_path or "text"
+    input_label = pdf_path or epub_path or docx_source or text_path or "text"
     return ChatterboxPlan(
         runner=runner,
         out_dir=out_dir,
