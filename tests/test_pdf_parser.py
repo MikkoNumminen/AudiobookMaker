@@ -332,3 +332,52 @@ class TestEmptyPdf:
                 parse_pdf(tmp.name)
         finally:
             os.unlink(tmp.name)
+
+
+class TestUnicodeWhitespaceHardening:
+    """clean_text folds exotic whitespace and drops zero-width characters so
+    none of it reaches the TTS engine (shared by the PDF/EPUB/DOCX paths).
+
+    Exotic chars are built with chr(0x…) so the source stays plain ASCII and a
+    code formatter can't silently turn an invisible literal into a regular
+    space (which would make the test trivially pass without testing anything).
+    """
+
+    NBSP = chr(0x00A0)
+
+    def test_nbsp_becomes_space(self) -> None:
+        assert clean_text("foo" + self.NBSP + "bar") == "foo bar"
+
+    def test_thin_and_narrow_spaces_become_space(self) -> None:
+        assert clean_text("a" + chr(0x2009) + "b" + chr(0x202F) + "c") == "a b c"
+
+    def test_figure_and_ideographic_spaces_become_space(self) -> None:
+        assert clean_text("a" + chr(0x2007) + "b" + chr(0x3000) + "c") == "a b c"
+
+    def test_tab_becomes_space(self) -> None:
+        assert clean_text("foo\tbar") == "foo bar"
+
+    def test_zero_width_chars_are_removed(self) -> None:
+        # ZWSP, ZW non-joiner, ZW joiner, word joiner, BOM — all vanish, so a
+        # word split by one is rejoined rather than mis-chunked or voiced.
+        for cp in (0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF):
+            assert clean_text("foo" + chr(cp) + "bar") == "foobar", f"U+{cp:04X}"
+
+    def test_line_separator_flattens_to_space(self) -> None:
+        # U+2028 -> newline -> flattened to a space inside a paragraph.
+        assert clean_text("foo" + chr(0x2028) + "bar") == "foo bar"
+
+    def test_paragraph_separator_becomes_paragraph_break(self) -> None:
+        # U+2029 -> a real paragraph break (double newline), preserved.
+        assert clean_text("foo" + chr(0x2029) + "bar") == "foo\n\nbar"
+
+    def test_nbsp_adjacent_to_space_does_not_double(self) -> None:
+        assert clean_text("foo" + self.NBSP + " bar") == "foo bar"
+
+    def test_soft_hyphen_join_is_unaffected(self) -> None:
+        # The new pass must NOT touch the soft hyphen — _fix_hyphenation still
+        # owns it and joins the wrapped word.
+        assert clean_text("co" + chr(0x00AD) + "\noperate") == "cooperate"
+
+    def test_plain_ascii_unchanged(self) -> None:
+        assert clean_text("A plain sentence here.") == "A plain sentence here."
