@@ -28,7 +28,16 @@ class _FakeWidget:
         self.calls.append(kwargs)
 
     def grid(self) -> None:
-        pass
+        self.calls.append({"grid": True})
+
+    def grid_remove(self) -> None:
+        self.calls.append({"grid_remove": True})
+
+    def start(self) -> None:
+        self.calls.append({"start": True})
+
+    def stop(self) -> None:
+        self.calls.append({"stop": True})
 
     def set(self, value: float) -> None:
         self.calls.append({"set": value})
@@ -46,6 +55,7 @@ class _FakeHost(UpdateMixin):
         self._update_label = _FakeWidget()
         self._update_btn = _FakeWidget()
         self._update_banner = _FakeWidget()
+        self._update_progress = _FakeWidget()
         self._progress_bar = _FakeWidget()
         self._after_calls: list[tuple[int, Any]] = []
 
@@ -208,3 +218,71 @@ class TestUpdateDoneWiring:
         path, expected = routed[0]
         assert str(path).endswith("setup.exe")
         assert expected == "3.0.0"
+
+
+class TestBannerProgress:
+    """The banner shows its OWN download progress (motion where the user
+    clicked), not just the synthesis bar elsewhere in the window — the
+    'no indicator / looks frozen' report. It animates immediately
+    (indeterminate) and becomes a real percentage bar once size is known."""
+
+    def test_begin_shows_and_animates_indeterminate(self) -> None:
+        host = _FakeHost()
+        host._begin_update_progress()
+        assert {"mode": "indeterminate"} in host._update_progress.calls
+        assert {"grid": True} in host._update_progress.calls
+        assert {"start": True} in host._update_progress.calls
+
+    def test_render_switches_to_determinate_and_sets_fraction(self) -> None:
+        host = _FakeHost()
+        host._begin_update_progress()
+        host._render_update_progress(25, 100)
+        assert {"stop": True} in host._update_progress.calls
+        assert {"mode": "determinate"} in host._update_progress.calls
+        assert {"set": 0.25} in host._update_progress.calls
+        # Button carries the numeric percentage too (key returned verbatim
+        # by the fake _s, .format leaves it unchanged).
+        assert any(
+            c.get("text") == "update_downloading_pct"
+            for c in host._update_btn.calls
+        )
+
+    def test_render_at_completion_shows_verifying(self) -> None:
+        host = _FakeHost()
+        host._begin_update_progress()
+        host._render_update_progress(100, 100)
+        assert {"set": 1.0} in host._update_progress.calls
+        assert any(
+            c.get("text") == "update_verifying" for c in host._update_btn.calls
+        )
+
+    def test_pump_renders_latest_chunk_only(self) -> None:
+        # Many chunk events in one drain → only the latest fraction applied
+        # (no 0.1/0.3 churn), so a 170 MB download doesn't poke the widget
+        # hundreds of times per tick.
+        host = _FakeHost()
+        host._pending_update = _make_update_info()
+        host._begin_update_progress()
+        for done in (10, 30, 70):
+            host._event_queue.put(
+                ProgressEvent(kind="chunk", total_done=done, total_chunks=100)
+            )
+        host._pump_update_download()
+        set_calls = [c["set"] for c in host._update_progress.calls if "set" in c]
+        assert 0.7 in set_calls
+        assert 0.1 not in set_calls
+        assert 0.3 not in set_calls
+
+    def test_pump_failure_hides_banner_progress(self) -> None:
+        host = _FakeHost()
+        host._pending_update = _make_update_info()
+        host._begin_update_progress()
+        host._event_queue.put(
+            ProgressEvent(kind="update_failed", raw_line="boom")
+        )
+        with patch.dict(
+            "sys.modules", {"tkinter": MagicMock(messagebox=MagicMock())}
+        ):
+            host._pump_update_download()
+        assert {"stop": True} in host._update_progress.calls
+        assert {"grid_remove": True} in host._update_progress.calls

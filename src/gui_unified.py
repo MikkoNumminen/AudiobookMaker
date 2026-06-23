@@ -250,6 +250,8 @@ _STRINGS = {
         "update_download_manually": "Lataa selaimella",
         "whats_new": "Mikä on uutta",
         "update_downloading": "Ladataan päivitystä...",
+        "update_downloading_pct": "Ladataan päivitystä… {pct}%",
+        "update_verifying": "Tarkistetaan päivitystä…",
         "update_installing": "Asennetaan päivitys...",
         "update_failed": "Päivitys epäonnistui.",
         "update_error_detail": "Päivitys epäonnistui: {error}",
@@ -375,6 +377,8 @@ _STRINGS = {
         "update_download_manually": "Open in browser",
         "whats_new": "What's new",
         "update_downloading": "Downloading update...",
+        "update_downloading_pct": "Downloading update… {pct}%",
+        "update_verifying": "Verifying update…",
         "update_installing": "Installing update...",
         "update_failed": "Update failed.",
         "update_error_detail": "Update failed: {error}",
@@ -1160,6 +1164,28 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             padx=(gui_style.PAD_MD, gui_style.PAD_MD), pady=(0, gui_style.PAD_SM),
         )
         self._update_whatsnew_text.grid_remove()
+
+        # Download progress lives INSIDE the banner, not on the synthesis
+        # progress bar elsewhere in the window — so the user sees motion
+        # right where they clicked "Update now". Starts indeterminate (an
+        # animated barber-pole) the instant the click lands, so the banner
+        # never looks frozen even before the first byte arrives, and
+        # switches to a real percentage bar once the download size is known.
+        # Driven by _begin/_render/_end_update_progress in UpdateMixin.
+        self._update_progress = ctk.CTkProgressBar(
+            self._update_banner,
+            mode="indeterminate",
+            progress_color="white",
+            fg_color=("#156326", "#0f7a2a"),
+            height=10,
+            corner_radius=gui_style.RADIUS_SM,
+        )
+        self._update_progress.grid(
+            row=3, column=0, columnspan=3, sticky="ew",
+            padx=(gui_style.PAD_MD, gui_style.PAD_MD),
+            pady=(0, gui_style.PAD_SM),
+        )
+        self._update_progress.grid_remove()
 
         # Hidden by default.
         self._update_banner.grid_remove()
