@@ -215,6 +215,19 @@ update path is P0 — same severity as data loss. Fix the user's immediate
 pain first, then build structural prevention. See `docs/CONVENTIONS.md`
 "Auto-update is critical" section for the full policy.
 
+## Engine runner version skew — pre-extract new input formats
+
+The Chatterbox runner (`scripts/generate_chatterbox_audiobook.py`) is a
+separately-bundled data file that can lag the installed GUI/CLI: a user on an
+old install may have a runner that predates a feature the new GUI assumes. So
+**never teach the GUI/CLI to pass a brand-new runner `--flag` for a new input
+format** — a stale runner rejects the unknown argument and Convert dies with
+"unrecognized arguments" (this broke `.docx` in v3.20.0). Instead, the
+GUI/CLI extracts the new format to plain text itself and hands the runner the
+already-supported `--text-file`. Treat the runner's CLI surface as a slow-
+moving contract; widen it only when you can guarantee every shipped runner
+already understands the new flag.
+
 ## Resource discipline — never run two heavy ML pipelines at once
 
 The voice-pack pipeline subprocesses (analyze, clone-voice, train,

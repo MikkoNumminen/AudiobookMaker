@@ -211,7 +211,7 @@ the auto-generated detail follows.
 
 | Subcommand | What it does |
 |---|---|
-| `convert INPUT` | Convert a PDF, EPUB, or TXT file to an MP3 audiobook |
+| `convert INPUT` | Convert a PDF, EPUB, TXT, or DOCX file to an MP3 audiobook |
 | `sample INPUT` | Synthesize the first ~500 characters as a quick quality check |
 | `preview TEXT` | Speak a short string through the system audio output (no file saved) |
 | `voices list` | List all voices across installed engines, with optional filters |

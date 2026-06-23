@@ -131,7 +131,7 @@ Skill index (in-repo):
 ### 4. Tests — regression guardrails the next session can't sidestep
 
 The pre-commit hook runs the suite on every commit (with a docs-only
-shortcut). 2400+ tests today, all green. The pattern worth copying:
+shortcut). 3,300+ tests today, all green. The pattern worth copying:
 
 - **Contract tests for AI-generated artefacts.** Example: every
   CLI subcommand must have a registered example, enforced by
