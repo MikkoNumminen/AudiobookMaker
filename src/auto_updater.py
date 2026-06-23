@@ -16,7 +16,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,10 @@ def _fetch_sidecar_sha256(
     """
     url = asset.get("browser_download_url")
     if not url:
+        logger.warning(
+            "Sidecar asset %r has no download URL; treating as no SHA-256",
+            asset.get("name"),
+        )
         return None
     try:
         req = Request(url)
@@ -327,6 +331,15 @@ def check_for_update(current_version: str) -> UpdateInfo:
             logger.warning("GitHub release has no tag_name")
             return _no_update(current_version)
 
+        # Never offer a prerelease as a stable update. ``_parse_version``
+        # drops the ``-beta`` / ``-rc1`` suffix, so a prerelease with a higher
+        # base number (``3.21.0-rc1``) would otherwise be served to everyone on
+        # the stable channel. Trust GitHub's ``prerelease`` flag first, and
+        # treat a SemVer pre-release suffix (``-``) in the tag as a backstop.
+        if release_data.get("prerelease") or "-" in latest_version:
+            logger.debug("Skipping prerelease %r", latest_version)
+            return _no_update(current_version)
+
         if _parse_version(latest_version) <= _parse_version(current_version):
             return _no_update(current_version)
 
@@ -370,6 +383,12 @@ def check_for_update(current_version: str) -> UpdateInfo:
             sha256=sha256 or "",
         )
 
+    except HTTPError as exc:
+        # HTTPError is a URLError subclass; catch it first so a 403 rate-limit
+        # / 404 / 5xx is logged with its status code instead of vanishing into
+        # the generic branch. Still degrades to "no update" (never raises).
+        logger.warning("Update check HTTP %s: %s", exc.code, exc)
+        return _no_update(current_version)
     except (URLError, OSError, json.JSONDecodeError, KeyError) as exc:
         logger.debug("Update check failed: %s", exc)
         return _no_update(current_version)

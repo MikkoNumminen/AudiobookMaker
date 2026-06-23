@@ -33,7 +33,12 @@ def _make_app() -> UnifiedApp:
     return app
 
 
-def _info(available: bool = True, version: str = "9.9.9") -> UpdateInfo:
+def _info(
+    available: bool = True, version: str = "9.9.9", sha256: str = "a" * 64
+) -> UpdateInfo:
+    # A real release carries a SHA-256; the banner is only shown when one is
+    # present (an update with no SHA-256 can't be installed). Tests that expect
+    # the banner use the default; the no-SHA case passes sha256="".
     return UpdateInfo(
         available=available,
         current_version="3.0.0",
@@ -41,7 +46,7 @@ def _info(available: bool = True, version: str = "9.9.9") -> UpdateInfo:
         download_url="https://example.invalid/AudiobookMaker-Setup.exe",
         release_notes="notes",
         asset_size_bytes=1234,
-        sha256="",
+        sha256=sha256,
     )
 
 
@@ -68,6 +73,17 @@ class TestPollUpdateCheckRearm:
     def test_no_banner_when_no_update(self):
         app = _make_app()
         app._update_queue.put(_info(available=False))
+
+        app._poll_update_check()
+
+        app._show_update_banner.assert_not_called()
+        assert app._pending_update is None
+
+    def test_no_banner_when_available_but_no_sha256(self):
+        """A release with no SHA-256 can't be auto-installed — don't offer it,
+        or the button fails with 'No SHA-256 published' and misleads the user."""
+        app = _make_app()
+        app._update_queue.put(_info(available=True, sha256=""))
 
         app._poll_update_check()
 

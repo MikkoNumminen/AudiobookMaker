@@ -211,11 +211,13 @@ def _mock_github_response(
     asset_name="AudiobookMaker-Setup-3.0.0.exe",
     body="",
     assets=None,
+    prerelease=False,
 ):
     """Build a mock urllib response that returns a JSON GitHub release payload."""
     data = {
         "tag_name": tag,
         "body": body,
+        "prerelease": prerelease,
         "assets": assets
         if assets is not None
         else [
@@ -282,6 +284,42 @@ class TestCheckForUpdate:
         from urllib.error import URLError
 
         mock_urlopen.side_effect = URLError("network down")
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+        assert info.current_version == "2.0.0"
+
+    @patch("src.auto_updater.urlopen")
+    def test_prerelease_flag_not_offered(self, mock_urlopen: MagicMock) -> None:
+        # A higher-numbered release marked prerelease must not be served to the
+        # stable channel.
+        mock_urlopen.return_value = _mock_github_response(
+            tag="v9.0.0", prerelease=True
+        )
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+
+    @patch("src.auto_updater.urlopen")
+    def test_prerelease_suffix_tag_not_offered(self, mock_urlopen: MagicMock) -> None:
+        # Even if the prerelease flag is somehow unset, a SemVer pre-release
+        # suffix in the tag is a backstop (_parse_version would drop "-rc1").
+        mock_urlopen.return_value = _mock_github_response(
+            tag="v9.0.0-rc1", prerelease=False
+        )
+        info = check_for_update("2.0.0")
+
+        assert info.available is False
+
+    @patch("src.auto_updater.urlopen")
+    def test_http_error_returns_not_available(self, mock_urlopen: MagicMock) -> None:
+        # A 403 rate-limit / 404 / 5xx must degrade to "no update" (never raise)
+        # and be logged with its status code.
+        from urllib.error import HTTPError
+
+        mock_urlopen.side_effect = HTTPError(
+            "https://api.github.com", 403, "rate limit exceeded", {}, None
+        )
         info = check_for_update("2.0.0")
 
         assert info.available is False
