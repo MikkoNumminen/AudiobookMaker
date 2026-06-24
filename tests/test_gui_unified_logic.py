@@ -75,8 +75,11 @@ def _set_mode(app, mode: str) -> None:
 
 @pytest.fixture
 def _restore_input_state(app):
-    """Undo input-tab / text-widget mutations so the shared app doesn't bleed
-    state into sibling tests (the base ``app`` reset doesn't touch these)."""
+    """Undo input-tab / text-widget / combobox mutations so the module-scoped
+    shared app doesn't bleed state into sibling tests (the base ``app`` reset
+    doesn't touch these). Programmatic ``.set("")`` does not fire the
+    comboboxes' command callbacks, so this can't trigger the engine/language
+    cascade."""
     yield
     try:
         _set_mode(app, "pdf")
@@ -84,6 +87,11 @@ def _restore_input_state(app):
         pass
     app._text_widget.delete("1.0", tk.END)
     app._text_has_placeholder = True
+    for cb in (app._lang_cb, app._engine_cb, app._voice_cb):
+        try:
+            cb.set("")
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +129,7 @@ class TestStateHelpers:
         _set_mode(app, "text")
         assert app._input_mode == "text"
 
-    def test_current_language_maps_combobox(self, app) -> None:
+    def test_current_language_maps_combobox(self, app, _restore_input_state) -> None:
         fi_display = next(k for k, v in LANGUAGES.items() if v == "fi")
         en_display = next(k for k, v in LANGUAGES.items() if v == "en")
         app._lang_cb.set(fi_display)
@@ -129,7 +137,7 @@ class TestStateHelpers:
         app._lang_cb.set(en_display)
         assert app._current_language() == "en"
 
-    def test_current_language_unknown_defaults_fi(self, app) -> None:
+    def test_current_language_unknown_defaults_fi(self, app, _restore_input_state) -> None:
         app._lang_cb.set("Klingon")
         assert app._current_language() == "fi"
 
@@ -153,7 +161,7 @@ class TestStateHelpers:
         with patch.object(app, "_current_engine", return_value=None):
             assert app._current_voice() is None
 
-    def test_current_voice_resolves_from_engine_list(self, app) -> None:
+    def test_current_voice_resolves_from_engine_list(self, app, _restore_input_state) -> None:
         v = SimpleNamespace(display_name="MyVoice")
         fake_engine = SimpleNamespace(list_voices=lambda lang: [v])
         with patch.object(app, "_current_engine", return_value=fake_engine), \
@@ -161,7 +169,7 @@ class TestStateHelpers:
             app._voice_cb.set("MyVoice")
             assert app._current_voice() is v
 
-    def test_current_voice_falls_through_to_voice_pack(self, app) -> None:
+    def test_current_voice_falls_through_to_voice_pack(self, app, _restore_input_state) -> None:
         pack_voice = SimpleNamespace(display_name="PackVoice")
         fake_engine = SimpleNamespace(list_voices=lambda lang: [])
         with patch.object(app, "_current_engine", return_value=fake_engine), \
