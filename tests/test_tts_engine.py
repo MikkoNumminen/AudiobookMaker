@@ -331,3 +331,56 @@ class TestRmtreeWithRetry:
 
         # Best-effort: returns False rather than raising out of a finally block.
         assert tts_engine._rmtree_with_retry("/fake/tmp", attempts=3, delay=0.01) is False
+
+
+class TestAsyncioRunWithRetry:
+    """The Windows asyncio socketpair-flake guard: run a coroutine in a daemon
+    thread with timeout + retry. These cover the error, timeout, and
+    retry-then-succeed paths."""
+
+    def test_returns_coroutine_result(self) -> None:
+        from src.tts_engine import _asyncio_run_with_retry
+
+        async def _ok():
+            return 42
+
+        assert _asyncio_run_with_retry(lambda: _ok(), timeout_s=5, retries=1) == 42
+
+    def test_propagates_coroutine_exception(self) -> None:
+        # A real error inside the coroutine must surface to the caller, not be
+        # swallowed by the retry wrapper.
+        from src.tts_engine import _asyncio_run_with_retry
+
+        async def _boom():
+            raise ValueError("nope")
+
+        with pytest.raises(ValueError, match="nope"):
+            _asyncio_run_with_retry(lambda: _boom(), timeout_s=5, retries=1)
+
+    def test_timeout_raises_after_final_attempt(self) -> None:
+        # A coroutine that outlives the timeout on the last attempt raises the
+        # socketpair-flake RuntimeError.
+        from src.tts_engine import _asyncio_run_with_retry
+
+        async def _hang():
+            await asyncio.sleep(10)
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            _asyncio_run_with_retry(lambda: _hang(), timeout_s=0.2, retries=1)
+
+    def test_retries_then_succeeds(self) -> None:
+        # First attempt hangs (abandoned on timeout), second attempt returns
+        # fast — exercises the retry `continue` path.
+        from src.tts_engine import _asyncio_run_with_retry
+
+        calls = {"n": 0}
+
+        async def _slow_then_fast():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                await asyncio.sleep(10)
+            return "ok"
+
+        assert _asyncio_run_with_retry(
+            lambda: _slow_then_fast(), timeout_s=0.3, retries=2
+        ) == "ok"
