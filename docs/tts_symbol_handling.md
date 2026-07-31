@@ -63,6 +63,46 @@ every retry agrees, the problem is the text, not the dice.
 
 So the guard is a smoke alarm, not a fix. It tells you something burned.
 
+### And it was deaf to most of the fire
+
+Worse than not fixing it, the guard did not even *notice* most of it.
+Its floor, `MIN_AUDIO_S_PER_CHAR`, is an absolute constant that has to
+stay low enough to be safe for the fastest text the project narrates.
+On a chapter whose healthy rate was 0.070 s/char, nine chunks lost their
+closing clause — and six of the nine measured between 0.058 and 0.062,
+clearing the floor untouched while being obviously short next to their
+neighbours.
+
+A constant cannot know what a given chapter sounds like. **Pass R** now
+compares each chunk against the MEDIAN rate of its own chapter, which
+costs nothing to compute and is a far better expectation than any
+constant can be. Replayed against the real measurements from that
+build, it flags all nine.
+
+Median rather than mean, because the outliers being hunted would drag a
+mean down toward themselves and hide exactly what needs to stand out.
+
+Both guards are kept, because each is blind where the other sees:
+
+| | Absolute band guard | Relative sweep (Pass R) |
+|---|---|---|
+| Runs | per chunk, at generation | once per chapter, before assembly |
+| Compares against | a fixed floor | the chapter's own median |
+| Catches | gross truncation and rambling | chunks short *for this text* |
+| Blind to | anything above the floor | a chapter that is >50% broken — the median moves in among the bad chunks |
+
+That last row is why the absolute guard was not simply replaced. If most
+of a chapter collapses, the median follows the wreckage and Pass R goes
+quiet; but a collapse that severe puts the chunks under the absolute
+floor, where the per-chunk guard is still watching.
+
+Pass R also refuses to guess. Under `MEDIAN_SWEEP_MIN_CHUNKS` there is
+no meaningful median, so it does nothing rather than re-roll good audio.
+And if more than `MEDIAN_SWEEP_MAX_FRACTION` of a chapter is below the
+line, the cause is the text or the voice rather than bad luck — it fixes
+the worst offenders, ships the rest, and **says so in the log**, because
+a silently truncated work list reads exactly like "all clear".
+
 ## The two-layer defence
 
 Layer 1 alone would be wishful thinking — it assumes somebody
@@ -177,7 +217,11 @@ the pass only matches a colon followed by *letters*.
    same defect, stop tuning sampling and go read the text.
 4. **A duration check is a smoke alarm.** It tells you something is
    wrong. It cannot tell you what, and it cannot fix it.
-5. **Verify by transcribing, not by measuring.** Every claim in this
+5. **Compare against the neighbours, not against a constant.** A
+   threshold that has to be safe for every possible text is too loose
+   for any particular one. The same reasoning applies when you are
+   checking a finished conversion by hand: use the file's own median.
+6. **Verify by transcribing, not by measuring.** Every claim in this
    document about what was spoken came from running Whisper over the
    audio and reading it. Speech rate said "probably fine"; the
    transcript said a clause was missing.

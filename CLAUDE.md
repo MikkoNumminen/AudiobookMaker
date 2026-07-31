@@ -238,9 +238,16 @@ When a conversion's correctness matters (a delivery, a regression
 check, a bug report):
 
 1. **Compare each chunk's `s_per_char` against its own file's median**,
-   not against the global floor in
-   `scripts/generate_chatterbox_audiobook.py`. The floor is tuned for
-   Finnish; English narrates faster and trips it harmlessly.
+   not against the absolute floor in
+   `scripts/generate_chatterbox_audiobook.py`. The floor has to stay
+   safe for the fastest text we narrate, so it is far too loose for any
+   particular chapter. The runner's Pass R now does this automatically
+   per chapter, but re-check by hand when correctness matters — Pass R
+   goes quiet on a chapter that is more than half broken.
+   Read chunk durations from the WAV files, **not** from
+   `.chunk_stats.jsonl`: that file appends one record per synthesis
+   attempt, so averaging it silently mixes discarded takes with final
+   ones and under-reports bad chunks.
 2. **Transcribe every outlier** with faster-whisper from
    `.venv-chatterbox` and read the text against the source. That is the
    only check that distinguishes "dense passage" from "dropped clause".
