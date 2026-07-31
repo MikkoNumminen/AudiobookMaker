@@ -148,6 +148,27 @@ def test_finnish_regression_chunk_is_fully_expanded():
     assert "kertaa" in out
 
 
+def test_finnish_postfix_dollar_is_spoken_not_dropped():
+    """Finnish writes currency after the number: `2,08 $`.
+
+    Only the prefix form (`$5`) had a rule, so the postfix `$` survived
+    normalization and truncated its chunk. The gate would now turn it
+    into a space, which is safe but silent — losing the currency without
+    saying so. The unit table has to claim it first.
+    """
+    out = normalize_text("yläraja: 2,08 $.", "fi")
+    assert "dollaria" in out
+    assert "$" not in out
+
+
+def test_finnish_prefix_dollar_still_works():
+    assert "dollaria" in normalize_text("$5 maksoi", "fi")
+
+
+def test_finnish_euro_is_unaffected():
+    assert "euroa" in normalize_text("hinta 20 €", "fi")
+
+
 @pytest.mark.parametrize("lang", ["en", "fi"])
 def test_no_unspeakable_symbol_ever_survives_the_dispatcher(lang):
     """The guarantee, stated as a property over every symbol category.
