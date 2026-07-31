@@ -228,6 +228,33 @@ already-supported `--text-file`. Treat the runner's CLI surface as a slow-
 moving contract; widen it only when you can guarantee every shipped runner
 already understands the new flag.
 
+## Synthesized audio — verify by transcript, never by duration alone
+
+A chunk whose audio is the expected length for its character count can
+still be missing words, and a chunk the band guard flags is often fine.
+Duration is a smoke alarm, not a verdict.
+
+When a conversion's correctness matters (a delivery, a regression
+check, a bug report):
+
+1. **Compare each chunk's `s_per_char` against its own file's median**,
+   not against the global floor in
+   `scripts/generate_chatterbox_audiobook.py`. The floor is tuned for
+   Finnish; English narrates faster and trips it harmlessly.
+2. **Transcribe every outlier** with faster-whisper from
+   `.venv-chatterbox` and read the text against the source. That is the
+   only check that distinguishes "dense passage" from "dropped clause".
+3. **Also spot-check the language that raised no warning.** English
+   fails by swallowing characters silently rather than truncating, so a
+   clean guard result is not evidence.
+4. **Identical retries mean a bad input.** If re-rolls reproduce the
+   same defect, stop blaming sampling and go read the text.
+
+Never characterize audio as verified on the strength of a duration
+ratio. Say what was transcribed and what was not.
+
+Full write-up with the worked example: `docs/tts_symbol_handling.md`.
+
 ## Resource discipline — never run two heavy ML pipelines at once
 
 The voice-pack pipeline subprocesses (analyze, clone-voice, train,
