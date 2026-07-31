@@ -166,6 +166,59 @@ def test_algebraic_x_is_not_a_multiplier(lang):
     assert expand_symbols("3 ≤ x", lang).rstrip().endswith("x")
 
 
+@pytest.mark.parametrize("lang", ["en", "fi"])
+def test_digit_fused_to_a_capital_is_split(lang):
+    """This pass separates them; the number pass spells the digit later."""
+    assert expand_symbols("solid 3D letters", lang) == "solid 3 D letters"
+
+
+@pytest.mark.parametrize("lang,expected", [("en", "three D"), ("fi", "kolme D")])
+def test_digit_fused_to_a_capital_reads_correctly_end_to_end(lang, expected):
+    """`3D` normalized to the non-word `threeD` / `kolmeD`.
+
+    Narrated, the letter was simply swallowed: "solid 3D letters" was
+    heard as "solid three letters", which is a different claim.
+    """
+    assert expected in normalize_text("solid 3D letters", lang)
+
+
+@pytest.mark.parametrize("src", ["4K", "2D", "8K"])
+def test_other_digit_capital_idioms(src):
+    out = expand_symbols(f"a {src} thing", "en")
+    assert f"{src[0]} {src[1]}" in out
+
+
+def test_only_a_lone_capital_is_split_off():
+    """Model numbers and mixed-case identifiers must survive intact.
+
+    The rule needs a word boundary after the capital, so a longer
+    alphanumeric token is not carved up.
+    """
+    assert expand_symbols("the 3Dx variant", "en") == "the 3Dx variant"
+
+
+def test_lowercase_after_a_digit_is_not_split():
+    """Units like `20px` belong to the unit tables, not to this rule."""
+    assert expand_symbols("20px wide", "en") == "20px wide"
+
+
+def test_finnish_bare_seconds_are_a_unit_not_an_ordinal():
+    """`0s` normalized to `nollas` — a real Finnish word meaning "zeroth".
+
+    It narrated fluently while meaning something else entirely, which is
+    the failure mode no duration check can ever catch.
+    """
+    out = normalize_text("transition-duration on 0s molemmissa", "fi")
+    assert "sekuntia" in out
+    assert "nollas " not in out
+
+
+def test_finnish_seconds_does_not_shadow_longer_units():
+    """`s` is matched last, so multi-character units still win."""
+    assert "minuuttia" in normalize_text("5 min kesto", "fi")
+    assert "kilometriä" in normalize_text("20 km matka", "fi")
+
+
 def test_finnish_postfix_dollar_is_spoken_not_dropped():
     """Finnish writes currency after the number: `2,08 $`.
 

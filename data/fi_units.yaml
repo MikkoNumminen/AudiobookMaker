@@ -39,3 +39,9 @@
 - ["‰", "promillea"]
 # Legacy Finnish currency
 - ["mk", "markkaa"]
+# Bare seconds. LAST on purpose: `s` is a single character and this table
+# is matched longest-first, so every multi-character unit ending in s must
+# get its turn before this entry can claim one. Without it `0s` normalized
+# to `nollas` — which is a real Finnish word ("zeroth"), so it narrated
+# fluently while meaning something else entirely.
+- ["s", "sekuntia"]

@@ -108,6 +108,16 @@ _MULTIPLIER_RE = re.compile(r"(?<=\d)x\b")
 
 _MULTIPLIER_WORDS = {"en": " times", "fi": " kertaa"}
 
+# `3D`, `2D`, `4K` — a digit fused to a single capital. The number pass
+# expands the digit and leaves the letter welded on, giving the non-words
+# `threeD` / `kolmeD`. Narrated, the letter is simply swallowed: "solid 3D
+# letters" was heard as "solid three letters", which is a different claim.
+#
+# Splitting them lets the digit expand normally and leaves the letter as
+# its own token, read out as a letter. Restricted to ONE capital at a word
+# boundary so model numbers and mixed-case identifiers are left alone.
+_DIGIT_LETTER_RE = re.compile(r"(?<=\d)([A-Z])\b")
+
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 
 
@@ -135,6 +145,7 @@ def expand_symbols(text: str, lang: str) -> str:
     text = _DIMENSION_RE.sub(f" {dimension_word} ", text)
     text = text.replace(_TIMES, f" {times_word} ")
     text = _MULTIPLIER_RE.sub(_MULTIPLIER_WORDS[lang], text)
+    text = _DIGIT_LETTER_RE.sub(r" \1", text)
 
     for glyph, words in _SHARED_TABLE.items():
         if glyph in text:
