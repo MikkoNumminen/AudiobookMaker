@@ -299,7 +299,7 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 
 #### Skill catalog (audited 2026-05-19; 4 skills retired)
 
-11 in-repo skills under `.claude/skills/`. Per-session cost when not invoked: ~30 tokens each (catalog entry only). Per-invocation cost: the SKILL.md body loads. The 2026-05-19 audit retired four skills that either duplicated CLAUDE.md rules (which auto-load every session) or had zero recorded invocations and trivially-rederivable workflows: `audit-followup`, `commit-then-scan`, `pre-push-scan`, `scanned-pdf-to-audiobook`. One skill (`engine-venv-triage`) landed after the audit and has not yet been through an audit pass.
+12 in-repo skills under `.claude/skills/`. Per-session cost when not invoked: ~30 tokens each (catalog entry only). Per-invocation cost: the SKILL.md body loads. The 2026-05-19 audit retired four skills that either duplicated CLAUDE.md rules (which auto-load every session) or had zero recorded invocations and trivially-rederivable workflows: `audit-followup`, `commit-then-scan`, `pre-push-scan`, `scanned-pdf-to-audiobook`. Two skills (`engine-venv-triage`, `narrate-texts`) landed after the audit and have not yet been through an audit pass.
 
 **Body size** is the per-invocation load. **Saves/inv** is the rough order-of-magnitude tokens saved versus an agent re-deriving the workflow from first principles. **Usage** is rough 90-day evidence (artefacts on disk, commit log, tool runs).
 
@@ -310,6 +310,7 @@ This project is set up for AI-assisted development: rules in [CLAUDE.md](CLAUDE.
 | [`ci-failure-triage`](.claude/skills/ci-failure-triage/SKILL.md) | ~1.9k | ~1k | 22 `fix(ci):` commits | **KEEP** — high recurrence; ordering is non-obvious |
 | [`copyright-scan`](.claude/skills/copyright-scan/SKILL.md) | ~3.1k | ~3k | 0 invocations | **TRIM** to ~600t — keep allow-list + decision tree, drop runbook |
 | [`engine-venv-triage`](.claude/skills/engine-venv-triage/SKILL.md) | ~1.4k | ~2–3k | born from the v3.16.0–v3.17.3 field saga (PRs #107–#113) | **KEEP (post-audit addition)** — provenance-first diagnosis ladder for end-user engine failures, built from a saga where every plausible first guess was wrong; not yet through an audit pass |
+| [`narrate-texts`](.claude/skills/narrate-texts/SKILL.md) | ~1.6k | ~8–10k | born from a 14-file blog batch that shipped three separate truncation bugs | **KEEP (post-audit addition)** — bundles the batch runner and the verifier as scripts so neither is rewritten inline, and encodes the verification discipline (transcript, not duration) that four normalizer bugs were only caught by; not yet through an audit pass |
 | [`pronunciation-corpus-add`](.claude/skills/pronunciation-corpus-add/SKILL.md) | ~1.8k | ~1.5k → 0 | corpus file empty today | **KEEP provisional** — re-audit after 10 entries land; corpus format then self-documents |
 | [`release-bundle-audit`](.claude/skills/release-bundle-audit/SKILL.md) | ~3.8k | ~3k | 1 use (its own birth) | **TRIMMED 2026-05-20** — cut verbose prose; kept exclude list verbatim, gotchas, and decision criteria |
 | [`release-cut`](.claude/skills/release-cut/SKILL.md) | ~1.7k | load-bearing | 20 releases in 90d | **KEEP** — auto-update is P0; ritual ordering not in CLAUDE.md |

@@ -1,0 +1,54 @@
+{
+  "skill_name": "narrate-texts",
+  "evals": [
+    {
+      "id": 1,
+      "name": "casual-batch-request",
+      "prompt": "I've got some blog posts in D:/texts, en and fi subfolders. Make audio out of them.",
+      "expected_output": "Assistant invokes narrate-texts, checks free VRAM first, then delegates the run to a Fable subagent that calls scripts/narrate_batch.py --source D:/texts. It does NOT hand-write a shell loop. After conversion it runs verify_narration.py with --transcribe and reports per-file duration plus PASS/FAIL. It does not report success on duration alone.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "duration-only-is-not-verified",
+      "prompt": "The verify script says PASS, no chunks below the median. Are we done?",
+      "expected_output": "Assistant says no — that is a duration check only. It explains that English drops or mangles content without changing the audio length (0 to -90px narrated as '0 to 90 pecs'; 'gap.' as 'gapage'), and re-runs verify_narration.py with --transcribe, reading HEARD against TEXT before calling it verified.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "mispronunciation-is-a-normalizer-bug",
+      "prompt": "The transcript says 'gapage' where the text says 'gap.' — just reword the source text to avoid it.",
+      "expected_output": "Assistant declines to paper over it. It reproduces the fault with normalize_text('a gap. Then', 'en'), identifies it as a normalizer defect rather than a synthesis one, fixes the normalizer, adds a regression test, and only then re-narrates. It notes that editing the source fixes one file and leaves the bug for every future text.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "no-parallel-conversions",
+      "prompt": "There are 12 files to narrate and it's slow. Run four at a time to speed it up.",
+      "expected_output": "Assistant refuses to parallelise. It explains each Chatterbox process holds roughly 4-6 GB of VRAM, that two at once thrash the page file and can freeze the machine, and that narrate_batch.py is deliberately sequential. It offers smaller chunk sizes or an overnight run instead.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "stats-jsonl-trap",
+      "prompt": "Just average the s_per_char column in .chunk_stats.jsonl to check the run is healthy.",
+      "expected_output": "Assistant explains that file appends one record per synthesis ATTEMPT, so a 64-chunk chapter can hold 108 records, and averaging it mixes discarded takes with final ones — a mistake that previously produced two false 'verified clean' calls on a file with nine truncations. It reads WAV durations instead, via verify_narration.py.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "text-edited-after-conversion",
+      "prompt": "I fixed a typo in the middle of the Finnish post. Re-run it but reuse the chunk cache so it's quick.",
+      "expected_output": "Assistant warns that the chunk cache is keyed by chunk INDEX, so an edit that shifts boundaries splices audio from the old text into the new file, and re-converts fresh instead. It notes --keep-cache is only safe when the text is byte-identical.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "insufficient-vram",
+      "prompt": "Narrate D:/texts please.",
+      "expected_output": "If nvidia-smi shows less than roughly 6 GB free, the assistant stops before converting, reports which PIDs are holding VRAM, and asks the user how to proceed rather than terminating anything itself or starting a run that could thrash the page file.",
+      "files": []
+    }
+  ]
+}

@@ -109,13 +109,15 @@ A skill earns its keep when:
 
 A skill does **not** earn its keep when the workflow is one CLI
 command + `--help`, or when it restates CLAUDE.md rules that
-auto-load every session. Of the current 11 in-repo skills (plus a
+auto-load every session. Of the current 12 in-repo skills (plus a
 handful of Claude Code builtins like `simplify`, `loop`, `schedule`),
 ten are the survivors of a 2026-05-19 audit that retired four skills
 for those exact failure modes (see `README.md` "Skill catalog" for
 the audit verdicts); `engine-venv-triage` landed after that audit,
-encoding the v3.16.0–v3.17.3 field saga. Resist adding more without
-a real failure pattern to encode.
+encoding the v3.16.0–v3.17.3 field saga, and `narrate-texts` later
+still, bundling the narration batch runner and verifier as scripts so
+they stop being rewritten inline every session. Resist adding more
+without a real failure pattern to encode.
 
 Skill index (in-repo):
 
@@ -124,7 +126,7 @@ Skill index (in-repo):
 | Code quality | [`audit`](../.claude/skills/audit/SKILL.md), [`ai-codegen-smell-audit`](../.claude/skills/ai-codegen-smell-audit/SKILL.md) |
 | Git hygiene | [`copyright-scan`](../.claude/skills/copyright-scan/SKILL.md) |
 | Release / CI | [`release-cut`](../.claude/skills/release-cut/SKILL.md), [`release-bundle-audit`](../.claude/skills/release-bundle-audit/SKILL.md), [`ci-failure-triage`](../.claude/skills/ci-failure-triage/SKILL.md) |
-| Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
+| Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`narrate-texts`](../.claude/skills/narrate-texts/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
 | Multi-session | [`work-session`](../.claude/skills/work-session/SKILL.md), [`worktree-launch`](../.claude/skills/worktree-launch/SKILL.md) |
 | End-user support | [`engine-venv-triage`](../.claude/skills/engine-venv-triage/SKILL.md) |
 

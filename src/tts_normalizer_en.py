@@ -135,14 +135,28 @@ _EN_ST_STREET_RE = re.compile(r"\bSt\.(?!\s+[A-Z])")
 
 @functools.lru_cache(maxsize=None)
 def _get_abbrev_re(abbr: str) -> re.Pattern[str]:
-    # Build a regex that handles the literal abbreviation. We escape it
-    # and require either word-boundary or the trailing period itself
-    # to terminate the match.
+    """Match an abbreviation as a whole token, never as a word's tail.
+
+    A dotted abbreviation used to be matched by its literal text alone.
+    The trailing period ends the match, but nothing anchored the START,
+    so ``p.`` matched the last two characters of any word ending in p:
+    ``gap.`` was narrated as "gapage", and ``wake up.`` as "wake upage".
+    Every English word ending in p before a sentence period was corrupted
+    — gap, map, cap, top, step, group, trip, stop, help, ship.
+
+    Found by transcribing the audio. No duration check can see this: the
+    replacement is about as long as the original, so the chunk stays a
+    perfectly normal length while saying a word that does not exist.
+
+    The leading ``\\b`` is conditional because it only means "start of a
+    word" in front of a word character. Every entry in the table is
+    alphanumeric-initial today; the guard keeps a future symbol-initial
+    entry from silently matching nothing.
+    """
+    lead = r"\b" if abbr[:1].isalnum() else ""
     if abbr.endswith("."):
-        pattern = re.escape(abbr)
-    else:
-        pattern = r"\b" + re.escape(abbr) + r"\b"
-    return re.compile(pattern)
+        return re.compile(lead + re.escape(abbr))
+    return re.compile(lead + re.escape(abbr) + r"\b")
 
 
 def _pass_c_abbreviations(text: str) -> str:
