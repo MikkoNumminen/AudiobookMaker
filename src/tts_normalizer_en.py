@@ -33,6 +33,8 @@ from __future__ import annotations
 import functools
 import re
 
+from src.tts_symbols import expand_symbols
+
 # NOTE: _pass_o_dates is imported lazily inside normalize_english_text()
 # below to avoid a circular import — _en_pass_o_dates itself imports
 # _cardinal_word / _ordinal_word / _year_to_words from this module.
@@ -822,6 +824,12 @@ def normalize_english_text(
     # `Mr.` or `etc.` that share the period character.
     from src._en_pass_r_urls import _pass_r_urls_emails
     text = _pass_r_urls_emails(text)
+    # Pass Q — symbol expansion (−, ×, ±, ≈, +, = …). After R so a query
+    # string's `=` and `+` are inside an already-verbalised URL span
+    # instead of being read as arithmetic; before L/M/G so `−90` reaches
+    # the currency, unit and cardinal passes as `minus 90` with its digits
+    # still in digit form.
+    text = expand_symbols(text, _MY_LANG)
     text = _pass_c_abbreviations(text)
     text = _pass_d_roman_in_context(text)
     # Acronyms after D so `IV`, `XII` etc. (handled by Pass D as Roman

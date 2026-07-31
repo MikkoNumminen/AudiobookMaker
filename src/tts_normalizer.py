@@ -57,17 +57,24 @@ def normalize_text(
 
     if lang == "fi":
         from src.tts_normalizer_fi import normalize_finnish_text
-        return normalize_finnish_text(
+        out = normalize_finnish_text(
             text,
             drop_citations=drop_citations,
             year_shortening=year_shortening,
             _lang="fi",
         )
-
-    if lang == "en":
+    elif lang == "en":
         from src.tts_normalizer_en import normalize_english_text
-        return normalize_english_text(text, _lang="en")
+        out = normalize_english_text(text, _lang="en")
+    else:
+        raise ValueError(
+            f"Unsupported lang {lang!r}; expected one of {SUPPORTED_LANGS}."
+        )
 
-    raise ValueError(
-        f"Unsupported lang {lang!r}; expected one of {SUPPORTED_LANGS}."
-    )
+    # Final gate — applied here rather than inside each backend so that a
+    # language module cannot forget it. Any Unicode symbol still standing
+    # after normalization is one the synth cannot phonemize: English drops
+    # it silently and mis-narrates the sentence, Finnish early-stops and
+    # loses the rest of the chunk. See src/tts_symbols.py.
+    from src.tts_symbols import strip_unspeakable
+    return strip_unspeakable(out, lang)

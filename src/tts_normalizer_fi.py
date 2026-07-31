@@ -16,6 +16,7 @@ from typing import Optional
 
 from src.fi_loanwords import apply_loanword_respellings
 from src.tts_normalizer_fi_legal import expand_legal_citations
+from src.tts_symbols import expand_symbols
 
 
 # ---------------------------------------------------------------------------
@@ -846,6 +847,73 @@ _FI_COMPOUND_DIGIT_PREFIXES: tuple[str, ...] = (
     "sei",  # seitsemän (7), seitsemää (7 part)
     "kym",  # middle-tens kymmen* (e.g. sadankahden|kymmenen|viiden)
 )
+# Pass V — colon-suffixed numerals (`20:een`, `1990:n`, `5:llä`).
+#
+# Finnish writes a numeral's case ending after a colon. Without this pass
+# Pass G expands the digits in nominative and leaves the colon glued on,
+# producing non-words: `0:sta` → `nolla:sta`, `10:ssä` → `kymmenen:ssä`.
+# num2words already knows every case form, so all this pass has to do is
+# read the intended case off the suffix and let num2words spell it.
+#
+# The table lives in code rather than data/*.yaml on purpose: the YAML
+# tables exist for lists a contributor may want to tune (units, acronyms,
+# loanwords). The Finnish case system is not a tuning surface.
+#
+# Longest-first: `ssa` must be tested before `sa` would be, `lle` before
+# `lla`. The regex captures up to 4 letters and the lookup walks down.
+_FI_COLON_CASE: dict[str, str] = {
+    "n": "genitive",
+    "a": "partitive", "ä": "partitive",
+    "ta": "partitive", "tä": "partitive",
+    "ssa": "inessive", "ssä": "inessive",
+    "sta": "elative", "stä": "elative",
+    "lla": "adessive", "llä": "adessive",
+    "lta": "ablative", "ltä": "ablative",
+    "lle": "allative",
+    "na": "essive", "nä": "essive",
+    "ksi": "translative",
+    # Illative endings vary with the numeral stem (kahteen, viiteen,
+    # sataan, kymmeneen). We only need to RECOGNISE the ending as
+    # illative — num2words picks the right stem itself.
+    "an": "illative", "en": "illative", "in": "illative",
+    "on": "illative", "un": "illative", "yn": "illative",
+    "än": "illative", "ön": "illative",
+    "aan": "illative", "ään": "illative", "een": "illative",
+    "iin": "illative", "oon": "illative", "uun": "illative",
+    "yyn": "illative", "öön": "illative",
+    "hen": "illative", "hin": "illative", "seen": "illative",
+}
+
+# Digits, a colon, then 1-4 Finnish letters. Requiring letters after the
+# colon keeps clock times (`20:30`) and ratios (`1:5`) out of scope —
+# those belong to Pass T and to Pass G respectively.
+_FI_COLON_SUFFIX_RE = re.compile(r"\b(\d+):([a-zäöåA-ZÄÖÅ]{1,4})\b")
+
+
+def _expand_colon_suffixed_numerals(text: str, w) -> str:
+    """Expand `<digits>:<case ending>` into the inflected number word.
+
+    Args:
+        text: Text after Pass T, before Pass G.
+        w: The ``_w(n, case)`` num2words wrapper from the caller.
+
+    Returns:
+        Text with colon-suffixed numerals spelled out. An unrecognised
+        suffix falls back to nominative and the colon is still removed —
+        a slightly wrong case reads far better than a literal colon
+        wedged into the middle of a word.
+    """
+    def _sub(m: re.Match) -> str:
+        n = int(m.group(1))
+        suffix = m.group(2).lower()
+        case = _FI_COLON_CASE.get(suffix)
+        if case is None:
+            return f"{w(n)} {m.group(2)}"
+        return w(n, case)
+
+    return _FI_COLON_SUFFIX_RE.sub(_sub, text)
+
+
 _FI_MORPHEME_BOUNDARY_RE = re.compile(
     r"(" + "|".join(_FI_MORPHEME_STEMS) + r")"
     r"(?=(?:" + "|".join(_FI_COMPOUND_DIGIT_PREFIXES) + r"))"
@@ -1054,6 +1122,12 @@ def normalize_finnish_text(
     # about pictographs sneaking through character classes.
     text = _strip_emoji(text)
 
+    # Pass Q — symbol expansion (−, ×, ±, ≈, +, = …). Runs before M and G
+    # so the words it emits become governors the case detector can see:
+    # `884×900` → `884 kertaa 900`, and `kertaa` is already in the
+    # governor table. Runs after O so pictographs are gone first.
+    text = expand_symbols(text, _MY_LANG)
+
     # Pass Z — legal-citation expansion (§, law abbreviations, statute numbers,
     # articles, moments, page ranges). Runs before Pass A so that statute
     # numbers are turned into spoken "NNN kautta YYYY" and survive (a
@@ -1139,6 +1213,11 @@ def normalize_finnish_text(
             return f"{_w(whole)} pilkku {' '.join(_w(int(d)) for d in frac_str)}"
 
     text = _FI_DECIMAL_RE.sub(_decimal_sub, text)
+
+    # Pass V — colon-suffixed numerals (`20:een` → `kahteenkymmeneen`).
+    # Must run before G: G expands bare integers in nominative and would
+    # leave the colon and its ending stranded as a separate token.
+    text = _expand_colon_suffixed_numerals(text, _w)
 
     # Pass G — governor-aware integer expansion. Tokenize the text,
     # walk the tokens, and for every bare integer detect the governing
