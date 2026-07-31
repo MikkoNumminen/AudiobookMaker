@@ -98,6 +98,16 @@ _DIMENSION_RE = re.compile(r"(?<=\d)\s*" + _TIMES + r"\s*(?=\d)")
 
 _TIMES_WORDS = {"en": ("by", "times"), "fi": ("kertaa", "kertaa")}
 
+# `5x` — the multiplier idiom of tech prose. The `x` is a letter, so the
+# layer-2 gate cannot help: it survives normalization and glues onto the
+# spelled-out number as the non-word `viisix` / `fivex`.
+#
+# The `x` must touch the digit. `3 ≤ x` is an algebraic variable and has
+# to stay one.
+_MULTIPLIER_RE = re.compile(r"(?<=\d)x\b")
+
+_MULTIPLIER_WORDS = {"en": " times", "fi": " kertaa"}
+
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 
 
@@ -124,6 +134,7 @@ def expand_symbols(text: str, lang: str) -> str:
     dimension_word, times_word = _TIMES_WORDS[lang]
     text = _DIMENSION_RE.sub(f" {dimension_word} ", text)
     text = text.replace(_TIMES, f" {times_word} ")
+    text = _MULTIPLIER_RE.sub(_MULTIPLIER_WORDS[lang], text)
 
     for glyph, words in _SHARED_TABLE.items():
         if glyph in text:

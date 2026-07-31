@@ -148,6 +148,24 @@ def test_finnish_regression_chunk_is_fully_expanded():
     assert "kertaa" in out
 
 
+@pytest.mark.parametrize("lang,word", [("en", "times"), ("fi", "kertaa")])
+def test_multiplier_idiom_is_not_glued_to_the_number(lang, word):
+    """`5x` normalized to the non-word `fivex` / `viisix`.
+
+    The `x` is a letter, so the layer-2 gate is no help here — this one
+    has to be caught by name.
+    """
+    out = expand_symbols("now 5x", lang)
+    assert word in out
+    assert "5x" not in out
+
+
+@pytest.mark.parametrize("lang", ["en", "fi"])
+def test_algebraic_x_is_not_a_multiplier(lang):
+    """`3 ≤ x` is a variable. Only an `x` touching a digit is a multiplier."""
+    assert expand_symbols("3 ≤ x", lang).rstrip().endswith("x")
+
+
 def test_finnish_postfix_dollar_is_spoken_not_dropped():
     """Finnish writes currency after the number: `2,08 $`.
 
