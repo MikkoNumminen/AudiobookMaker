@@ -914,6 +914,30 @@ def _expand_colon_suffixed_numerals(text: str, w) -> str:
     return _FI_COLON_SUFFIX_RE.sub(_sub, text)
 
 
+# Pass U — Finnish thousands separator.
+#
+# Finnish writes large numbers with a SPACE between groups of three:
+# `24 000`, `231 369`, `3 755 242`. Nothing joined them, so Pass G saw two
+# or three independent integers and read them out one after another:
+# `24 000` became "kaksikymmentä neljä nolla" — twenty-four, zero — and
+# `3 755 242` became three separate numbers in a row. Every large figure
+# in a Finnish text was narrated as gibberish that still sounded fluent.
+#
+# The leading \b and the 1-3 digit first group together keep this off
+# genuinely adjacent numbers: in `vuonna 1917 500 ihmistä` the first group
+# would have to be four digits, so no match, and `1917` and `500` stay
+# apart. A non-breaking space counts as a separator — word processors
+# emit them here and they are invisible in a diff.
+_FI_THOUSANDS_RE = re.compile(r"\b(\d{1,3}(?:[  ]\d{3})+)\b")
+
+
+def _join_thousands_groups(text: str) -> str:
+    """Glue `24 000` into `24000` so the number pass reads one number."""
+    return _FI_THOUSANDS_RE.sub(
+        lambda m: m.group(1).replace(" ", "").replace(" ", ""), text
+    )
+
+
 _FI_MORPHEME_BOUNDARY_RE = re.compile(
     r"(" + "|".join(_FI_MORPHEME_STEMS) + r")"
     r"(?=(?:" + "|".join(_FI_COMPOUND_DIGIT_PREFIXES) + r"))"
@@ -1213,6 +1237,11 @@ def normalize_finnish_text(
             return f"{_w(whole)} pilkku {' '.join(_w(int(d)) for d in frac_str)}"
 
     text = _FI_DECIMAL_RE.sub(_decimal_sub, text)
+
+    # Pass U — join space-separated thousands groups. Must run before D
+    # (ranges) and G (cardinals): both treat each digit run as its own
+    # number, which is exactly the misreading this prevents.
+    text = _join_thousands_groups(text)
 
     # Pass V — colon-suffixed numerals (`20:een` → `kahteenkymmeneen`).
     # Must run before G: G expands bare integers in nominative and would
