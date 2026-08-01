@@ -27,6 +27,14 @@
 # Time
 - ["min", "minuuttia"]
 # Currency (suffix — after number)
+# Magnitude-prefixed forms come FIRST: the table is matched longest-first,
+# so a bare "€" would otherwise claim the symbol and leave the "M" welded
+# to the number. Before these existed, "1,5 M€" normalized to "yksi pilkku
+# viisi M" — the euro dropped silently by the unspeakable-symbol gate,
+# turning an amount into a bare number with no currency at all.
+- ["M€", "miljoonaa euroa"]
+- ["k€", "tuhatta euroa"]
+- ["Mrd€", "miljardia euroa"]
 # `$` belongs here as well as in the prefix regex in tts_normalizer_fi.py:
 # Finnish writes the symbol after the number (`2,08 $`), so the prefix
 # form alone left a bare `$` in the text. It reached the synth glued to

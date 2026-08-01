@@ -918,6 +918,41 @@ def _expand_colon_suffixed_numerals(text: str, w) -> str:
     return _FI_COLON_SUFFIX_RE.sub(_sub, text)
 
 
+# Pass Å — an ASCII hyphen used as a minus sign.
+#
+# The symbol pass reads U+2212 MINUS SIGN, but almost nobody types that:
+# real text writes `-19`, and Finnish had no rule for it, so the hyphen
+# reached the synth welded to the number word ("-yhdeksäntoista").
+#
+# Only when nothing word-like precedes it. `COVID-19` and `1500-luvulla`
+# use the same character as a compound boundary, and reading those as
+# arithmetic is the exact mistake English was making in reverse.
+# Runs after Pass D so a numeric range has already claimed its dash.
+_FI_ASCII_MINUS_RE = re.compile(r"(?<![\w-])-(?=\d)")
+
+
+# Pass W — dotted version numbers (`3.20.0`, `1.2.3`).
+#
+# Three or more dot-separated groups is a version, not a decimal. Pass F
+# claimed the first two and left the rest welded on: `3.20.0` became
+# `kolme pilkku kaksi.nolla`, with a period stranded inside the token and
+# the last component never read as a number at all.
+#
+# `piste`, not `pilkku`: Finnish separates decimals with a comma, so a
+# dot in a version is a dot, and calling it a comma would be wrong even
+# if it happened to sound fine.
+#
+# MUST run after Pass T. A real date is the same shape — `3.5.2026` —
+# and T claims those first; only what T leaves behind is a version.
+_FI_VERSION_RE = re.compile(r"\b\d+(?:\.\d+){2,}\b")
+
+
+def _expand_versions(text: str) -> str:
+    return _FI_VERSION_RE.sub(
+        lambda m: m.group(0).replace(".", " piste "), text
+    )
+
+
 # Pass X — ratios written with a colon (`1:5`, `1:20`).
 #
 # Pass V only claims a colon followed by LETTERS, so a digit:digit ratio
@@ -1232,6 +1267,11 @@ def normalize_finnish_text(
     # handlers would otherwise mangle `14.4.2026` and `klo 20:30`).
     text = _expand_dates_and_times(text)
 
+    # Pass W — version numbers. Immediately after T so real dates have
+    # already been claimed, and well before F so the decimal pass never
+    # sees a three-part version.
+    text = _expand_versions(text)
+
     # Pass L — Roman numerals (regnal ordinals, chapter ordinals, cardinal fallback).
     # Runs after Pass K (abbreviation expansion) so periods in abbreviations
     # don't bleed into Roman numeral detection; before Pass M so unit expansion
@@ -1281,6 +1321,11 @@ def normalize_finnish_text(
             return f"{_w(whole)} pilkku {' '.join(_w(int(d)) for d in frac_str)}"
 
     text = _FI_DECIMAL_RE.sub(_decimal_sub, text)
+
+    # Pass Å — ASCII hyphen as a minus sign. After D so a numeric range
+    # has already had its dash replaced, before G so the number is still
+    # a digit when the word lands next to it.
+    text = _FI_ASCII_MINUS_RE.sub("miinus ", text)
 
     # Pass U — join space-separated thousands groups. Must run before D
     # (ranges) and G (cardinals): both treat each digit run as its own
