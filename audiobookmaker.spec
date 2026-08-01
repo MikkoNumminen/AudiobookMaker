@@ -303,6 +303,7 @@ datas += [
     (os.path.join('src', 'tts_normalizer_fi.py'), 'src'),
     (os.path.join('src', 'tts_normalizer_fi_legal.py'), 'src'),
     (os.path.join('src', 'tts_normalizer_en.py'), 'src'),
+    (os.path.join('src', 'tts_symbols.py'), 'src'),
     (os.path.join('src', '_en_pass_o_dates.py'), 'src'),
     (os.path.join('src', '_en_pass_p_telephone.py'), 'src'),
     (os.path.join('src', '_en_pass_r_urls.py'), 'src'),

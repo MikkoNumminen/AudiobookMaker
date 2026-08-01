@@ -33,6 +33,8 @@ from __future__ import annotations
 import functools
 import re
 
+from src.tts_symbols import expand_symbols
+
 # NOTE: _pass_o_dates is imported lazily inside normalize_english_text()
 # below to avoid a circular import — _en_pass_o_dates itself imports
 # _cardinal_word / _ordinal_word / _year_to_words from this module.
@@ -133,14 +135,28 @@ _EN_ST_STREET_RE = re.compile(r"\bSt\.(?!\s+[A-Z])")
 
 @functools.lru_cache(maxsize=None)
 def _get_abbrev_re(abbr: str) -> re.Pattern[str]:
-    # Build a regex that handles the literal abbreviation. We escape it
-    # and require either word-boundary or the trailing period itself
-    # to terminate the match.
+    """Match an abbreviation as a whole token, never as a word's tail.
+
+    A dotted abbreviation used to be matched by its literal text alone.
+    The trailing period ends the match, but nothing anchored the START,
+    so ``p.`` matched the last two characters of any word ending in p:
+    ``gap.`` was narrated as "gapage", and ``wake up.`` as "wake upage".
+    Every English word ending in p before a sentence period was corrupted
+    — gap, map, cap, top, step, group, trip, stop, help, ship.
+
+    Found by transcribing the audio. No duration check can see this: the
+    replacement is about as long as the original, so the chunk stays a
+    perfectly normal length while saying a word that does not exist.
+
+    The leading ``\\b`` is conditional because it only means "start of a
+    word" in front of a word character. Every entry in the table is
+    alphanumeric-initial today; the guard keeps a future symbol-initial
+    entry from silently matching nothing.
+    """
+    lead = r"\b" if abbr[:1].isalnum() else ""
     if abbr.endswith("."):
-        pattern = re.escape(abbr)
-    else:
-        pattern = r"\b" + re.escape(abbr) + r"\b"
-    return re.compile(pattern)
+        return re.compile(lead + re.escape(abbr))
+    return re.compile(lead + re.escape(abbr) + r"\b")
 
 
 def _pass_c_abbreviations(text: str) -> str:
@@ -559,6 +575,18 @@ def _pass_m_units(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pass Q2 — colon ratios. Applied after Pass N so clock times are already
+# gone; anything still holding a colon between short digit runs is a ratio.
+_EN_RATIO_RE = re.compile(r"\b(\d{1,3}):(\d{1,3})\b")
+
+# A colon welded between two lowercase words is a compound the writer built,
+# not punctuation: "the input:output price ratio". Left alone it reaches the
+# synth inside the token. A space is how the phrase is actually read.
+# Requires no space after the colon, so ordinary "Note: something" and the
+# "//" of a URL are both out of scope.
+_EN_WORD_COLON_RE = re.compile(r"(?<=[a-z]):(?=[a-z])")
+
+
 # Pass N — time of day
 # ---------------------------------------------------------------------------
 
@@ -822,6 +850,12 @@ def normalize_english_text(
     # `Mr.` or `etc.` that share the period character.
     from src._en_pass_r_urls import _pass_r_urls_emails
     text = _pass_r_urls_emails(text)
+    # Pass Q — symbol expansion (−, ×, ±, ≈, +, = …). After R so a query
+    # string's `=` and `+` are inside an already-verbalised URL span
+    # instead of being read as arithmetic; before L/M/G so `−90` reaches
+    # the currency, unit and cardinal passes as `minus 90` with its digits
+    # still in digit form.
+    text = expand_symbols(text, _MY_LANG)
     text = _pass_c_abbreviations(text)
     text = _pass_d_roman_in_context(text)
     # Acronyms after D so `IV`, `XII` etc. (handled by Pass D as Roman
@@ -835,6 +869,16 @@ def normalize_english_text(
     text = _pass_l_currency(text)
     text = _pass_m_units(text)
     text = _pass_n_time(text)
+    # Pass Q2 — colon ratios ("the input:output ratio is 1:5"). Pass G
+    # would expand each side independently and leave the colon standing
+    # between two number words ("one:five"). English reads a ratio as
+    # "one to five".
+    #
+    # MUST run after N and before F/G: N has already claimed every clock
+    # time, so a colon still sitting between digits here is a ratio, and
+    # the digits are still digits for the cardinal sweep to pick up.
+    text = _EN_RATIO_RE.sub(r"\1 to \2", text)
+    text = _EN_WORD_COLON_RE.sub(" ", text)
     from src._en_pass_o_dates import _pass_o_dates  # lazy: avoid circular import
     text = _pass_o_dates(text)
     # Telephone before G so phone-shaped digit groups don't get cardinal-read.

@@ -10,6 +10,7 @@
 # need the "degree" word; they live in Python.
 
 # distance
+px:  [pixel, pixels]
 km:  [kilometer, kilometers]
 cm:  [centimeter, centimeters]
 mm:  [millimeter, millimeters]

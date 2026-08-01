@@ -9,6 +9,7 @@
 - ["°C", "celsiusastetta"]
 - ["°F", "fahrenheitastetta"]
 # Length (multi-char first)
+- ["px", "pikseliä"]
 - ["km", "kilometriä"]
 - ["cm", "senttimetriä"]
 - ["mm", "millimetriä"]
@@ -26,10 +27,21 @@
 # Time
 - ["min", "minuuttia"]
 # Currency (suffix — after number)
+# `$` belongs here as well as in the prefix regex in tts_normalizer_fi.py:
+# Finnish writes the symbol after the number (`2,08 $`), so the prefix
+# form alone left a bare `$` in the text. It reached the synth glued to
+# the preceding word and truncated the chunk.
 - ["€", "euroa"]
 - ["£", "puntaa"]
+- ["$", "dollaria"]
 # Percent / per-mille
 - ["%", "prosenttia"]
 - ["‰", "promillea"]
 # Legacy Finnish currency
 - ["mk", "markkaa"]
+# Bare seconds. LAST on purpose: `s` is a single character and this table
+# is matched longest-first, so every multi-character unit ending in s must
+# get its turn before this entry can claim one. Without it `0s` normalized
+# to `nollas` — which is a real Finnish word ("zeroth"), so it narrated
+# fluently while meaning something else entirely.
+- ["s", "sekuntia"]

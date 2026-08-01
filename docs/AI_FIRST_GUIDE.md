@@ -109,13 +109,15 @@ A skill earns its keep when:
 
 A skill does **not** earn its keep when the workflow is one CLI
 command + `--help`, or when it restates CLAUDE.md rules that
-auto-load every session. Of the current 11 in-repo skills (plus a
+auto-load every session. Of the current 12 in-repo skills (plus a
 handful of Claude Code builtins like `simplify`, `loop`, `schedule`),
 ten are the survivors of a 2026-05-19 audit that retired four skills
 for those exact failure modes (see `README.md` "Skill catalog" for
 the audit verdicts); `engine-venv-triage` landed after that audit,
-encoding the v3.16.0–v3.17.3 field saga. Resist adding more without
-a real failure pattern to encode.
+encoding the v3.16.0–v3.17.3 field saga, and `narrate-texts` later
+still, bundling the narration batch runner and verifier as scripts so
+they stop being rewritten inline every session. Resist adding more
+without a real failure pattern to encode.
 
 Skill index (in-repo):
 
@@ -124,7 +126,7 @@ Skill index (in-repo):
 | Code quality | [`audit`](../.claude/skills/audit/SKILL.md), [`ai-codegen-smell-audit`](../.claude/skills/ai-codegen-smell-audit/SKILL.md) |
 | Git hygiene | [`copyright-scan`](../.claude/skills/copyright-scan/SKILL.md) |
 | Release / CI | [`release-cut`](../.claude/skills/release-cut/SKILL.md), [`release-bundle-audit`](../.claude/skills/release-bundle-audit/SKILL.md), [`ci-failure-triage`](../.claude/skills/ci-failure-triage/SKILL.md) |
-| Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
+| Voice / TTS | [`voice-pack-finnish`](../.claude/skills/voice-pack-finnish/SKILL.md), [`narrate-texts`](../.claude/skills/narrate-texts/SKILL.md), [`pronunciation-corpus-add`](../.claude/skills/pronunciation-corpus-add/SKILL.md) |
 | Multi-session | [`work-session`](../.claude/skills/work-session/SKILL.md), [`worktree-launch`](../.claude/skills/worktree-launch/SKILL.md) |
 | End-user support | [`engine-venv-triage`](../.claude/skills/engine-venv-triage/SKILL.md) |
 
@@ -170,6 +172,64 @@ That's the loop. Memory tells the LLM who Turo is. Skill tells it
 what to do with his report. Project rules tell it how to phrase the
 commit. Tests prevent the same bug from coming back. Every pillar
 plays its part.
+
+### A second example: when the guardrails catch the agent
+
+The loop above describes work flowing outward from a report. This one
+runs the other way — the repo's own tests correcting the session that
+was trying to improve it.
+
+A batch conversion of blog posts produced a Finnish MP3 with a clause
+missing. The runner's band guard had flagged the chunk, retried it five
+times, and shipped it anyway.
+
+1. **The measurement came before the diagnosis.** Comparing every
+   chunk's speech rate against its own file's median narrowed 14 files
+   to four suspicious chunks. Transcribing those four with Whisper
+   confirmed exactly one real defect. Speech rate alone had called it
+   "probably fine" — see rule 5 in
+   [`docs/tts_symbol_handling.md`](tts_symbol_handling.md).
+2. **The same check was run on the language that looked clean.**
+   English had raised no warning at all. Its transcript showed the
+   sentence narrated with the minus sign silently dropped — a negative
+   offset read aloud as positive. The quieter failure was the worse
+   one, and only an unprompted check found it.
+3. **The fix was structural, not local.** Patching the two source files
+   would have fixed the delivery and left the bug. The repair was a
+   symbol-expansion pass plus a catch-all gate in the dispatcher, so no
+   future language backend can forget it.
+4. **A test the session wrote caught the session's own blind spot.** An
+   assertion that every glyph in the expansion table is also covered by
+   the catch-all failed on `½ ¼ ¾` — Unicode files fractions under
+   *number*, not *symbol*, so the gate had a hole exactly one category
+   wide. The test found it, not the author.
+5. **Two repo guardrails caught two more.**
+   [`test_check_spec_runner_imports`](../tests/test_check_spec_runner_imports.py)
+   refused the commit because a new `src/` module reachable from the
+   Chatterbox runner was missing from both PyInstaller specs — that
+   would have shipped a frozen build that crashed on import.
+   [`test_readme_claims`](../tests/test_readme_claims.py) refused it
+   because the README still advertised 16 normalizer passes when the
+   code now had 18.
+
+6. **The finished fix then reported a bug against itself.** Running the
+   new gate back over the same batch logged fifteen dropped dollar
+   signs — Finnish writes currency after the number (`2,08 $`) and only
+   the prefix form had a rule. One of them had truncated a chunk exactly
+   as the minus sign did. The gate alone would have made that silent
+   rather than broken; saying the amount out loud needed a second fix.
+
+Three of those six corrections came from the repo rather than from the
+agent, and a fourth came from the fix's own logging. That is the entire argument for this way of working: an agent
+writing carefully still ships defects, and the difference between a
+codebase that absorbs them and one that accumulates them is whether the
+guardrails are executable. A convention in a document gets skimmed. A
+test that fails the commit does not.
+
+The general rule this produced: **when a generated artefact looks wrong,
+verify it by transcribing or re-parsing the artefact itself, never by
+checking that the metric stayed in range.** A metric in range is the
+absence of evidence.
 
 ## Setting up a fresh clone
 
@@ -248,6 +308,10 @@ auto-generated CLI docs) is opportunity, not requirement.
   release conventions referenced from `CLAUDE.md`.
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — how the runtime fits
   together (engines, registry, GUI / CLI dispatch).
+- [`docs/tts_symbol_handling.md`](tts_symbol_handling.md) — the
+  worked example above in full: how an unpronounceable character
+  truncates Finnish audio and silently flips meaning in English, and
+  the two-layer defence against it.
 - [`docs/CLI.md`](CLI.md) — auto-generated CLI reference; the
   generator is [`scripts/render_cli_help.py`](../scripts/render_cli_help.py).
 - [`scripts/pre-commit`](../scripts/pre-commit) — the hook installed

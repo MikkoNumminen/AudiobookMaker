@@ -225,6 +225,31 @@ MAX_AUDIO_S_PER_CHAR = 0.200
 MIN_AUDIO_RETRY_CHAR_FLOOR = 40
 MIN_AUDIO_MAX_RETRIES = 5        # 1 initial + up to 5 re-rolls
 
+# --- Relative sweep (Pass R) -------------------------------------------
+#
+# MIN_AUDIO_S_PER_CHAR above is an ABSOLUTE floor, and it is set low enough
+# to be safe for the fastest text we narrate. That makes it blind to the
+# common case: a chapter whose healthy rate is 0.070 can truncate a chunk
+# down to 0.060 and sail straight past a 0.058 floor untouched. Observed on
+# a real conversion — nine of sixty-four chunks lost their closing clause
+# and six of those nine were never retried, because they were "fine"
+# against the constant while being plainly wrong against their neighbours.
+#
+# So after a chapter's chunks exist, compare each one against the MEDIAN
+# rate of that same chapter. Same voice, same language, same text — the
+# median is a far better expectation than any constant can be, and it costs
+# nothing to compute.
+#
+# Median (not mean) because the outliers we are hunting would drag a mean
+# down toward themselves and hide exactly what we want to see.
+MEDIAN_SWEEP_REL_FLOOR = 0.88     # re-roll below 88% of the chapter median
+MEDIAN_SWEEP_MIN_CHUNKS = 8       # fewer than this and a median means little
+MEDIAN_SWEEP_MAX_RETRIES = 3
+# If more than this fraction is below the floor, the problem is not a few
+# bad rolls — the text or the voice is off, and re-rolling half a book
+# would burn hours to fix nothing. Sweep the worst offenders and say so.
+MEDIAN_SWEEP_MAX_FRACTION = 0.25
+
 # Minimum chunk size handed to the chunker: fold stray sub-60-char clauses
 # into a neighbor so the model never sees a fragment it would ramble on.
 CHUNK_MIN_CHARS = 60
@@ -1094,6 +1119,181 @@ def _ratio_badness(audio_s: float, chunk_chars: int) -> float:
     return 0.0
 
 
+def _generate_chunk(engine, text: str, language: str, ref_wav_path):
+    """One generation with the project's fixed sampling settings.
+
+    Decoder state is cleared first so a re-roll cannot inherit whatever
+    produced the previous bad take — a re-roll that starts from the same
+    state tends to reproduce the same truncation.
+
+    Returns:
+        ``(wav, audio_seconds, wall_seconds)``.
+    """
+    _clear_chatterbox_state(engine)
+    t0 = time.time()
+    wav = engine.generate(
+        text,
+        language_id=language,
+        audio_prompt_path=ref_wav_path,
+        repetition_penalty=FI_REPETITION_PENALTY,
+        temperature=FI_TEMPERATURE,
+        exaggeration=FI_EXAGGERATION,
+        cfg_weight=FI_CFG_WEIGHT,
+    )
+    dt = time.time() - t0
+    return wav, wav.shape[-1] / engine.sr, dt
+
+
+def _median_sweep_candidates(
+    rates: list[tuple[int, int, float]],
+) -> tuple[float, list[tuple[int, int, float]]]:
+    """Pick the chunks that are short relative to their own chapter.
+
+    Split out from the sweep itself so the selection rule is testable
+    without a GPU, an engine, or any audio.
+
+    Args:
+        rates: ``(chunk_index, chars, audio_seconds)`` for every chunk big
+            enough to judge.
+
+    Returns:
+        ``(median_rate, suspects)``, worst first. ``median_rate`` is 0.0
+        and ``suspects`` empty when there is too little to compare
+        against — a three-chunk chapter has no meaningful median, and
+        guessing one would re-roll perfectly good audio.
+    """
+    import statistics
+
+    if len(rates) < MEDIAN_SWEEP_MIN_CHUNKS:
+        return 0.0, []
+
+    per_char = [(chi, chars, secs, secs / max(1, chars))
+                for chi, chars, secs in rates]
+    median = statistics.median(r for _, _, _, r in per_char)
+    if median <= 0:
+        return 0.0, []
+
+    floor = median * MEDIAN_SWEEP_REL_FLOOR
+    suspects = sorted(
+        [(chi, chars, secs) for chi, chars, secs, r in per_char if r < floor],
+        key=lambda t: t[2] / max(1, t[1]),
+    )
+
+    cap = max(1, int(len(per_char) * MEDIAN_SWEEP_MAX_FRACTION))
+    if len(suspects) > cap:
+        print(
+            f"[sweep] {len(suspects)}/{len(per_char)} chunks are below "
+            f"{MEDIAN_SWEEP_REL_FLOOR:.0%} of the chapter median — that is "
+            f"too many to be bad rolls, so the text or the voice is likely "
+            f"the cause. Re-rolling only the worst {cap}; the rest ship "
+            f"as-is.",
+            flush=True,
+        )
+        suspects = suspects[:cap]
+
+    return median, suspects
+
+
+def _run_median_sweep(
+    engine,
+    chunks_dir,
+    pos: int,
+    chunk_texts: list[str],
+    language: str,
+    ref_wav_path,
+    stats_path=None,
+    should_stop=None,
+) -> int:
+    """Re-roll chunks that are short relative to their chapter's median.
+
+    Runs once per chapter, after every chunk exists and before assembly.
+    The per-chunk band guard has already rejected the gross failures; this
+    catches the quieter ones it cannot see, where a chunk is plainly short
+    for this text but still above the absolute floor.
+
+    A replacement has to be better on two counts: closer to the median rate
+    AND not over the rambling edge. Without the second condition a re-roll
+    that babbles for thirty seconds would score as the best attempt, since
+    it is certainly not truncated.
+
+    Returns:
+        The number of chunks actually replaced.
+    """
+    rates: list[tuple[int, int, float]] = []
+    for chi, text in enumerate(chunk_texts):
+        if len(text) < MIN_AUDIO_RETRY_CHAR_FLOOR:
+            continue
+        secs = _cached_audio_seconds(chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav")
+        if secs > 0:
+            rates.append((chi, len(text), secs))
+
+    median, suspects = _median_sweep_candidates(rates)
+    if not suspects:
+        return 0
+
+    print(
+        f"[sweep] chapter median {median:.4f} s/char; "
+        f"{len(suspects)} chunk(s) below {MEDIAN_SWEEP_REL_FLOOR:.0%} of it",
+        flush=True,
+    )
+
+    replaced = 0
+    for chi, chars, secs in suspects:
+        if should_stop is not None and should_stop():
+            print("[sweep] stop requested; leaving the rest as-is", flush=True)
+            break
+
+        text = chunk_texts[chi]
+        best_secs, best_wav = secs, None
+        for attempt in range(1, MEDIAN_SWEEP_MAX_RETRIES + 1):
+            wav_r, secs_r, _ = _generate_chunk(engine, text, language,
+                                               ref_wav_path)
+            rate_r = secs_r / max(1, chars)
+            # Reject a rambler outright, then prefer whichever attempt sits
+            # nearest the median.
+            if rate_r > MAX_AUDIO_S_PER_CHAR:
+                continue
+            if abs(rate_r - median) < abs(best_secs / max(1, chars) - median):
+                best_secs, best_wav = secs_r, wav_r
+            if best_secs / max(1, chars) >= median * MEDIAN_SWEEP_REL_FLOOR:
+                break
+
+        if best_wav is None:
+            print(
+                f"[sweep] ch{pos:02d} chunk{chi:04d}: no better take in "
+                f"{MEDIAN_SWEEP_MAX_RETRIES} tries "
+                f"({secs / max(1, chars):.4f} s/char); keeping the original",
+                flush=True,
+            )
+            continue
+
+        import torchaudio as ta  # only needed once there is a take to keep
+
+        cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
+        ta.save(str(cache_path), best_wav, engine.sr)
+        replaced += 1
+        print(
+            f"[sweep] ch{pos:02d} chunk{chi:04d}: {secs:.2f}s -> "
+            f"{best_secs:.2f}s ({secs / max(1, chars):.4f} -> "
+            f"{best_secs / max(1, chars):.4f} s/char)",
+            flush=True,
+        )
+        if stats_path is not None:
+            _append_chunk_stats(stats_path, {
+                "ts": time.time(),
+                "pass": "median_sweep",
+                "chapter_pos": pos,
+                "chapter_chi": chi,
+                "input_chars": chars,
+                "audio_s": round(best_secs, 3),
+                "s_per_char": round(best_secs / max(1, chars), 4),
+                "replaced_audio_s": round(secs, 3),
+                "chapter_median_s_per_char": round(median, 4),
+            })
+
+    return replaced
+
+
 def _cached_chunk_healthy(cache_path, chunk_chars: int) -> bool:
     """True if a cached chunk WAV's audio length is in the healthy band.
 
@@ -1766,19 +1966,9 @@ def main() -> int:
                 ):
                     continue
 
-                _clear_chatterbox_state(engine)
-                t0 = time.time()
-                wav = engine.generate(
-                    chunk_text,
-                    language_id=args.language,
-                    audio_prompt_path=ref_wav_path,
-                    repetition_penalty=FI_REPETITION_PENALTY,
-                    temperature=FI_TEMPERATURE,
-                    exaggeration=FI_EXAGGERATION,
-                    cfg_weight=FI_CFG_WEIGHT,
+                wav, audio_s, dt = _generate_chunk(
+                    engine, chunk_text, args.language, ref_wav_path
                 )
-                dt = time.time() - t0
-                audio_s = wav.shape[-1] / engine.sr
 
                 # Band guard: T3's alignment analyzer + EOS sampler can
                 # truncate synthesis (audio far too short — dropped speech) OR
@@ -1807,19 +1997,9 @@ def main() -> int:
                         f"s_per_char={ratio:.4f} ({kind} suspected)",
                         flush=True,
                     )
-                    _clear_chatterbox_state(engine)
-                    t0r = time.time()
-                    wav_r = engine.generate(
-                        chunk_text,
-                        language_id=args.language,
-                        audio_prompt_path=ref_wav_path,
-                        repetition_penalty=FI_REPETITION_PENALTY,
-                        temperature=FI_TEMPERATURE,
-                        exaggeration=FI_EXAGGERATION,
-                        cfg_weight=FI_CFG_WEIGHT,
+                    wav_r, audio_s_r, dt_r = _generate_chunk(
+                        engine, chunk_text, args.language, ref_wav_path
                     )
-                    dt_r = time.time() - t0r
-                    audio_s_r = wav_r.shape[-1] / engine.sr
                     retries_used = attempt
                     # always charge the wall-clock
                     dt += dt_r
@@ -1885,6 +2065,23 @@ def main() -> int:
                     f"RTF {rtf:.2f}x",
                     flush=True,
                 )
+
+            # Pass R — relative sweep. Every chunk exists now, so the
+            # chapter's own median rate is available and each chunk can be
+            # judged against its neighbours instead of against a constant
+            # that has to stay safe for every text we might ever narrate.
+            if stop_flag["stop"]:
+                raise _StopRequested()
+            _run_median_sweep(
+                engine,
+                chunks_dir,
+                pos,
+                chunks,
+                args.language,
+                ref_wav_path,
+                stats_path=chunk_stats_path,
+                should_stop=lambda: stop_flag["stop"],
+            )
 
             # Concat + trim + postprocess this chapter.
             if stop_flag["stop"]:
