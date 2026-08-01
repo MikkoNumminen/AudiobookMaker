@@ -39,18 +39,24 @@ Agent(
      `--languages en` or `--only slug-a,slug-b` to narrow it, `--force`
      to redo existing output. Never run two conversions at once.
 
-  3. Verify — this is the part that matters:
+  3. Screen on duration (cheap, catches gross failures):
      ./.venv-chatterbox/Scripts/python.exe \
          .claude/skills/narrate-texts/scripts/verify_narration.py \
          --root .local/audiobooks/blog --texts <SOURCE_DIR> \
-         --chunk-chars 200 --transcribe
+         --chunk-chars 200
 
-     --chunk-chars MUST match the conversion or chunk boundaries will
-     not line up.
+  4. Then get the verdict, per file — this is the step that matters:
+     ./.venv-chatterbox/Scripts/python.exe \
+         .claude/skills/narrate-texts/scripts/verify_words.py \
+         --work .local/audiobooks/blog/work/<lang>/<slug> \
+         --text <SOURCE_DIR>/<lang>/<slug>.txt --language <lang>
 
-  4. Read every HEARD line against its TEXT line. Report any word that
-     differs, not just missing endings — a mispronunciation reads as a
-     real word and no measurement catches it.
+     A duration PASS proves nothing: three of four known truncations
+     read at or above their file's median rate.
+
+  5. Read every TEXT/HEARD pair it prints. [TRUNCATED] means content is
+     missing from the end — a real defect. [differs] is usually the
+     transcriber's spelling; judge each one.
 
   Report: per file, the duration and PASS/FAIL, plus every mismatch you
   found quoted verbatim. Do not report success on duration alone. If
@@ -67,9 +73,30 @@ subagent has already failed and you need to see the raw output.
 | Script | Does | Run with |
 |---|---|---|
 | `.claude/skills/narrate-texts/scripts/narrate_batch.py` | sequential conversion, handles the CLI quirks, logs, prints a summary | normal `python` |
-| `.claude/skills/narrate-texts/scripts/verify_narration.py` | per-chunk duration vs the file's own median, optional Whisper transcript | `./.venv-chatterbox/Scripts/python.exe` (Whisper lives there) |
+| `.claude/skills/narrate-texts/scripts/verify_narration.py` | per-chunk duration vs the file's own median — a cheap screen | `./.venv-chatterbox/Scripts/python.exe` |
+| `.claude/skills/narrate-texts/scripts/verify_words.py` | transcribes EVERY chunk, reports words the audio never says — **the verdict** | `./.venv-chatterbox/Scripts/python.exe` |
 
-Both take `--help`. Do not rewrite either one inline.
+All take `--help`. Do not rewrite any of them inline.
+
+### Duration is a screen. Words are the verdict.
+
+Of four confirmed truncations in one corpus, **three sat at or above
+their file's median speech rate**:
+
+| chunk | rate / median | what was lost |
+|---|---|---|
+| en 4 | **1.033** | "Tokens, total: 323,826" |
+| en 12 | 0.928 | "and only for the Haiku tier" |
+| fi 18 | 0.892 | "ja vain Haiku-tasolla" |
+| fi 1 | 0.855 | an entire closing sentence |
+
+A chunk that drops its final clause does not necessarily get shorter —
+the model speaks the surviving words a little slower and the ratio lands
+in the normal band. One read FASTER than average while missing its most
+important number.
+
+So `verify_narration.py` passing means nothing on its own. Always finish
+with `verify_words.py`.
 
 ## Voices
 
