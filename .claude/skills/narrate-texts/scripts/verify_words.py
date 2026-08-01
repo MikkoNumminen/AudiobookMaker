@@ -32,6 +32,7 @@ import importlib.util
 import io
 import re
 import sys
+from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -98,7 +99,9 @@ def main() -> int:
     ap.add_argument("--text", required=True)
     ap.add_argument("--language", required=True)
     ap.add_argument("--chunk-chars", type=int)
-    ap.add_argument("--repo", default="D:/koodaamista/AudiobookMaker")
+    # Derived from this file's location, not hardcoded: the script is
+    # committed and has to work in anyone's clone.
+    ap.add_argument("--repo", default=str(Path(__file__).resolve().parents[4]))
     args = ap.parse_args()
 
     mod = _load_runner(args.repo)
@@ -138,15 +141,25 @@ def main() -> int:
         if not missing:
             continue
 
-        # A chunk that loses its LAST words was truncated. A word missing
-        # from the middle is nearly always the transcriber choosing a
-        # different spelling for the same sound.
+        # Truncation needs BOTH signals: a missing word among the chunk's
+        # final words, AND a transcript materially shorter than the text.
+        # The tail test alone is not enough — a spelling difference that
+        # happens to fall near the end looks identical to a lost clause,
+        # and on its own it flagged "judgement" (spelt "judgment" by the
+        # transcriber) as a defect in a chunk that was entirely complete.
         tail = [w.lower().strip("-") for w in WORD.findall(text)][-8:]
-        kind = "TRUNCATED" if any(w in tail for w in missing) else "differs"
+        tail_loss = any(w in tail for w in missing)
+        shorter = len(heard) < len(text) * 0.88
+        kind = "TRUNCATED" if (tail_loss and shorter) else "differs"
         findings += 1
+        # Newlines are collapsed so each record stays exactly three lines.
+        # A title chunk carries a blank line after the heading, and left
+        # alone it pushes HEARD out of alignment for anything reading this
+        # output back.
+        flat_text = " ".join(text.split())
         print(f"[{kind}] chunk{i:04d} missing {missing}")
-        print(f"    TEXT : {text}")
-        print(f"    HEARD: {heard}")
+        print(f"    TEXT : {flat_text}")
+        print(f"    HEARD: {' '.join(heard.split())}")
         print()
 
     print(f"{findings} chunk(s) flagged of {len(chunks)}.")
