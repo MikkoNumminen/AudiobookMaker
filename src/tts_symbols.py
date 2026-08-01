@@ -118,6 +118,38 @@ _MULTIPLIER_WORDS = {"en": " times", "fi": " kertaa"}
 # boundary so model numbers and mixed-case identifiers are left alone.
 _DIGIT_LETTER_RE = re.compile(r"(?<=\d)([A-Z])\b")
 
+# The mirror: a digit fused AFTER letters. `MP3` became `MPthree`, `A4`
+# became `Aneljä`, `H2O` became `Htwo O`. Same defect, opposite order.
+#
+# Splitting hands each half to the pass that knows what to do with it:
+# `MP3` -> `MP 3` lets the acronym pass spell `MP` and the number pass
+# say `three`, which is how the token is actually read aloud.
+_LETTER_DIGIT_RE = re.compile(r"(?<=[A-Za-zÄÖÅäöå])(?=\d)")
+
+# A currency magnitude must stay welded to its amount. The currency pass
+# already reads "$1.5M" as "one point five million dollars", but only
+# while the suffix is attached — splitting it first left "one dollar and
+# fifty cents M", wrong by a factor of a million.
+#
+# Detected by looking at the surrounding text rather than by lookbehind,
+# because the amount is variable-width and `re` will not accept that.
+_CURRENCY_BEFORE_RE = re.compile(r"[$£€¥₹₽]\s*[\d.,]+$")
+_CURRENCY_CODE_AFTER_RE = re.compile(r"^\s+(USD|GBP|EUR|JPY|INR)\b")
+_MAGNITUDE_SUFFIXES = frozenset("KMBT")
+
+
+def _split_digit_capital(text: str) -> str:
+    def repl(m: re.Match) -> str:
+        if m.group(1) in _MAGNITUDE_SUFFIXES:
+            before = text[max(0, m.start() - 24):m.start()]
+            after = text[m.end():m.end() + 8]
+            if (_CURRENCY_BEFORE_RE.search(before)
+                    or _CURRENCY_CODE_AFTER_RE.match(after)):
+                return m.group(0)
+        return " " + m.group(1)
+
+    return _DIGIT_LETTER_RE.sub(repl, text)
+
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 
 
@@ -145,7 +177,8 @@ def expand_symbols(text: str, lang: str) -> str:
     text = _DIMENSION_RE.sub(f" {dimension_word} ", text)
     text = text.replace(_TIMES, f" {times_word} ")
     text = _MULTIPLIER_RE.sub(_MULTIPLIER_WORDS[lang], text)
-    text = _DIGIT_LETTER_RE.sub(r" \1", text)
+    text = _split_digit_capital(text)
+    text = _LETTER_DIGIT_RE.sub(" ", text)
 
     for glyph, words in _SHARED_TABLE.items():
         if glyph in text:

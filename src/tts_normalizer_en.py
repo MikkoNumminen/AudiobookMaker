@@ -577,6 +577,20 @@ def _pass_m_units(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Pass Q2 — colon ratios. Applied after Pass N so clock times are already
 # gone; anything still holding a colon between short digit runs is a ratio.
+# Pass W — dotted version numbers. Three or more dot-separated groups is
+# a version, not a decimal: Pass H claimed the first two of `3.20.0` and
+# left `.0` welded on, so it read as "three point two zero.0". Applied
+# after Pass O so real dates are already gone.
+_EN_VERSION_RE = re.compile(r"\b\d+(?:\.\d+){2,}\b")
+
+# Pass V — numeric ranges written with a hyphen. Applied after the year
+# and telephone passes, so this only sees what they did not claim.
+# Up to six digits per endpoint. Four left `12345-67890` with a hyphen
+# welded between two number words, which is the defect this pass exists
+# to remove. ISO dates and phone numbers are already claimed by their own
+# passes before this runs, so widening does not reach them.
+_EN_RANGE_RE = re.compile(r"\b(\d{1,6})-(\d{1,6})\b")
+
 _EN_RATIO_RE = re.compile(r"\b(\d{1,3}):(\d{1,3})\b")
 
 # A colon welded between two lowercase words is a compound the writer built,
@@ -657,8 +671,14 @@ def _pass_n_time(text: str) -> str:
 
 # Match standalone integers (with optional thousands separator and sign).
 # Keep it simple: integer surrounded by word boundaries, no decimal point.
-_EN_CARDINAL_RE = re.compile(r"(?<![\d.])-?\d{1,3}(?:,\d{3})+(?![\d.])"
-                              r"|(?<![\d.])-?\d+(?![\d.])")
+# The leading hyphen is a minus sign only when nothing word-like precedes
+# it. Allowing it after a letter turned every hyphenated alphanumeric
+# identifier into arithmetic: `COVID-19` was read as "C O V I Dminus
+# nineteen", `T-1000` as "Tminus one thousand". The hyphen in those is a
+# compound boundary, not a sign.
+_MINUS = r"(?:(?<![A-Za-z])-)?"
+_EN_CARDINAL_RE = re.compile(r"(?<![\d.])" + _MINUS + r"\d{1,3}(?:,\d{3})+(?![\d.])"
+                              r"|(?<![\d.])" + _MINUS + r"\d+(?![\d.])")
 
 
 def _pass_g_cardinal(text: str) -> str:
@@ -709,18 +729,33 @@ _EN_FRACTION_RE = re.compile(r"\b(\d+)/(\d+)\b")
 
 
 def _pass_i_fractions(text: str) -> str:
+    """Read `1/2` as a fraction, but only when it actually is one.
+
+    Any `N/M` used to become a fraction, inventing an ordinal for
+    whatever denominator it found: `50/50` was read as "fifty fiftieths"
+    and `15/75` as "fifteen seventy-fifths". Neither is a fraction —
+    they are a pair (an even split, a price pair) — and a listener has
+    no way to recover the real text from what came out.
+
+    A genuine fraction needs a proper numerator AND a denominator with a
+    natural spoken name. Everything else is a pair, and the slash is read
+    as the separator it is.
+    """
     def repl(m: re.Match[str]) -> str:
         num = int(m.group(1))
         den = int(m.group(2))
         if den == 0:
             return m.group(0)
-        num_word = _cardinal_word(num)
+
         den_word = _FRACTION_DENOMINATORS.get(den)
-        if den_word is None:
-            den_word = _ordinal_word(den)
+        if den_word is None or num >= den:
+            # A pair, not a fraction. Separate the halves so the cardinal
+            # pass reads each as its own number.
+            return f"{m.group(1)} {m.group(2)}"
+
         if num != 1:
             den_word = den_word + "s"
-        return f"{num_word} {den_word}"
+        return f"{_cardinal_word(num)} {den_word}"
     return _EN_FRACTION_RE.sub(repl, text)
 
 
@@ -858,15 +893,21 @@ def normalize_english_text(
     text = expand_symbols(text, _MY_LANG)
     text = _pass_c_abbreviations(text)
     text = _pass_d_roman_in_context(text)
+    # Currency BEFORE acronyms. `USD`, `GBP`, `EUR` are three-letter
+    # all-caps tokens, so the acronym sweep spells them out — and once
+    # `2.5M USD` has become `2.5M U S D` the currency pass no longer
+    # recognises it, leaving `M` to be read as "meters" by Pass M. The
+    # typed pattern has to claim its text before the generic sweep runs,
+    # which is the same rule the Phase 2 comment below states for F and G.
+    text = _pass_l_currency(text)
     # Acronyms after D so `IV`, `XII` etc. (handled by Pass D as Roman
     # numerals when in a regnal/cardinal context) aren't pre-empted.
     from src._en_pass_s_acronyms import _pass_s_acronyms
     text = _pass_s_acronyms(text)
     text = _pass_e_ordinal_digits(text)
     # Phase 2 typed-number passes — must run BEFORE the broad year /
-    # cardinal / decimal sweeps so currency, units, etc. consume their
+    # cardinal / decimal sweeps so units, times, etc. consume their
     # digits with the correct context.
-    text = _pass_l_currency(text)
     text = _pass_m_units(text)
     text = _pass_n_time(text)
     # Pass Q2 — colon ratios ("the input:output ratio is 1:5"). Pass G
@@ -879,12 +920,22 @@ def normalize_english_text(
     # the digits are still digits for the cardinal sweep to pick up.
     text = _EN_RATIO_RE.sub(r"\1 to \2", text)
     text = _EN_WORD_COLON_RE.sub(" ", text)
+    # Pass W — version numbers, after O (dates) and before H (decimals).
+    text = _EN_VERSION_RE.sub(lambda m: m.group(0).replace(".", " point "), text)
     from src._en_pass_o_dates import _pass_o_dates  # lazy: avoid circular import
     text = _pass_o_dates(text)
     # Telephone before G so phone-shaped digit groups don't get cardinal-read.
     from src._en_pass_p_telephone import _pass_p_telephone
     text = _pass_p_telephone(text)
     text = _pass_f_years(text)
+    # Pass V — numeric ranges. The year pass handles `1914-1918`, but
+    # nothing claimed `42-45`, so the hyphen stayed welded between two
+    # number words: "pages forty-two-forty-five". Finnish has had a range
+    # pass since the beginning; English did not.
+    #
+    # After P and F so phone numbers and year ranges keep their own
+    # readings, and before G so both endpoints are still digits.
+    text = _EN_RANGE_RE.sub(r"\1 to \2", text)
     # Fractions and decimals must run BEFORE the cardinal sweep, otherwise
     # G converts the digits in "1/2" or "3.14" individually and the
     # fraction/decimal regexes no longer match.
