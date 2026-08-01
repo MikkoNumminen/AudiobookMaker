@@ -172,3 +172,27 @@ foreign_names:
   Hegel: Heegel
   Pufendorf: Puufendorf
   Grotius: Grootiuss
+
+# Native Finnish words the Chatterbox-Finnish model reliably mispronounces,
+# mapped to a respelling that steers it right. The hyphen is a phoneme-boundary
+# hint and is inaudible in the output.
+#
+# Only add a word here after a fresh re-roll reproduces the mistake — a single
+# bad take is sampling noise, not a lexicon problem. Evidence for each entry
+# lives in docs/pronunciation_corpus_fi.md.
+#
+# Exact surface forms only. Finnish inflects heavily and the model does not
+# necessarily fail on every form, so each one that does needs its own entry.
+mispronounced_words:
+  # Narrated as "tyytämisen": word-initial p shifted to t. Failed on the
+  # original take, on a re-roll, and again in an isolated probe sentence;
+  # the hyphenated form was correct every time.
+  pyytämisen: pyy-tämisen
+  # Narrated as "tyynnön": the same word-initial p to t shift as
+  # `pyytämisen`, and the second instance of that pattern. Failed on the
+  # original take and on two independent re-rolls.
+  pyynnön: pyy-nnön
+  # Narrated as "katkaisi": the final e of the imperative flattened to i,
+  # which changes it from a command to a past tense. Persisted across
+  # re-rolls; the hyphenated form was correct.
+  katkaise: kat-kaise
