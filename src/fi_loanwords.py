@@ -36,12 +36,6 @@ class Lexicon:
     # Sorted longest-first for greedy phrase matching.
     latin_phrases: list[tuple[str, str]] = field(default_factory=list)
     foreign_names: dict[str, str] = field(default_factory=dict)
-    # Native Finnish words the model reliably mispronounces, mapped to a
-    # respelling that steers it right. Kept apart from foreign_names,
-    # which is case-sensitive and about proper nouns from other
-    # languages; these are ordinary Finnish and are matched regardless of
-    # case so a sentence-initial capital still hits.
-    mispronounced_words: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +94,6 @@ def _load_lexicon() -> Lexicon | None:
     tio_raw = raw.get("tio_stems") or []
     latin_raw = raw.get("latin_phrases") or {}
     names_raw = raw.get("foreign_names") or {}
-    mispron_raw = raw.get("mispronounced_words") or {}
 
     # Sort latin phrases longest-first so longer phrases are tried before
     # any shorter prefix phrase (e.g. "usus modernus pandectarum" before
@@ -116,9 +109,6 @@ def _load_lexicon() -> Lexicon | None:
         tio_stems=frozenset(str(s).lower() for s in tio_raw),
         latin_phrases=latin_sorted,
         foreign_names={str(k): str(v) for k, v in names_raw.items()},
-        mispronounced_words={
-            str(k).lower(): str(v) for k, v in mispron_raw.items()
-        },
     )
     return _lexicon_cache
 
@@ -207,43 +197,6 @@ def _respell_foreign_names(text: str, names: dict[str, str]) -> str:
     return pattern.sub(_sub, text)
 
 
-def _respell_mispronounced(text: str, words: dict[str, str]) -> str:
-    """Respell native Finnish words the model reliably gets wrong.
-
-    The respelling is a pronunciation hint, not a spelling change: a
-    hyphen inside the word nudges the phoneme boundary and is inaudible
-    in the output. `pyytämisen` was narrated as "tyytämisen" — the
-    word-initial plosive shifted from p to t — on every attempt
-    including fresh re-rolls, while `pyy-tämisen` came out right.
-
-    Matched case-insensitively, because these are ordinary words that
-    appear sentence-initially. A leading capital in the source is carried
-    over to the replacement so the respelling does not lowercase a
-    sentence start.
-
-    Only exact surface forms are matched. Finnish inflects heavily, so a
-    different form of the same stem needs its own entry — deliberately,
-    since the model does not necessarily fail on all of them.
-    """
-    if not words:
-        return text
-
-    sorted_keys = sorted(words.keys(), key=len, reverse=True)
-    pattern = re.compile(
-        r"\b(" + "|".join(re.escape(k) for k in sorted_keys) + r")\b",
-        re.IGNORECASE,
-    )
-
-    def _sub(m: re.Match) -> str:
-        original = m.group(1)
-        replacement = words[original.lower()]
-        if original[:1].isupper():
-            return replacement[:1].upper() + replacement[1:]
-        return replacement
-
-    return pattern.sub(_sub, text)
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -252,15 +205,11 @@ def _respell_mispronounced(text: str, words: dict[str, str]) -> str:
 def apply_loanword_respellings(text: str) -> str:
     """Apply Pass I loanword respellings to Finnish text.
 
-    Runs five sub-passes in order:
+    Runs four sub-passes in order:
     1. Foreign name substitution (exact word, case-sensitive key lookup)
     2. Latin phrase substitution (case-insensitive, longest-first)
     3. ``-ismi`` stem respelling (insert hyphen: ``humanis-mi``)
     4. ``-tio`` stem respelling (insert hyphen: ``instituu-tio``)
-    5. Mispronounced native words (case-insensitive exact word)
-
-    Sub-pass 5 runs last so a word already rewritten by an earlier,
-    more general rule is not respelled twice.
 
     If the lexicon cannot be loaded (missing file, missing PyYAML, parse
     error) the function returns *text* unchanged — no exception is raised.
@@ -276,5 +225,4 @@ def apply_loanword_respellings(text: str) -> str:
     text = _respell_latin_phrases(text, lex.latin_phrases)
     text = _respell_ismi(text, lex.ismi_stems)
     text = _respell_tio(text, lex.tio_stems)
-    text = _respell_mispronounced(text, lex.mispronounced_words)
     return text

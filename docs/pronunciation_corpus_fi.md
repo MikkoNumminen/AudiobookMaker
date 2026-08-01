@@ -32,7 +32,7 @@ description of what the model is doing wrong.
 | `word-boundary-collapse` | Two separate words fuse into one mangled token — phonemes from both words get dropped or merged. | `ennen vain` → `ennenvän` |
 | `early-stop-truncation` | The model generates an early end-of-sequence token mid-sentence, cutting the audio short. Typically triggered by long compound words or complex legal/technical terms. | `asianosaisaloitteinen menettely` → `menet` |
 | `sibilant-substitution` | The Finnish `s` is replaced by a German-style `sch` sound. This is bleed-through from the multilingual base model's Germanic training data. | `sen` → `schen` |
-| `plosive-substitution` | A word-initial plosive changes place of articulation, most often `p` → `t`. Both observed cases are `pyy`-initial. Distinguishing feature: it survives a re-roll, which is what separates it from ordinary sampling noise. | `pyytämisen` → `tyytämisen` |
+| `plosive-substitution` | A word-initial plosive changes place of articulation, most often `p` → `t`. Both observed cases are `pyy`-initial. Context-dependent rather than lexical: the same word reads correctly in a different sentence, so the fix is a chunk re-roll, not a respelling. | `pyytämisen` → `tyytämisen` |
 | `other` | Anything that does not fit the categories above. Describe the failure in the `Notes` column so future contributors can decide whether it deserves its own category. | — |
 
 ---
@@ -46,10 +46,24 @@ description of what the model is doing wrong.
 | 003 | `ennen vain` | ennen vain | ennenvän | `word-boundary-collapse` | tester stress-test (fi) | 2026-04-13 | Word boundary lost; `ai` in `vain` reduced to `ä`; possibly a tokeniser boundary issue |
 | 004 | `äänikirja` | äänikirja | aanikirja | `umlaut-drop` | tester stress-test (fi) | 2026-04-13 | Both `ä` in `ää` dropped to `a`; classic back-vowel collapse at word start |
 | 005 | `asianosaisaloitteinen menettely` | asianosaisaloitteinen menettely | menet | `early-stop-truncation` | tester long-text sample, ch 5-8 (tier 2 first pass) | 2026-04-13 | Long compound triggered premature EOS; only first two syllables of `menettely` produced |
-| 006 | `riviäkään` | riviäkään | liviäkään | `other` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Word-initial `r` produced as `l`. STOCHASTIC, not lexical — an isolated probe read the same word correctly, and a targeted re-roll of the chunk fixed it. Kept as evidence for the substitution class; do NOT add a lexicon entry for it |
-| 007 | `pyytämisen` | pyytämisen | tyytämisen | `plosive-substitution` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Word-initial `p` produced as `t`. Failed on the original take, a fresh re-roll, AND an isolated probe. Fixed by `pyy-tämisen`, now in `mispronounced_words` |
-| 008 | `pyynnön` | pyynnön | tyynnön | `plosive-substitution` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Second instance of the same `p`→`t` shift, and the reason the category exists. Both words are `pyy`-initial. Fixed by `pyy-nnön` |
-| 009 | `katkaise` | katkaise | katkaisi / katkaisen | `other` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Imperative flattened to past tense or first person — a grammatical change, not just a sound. Persisted across three takes; `kat-kaise` helped in a probe but not reliably in context, and a further re-roll is what finally landed it |
+| 006 | `riviäkään` | riviäkään | liviäkään | `other` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Word-initial `r` produced as `l`. Context-dependent: correct at baseline in an isolated probe, and a targeted chunk re-roll fixed it |
+| 007 | `pyytämisen` | pyytämisen | tyytämisen | `plosive-substitution` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Word-initial `p` produced as `t`. Failed three times in its own chunk, but **correct 2/2 at baseline** in a neutral probe. Respelling `pyy-tämisen` tested 1/2 — it produced `tyyttämisen` once, so it is WORSE than leaving the word alone |
+| 008 | `pyynnön` | pyynnön | tyynnön | `plosive-substitution` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Same `p`→`t` shift; both words are `pyy`-initial. Failed three times in its own chunk, correct 2/2 at baseline in a probe. Respelling also 2/2, so there is no measurable benefit |
+| 009 | `katkaise` | katkaise | katkaisi / katkaisen | `other` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Imperative flattened to past tense or first person — a grammatical change, not just a sound. A/B over three takes each: baseline 2-3/3, respelled `kat-kaise` 1/3 (one take fused it into `katkaiseverppoyhteys`). Respelling is actively harmful here |
+
+### What the 2026-08-02 batch established
+
+All four failures above are **context-dependent, not lexical**. Each word
+was read correctly at baseline when probed in a neutral sentence, and each
+was fixed by re-rolling its chunk. An A/B of hyphen respellings against
+baseline, three takes each, found the respelling never better and twice
+worse.
+
+So the fix lane for these is a targeted chunk re-roll, not a lexicon
+entry. A respelling mechanism was built for them and then removed, because
+the evidence did not support a single entry. If a future word does fail at
+baseline in a neutral probe, that is when a lexicon pass earns its place —
+and the A/B above is the shape of the test it should have to pass.
 
 ---
 
