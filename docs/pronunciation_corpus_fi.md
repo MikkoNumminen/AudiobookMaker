@@ -45,6 +45,8 @@ description of what the model is doing wrong.
 | 003 | `ennen vain` | ennen vain | ennenvän | `word-boundary-collapse` | tester stress-test (fi) | 2026-04-13 | Word boundary lost; `ai` in `vain` reduced to `ä`; possibly a tokeniser boundary issue |
 | 004 | `äänikirja` | äänikirja | aanikirja | `umlaut-drop` | tester stress-test (fi) | 2026-04-13 | Both `ä` in `ää` dropped to `a`; classic back-vowel collapse at word start |
 | 005 | `asianosaisaloitteinen menettely` | asianosaisaloitteinen menettely | menet | `early-stop-truncation` | tester long-text sample, ch 5-8 (tier 2 first pass) | 2026-04-13 | Long compound triggered premature EOS; only first two syllables of `menettely` produced |
+| 006 | `riviäkään` | riviäkään | liviäkään | `other` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Word-initial `r` produced as `l`. Reproduced on a fresh re-roll, so it is the word rather than sampling noise. Candidate new category `liquid-substitution` if a second `r`→`l` case appears |
+| 007 | `pyytämisen` | pyytämisen | tyytämisen | `other` | blog narration (fi), `asking-people-to-install-it` | 2026-08-02 | Word-initial `p` produced as `t`. Reproduced on a fresh re-roll. Both plosives, place of articulation shifted front-to-back; candidate category `plosive-substitution` if it recurs |
 
 ---
 
