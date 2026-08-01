@@ -62,10 +62,14 @@ def test_clock_times_are_left_to_pass_t():
 
 
 def test_digit_only_ratios_are_not_treated_as_suffixes():
-    """`1:5` has digits after the colon, so the suffix regex must miss it."""
+    """`1:5` has digits after the colon, so THIS pass must miss it.
+
+    Pass X picks it up instead and reads it as a ratio — "yksi viiteen",
+    with the second number in the illative. What matters here is only
+    that Pass V does not try to read `5` as a case ending.
+    """
     out = normalize_text("suhde 1:5", "fi")
-    assert "yksi" in out
-    assert "viisi" in out
+    assert "yksi viiteen" in out
 
 
 def test_unrecognised_suffix_still_loses_the_colon():

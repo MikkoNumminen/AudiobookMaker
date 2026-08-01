@@ -575,6 +575,18 @@ def _pass_m_units(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pass Q2 — colon ratios. Applied after Pass N so clock times are already
+# gone; anything still holding a colon between short digit runs is a ratio.
+_EN_RATIO_RE = re.compile(r"\b(\d{1,3}):(\d{1,3})\b")
+
+# A colon welded between two lowercase words is a compound the writer built,
+# not punctuation: "the input:output price ratio". Left alone it reaches the
+# synth inside the token. A space is how the phrase is actually read.
+# Requires no space after the colon, so ordinary "Note: something" and the
+# "//" of a URL are both out of scope.
+_EN_WORD_COLON_RE = re.compile(r"(?<=[a-z]):(?=[a-z])")
+
+
 # Pass N — time of day
 # ---------------------------------------------------------------------------
 
@@ -857,6 +869,16 @@ def normalize_english_text(
     text = _pass_l_currency(text)
     text = _pass_m_units(text)
     text = _pass_n_time(text)
+    # Pass Q2 — colon ratios ("the input:output ratio is 1:5"). Pass G
+    # would expand each side independently and leave the colon standing
+    # between two number words ("one:five"). English reads a ratio as
+    # "one to five".
+    #
+    # MUST run after N and before F/G: N has already claimed every clock
+    # time, so a colon still sitting between digits here is a ratio, and
+    # the digits are still digits for the cardinal sweep to pick up.
+    text = _EN_RATIO_RE.sub(r"\1 to \2", text)
+    text = _EN_WORD_COLON_RE.sub(" ", text)
     from src._en_pass_o_dates import _pass_o_dates  # lazy: avoid circular import
     text = _pass_o_dates(text)
     # Telephone before G so phone-shaped digit groups don't get cardinal-read.

@@ -364,6 +364,10 @@ _FI_ACRONYM_FALLBACK_RE = re.compile(r"\b[A-Z]{2,4}\b")
 _FI_NONACRONYM_WORDS: frozenset[str] = frozenset({
     "JA", "JO", "ON", "OS", "SE", "EI", "EN",
     "JOS", "KUN", "NYT", "MUT", "TAI", "MIT", "NIN",
+    # Technical acronyms that Finnish speakers say as words rather than
+    # spell. Without these a post about software gets "jii äs oo än"
+    # where every reader says "json".
+    "JSON", "YAML", "JPEG", "GIF", "CUDA", "LORA",
 })
 
 # Used for the heading-run heuristic: a whitespace-separated token that is
@@ -914,6 +918,46 @@ def _expand_colon_suffixed_numerals(text: str, w) -> str:
     return _FI_COLON_SUFFIX_RE.sub(_sub, text)
 
 
+# Pass X — ratios written with a colon (`1:5`, `1:20`).
+#
+# Pass V only claims a colon followed by LETTERS, so a digit:digit ratio
+# fell through to Pass G, which expanded each side independently and left
+# the colon standing between two number words: `yksi:viisi`. Finnish reads
+# a ratio with the second number in the illative — "yksi viiteen" — which
+# num2words can spell directly.
+#
+# Clock times are already gone by the time this runs: Pass T consumes
+# `klo 20:30` earlier, so a colon still sitting between digits here is a
+# ratio rather than a time.
+_FI_RATIO_RE = re.compile(r"\b(\d{1,3}):(\d{1,3})\b")
+
+
+def _expand_ratios(text: str, w) -> str:
+    """`1:5` → `yksi viiteen`."""
+    return _FI_RATIO_RE.sub(
+        lambda m: f"{w(int(m.group(1)))} {w(int(m.group(2)), 'illative')}",
+        text,
+    )
+
+
+# Pass Y — case endings attached to a letter or acronym with a colon.
+#
+# Finnish glues an ending to a non-word token through a colon: `USA:ssa`,
+# `EU:n`, `README:en`, `ID:llä`, `M:n`. Pass V handles the digit form; this
+# is the letter form, and without it the colon reached the synth wedged
+# inside the token.
+#
+# The colon becomes a hyphen rather than vanishing. Deleting it fuses the
+# ending onto the stem ("READMEen"), while a hyphen is the boundary marker
+# the loanword pass already uses to steer pronunciation, and the engine
+# reads both halves. Runs AFTER acronym expansion so `ID:llä` has already
+# become `ii dee:llä` and comes out `ii dee-llä`.
+#
+# Requires a lowercase letter after the colon, which keeps `http://` and
+# `Note: something` out of scope.
+_FI_COLON_CLITIC_RE = re.compile(r"(?<=[A-Za-zÄÖÅäöå]):(?=[a-zäöå])")
+
+
 # Pass U — Finnish thousands separator.
 #
 # Finnish writes large numbers with a SPACE between groups of three:
@@ -1248,6 +1292,11 @@ def normalize_finnish_text(
     # leave the colon and its ending stranded as a separate token.
     text = _expand_colon_suffixed_numerals(text, _w)
 
+    # Pass X — colon ratios (`1:5` → `yksi viiteen`). After V so a
+    # digit:letter clitic is already claimed, before G so both sides are
+    # still digits.
+    text = _expand_ratios(text, _w)
+
     # Pass G — governor-aware integer expansion. Tokenize the text,
     # walk the tokens, and for every bare integer detect the governing
     # word within ±3 word tokens to pick the correct num2words case.
@@ -1283,6 +1332,11 @@ def normalize_finnish_text(
 
     # Pass H — split glued compound-number morphemes (post num2words).
     text = _fi_split_number_compounds(text)
+
+    # Pass Y — colon clitics on letters/acronyms (`README:en` → `README-en`).
+    # Last of the colon passes: V and X have already taken every colon that
+    # belongs to a numeral, so whatever is left is the letter form.
+    text = _FI_COLON_CLITIC_RE.sub("-", text)
 
     # Collapse whitespace introduced by deletions/substitutions.
     text = _FI_WHITESPACE_CLEANUP_RE.sub(" ", text)
