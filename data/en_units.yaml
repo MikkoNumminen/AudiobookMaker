@@ -17,7 +17,13 @@ mm:  [millimeter, millimeters]
 m:   [meter, meters]
 mi:  [mile, miles]
 ft:  [foot, feet]
-in:  [inch, inches]
+# NO bare `in` for inches. It is spelled the same as the commonest
+# preposition in the language, and the unit rule fires on any number in
+# front of it: "1 in 7" became "one inch seven", "2 in the morning"
+# became "two inches the morning", and "at 12:30 in the afternoon" lost
+# its clock time because the unit pass ate the 30 before the time pass
+# ran. Inches in prose are written "inch"/"inches" or with a quote mark;
+# the abbreviation is rare and the collision is constant.
 yd:  [yard, yards]
 # mass / weight
 kg:  [kilogram, kilograms]
