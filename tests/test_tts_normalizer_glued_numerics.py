@@ -108,14 +108,20 @@ def test_finnish_magnitude_currency(src, expected):
     assert "€" not in out
 
 
-@pytest.mark.parametrize("lang,src", [
-    ("en", "a 4K screen"), ("en", "solid 3D letters"), ("fi", "3D-kirjaimina"),
+@pytest.mark.parametrize("lang,src,expected", [
+    ("en", "a 4K screen", "four K"),
+    ("en", "solid 3D letters", "three D"),
+    ("fi", "3D-kirjaimina", "kolme D"),
 ])
-def test_non_currency_digit_capital_still_splits(lang, src):
-    """The currency exception must not swallow the original fix."""
-    out = normalize_text(src, lang)
-    assert "K " in out or "D" in out
-    assert "fourK" not in out and "threeD" not in out
+def test_non_currency_digit_capital_still_splits(lang, src, expected):
+    """The currency exception must not swallow the original fix.
+
+    Asserts the exact split. An earlier version of this test checked
+    only that the output contained `"K "` or `"D"`, which is true of
+    almost any string and would have passed even if the split had been
+    removed entirely.
+    """
+    assert expected in normalize_text(src, lang)
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +163,35 @@ def test_english_numeric_ranges(src, expected):
     """English had a year-range rule but no general one, so `42-45`
     kept a hyphen welded between two number words."""
     assert expected in normalize_text(src, "en")
+
+
+@pytest.mark.parametrize("lang,src,expected", [
+    ("en", "12345-67890 ids", "to sixty-seven thousand"),
+    ("fi", "24 000-30 000 kappaletta", "neljätuhatta kolmekymmentätuhatta"),
+])
+def test_long_ranges_are_split_too(lang, src, expected):
+    """Both languages capped an endpoint at four digits, so a longer
+    range kept its dash welded between two number words."""
+    assert expected in normalize_text(src, lang)
+
+
+def test_finnish_range_is_not_joined_as_a_thousands_group():
+    """The range pass replaces the dash with a SPACE, and `100 200` is
+    indistinguishable from a Finnish thousands group.
+
+    With the thousands pass running second, `sivut 100-200` was read as
+    "satatuhatta kaksisataa" — one hundred thousand two hundred. The
+    thousands pass now runs first, so it only ever sees the source form,
+    where a real group is space-separated and a range is dash-separated.
+    """
+    out = normalize_text("sivut 100-200", "fi")
+    assert "sata kaksisataa" in out
+    assert "satatuhatta" not in out
+
+
+def test_finnish_thousands_still_join_after_the_reorder():
+    assert "neljätuhatta" in normalize_text("24 000 partikkelia", "fi")
+    assert "kolmemiljoonaa" in normalize_text("3 755 242 tokenia", "fi")
 
 
 def test_year_ranges_keep_their_own_reading():

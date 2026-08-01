@@ -576,7 +576,11 @@ def _fi_century_re() -> re.Pattern[str]:
 # `num` tokens and each one independently looks up ±3 word tokens for
 # a governor. Ranges without a governor (bare `5-2` arithmetic) fall
 # back to nominative on both endpoints, which is acceptable for TTS.
-_FI_RANGE_RE = re.compile(r"(\d{1,4})\s*[-–]\s*(\d{1,4})\b")
+# Up to six digits per endpoint. Four left a longer range with its dash
+# welded between two number words. Safe to widen now that Pass U joins
+# thousands groups BEFORE this runs — a joined `24000-30000` is six
+# digits a side and would otherwise never be split.
+_FI_RANGE_RE = re.compile(r"(\d{1,6})\s*[-–]\s*(\d{1,6})\b")
 
 # Pass E: "s. 42" / "ss. 42-45" page abbreviation. Expand ONLY the
 # abbreviation; leave the digits for Pass G so governor-aware case
@@ -1293,6 +1297,19 @@ def normalize_finnish_text(
 
     text = _fi_century_re().sub(_century_sub, text)
 
+    # Pass U — join space-separated thousands groups. MUST run before D.
+    #
+    # D splits a range on its dash by replacing it with a SPACE, and
+    # `100-200` then becomes `100 200` — which is indistinguishable from
+    # a Finnish thousands group. U ran after D and duly joined it, so
+    # `sivut 100-200` was read as "satatuhatta kaksisataa", one hundred
+    # thousand two hundred, instead of two separate numbers.
+    #
+    # Running U first removes the ambiguity entirely: a real thousands
+    # group is separated by a space in the source, a range by a dash, and
+    # U only ever sees the source form.
+    text = _join_thousands_groups(text)
+
     # Pass D — numeric ranges. Split the endpoints on the dash and let
     # Pass G's tokenizer + governor detection handle each endpoint
     # independently. `vuosina 1914-1918` under year_shortening="full"
@@ -1326,11 +1343,6 @@ def normalize_finnish_text(
     # has already had its dash replaced, before G so the number is still
     # a digit when the word lands next to it.
     text = _FI_ASCII_MINUS_RE.sub("miinus ", text)
-
-    # Pass U — join space-separated thousands groups. Must run before D
-    # (ranges) and G (cardinals): both treat each digit run as its own
-    # number, which is exactly the misreading this prevents.
-    text = _join_thousands_groups(text)
 
     # Pass V — colon-suffixed numerals (`20:een` → `kahteenkymmeneen`).
     # Must run before G: G expands bare integers in nominative and would

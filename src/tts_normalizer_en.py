@@ -585,7 +585,11 @@ _EN_VERSION_RE = re.compile(r"\b\d+(?:\.\d+){2,}\b")
 
 # Pass V — numeric ranges written with a hyphen. Applied after the year
 # and telephone passes, so this only sees what they did not claim.
-_EN_RANGE_RE = re.compile(r"\b(\d{1,4})-(\d{1,4})\b")
+# Up to six digits per endpoint. Four left `12345-67890` with a hyphen
+# welded between two number words, which is the defect this pass exists
+# to remove. ISO dates and phone numbers are already claimed by their own
+# passes before this runs, so widening does not reach them.
+_EN_RANGE_RE = re.compile(r"\b(\d{1,6})-(\d{1,6})\b")
 
 _EN_RATIO_RE = re.compile(r"\b(\d{1,3}):(\d{1,3})\b")
 
