@@ -149,7 +149,12 @@ def main() -> int:
         # transcriber) as a defect in a chunk that was entirely complete.
         tail = [w.lower().strip("-") for w in WORD.findall(text)][-8:]
         tail_loss = any(w in tail for w in missing)
-        shorter = len(heard) < len(text) * 0.88
+        # Compare WORD counts, not string lengths. The normalizer spells
+        # digits out and the transcriber writes them back as digits, so a
+        # number-heavy chunk always looks short: "neljä pilkku kahdeksan"
+        # against "4,8". That alone reported a complete chunk as truncated
+        # — its only fault was an r read as an l.
+        shorter = len(WORD.findall(heard)) < len(WORD.findall(text)) * 0.85
         kind = "TRUNCATED" if (tail_loss and shorter) else "differs"
         findings += 1
         # Newlines are collapsed so each record stays exactly three lines.
