@@ -71,6 +71,19 @@ _RE_US_10 = re.compile(
     + _NONDIGIT_RIGHT
 )
 
+# Local 7-digit: NNN-NNNN, but ONLY after a word that makes it a phone
+# number. The bare shape is indistinguishable from a numeric range —
+# `100-2000` is three digits, a dash and four digits too — so matching it
+# unconditionally would read ordinary ranges digit by digit. The cue is
+# what disambiguates, and requiring one means the failure mode is a
+# missed phone number rather than a mangled range.
+_RE_LOCAL_7 = re.compile(
+    r"\b(call|phone|dial|fax|tel|telephone|ring)"
+    r"(\s+(?:us|me|him|her|them|at|on)){0,2}\s+"
+    + _NONDIGIT_LEFT + r"(\d{3})[-\s](\d{4})" + _NONDIGIT_RIGHT,
+    re.IGNORECASE,
+)
+
 
 def _pass_p_telephone(text: str) -> str:
     """Convert phone-number strings into digit-by-digit spoken form."""
@@ -111,10 +124,22 @@ def _pass_p_telephone(text: str) -> str:
             f"{_digits_to_words(c)}"
         )
 
+    def repl_local_7(m: re.Match[str]) -> str:
+        # Groups: 1 = cue word, 2 = last optional filler, 3/4 = the number.
+        cue = m.group(0)[:m.start(3) - m.start(0)].rstrip()
+        return (
+            f"{cue} "
+            f"{_digits_to_words(m.group(3))}, "
+            f"{_digits_to_words(m.group(4))}"
+        )
+
     # Order matters: international first (has leading +), then 1-prefixed,
-    # then parenthesised, then plain 10-digit.
+    # then parenthesised, then plain 10-digit. The cued local form runs
+    # last, so a 7-digit tail that was really part of a longer number has
+    # already been claimed.
     text = _RE_INTL.sub(repl_intl, text)
     text = _RE_US_CC.sub(repl_us_cc, text)
     text = _RE_PARENS.sub(repl_parens, text)
     text = _RE_US_10.sub(repl_us_10, text)
+    text = _RE_LOCAL_7.sub(repl_local_7, text)
     return text

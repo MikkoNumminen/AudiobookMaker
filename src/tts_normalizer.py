@@ -16,7 +16,44 @@ language. Cross-contamination becomes architecturally impossible.
 
 from __future__ import annotations
 
+import re
+
 SUPPORTED_LANGS: tuple[str, ...] = ("fi", "en")
+
+# A line that ends a paragraph without terminal punctuation — in practice a
+# heading. Reported by a listener, not by any automated check: after the
+# title, "the beef starts with no pause".
+#
+# A blank line means nothing to the synth. The sentence splitter breaks on
+# terminal punctuation, so an unpunctuated heading is not a sentence end and
+# gets glued to the first line of the body inside one chunk, where no
+# inter-chunk gap can reach it. The model then reads title and opening
+# sentence as one breath.
+#
+# A period is the cue the model does respond to, and it is how a human reads
+# a heading aloud anyway. Only lines ending in a letter or digit qualify:
+# a heading already ending in `.`, `:`, `?` or `!` has its cue, and one
+# ending in a comma is a continuation rather than a heading.
+# `\r` is allowed either side of the line end. Every caller today reads
+# in text mode, where Python normalizes CRLF to LF before this ever runs,
+# so the plain form would work — but the corpus files on disk ARE CRLF,
+# and one caller opening with newline='' would silently lose the fix
+# without failing anything.
+_UNPUNCTUATED_PARAGRAPH_END_RE = re.compile(
+    r"(?m)(?<=[^\W_])[ \t]*(?=\r?\n[ \t]*\r?\n)",
+)
+
+
+def terminate_paragraphs(text: str) -> str:
+    """Give an unpunctuated paragraph-final line a sentence terminator.
+
+    Runs before the language backends so every later pass — sentence
+    splitting, chunking, seam-gap selection — sees the heading as the
+    sentence it is read as.
+    """
+    if not text:
+        return text
+    return _UNPUNCTUATED_PARAGRAPH_END_RE.sub(".", text)
 
 
 class LanguageMismatchError(ValueError):
@@ -54,6 +91,10 @@ def normalize_text(
         return text
 
     lang = lang.lower()
+
+    # Before dispatch: a heading with no terminal punctuation is glued to
+    # the body text and read without a pause. See terminate_paragraphs.
+    text = terminate_paragraphs(text)
 
     if lang == "fi":
         from src.tts_normalizer_fi import normalize_finnish_text

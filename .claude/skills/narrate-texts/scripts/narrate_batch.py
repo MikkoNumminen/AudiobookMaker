@@ -65,6 +65,74 @@ def _hms(seconds: float) -> str:
     return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
 
 
+_runner_module = None
+
+
+def _load_runner():
+    """Import the Chatterbox runner once and keep it.
+
+    Re-executing the module for every file in a batch is pure waste —
+    the chunker is the only thing needed and it does not change between
+    files.
+    """
+    global _runner_module
+    if _runner_module is None:
+        import importlib.util
+        path = _repo_root() / "scripts" / "generate_chatterbox_audiobook.py"
+        spec = importlib.util.spec_from_file_location("gca", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _runner_module = mod
+    return _runner_module
+
+
+def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
+                       chunk_chars: int) -> bool:
+    """True when the cached chunks still line up with the current text.
+
+    The chunk cache is keyed by INDEX. If the text or the chunk size has
+    changed since the cache was written, chunk N now holds different
+    words than the file it is about to be spliced into — and the runner
+    reuses it anyway, because its health check only asks whether the
+    audio length is plausible for the character count.
+
+    This has bitten for real. Five delivered files were re-rendered with
+    `--keep-cache` at 200 chars over a cache written at 300; the first
+    six chunks kept audio from the LARGER old chunks while the remaining
+    four were synthesized fresh, so the output repeated whole sentences
+    and ran up to 38% long.
+
+    Comparing counts catches the case that actually happens — a changed
+    chunk size, or an edit big enough to move a boundary. It cannot catch
+    an edit that leaves the count identical, which is why --keep-cache
+    stays documented as unsafe after any text change.
+    """
+    cached = list(work_stem.glob(".chunks/ch01_chunk*.wav"))
+    if not cached:
+        return True
+
+    try:
+        gca = _load_runner()
+
+        class _Chapter:
+            def __init__(self, title, content):
+                self.title, self.content = title, content
+
+        out = gca._prepare_chapter_chunks(
+            _Chapter("Text", src.read_text(encoding="utf-8")),
+            chunk_chars, 100000, lang)
+        expected = len(out[0] if isinstance(out, tuple) else out)
+    except Exception as exc:  # noqa: BLE001
+        # Never silent: a guard that fails quietly and rebuilds anyway
+        # looks exactly like a guard that decided the cache was stale,
+        # and the operator loses the distinction.
+        print(f"warning: could not verify the chunk cache ({exc}); "
+              f"rebuilding fresh to be safe", flush=True)
+        return False
+
+    return expected == len(cached)
+
+
 def convert_one(
     src: Path,
     lang: str,
@@ -78,6 +146,12 @@ def convert_one(
     stem = src.stem
     final = out_dir / f"{stem}.mp3"
     work_stem = work_dir / stem
+
+    if not fresh and not _cache_is_reusable(work_stem, src, lang, chunk_chars):
+        _log(log_path,
+             f"--- CACHE MISMATCH {lang}/{stem}: chunk count differs from the "
+             f"cache; rebuilding fresh rather than splicing stale audio ---")
+        fresh = True
 
     if fresh and work_stem.exists():
         shutil.rmtree(work_stem, ignore_errors=True)
