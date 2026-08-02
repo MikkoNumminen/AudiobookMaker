@@ -935,7 +935,16 @@ def normalize_english_text(
     #
     # After P and F so phone numbers and year ranges keep their own
     # readings, and before G so both endpoints are still digits.
-    text = _EN_RANGE_RE.sub(r"\1 to \2", text)
+    # Applied until stable: the pattern consumes the digits either side of
+    # a dash, so a chain like `1-2-3` matches only its first pair and the
+    # second dash is left welded between two number words. Two passes
+    # clear a three-part chain, and the loop is bounded because every pass
+    # removes at least one dash.
+    for _ in range(4):
+        rewritten = _EN_RANGE_RE.sub(r"\1 to \2", text)
+        if rewritten == text:
+            break
+        text = rewritten
     # Fractions and decimals must run BEFORE the cardinal sweep, otherwise
     # G converts the digits in "1/2" or "3.14" individually and the
     # fraction/decimal regexes no longer match.
