@@ -34,8 +34,13 @@ SUPPORTED_LANGS: tuple[str, ...] = ("fi", "en")
 # a heading aloud anyway. Only lines ending in a letter or digit qualify:
 # a heading already ending in `.`, `:`, `?` or `!` has its cue, and one
 # ending in a comma is a continuation rather than a heading.
+# `\r` is allowed either side of the line end. Every caller today reads
+# in text mode, where Python normalizes CRLF to LF before this ever runs,
+# so the plain form would work — but the corpus files on disk ARE CRLF,
+# and one caller opening with newline='' would silently lose the fix
+# without failing anything.
 _UNPUNCTUATED_PARAGRAPH_END_RE = re.compile(
-    r"(?m)(?<=[^\W_])[ \t]*$(?=\n[ \t]*\n)",
+    r"(?m)(?<=[^\W_])[ \t]*(?=\r?\n[ \t]*\r?\n)",
 )
 
 

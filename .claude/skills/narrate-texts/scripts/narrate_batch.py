@@ -65,6 +65,27 @@ def _hms(seconds: float) -> str:
     return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
 
 
+_runner_module = None
+
+
+def _load_runner():
+    """Import the Chatterbox runner once and keep it.
+
+    Re-executing the module for every file in a batch is pure waste —
+    the chunker is the only thing needed and it does not change between
+    files.
+    """
+    global _runner_module
+    if _runner_module is None:
+        import importlib.util
+        path = _repo_root() / "scripts" / "generate_chatterbox_audiobook.py"
+        spec = importlib.util.spec_from_file_location("gca", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _runner_module = mod
+    return _runner_module
+
+
 def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
                        chunk_chars: int) -> bool:
     """True when the cached chunks still line up with the current text.
@@ -91,12 +112,7 @@ def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
         return True
 
     try:
-        import importlib.util
-        repo = _repo_root()
-        spec = importlib.util.spec_from_file_location(
-            "gca", repo / "scripts" / "generate_chatterbox_audiobook.py")
-        gca = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(gca)
+        gca = _load_runner()
 
         class _Chapter:
             def __init__(self, title, content):
@@ -106,8 +122,12 @@ def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
             _Chapter("Text", src.read_text(encoding="utf-8")),
             chunk_chars, 100000, lang)
         expected = len(out[0] if isinstance(out, tuple) else out)
-    except Exception:
-        # If the count cannot be established, do not gamble on the cache.
+    except Exception as exc:  # noqa: BLE001
+        # Never silent: a guard that fails quietly and rebuilds anyway
+        # looks exactly like a guard that decided the cache was stale,
+        # and the operator loses the distinction.
+        print(f"warning: could not verify the chunk cache ({exc}); "
+              f"rebuilding fresh to be safe", flush=True)
         return False
 
     return expected == len(cached)

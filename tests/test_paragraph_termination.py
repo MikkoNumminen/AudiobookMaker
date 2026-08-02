@@ -65,6 +65,23 @@ def test_empty_input():
     assert terminate_paragraphs("") == ""
 
 
+@pytest.mark.parametrize("src,expected", [
+    ("Otsikko\r\n\r\nRunko.", "Otsikko.\r\n\r\nRunko."),
+    ("Otsikko  \r\n\r\nRunko.", "Otsikko.\r\n\r\nRunko."),
+])
+def test_crlf_line_endings(src, expected):
+    """Every caller reads in text mode, where Python normalizes CRLF to
+    LF before this runs — but the corpus files on disk ARE CRLF, and one
+    caller opening with newline='' would lose the fix without failing."""
+    assert terminate_paragraphs(src) == expected
+
+
+@pytest.mark.parametrize("src", ["Otsikko.\r\n\r\nRunko.", "Otsikko:\r\n\r\nRunko.",
+                                 "Rivi\r\nToinen."])
+def test_crlf_cases_that_must_stay_untouched(src):
+    assert terminate_paragraphs(src) == src
+
+
 def test_is_idempotent():
     once = terminate_paragraphs("Otsikko\n\nRunko.")
     assert terminate_paragraphs(once) == once
