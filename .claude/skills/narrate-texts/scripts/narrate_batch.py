@@ -65,6 +65,54 @@ def _hms(seconds: float) -> str:
     return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
 
 
+def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
+                       chunk_chars: int) -> bool:
+    """True when the cached chunks still line up with the current text.
+
+    The chunk cache is keyed by INDEX. If the text or the chunk size has
+    changed since the cache was written, chunk N now holds different
+    words than the file it is about to be spliced into — and the runner
+    reuses it anyway, because its health check only asks whether the
+    audio length is plausible for the character count.
+
+    This has bitten for real. Five delivered files were re-rendered with
+    `--keep-cache` at 200 chars over a cache written at 300; the first
+    six chunks kept audio from the LARGER old chunks while the remaining
+    four were synthesized fresh, so the output repeated whole sentences
+    and ran up to 38% long.
+
+    Comparing counts catches the case that actually happens — a changed
+    chunk size, or an edit big enough to move a boundary. It cannot catch
+    an edit that leaves the count identical, which is why --keep-cache
+    stays documented as unsafe after any text change.
+    """
+    cached = list(work_stem.glob(".chunks/ch01_chunk*.wav"))
+    if not cached:
+        return True
+
+    try:
+        import importlib.util
+        repo = _repo_root()
+        spec = importlib.util.spec_from_file_location(
+            "gca", repo / "scripts" / "generate_chatterbox_audiobook.py")
+        gca = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gca)
+
+        class _Chapter:
+            def __init__(self, title, content):
+                self.title, self.content = title, content
+
+        out = gca._prepare_chapter_chunks(
+            _Chapter("Text", src.read_text(encoding="utf-8")),
+            chunk_chars, 100000, lang)
+        expected = len(out[0] if isinstance(out, tuple) else out)
+    except Exception:
+        # If the count cannot be established, do not gamble on the cache.
+        return False
+
+    return expected == len(cached)
+
+
 def convert_one(
     src: Path,
     lang: str,
@@ -78,6 +126,12 @@ def convert_one(
     stem = src.stem
     final = out_dir / f"{stem}.mp3"
     work_stem = work_dir / stem
+
+    if not fresh and not _cache_is_reusable(work_stem, src, lang, chunk_chars):
+        _log(log_path,
+             f"--- CACHE MISMATCH {lang}/{stem}: chunk count differs from the "
+             f"cache; rebuilding fresh rather than splicing stale audio ---")
+        fresh = True
 
     if fresh and work_stem.exists():
         shutil.rmtree(work_stem, ignore_errors=True)
