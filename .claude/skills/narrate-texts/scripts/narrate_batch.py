@@ -27,6 +27,8 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -86,15 +88,41 @@ def _load_runner():
     return _runner_module
 
 
+_META_NAME = ".cache_meta.json"
+
+
+def _chunk_fingerprint(src: Path, lang: str, chunk_chars: int) -> dict:
+    """What the cached audio was built from: size, language, exact chunks."""
+    gca = _load_runner()
+
+    class _Chapter:
+        def __init__(self, title, content):
+            self.title, self.content = title, content
+
+    out = gca._prepare_chapter_chunks(
+        _Chapter("Text", src.read_text(encoding="utf-8")),
+        chunk_chars, 100000, lang)
+    chunks = out[0] if isinstance(out, tuple) else out
+    chunks = [c if isinstance(c, str) else getattr(c, "text", str(c))
+              for c in chunks]
+    joined = json.dumps(chunks, ensure_ascii=False).encode("utf-8")
+    return {
+        "chunk_chars": chunk_chars,
+        "language": lang,
+        "chunk_count": len(chunks),
+        "chunks_sha256": hashlib.sha256(joined).hexdigest(),
+    }
+
+
 def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
                        chunk_chars: int) -> bool:
-    """True when the cached chunks still line up with the current text.
+    """True when the cached chunks were built from this exact text.
 
     The chunk cache is keyed by INDEX. If the text or the chunk size has
-    changed since the cache was written, chunk N now holds different
-    words than the file it is about to be spliced into — and the runner
-    reuses it anyway, because its health check only asks whether the
-    audio length is plausible for the character count.
+    changed since it was written, chunk N now holds different words than
+    the file it is about to be spliced into — and the runner reuses it
+    anyway, because its health check only asks whether the audio length
+    is plausible for the character count.
 
     This has bitten for real. Five delivered files were re-rendered with
     `--keep-cache` at 200 chars over a cache written at 300; the first
@@ -102,35 +130,55 @@ def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
     four were synthesized fresh, so the output repeated whole sentences
     and ran up to 38% long.
 
-    Comparing counts catches the case that actually happens — a changed
-    chunk size, or an edit big enough to move a boundary. It cannot catch
-    an edit that leaves the count identical, which is why --keep-cache
-    stays documented as unsafe after any text change.
+    The first version of this guard compared the number of WAVs on disk
+    to the number of chunks expected. That cannot tell a stale cache from
+    a deliberate one: deleting a few chunk WAVs is exactly how a single
+    mispronounced chunk gets re-rolled, and it makes the counts differ
+    too. Every targeted re-roll therefore triggered a full rebuild — safe,
+    but it turned a two-minute job into twenty.
+
+    So the fingerprint is recorded instead: chunk size, language, and a
+    hash of the chunk texts themselves. A missing WAV is then just a cache
+    miss and gets re-synthesized, while changed text invalidates the lot.
     """
-    cached = list(work_stem.glob(".chunks/ch01_chunk*.wav"))
-    if not cached:
+    if not (work_stem / ".chunks").exists():
         return True
 
+    meta_path = work_stem / _META_NAME
     try:
-        gca = _load_runner()
-
-        class _Chapter:
-            def __init__(self, title, content):
-                self.title, self.content = title, content
-
-        out = gca._prepare_chapter_chunks(
-            _Chapter("Text", src.read_text(encoding="utf-8")),
-            chunk_chars, 100000, lang)
-        expected = len(out[0] if isinstance(out, tuple) else out)
+        want = _chunk_fingerprint(src, lang, chunk_chars)
     except Exception as exc:  # noqa: BLE001
         # Never silent: a guard that fails quietly and rebuilds anyway
         # looks exactly like a guard that decided the cache was stale,
         # and the operator loses the distinction.
-        print(f"warning: could not verify the chunk cache ({exc}); "
+        print(f"warning: could not fingerprint the text ({exc}); "
               f"rebuilding fresh to be safe", flush=True)
         return False
 
-    return expected == len(cached)
+    if not meta_path.exists():
+        # Written by an older run. Fall back to the count check, which is
+        # the best that can be said without a recorded fingerprint.
+        cached = list(work_stem.glob(".chunks/ch01_chunk*.wav"))
+        return not cached or len(cached) == want["chunk_count"]
+
+    try:
+        have = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return False
+
+    return have == want
+
+
+def _write_cache_meta(work_stem: Path, src: Path, lang: str,
+                      chunk_chars: int) -> None:
+    """Record what this cache was built from, for the next run to check."""
+    try:
+        (work_stem / _META_NAME).write_text(
+            json.dumps(_chunk_fingerprint(src, lang, chunk_chars), indent=2),
+            encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"warning: could not write {_META_NAME} ({exc}); the next run "
+              f"will fall back to counting chunks", flush=True)
 
 
 def convert_one(
@@ -180,6 +228,9 @@ def convert_one(
 
     final.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(produced, final)
+    # Record what this cache was built from, so the next run can tell a
+    # deliberately-deleted chunk from a cache built at another size.
+    _write_cache_meta(work_stem, src, lang, chunk_chars)
     dur = _duration_s(final)
     _log(log_path,
          f"--- OK {lang}/{stem} -> {final} ({_hms(dur)}, synth {_hms(took)}) ---")

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Transcribe every chunk and report words the audio never says.
 
-This is the only check that reliably detects a truncated chunk, and the
-evidence for that is uncomfortable: of four confirmed truncations found
+Duration cannot detect a truncated chunk, and the evidence is
+uncomfortable: of four confirmed truncations found
 in one corpus, three sat at or ABOVE their file's median speech rate.
 
     chunk   rate / median   lost
@@ -16,7 +16,13 @@ A chunk that drops its final clause does not necessarily get shorter:
 the model speaks the surviving words a little slower and the ratio lands
 in the normal band. One of them read FASTER than average while missing
 its most important number. No duration threshold can see that, which is
-why verify_narration.py is a screen and this is the verdict.
+why verify_narration.py is a screen and this reads the words instead.
+
+What this does NOT do is decide for you. Three attempts at classifying
+truncation by length — raw characters, all words, prose words — each
+reported complete chunks as truncated, because the two sides do not
+measure the same thing. The output points at pairs worth reading; the
+reading is yours.
 
 Run with the chatterbox venv, which is where faster-whisper lives:
 
@@ -149,13 +155,21 @@ def main() -> int:
         # transcriber) as a defect in a chunk that was entirely complete.
         tail = [w.lower().strip("-") for w in WORD.findall(text)][-8:]
         tail_loss = any(w in tail for w in missing)
-        # Compare WORD counts, not string lengths. The normalizer spells
-        # digits out and the transcriber writes them back as digits, so a
-        # number-heavy chunk always looks short: "neljä pilkku kahdeksan"
-        # against "4,8". That alone reported a complete chunk as truncated
-        # — its only fault was an r read as an l.
-        shorter = len(WORD.findall(heard)) < len(WORD.findall(text)) * 0.85
-        kind = "TRUNCATED" if (tail_loss and shorter) else "differs"
+        # No length test. Three versions of one were tried — raw
+        # characters, all words, prose words — and each reported complete
+        # chunks as truncated, because the two sides are not measuring
+        # the same thing. The normalizer spells digits out and the
+        # transcriber writes them back ("neljä pilkku kahdeksan" vs
+        # "4,8"), and Finnish compounds merge and split across the
+        # boundary ("M tulostehinnalla" vs "M-turoste-hinnolla"). Both
+        # move the count further than a lost clause does.
+        #
+        # What remains honest is the position: a word near the END of a
+        # chunk that was not heard is where truncation shows up, so it is
+        # worth a look. It is a pointer, not a verdict, and the label says
+        # so — a checker that cries wolf is worse than none, and one that
+        # claims certainty it does not have is worse still.
+        kind = "TAIL?" if tail_loss else "differs"
         findings += 1
         # Newlines are collapsed so each record stays exactly three lines.
         # A title chunk carries a blank line after the heading, and left
@@ -168,8 +182,9 @@ def main() -> int:
         print()
 
     print(f"{findings} chunk(s) flagged of {len(chunks)}.")
-    print("TRUNCATED = content missing from the end; treat as a defect.")
-    print("differs   = usually transcriber spelling; read it and judge.")
+    print("TAIL?   = a word near the END was not heard. Truncation shows up "
+          "here, but so does an ordinary transcriber miss. READ the pair.")
+    print("differs = a word elsewhere was not heard; usually spelling.")
     return 1 if findings else 0
 
 
