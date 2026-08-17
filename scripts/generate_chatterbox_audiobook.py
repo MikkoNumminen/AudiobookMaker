@@ -1493,18 +1493,38 @@ def _assemble_chunks(seg_iter, chunk_texts):
 
 
 def _iter_trimmed_chunks(chunks_dir, pos, n, vad_model, get_speech_timestamps):
-    """Yield each cached chunk wav, VAD-trimmed, in order (one at a time)."""
+    """Yield each cached chunk wav, VAD-trimmed, in order (one at a time).
+
+    Chunks are written by ``ta.save`` of a float32 tensor, so on disk they are
+    32-bit float WAV (``audio_format=0x0003``, 96 000 B/s at 24 kHz) and pydub
+    decodes them at ``sample_width=4``. Narrowing to 16-bit here fixes two
+    separate things:
+
+    * ``_vad_trim`` scales samples by ``/ 32768.0``, which is only correct for
+      16-bit input. At width 4 the peak sample is 2 147 483 648, so Silero VAD
+      was being handed values up to 65 536 instead of 1.0 and the trim was a
+      silent no-op.
+    * Everything downstream — the assembly buffer, its ``bytes()`` copy, and
+      pydub's pure-Python low-pass filter — holds half as much.
+
+    Nothing is lost: the output is a 128 kbps MP3, far below what 16 bits at
+    24 kHz resolves. ``_assemble_chunks`` takes its canonical format from the
+    first chunk, so setting it here carries through every later chunk and gap.
+    """
     from pydub import AudioSegment
     for chi in range(n):
         cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
-        seg = AudioSegment.from_file(str(cache_path))
+        seg = AudioSegment.from_file(str(cache_path)).set_sample_width(2)
         yield _vad_trim(seg, vad_model, get_speech_timestamps)
 
 
 def _vad_trim(seg, vad_model, get_speech_timestamps):
-    """Silero-VAD loose-Finnish tail/head trim. seg: pydub AudioSegment."""
-    import torch
-    import torchaudio
+    """Silero-VAD loose-Finnish tail/head trim. seg: pydub AudioSegment.
+
+    The no-model fallback is pure pydub, so torch is imported only on the path
+    that actually needs it. That path exists for exactly the case where the VAD
+    model could not be loaded, which is a poor moment to require torch.
+    """
     from pydub.silence import detect_leading_silence
     if vad_model is None:
         lead = detect_leading_silence(
@@ -1516,6 +1536,9 @@ def _vad_trim(seg, vad_model, get_speech_timestamps):
         start = max(0, lead - VAD_FALLBACK_HEAD_KEEP_MS)
         end = len(seg) - max(0, trail - VAD_FALLBACK_TRAIL_KEEP_MS)
         return seg[start:end] if end > start else seg
+
+    import torch
+    import torchaudio
 
     samples = torch.tensor(seg.get_array_of_samples(),
                            dtype=torch.float32) / 32768.0
@@ -2036,7 +2059,23 @@ def main() -> int:
                     "input_chars": len(chunk_text),
                     "audio_s": round(audio_s, 3),
                     "synth_s": round(dt, 3),
-                    "rtf": round(dt / audio_s, 3) if audio_s > 0 else None,
+                    # Two different questions, so two numbers.
+                    #
+                    # `rtf` is how fast the model generates: the WINNING
+                    # attempt's own time over its own audio. It used to divide
+                    # the total wall-clock (which `dt += dt_r` charges for
+                    # every discarded re-roll) by the winner's audio alone, so
+                    # a chunk that took four attempts reported four times the
+                    # generation cost. Averaged over a run, that turned a
+                    # rising retry rate into an apparent engine slowdown: a
+                    # tester reported RTF drifting 0.97 -> 1.61 overnight on a
+                    # run whose clean-generation RTF never left ~1.03.
+                    #
+                    # `wall_rtf` keeps the total including retries, because
+                    # that is the number the ETA is built from and the retries
+                    # are real time the user waits.
+                    "rtf": round(best_dt / audio_s, 3) if audio_s > 0 else None,
+                    "wall_rtf": round(dt / audio_s, 3) if audio_s > 0 else None,
                     "s_per_char": round(audio_s / max(1, len(chunk_text)), 4),
                     "retries_used": retries_used,
                     "hook_count": _chatterbox_hook_count(engine),
@@ -2048,7 +2087,13 @@ def main() -> int:
 
                 # ETA/RTF reporting based on THIS session's synthesis only
                 # (cached chunks aren't timed).
-                rtf = dt / audio_s if audio_s > 0 else float("inf")
+                #
+                # The displayed RTF is the winner's, for the reason spelled out
+                # in the stats record above: charging discarded re-rolls to it
+                # makes a rising retry rate look like a dying GPU. The ETA
+                # below still uses the full wall-clock, because retries are
+                # time the user genuinely waits.
+                rtf = best_dt / audio_s if audio_s > 0 else float("inf")
                 elapsed = time.time() - wall_start
                 remaining_chunks = total_chunks - total_done
                 if synth_wall_s > 0 and (total_done - cached_done) > 0:
@@ -2088,15 +2133,44 @@ def main() -> int:
                 raise _StopRequested()
             print(f"[chapter {ci_pos}/{len(plan)}] assembling MP3...",
                   flush=True)
-            combined = _assemble_chunks(
-                _iter_trimmed_chunks(
-                    chunks_dir, pos, len(chunks),
-                    vad_model, get_speech_timestamps,
-                ),
-                chunks,
-            )
-            combined = _postprocess(combined)
-            combined.export(str(chapter_mp3), format="mp3", bitrate="128k")
+            # Assembly is the most expensive possible place to fail: every
+            # chunk is already synthesized, so a crash here throws away the
+            # whole run's compute for want of a final encode. It is also the
+            # most memory-hungry step (one buffer for the chapter's PCM, a
+            # copy of it, then pydub's pure-Python low-pass filter on top), so
+            # MemoryError is a live outcome on a long single-chapter book.
+            #
+            # The `[error]` prefix matters: it is the only shape the GUI's line
+            # parser turns into a real error event. A bare traceback reaches
+            # the GUI as ordinary log lines.
+            try:
+                combined = _assemble_chunks(
+                    _iter_trimmed_chunks(
+                        chunks_dir, pos, len(chunks),
+                        vad_model, get_speech_timestamps,
+                    ),
+                    chunks,
+                )
+                combined = _postprocess(combined)
+                combined.export(str(chapter_mp3), format="mp3", bitrate="128k")
+            except _StopRequested:
+                raise
+            except MemoryError:
+                print(
+                    f"[error] ran out of memory assembling chapter {ci_pos} "
+                    f"({len(chunks)} parts). Every part is still cached in "
+                    f"{chunks_dir} — nothing was lost.",
+                    flush=True,
+                )
+                return 1
+            except Exception as exc:
+                print(
+                    f"[error] could not assemble chapter {ci_pos}: "
+                    f"{type(exc).__name__}: {exc}. Every part is still cached "
+                    f"in {chunks_dir} — nothing was lost.",
+                    flush=True,
+                )
+                return 1
             print(f"[chapter {ci_pos}/{len(plan)}] wrote {chapter_mp3.name} "
                   f"({len(combined) / 1000.0:.1f}s)", flush=True)
 
