@@ -18,6 +18,7 @@ stream. Regex parsing is cheap and avoids churn on the runner script.
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import re
@@ -31,6 +32,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Event types
@@ -324,6 +327,13 @@ class _RunnerState:
     # _SHUTDOWN_WAIT_S — the cause of the "crashes every few chunks" and the
     # assembly-phase failures on long books.
     cancel_requested: threading.Event = field(default_factory=threading.Event)
+    # Monotonic timestamp of the last stdout line the reader saw. The waiter
+    # uses it to tell "still working, just slow" from "wedged", which a
+    # total-runtime ceiling cannot do. Written by the reader thread and read by
+    # the waiter thread; a float assignment is atomic under the GIL and a
+    # slightly stale read only delays the idle check by one poll slice, so no
+    # lock is needed.
+    last_output_at: float = field(default_factory=time.monotonic)
 
 
 class ChatterboxRunner:
@@ -540,6 +550,7 @@ class ChatterboxRunner:
                 if rewritten is None:
                     continue
                 line = rewritten
+                self._state.last_output_at = time.monotonic()
                 self._state.tail.append(line)
                 ev = parser.parse(line)
                 self._state.event_queue.put(ev)
@@ -583,11 +594,23 @@ class ChatterboxRunner:
     # mid-flight, and the assembly phase failing on 200-chunk books).
     _SHUTDOWN_WAIT_S: float = 60.0
     _TERMINATE_GRACE_S: float = 5.0
-    # Absolute ceiling for an un-cancelled run — a backstop against a runner
-    # that wedges on a stuck cleanup (rare on Windows, but seen during torch
-    # teardown) and never exits. Set generously so it can never clip a real
-    # synthesis; even a very long book finishes well inside this.
-    _MAX_RUN_S: float = 12 * 3600.0
+    # Backstop against a runner that wedges on a stuck cleanup (rare on
+    # Windows, but seen during torch teardown) and never exits.
+    #
+    # This used to be a 12-hour ceiling on TOTAL runtime, with a comment
+    # asserting that "even a very long book finishes well inside this". That
+    # was wrong. A book-length conversion on a mid-range GPU is a 14-hour job,
+    # and the ceiling terminated one at the 12-hour mark — silently, because
+    # terminate() produces no traceback, and invisibly, because the GUI had no
+    # exit branch at the time.
+    #
+    # Total runtime cannot distinguish "slow" from "stuck". Silence can: the
+    # runner prints a line per chunk, so 45 minutes with nothing on stdout
+    # means it is not working. The absolute ceiling is kept purely as a
+    # last-resort guard against a runner that somehow keeps chattering
+    # forever, and is set far beyond any real book.
+    _MAX_IDLE_S: float = 45 * 60.0
+    _MAX_RUN_S: float = 72 * 3600.0
     # Poll slice while waiting for natural completion — small enough that a
     # cancel request is honoured promptly, large enough to be free.
     _POLL_INTERVAL_S: float = 1.0
@@ -632,10 +655,16 @@ class ChatterboxRunner:
         Normal completion is effectively unbounded: a long synthesis plus the
         final MP3 assembly can run for many minutes with no output, so we poll
         ``proc.wait`` in short slices rather than imposing a single timeout.
-        Two conditions switch us to the bounded terminate/kill escalation:
+        Three conditions switch us to the bounded terminate/kill escalation:
 
-        * a ``cancel()`` request (clean, user-initiated stop), or
-        * the absolute ``_MAX_RUN_S`` ceiling (a genuinely wedged runner).
+        * a ``cancel()`` request (clean, user-initiated stop),
+        * ``_MAX_IDLE_S`` with nothing on stdout (a genuinely wedged runner), or
+        * the absolute ``_MAX_RUN_S`` backstop.
+
+        The idle check is the one that matters. A long book is legitimately a
+        many-hour job, so elapsed time says nothing about health, but the
+        runner prints a line per chunk: prolonged silence is the actual signal
+        that it has stopped working.
         """
         start = time.monotonic()
         while True:
@@ -645,7 +674,18 @@ class ChatterboxRunner:
                 pass
             if self._state.cancel_requested.is_set():
                 return self._escalate_shutdown(proc)
-            if time.monotonic() - start > self._MAX_RUN_S:
+            now = time.monotonic()
+            if now - self._state.last_output_at > self._MAX_IDLE_S:
+                logger.warning(
+                    "runner produced no output for %.0f s; treating as wedged",
+                    now - self._state.last_output_at,
+                )
+                return self._escalate_shutdown(proc)
+            if now - start > self._MAX_RUN_S:
+                logger.warning(
+                    "runner exceeded the %.0f h absolute ceiling",
+                    self._MAX_RUN_S / 3600.0,
+                )
                 return self._escalate_shutdown(proc)
 
     def _escalate_shutdown(self, proc: subprocess.Popen) -> int:
