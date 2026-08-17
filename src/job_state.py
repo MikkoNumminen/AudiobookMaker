@@ -105,7 +105,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def save(state: JobState, path: Path = JOB_FILE) -> None:
+def save(state: JobState, path: Optional[Path] = None) -> None:
     """Write the job state atomically.
 
     Atomic because this is written while a conversion is running: a torn file
@@ -114,6 +114,7 @@ def save(state: JobState, path: Path = JOB_FILE) -> None:
     to save is logged and swallowed — it must never take down a running
     conversion.
     """
+    path = path or JOB_FILE
     state.updated_at = _now()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,13 +135,14 @@ def save(state: JobState, path: Path = JOB_FILE) -> None:
         logger.warning("could not save job state to %s", path, exc_info=True)
 
 
-def load(path: Path = JOB_FILE) -> Optional[JobState]:
+def load(path: Optional[Path] = None) -> Optional[JobState]:
     """Read the saved job, or None if there is none or it is unreadable.
 
     Unknown keys are ignored so a file written by a newer version does not
     crash an older one, and a truncated or hand-edited file is treated as
     absent rather than raising.
     """
+    path = path or JOB_FILE
     try:
         if not path.is_file():
             return None
@@ -154,8 +156,9 @@ def load(path: Path = JOB_FILE) -> Optional[JobState]:
         return None
 
 
-def clear(path: Path = JOB_FILE) -> None:
+def clear(path: Optional[Path] = None) -> None:
     """Forget the saved job. Called when one finishes or is abandoned."""
+    path = path or JOB_FILE
     try:
         path.unlink()
     except FileNotFoundError:
@@ -164,9 +167,9 @@ def clear(path: Path = JOB_FILE) -> None:
         logger.warning("could not clear job state at %s", path, exc_info=True)
 
 
-def load_resumable(path: Path = JOB_FILE) -> Optional[JobState]:
+def load_resumable(path: Optional[Path] = None) -> Optional[JobState]:
     """Return the saved job only when it is worth offering to continue."""
-    state = load(path)
+    state = load(path or JOB_FILE)
     if state is None or not state.is_resumable():
         return None
     return state

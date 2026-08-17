@@ -231,6 +231,14 @@ _STRINGS = {
         "ui_language": "Käyttöliittymä:",
         "converting": "Muunnetaan...",
         "runner_died": "Muunnos keskeytyi odottamatta (koodi {rc}). Jo tehdyt osat on tallennettu.",
+        "continue_btn": "Jatka keskeytynyttä",
+        "resume_available": "Keskeytynyt muunnos: {name} — {done}/{total} osaa valmiina. Jatka-painike käyttää jo tehdyt osat uudelleen.",
+        "resume_available_nocount": "Keskeytynyt muunnos: {name}. Jatka-painike käyttää jo tehdyt osat uudelleen.",
+        "resume_auto_retrying": "Muunnos keskeytyi. Yritetään automaattisesti uudelleen (yritys {n}) — jo tehdyt osat säilyvät.",
+        "resume_auto_failed": "Muunnos keskeytyi myös automaattisen uudelleenyrityksen jälkeen. Jo tehdyt osat on tallennettu.",
+        "resume_started": "Jatketaan keskeytynyttä muunnosta.",
+        "resume_source_missing": "Alkuperäistä tiedostoa ei löydy enää: {path}",
+        "resume_language_changed": "Kieli on eri kuin keskeytyneessä muunnoksessa ({saved}). Jatkaminen sekoittaisi kaksi ääntä. Vaihda kieleksi {saved} tai aloita alusta.",
         "loading_engine": "Ladataan moottoria\u2026 (ensimm\u00e4inen kerta lataa mallit, voi kest\u00e4\u00e4 minuutteja)",
         "cancelling": "Peruuta\u2026",
         "done": "Valmis!",
@@ -361,6 +369,14 @@ _STRINGS = {
         "ui_language": "Interface:",
         "converting": "Converting...",
         "runner_died": "The conversion stopped unexpectedly (code {rc}). The parts already made have been saved.",
+        "continue_btn": "Continue previous",
+        "resume_available": "Unfinished conversion: {name} — {done}/{total} parts done. Continue reuses the parts already made.",
+        "resume_available_nocount": "Unfinished conversion: {name}. Continue reuses the parts already made.",
+        "resume_auto_retrying": "The conversion stopped. Retrying automatically (attempt {n}) — the parts already made are kept.",
+        "resume_auto_failed": "The conversion stopped again after one automatic retry. The parts already made have been saved.",
+        "resume_started": "Continuing the unfinished conversion.",
+        "resume_source_missing": "The original file is no longer there: {path}",
+        "resume_language_changed": "The language differs from the unfinished conversion ({saved}). Continuing would mix two voices. Switch back to {saved} or start over.",
         "loading_engine": "Loading engine\u2026 (first run downloads models, can take a few minutes)",
         "cancelling": "Cancelling\u2026",
         "done": "Done!",
@@ -1849,6 +1865,11 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             btn = getattr(self, attr, None)
             if btn is not None:
                 btn.configure(state=output_state)
+
+        # Continue is driven by saved job state rather than widget state, so
+        # it is refreshed here too: this is the one hook that fires on every
+        # transition that could change whether there is something to resume.
+        self._refresh_resume_affordance()
 
     # ------------------------------------------------------------------
     # File dialogs
@@ -3384,6 +3405,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                         text=f"{ev.total_done}/{ev.total_chunks}"
                     )
                     self._update_synthesizing_strip(ev)
+                    self._record_job_progress(ev.total_done, ev.total_chunks)
 
             elif ev.kind in ("chapter_done", "full_done"):
                 # A file was written — treat this as "done enough" for
@@ -3430,6 +3452,8 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                         self._log_success_summary(self._output_path)
                         self._last_playable_path = self._output_path
                     self._update_done_strip(self._output_path)
+                # Finished for real: nothing left to continue.
+                self._record_job_finished("done")
                 self._set_idle_state()
                 # One final set(1.0) after idle-state toggles anything
                 # that might have reset the widget.
@@ -3744,6 +3768,200 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         except Exception:  # noqa: BLE001 — the error dialog must never re-raise
             pass
 
+    # ------------------------------------------------------------------
+    # Continuing an unfinished conversion
+    #
+    # The runner caches every synthesized chunk as a WAV and skips the
+    # healthy ones on a re-run, so a conversion that died at hour 13 is
+    # minutes from finishing — but only if it is restarted with the SAME
+    # source file and the SAME output directory. Neither was discoverable:
+    # a tester lost a 14 hour run and started over with a different file.
+    # ------------------------------------------------------------------
+
+    def _record_job_start(self) -> None:
+        """Remember the running job so a death is recoverable."""
+        from src import job_state
+
+        plan = getattr(self, "_chatterbox_plan", None)
+        state = job_state.JobState(
+            input_mode=self._input_mode,
+            pdf_path=str(self._pdf_path) if self._pdf_path else None,
+            input_text=(
+                None
+                if self._input_mode == "pdf" or self._text_has_placeholder
+                else self._text_widget.get("1.0", tk.END).strip()
+            ),
+            language=self._current_language() or "",
+            engine_id=self._current_engine_id() or "",
+            reference_audio=self._ref_audio_var.get() or None,
+            out_dir=str(getattr(plan, "out_dir", "") or "") or None,
+            output_path_hint=self._output_path or None,
+            status="running",
+            # Carried over so an automatic retry is not mistaken for a first
+            # attempt, which would let the app retry forever.
+            auto_retries=getattr(self, "_pending_auto_retries", 0),
+        )
+        self._job_state = state
+        job_state.save(state)
+
+    def _record_job_progress(self, done: int, total: int) -> None:
+        """Keep the saved job's progress roughly current.
+
+        Written every 50 chunks rather than every chunk: the number only has
+        to be good enough to tell the user what Continue would skip, and a
+        book-length run would otherwise rewrite this file thousands of times.
+        """
+        from src import job_state
+
+        state = getattr(self, "_job_state", None)
+        if state is None or total <= 0:
+            return
+        state.total_done, state.total_chunks = done, total
+        if done % 50 == 0 or done >= total:
+            job_state.save(state)
+
+    def _record_job_finished(self, status: str = "done") -> None:
+        from src import job_state
+
+        state = getattr(self, "_job_state", None)
+        if state is not None:
+            state.status = status
+            job_state.save(state)
+        job_state.clear()
+        self._job_state = None
+        self._pending_auto_retries = 0
+        self._refresh_resume_affordance()
+
+    def _refresh_resume_affordance(self) -> None:
+        """Show or hide Continue based on whether there is anything to continue.
+
+        Safe to call before the widgets exist (startup ordering) and while a
+        run is in flight, when the affordance must stay hidden.
+        """
+        from src import job_state
+
+        btn = getattr(self, "_continue_btn", None)
+        hint = getattr(self, "_resume_hint", None)
+        if btn is None or hint is None:
+            return
+        if getattr(self, "_synth_running", False):
+            btn.grid_remove()
+            hint.grid_remove()
+            return
+
+        state = job_state.load_resumable()
+        if state is None:
+            btn.grid_remove()
+            hint.grid_remove()
+            return
+
+        name = Path(state.pdf_path).name if state.pdf_path else self._s("text_tab")
+        if state.total_chunks > 0:
+            text = self._s("resume_available").format(
+                name=name, done=state.total_done, total=state.total_chunks
+            )
+        else:
+            text = self._s("resume_available_nocount").format(name=name)
+        if state.auto_retries:
+            text = f"{text}  ({self._s('resume_auto_failed')})"
+
+        btn.configure(text=self._s("continue_btn"))
+        btn.grid()
+        hint.configure(text=text)
+        hint.grid()
+
+    def _on_continue_click(self) -> None:
+        """Restore the unfinished job and run it again.
+
+        Deliberately re-runs rather than doing anything clever: the runner's
+        chunk cache makes a re-run a resume, provided the arguments match.
+        """
+        from src import job_state
+
+        # load(), not load_resumable(): a job whose source file has since been
+        # moved or deleted still needs to produce an explanation rather than a
+        # button that does nothing when clicked.
+        state = job_state.load()
+        if state is None:
+            self._refresh_resume_affordance()
+            return
+
+        if state.input_mode == "pdf":
+            if not state.pdf_path or not Path(state.pdf_path).is_file():
+                messagebox.showerror(
+                    self._s("error"),
+                    self._s("resume_source_missing").format(path=state.pdf_path),
+                )
+                job_state.clear()
+                self._refresh_resume_affordance()
+                return
+            # Same widget updates the file browser performs, minus
+            # _auto_output_path: the saved output path is restored below and
+            # must not be recomputed, or the run writes somewhere the chunk
+            # cache is not and silently starts from zero.
+            self._pdf_path = state.pdf_path
+            self._pdf_entry.configure(state="normal")
+            self._pdf_entry.delete(0, tk.END)
+            self._pdf_entry.insert(0, state.pdf_path)
+            self._pdf_entry.configure(state="disabled")
+
+        # A different voice would append chunks in one voice to a cache full
+        # of another. Refuse rather than produce a book that changes narrator
+        # partway through, which is the kind of defect nobody notices until
+        # they are listening to it.
+        current_lang = self._current_language() or ""
+        if state.language and current_lang and current_lang != state.language:
+            messagebox.showerror(
+                self._s("error"),
+                self._s("resume_language_changed").format(saved=state.language),
+            )
+            return
+
+        if state.output_path_hint:
+            self._output_path = state.output_path_hint
+            if hasattr(self, "_out_var"):
+                self._out_var.set(state.output_path_hint)
+
+        # Carry the retry count forward so a manual Continue of an
+        # already-auto-retried job does not reset the budget.
+        self._pending_auto_retries = state.auto_retries
+        self._append_log(self._s("resume_started"))
+        self._on_convert_click()
+
+    def _auto_retry_or_offer_continue(self) -> bool:
+        """Silently resume once; afterwards leave it to the user.
+
+        Returns True when a retry was started, in which case the caller must
+        not also report a failure.
+        """
+        from src import job_state
+
+        state = getattr(self, "_job_state", None) or job_state.load()
+        if state is None:
+            return False
+        state.status = "failed"
+        state.auto_retries = getattr(self, "_pending_auto_retries", state.auto_retries)
+        job_state.save(state)
+
+        if not state.may_auto_retry():
+            self._refresh_resume_affordance()
+            return False
+
+        self._pending_auto_retries = state.auto_retries + 1
+        state.auto_retries = self._pending_auto_retries
+        job_state.save(state)
+        self._append_log(
+            self._s("resume_auto_retrying").format(n=self._pending_auto_retries)
+        )
+        self._status_label_val.configure(
+            text=self._s("resume_auto_retrying").format(n=self._pending_auto_retries)
+        )
+        # Off the event-pump call stack: this tears down run state and starts
+        # a new subprocess, which must not happen inside the pump that is
+        # still unwinding the previous one.
+        self.after(1500, self._on_continue_click)
+        return True
+
     def _handle_runner_exit(self, ev) -> None:
         """Turn a runner subprocess death into a visible failure.
 
@@ -3755,6 +3973,15 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """
         rc = getattr(ev, "returncode", None)
         logger.error("Runner exited without completing (returncode=%r)", rc)
+
+        # One silent resume before bothering the user. Returns True when a
+        # retry is under way, in which case reporting a failure now would
+        # contradict the retry the user can see starting.
+        try:
+            if self._auto_retry_or_offer_continue():
+                return
+        except Exception:
+            logger.exception("auto-retry decision failed; reporting the failure")
 
         # The last stdout lines are the only description of the failure the
         # user has: a Python traceback does not match the `[error]` prefix the
