@@ -914,6 +914,11 @@ def _expand_colon_suffixed_numerals(text: str, w) -> str:
     def _sub(m: re.Match) -> str:
         n = int(m.group(1))
         suffix = m.group(2).lower()
+        # Case is read off the lowercased suffix so that an ALL-CAPS heading
+        # ("VUONNA 1990:N MUKAAN") still inflects. A colon followed by an
+        # uppercase letter is not always a case ending — `KM 1965:A 3` is a
+        # committee report series — but that shape is claimed by the legal
+        # pass long before this one runs, so it never reaches here.
         case = _FI_COLON_CASE.get(suffix)
         if case is None:
             return f"{w(n)} {m.group(2)}"

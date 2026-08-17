@@ -77,3 +77,35 @@ def test_unrecognised_suffix_still_loses_the_colon():
     out = normalize_text("5:xyz", "fi")
     assert ":" not in out
     assert "viisi" in out
+
+
+# ---------------------------------------------------------------------------
+# Case is read off the LOWERCASED suffix, and that has to stay true
+# ---------------------------------------------------------------------------
+#
+# A committee report citation like `KM 1965:A 3` also has a letter after a
+# colon, but there the `A` is a series designator: lowercased to `a` it looks
+# exactly like the partitive ending, which inflected the year wrongly and
+# deleted the letter. That shape is claimed by the legal pass (Pass Z) long
+# before this one runs, so the fix belongs there.
+#
+# Gating THIS pass on a lowercase suffix instead was tried and reverted: it
+# broke ALL-CAPS headings, where a real case ending is legitimately uppercase.
+
+
+def test_all_caps_heading_still_inflects():
+    """`VUONNA 1990:N MUKAAN` is a heading, and `:N` is a real genitive."""
+    out = normalize_text("VUONNA 1990:N MUKAAN", "fi")
+    assert "tuhannen yhdeksänsadan yhdeksänkymmenen" in out
+    # A bare uppercase letter would reach the synth unspoken: one character is
+    # too short for the acronym fallback and it is not an unspeakable symbol.
+    assert " N " not in out
+
+
+def test_series_letter_is_handled_before_this_pass():
+    """The legal pass takes `1965:A` first, so the year stays nominative."""
+    out = normalize_text("KM 1965:A 3", "fi")
+    assert " A " in out
+    assert "tuhat yhdeksänsataa kuusikymmentä viisi" in out
+    assert "tuhatta" not in out  # the partitive misreading
+    assert ":" not in out
