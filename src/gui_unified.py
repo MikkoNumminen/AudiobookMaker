@@ -230,6 +230,7 @@ _STRINGS = {
         "log_file_filter": "Lokitiedosto",
         "ui_language": "Käyttöliittymä:",
         "converting": "Muunnetaan...",
+        "runner_died": "Muunnos keskeytyi odottamatta (koodi {rc}). Jo tehdyt osat on tallennettu.",
         "loading_engine": "Ladataan moottoria\u2026 (ensimm\u00e4inen kerta lataa mallit, voi kest\u00e4\u00e4 minuutteja)",
         "cancelling": "Peruuta\u2026",
         "done": "Valmis!",
@@ -359,6 +360,7 @@ _STRINGS = {
         "log_file_filter": "Log file",
         "ui_language": "Interface:",
         "converting": "Converting...",
+        "runner_died": "The conversion stopped unexpectedly (code {rc}). The parts already made have been saved.",
         "loading_engine": "Loading engine\u2026 (first run downloads models, can take a few minutes)",
         "cancelling": "Cancelling\u2026",
         "done": "Done!",
@@ -3439,6 +3441,31 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 self._fail(ev.raw_line or "Unknown error")
                 return  # Stop pumping.
 
+            elif ev.kind == "exit":
+                # The runner process is gone.
+                #
+                # A healthy run prints its completion line, which the parser
+                # turns into a "done" event, and the branch above returns
+                # before this one is ever reached. So arriving here means the
+                # subprocess died WITHOUT reporting completion: a crash, a
+                # terminate from the shutdown ceiling, or a traceback that did
+                # not match the `[error]` prefix the line parser looks for
+                # (a Python traceback never does).
+                #
+                # Before this branch existed the loop fell through to the
+                # reschedule below and re-armed itself forever. The bar froze,
+                # the status still read "Converting…", Convert stayed greyed
+                # out, and no dialog ever appeared — the app looked busy for
+                # as long as the user was willing to wait.
+                self._handle_runner_exit(ev)
+                return  # Stop pumping.
+
+            elif ev.kind not in ("log", "signal"):
+                # Defensive: a kind added to the bridge but not handled here
+                # would otherwise vanish silently, which is exactly how the
+                # "exit" hang survived so long.
+                logger.debug("unhandled progress event kind: %r", ev.kind)
+
         # Reschedule if still running.
         if self._synth_running:
             self.after(self.POLL_INTERVAL_MS, self._pump_events)
@@ -3716,6 +3743,35 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             messagebox.showerror(self._s("error"), str(val) or exc.__name__)
         except Exception:  # noqa: BLE001 — the error dialog must never re-raise
             pass
+
+    def _handle_runner_exit(self, ev) -> None:
+        """Turn a runner subprocess death into a visible failure.
+
+        Reached only when the runner exited without printing its completion
+        line. ``returncode`` is informative but not sufficient on its own: a
+        run terminated by the bridge's shutdown escalation can still report 0
+        on Windows, so the ABSENCE of the done event is what decides this is a
+        failure, not the code.
+        """
+        rc = getattr(ev, "returncode", None)
+        logger.error("Runner exited without completing (returncode=%r)", rc)
+
+        # The last stdout lines are the only description of the failure the
+        # user has: a Python traceback does not match the `[error]` prefix the
+        # line parser looks for, so it arrives here as ordinary log lines.
+        tail: list[str] = []
+        runner = getattr(self, "_chatterbox_runner", None)
+        if runner is not None:
+            try:
+                tail = [ln for ln in runner.tail_lines(12) if ln.strip()]
+            except Exception:
+                logger.debug("tail_lines failed", exc_info=True)
+
+        detail = "\n".join(tail[-6:]) if tail else ""
+        message = self._s("runner_died").format(rc=rc if rc is not None else "?")
+        if detail:
+            message = f"{message}\n\n{detail}"
+        self._fail(message)
 
     def _fail(self, message: str) -> None:
         logger.error("Run failed: %s", message)
