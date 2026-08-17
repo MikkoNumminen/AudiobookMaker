@@ -428,3 +428,128 @@ def test_no_period_glued_inside_a_word(src: str) -> None:
     from src.tts_normalizer import normalize_text
     out = normalize_text(src, "fi")
     assert not _re.search(r"[a-zäöå]\.[a-zäöå]", out), out
+
+
+# The absence assertions above can pass for the wrong reason: a later pass can
+# consume a colon while inflecting the wrong word, leaving nothing to detect.
+# These pin the whole spoken string for one sentence per new form.
+@pytest.mark.parametrize(
+    "src,expected",
+    [
+        (
+            "MK 2:1",
+            "maakaaren luku kaksi pykälä yksi",
+        ),
+        (
+            "Kauppakirjasta säädetään MK 2:1:ssä.",
+            "Kauppakirjasta säädetään maakaaren luku kaksi pykälä yksi.",
+        ),
+        (
+            "OikTL 32.1 §",
+            "oikeustoimilain pykälä kolmekymmentä kaksi momentti yksi",
+        ),
+        (
+            "MK 2 luvun 1 §",
+            "maakaaren luku kaksi pykälä yksi",
+        ),
+        (
+            "PL 10 ja 22 §",
+            "perustuslain pykälä kymmenen ja pykälä kaksikymmentä kaksi",
+        ),
+        (
+            "LsL 4 §:ssä säädetyllä tavalla",
+            "lastensuojelulain pykälä neljä säädetyllä tavalla",
+        ),
+    ],
+)
+def test_full_spoken_string(src: str, expected: str) -> None:
+    from src.tts_normalizer import normalize_text
+    assert normalize_text(src, "fi").strip() == expected
+
+
+# --- regressions found in review --------------------------------------------
+
+
+def test_case_clitic_does_not_inflect_the_section_number() -> None:
+    """`MK 2:1:ssä` put the inessive on the NUMBER, not on the noun.
+
+    `pykälä yhdessä` is heard as "section together", which is worse than a
+    missing case: it is a different word.
+    """
+    from src.tts_normalizer import normalize_text
+    out = normalize_text("Kauppakirjasta säädetään MK 2:1:ssä.", "fi")
+    assert "yhdessä" not in out
+    assert "pykälä yksi" in out
+
+
+def test_clitic_after_section_sign_does_not_inflect_the_number() -> None:
+    """Only `:n` used to be stripped, so `§:ssä` landed on the numeral."""
+    from src.tts_normalizer import normalize_text
+    out = normalize_text("LsL 4 §:ssä säädetyllä tavalla", "fi")
+    assert "neljässä" not in out
+    assert "pykälä neljä" in out
+
+
+@pytest.mark.parametrize(
+    "src",
+    ["KKO:2010:23", "KKO 2010:23", "KHO:2015:100", "KHO 1985:12"],
+)
+def test_court_citation_accepts_both_separators(src: str) -> None:
+    """Finlex prints `KKO:2010:23`; textbooks print `KKO 2010:23`."""
+    assert "numero" in expand_legal_citations(src)
+
+
+def test_court_year_outside_the_modern_range_is_not_a_chapter() -> None:
+    """KHO is in the law table, so a missed court match fell into pass 5.
+
+    It would have read a decision reference as "chapter 1899, section 23".
+    """
+    out = expand_legal_citations("KHO 1899:23")
+    assert "luku" not in out
+    assert "numero 23" in out
+
+
+def test_court_abbreviations_are_excluded_from_chapter_shorthand() -> None:
+    """Belt and braces: even without the court pass, KHO is not a chapter."""
+    from src.tts_normalizer_fi_legal import (
+        _CHAPTER_ABBR_ALT,
+        _NON_CHAPTER_ABBR,
+    )
+    for abbr in _NON_CHAPTER_ABBR:
+        assert abbr not in _CHAPTER_ABBR_ALT.split("|")
+
+
+def test_decimal_is_not_swallowed_into_a_chapter() -> None:
+    """`1.5 luvun 3 §` used to emit `1.luku 5`, gluing a period into a word."""
+    out = expand_legal_citations("1.5 luvun 3 §")
+    assert ".luku" not in out
+    assert "1.5" in out
+
+
+def test_united_kingdom_is_not_the_ulosottokaari() -> None:
+    """`UK N:M` is excluded; `UK 4 §` still resolves through the section pass."""
+    assert expand_legal_citations("UK 2:1") == "UK 2:1"
+    assert expand_legal_citations("UK 4 §") == "ulosottokaaren pykälä 4"
+
+
+def test_dedup_knows_the_chapter_form() -> None:
+    """The dedup alternation listed pykälä/artikla but not luku."""
+    out = expand_legal_citations("maakaaren (MK 2:1) mukaan")
+    assert out == "maakaaren (luku 2 pykälä 1) mukaan"
+
+
+def test_two_sections_under_one_abbreviation() -> None:
+    """`X ja Y §` is routine, and the section pass needs `§` after the first."""
+    out = expand_legal_citations("PL 10 ja 22 §")
+    assert out == "perustuslain pykälä 10 ja pykälä 22"
+
+
+def test_patterns_are_compiled_once() -> None:
+    """Pass Z runs per synthesis chunk; the alternation is constant."""
+    import re as _re
+    from src import tts_normalizer_fi_legal as m
+    compiled = [
+        v for k, v in vars(m).items()
+        if k.endswith("_RE") and isinstance(v, _re.Pattern)
+    ]
+    assert len(compiled) >= 15

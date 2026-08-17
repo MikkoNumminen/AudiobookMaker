@@ -80,31 +80,32 @@ def test_unrecognised_suffix_still_loses_the_colon():
 
 
 # ---------------------------------------------------------------------------
-# An UPPERCASE letter after the colon is a series designator, not a case
+# Case is read off the LOWERCASED suffix, and that has to stay true
 # ---------------------------------------------------------------------------
 #
-# Finnish writes case endings lowercase, so an uppercase letter in that slot
-# is something else. `KM 1965:A 3` is committee report series A. Read as a
-# case ending, the `a` looked like the partitive: the year came out inflected
-# ("tuhatta yhdeksääsataa kuuttakymmentä viittä") and the series letter was
-# swallowed entirely.
+# A committee report citation like `KM 1965:A 3` also has a letter after a
+# colon, but there the `A` is a series designator: lowercased to `a` it looks
+# exactly like the partitive ending, which inflected the year wrongly and
+# deleted the letter. That shape is claimed by the legal pass (Pass Z) long
+# before this one runs, so the fix belongs there.
+#
+# Gating THIS pass on a lowercase suffix instead was tried and reverted: it
+# broke ALL-CAPS headings, where a real case ending is legitimately uppercase.
 
 
-def test_uppercase_series_letter_survives():
+def test_all_caps_heading_still_inflects():
+    """`VUONNA 1990:N MUKAAN` is a heading, and `:N` is a real genitive."""
+    out = normalize_text("VUONNA 1990:N MUKAAN", "fi")
+    assert "tuhannen yhdeksänsadan yhdeksänkymmenen" in out
+    # A bare uppercase letter would reach the synth unspoken: one character is
+    # too short for the acronym fallback and it is not an unspeakable symbol.
+    assert " N " not in out
+
+
+def test_series_letter_is_handled_before_this_pass():
+    """The legal pass takes `1965:A` first, so the year stays nominative."""
     out = normalize_text("KM 1965:A 3", "fi")
     assert " A " in out
-    assert ":" not in out
-
-
-def test_uppercase_series_letter_leaves_the_year_in_nominative():
-    out = normalize_text("KM 1965:A 3", "fi")
     assert "tuhat yhdeksänsataa kuusikymmentä viisi" in out
-    # The partitive reading is the bug this test pins.
-    assert "tuhatta" not in out
-
-
-def test_lowercase_case_ending_still_inflects():
-    """The guard must not cost the ordinary lowercase behaviour."""
-    assert normalize_text("1990:n", "fi").strip() == (
-        "tuhannen yhdeksänsadan yhdeksänkymmenen"
-    )
+    assert "tuhatta" not in out  # the partitive misreading
+    assert ":" not in out

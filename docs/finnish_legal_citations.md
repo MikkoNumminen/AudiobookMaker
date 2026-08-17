@@ -51,9 +51,6 @@ across a phrase like that. The second is that the governor table in
 right thing for free. Put the number first and there is nothing to read the
 case off.
 
-Stiff and correct beats natural and wrong when a listener cannot rewind to
-check.
-
 ### A court abbreviation is left exactly as written
 
 `KKO 2010:23` becomes `KKO 2010 numero 23`. The letters stay. That is on
@@ -90,17 +87,34 @@ handing it to AudiobookMaker.
 
 ## Known limitations
 
-- **The chapter's own case is flattened.** `2 luvussa 3 §` means "in chapter 2,
-  section 3" and is read as "luku 2 pykälä 3", which is chapter 2 in the plain
-  nominative. The reference survives, the "in" does not.
+- **Grammatical case on a citation is dropped, not moved.** `2 luvussa 3 §`
+  means "in chapter 2, section 3" and is read as "luku 2 pykälä 3". Same for
+  `MK 2:1:ssä` and `4 §:ssä`. Once the reference has been reordered noun-first
+  there is nowhere to put the ending, so it is consumed. The reference
+  survives, the "in" does not. What matters is that it is consumed rather than
+  left to land on the number: `pykälä yhdessä` would be heard as "section
+  together", which is a different word rather than a missing one.
+- **A postposition after a citation does not inflect the noun.** Finnish
+  "nojalla", "mukaan" and "perusteella" all govern the genitive, so
+  `OikTL 36 §:n nojalla` should read "oikeustoimilain pykälän 36 nojalla" and
+  instead reads "pykälä 36 nojalla". The citation is still correct and
+  understandable; the grammar around it is not. Teaching the pass which words
+  govern which case is a much larger job than reading the citation itself.
 - **Chapter shorthand needs a known abbreviation in front.** A bare `2:1` is
   left alone and read as a ratio, "kaksi yhteen", because a bare `2:1` really
   is much more often a ratio or a score than a statute reference. If the law
   name is spelled out in prose rather than abbreviated, the shorthand after it
   will not be recognised.
+- **Three abbreviations opt out of the chapter form.** `KKO` and `KHO` are
+  courts, whose own citations are the same shape, and `UK` is far more often
+  United Kingdom than ulosottokaari. All three still work in every other form,
+  so `UK 4 §` is the ulosottokaari as normal.
 - **A clock time after a law abbreviation would be misread.** `AL 12:30` comes
-  out as "avioliittolain luku 12 pykälä 30". Nobody writes a time there, so
-  this is accepted rather than guarded.
+  out as "avioliittolain luku 12 pykälä 30". Nobody writes a time directly
+  after a law abbreviation, so this is accepted rather than guarded.
+- **Only one slash per run of numbers.** `18.10.2024/552` is handled;
+  `2024/12/25` keeps its second slash. A general digit-slash-digit rule would
+  swallow fractions such as "1/2 annoksesta", which is a worse trade.
 - **`vp` is not expanded.** In `HE 120/1994 vp` it stays as two letters and is
   read "vee pee", which is what a Finnish reader says anyway. Expanding it
   would mean adding a two-letter key to a case-insensitive abbreviation table
@@ -113,7 +127,7 @@ long conversion:
 
 ```python
 from src.tts_normalizer import normalize_text
-print(normalize_text("Sopimusta voidaan sovitella OikTL 36 §:n nojalla.", "fi"))
+print(normalize_text("Kauppakirjasta säädetään MK 2 luvun 1 §:ssä.", "fi"))
 ```
 
 Three things in the output mean something got missed: a surviving `§`, a
