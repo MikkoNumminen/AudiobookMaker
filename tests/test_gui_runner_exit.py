@@ -140,3 +140,37 @@ class TestUnknownKinds:
         app._event_queue.put(ProgressEvent(kind="log", raw_line="hello"))
         scheduled = _drain(app)
         assert scheduled != []
+
+
+class TestResumeVisibility:
+    """A resumed run must look like a resume, not like starting over."""
+
+    def test_cached_count_seeds_the_progress_bar(self, app):
+        app._event_queue.put(
+            ProgressEvent(kind="setup_cached", total_done=2229, total_chunks=4100)
+        )
+        _drain(app)
+        assert app._progress_bar.get() == pytest.approx(2229 / 4100, abs=0.01)
+
+    def test_cached_count_is_shown_to_the_user(self, app):
+        app._event_queue.put(
+            ProgressEvent(kind="setup_cached", total_done=2229, total_chunks=4100)
+        )
+        _drain(app)
+        text = app._status_label_val.cget("text")
+        assert "2229" in text and "4100" in text
+
+    def test_a_fresh_run_does_not_claim_to_be_resuming(self, app):
+        """Nothing cached means nothing to say about it."""
+        app._progress_bar.set(0)
+        app._event_queue.put(
+            ProgressEvent(kind="setup_cached", total_done=0, total_chunks=4100)
+        )
+        _drain(app)
+        assert app._progress_bar.get() == pytest.approx(0.0, abs=0.01)
+
+    def test_it_keeps_pumping(self, app):
+        app._event_queue.put(
+            ProgressEvent(kind="setup_cached", total_done=10, total_chunks=100)
+        )
+        assert _drain(app) != []

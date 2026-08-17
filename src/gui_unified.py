@@ -232,6 +232,7 @@ _STRINGS = {
         "converting": "Muunnetaan...",
         "runner_died": "Muunnos keskeytyi odottamatta (koodi {rc}). Jo tehdyt osat on tallennettu.",
         "continue_btn": "Jatka keskeytynyttä",
+        "resuming_count": "Jatketaan: {done}/{total} osaa jo valmiina",
         "resume_available": "Keskeytynyt muunnos: {name} — {done}/{total} osaa valmiina. Jatka-painike käyttää jo tehdyt osat uudelleen.",
         "resume_available_nocount": "Keskeytynyt muunnos: {name}. Jatka-painike käyttää jo tehdyt osat uudelleen.",
         "resume_auto_retrying": "Muunnos keskeytyi. Yritetään automaattisesti uudelleen (yritys {n}) — jo tehdyt osat säilyvät.",
@@ -370,6 +371,7 @@ _STRINGS = {
         "converting": "Converting...",
         "runner_died": "The conversion stopped unexpectedly (code {rc}). The parts already made have been saved.",
         "continue_btn": "Continue previous",
+        "resuming_count": "Continuing: {done}/{total} parts already done",
         "resume_available": "Unfinished conversion: {name} — {done}/{total} parts done. Continue reuses the parts already made.",
         "resume_available_nocount": "Unfinished conversion: {name}. Continue reuses the parts already made.",
         "resume_auto_retrying": "The conversion stopped. Retrying automatically (attempt {n}) — the parts already made are kept.",
@@ -3393,6 +3395,24 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 # seconds; minutes on a first-run download). The bar keeps
                 # animating (indeterminate); just tell the user why.
                 self._status_label_val.configure(text=self._s("loading_engine"))
+
+            elif ev.kind == "setup_cached":
+                # The runner counted healthy chunks already on disk and is
+                # about to skip them. Seed the bar and the status from that.
+                #
+                # This event existed in the bridge from the start and nothing
+                # consumed it, so a resumed run opened at 0% and counted up
+                # from zero — indistinguishable from starting over. A user who
+                # had just lost a 14 hour run watched that and concluded the
+                # app could not continue.
+                if ev.total_chunks > 0 and ev.total_done > 0:
+                    self._progress_to_determinate()
+                    self._progress_bar.set(ev.total_done / ev.total_chunks)
+                    self._status_label_val.configure(
+                        text=self._s("resuming_count").format(
+                            done=ev.total_done, total=ev.total_chunks
+                        )
+                    )
 
             elif ev.kind == "chunk":
                 if ev.total_chunks > 0:
