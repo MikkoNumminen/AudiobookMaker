@@ -913,10 +913,16 @@ def _expand_colon_suffixed_numerals(text: str, w) -> str:
     """
     def _sub(m: re.Match) -> str:
         n = int(m.group(1))
-        suffix = m.group(2).lower()
-        case = _FI_COLON_CASE.get(suffix)
+        suffix = m.group(2)
+        # A Finnish case ending after a colon is always written lowercase
+        # (`1990:n`, `20:een`). An UPPERCASE letter in that slot is a series
+        # or variant designator instead: `KM 1965:A 3` is committee report
+        # series A, not the partitive of 1965. Treating it as a case both
+        # inflected the number wrongly and swallowed the letter, so anything
+        # not fully lowercase falls through to the preserve-the-suffix branch.
+        case = _FI_COLON_CASE.get(suffix.lower()) if suffix.islower() else None
         if case is None:
-            return f"{w(n)} {m.group(2)}"
+            return f"{w(n)} {suffix}"
         return w(n, case)
 
     return _FI_COLON_SUFFIX_RE.sub(_sub, text)

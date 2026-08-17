@@ -77,3 +77,34 @@ def test_unrecognised_suffix_still_loses_the_colon():
     out = normalize_text("5:xyz", "fi")
     assert ":" not in out
     assert "viisi" in out
+
+
+# ---------------------------------------------------------------------------
+# An UPPERCASE letter after the colon is a series designator, not a case
+# ---------------------------------------------------------------------------
+#
+# Finnish writes case endings lowercase, so an uppercase letter in that slot
+# is something else. `KM 1965:A 3` is committee report series A. Read as a
+# case ending, the `a` looked like the partitive: the year came out inflected
+# ("tuhatta yhdeksääsataa kuuttakymmentä viittä") and the series letter was
+# swallowed entirely.
+
+
+def test_uppercase_series_letter_survives():
+    out = normalize_text("KM 1965:A 3", "fi")
+    assert " A " in out
+    assert ":" not in out
+
+
+def test_uppercase_series_letter_leaves_the_year_in_nominative():
+    out = normalize_text("KM 1965:A 3", "fi")
+    assert "tuhat yhdeksänsataa kuusikymmentä viisi" in out
+    # The partitive reading is the bug this test pins.
+    assert "tuhatta" not in out
+
+
+def test_lowercase_case_ending_still_inflects():
+    """The guard must not cost the ordinary lowercase behaviour."""
+    assert normalize_text("1990:n", "fi").strip() == (
+        "tuhannen yhdeksänsadan yhdeksänkymmenen"
+    )
