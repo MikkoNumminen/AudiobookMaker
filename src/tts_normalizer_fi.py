@@ -184,11 +184,15 @@ def _expand_abbreviations(text: str) -> str:
 #     kaksikymmentäkuusi". Requires a 4-digit year so we don't eat
 #     decimal numbers like "3.14" or version strings like "1.0.2".
 #
-#   - Clock time `klo HH:MM` or `kello HH:MM` →
-#     "kello {hour-cardinal} {minute-cardinal}".
-#     Example: "klo 20:30" → "kello kaksikymmentä kolmekymmentä".
-#     Standalone `HH:MM` without a `klo`/`kello` prefix is NOT touched,
-#     to avoid mangling sports scores, ratios, or chapter numbering.
+#   - Clock time: a `klo` / `kello` prefix (including a compound such as
+#     `herätyskello`), optionally with up to two words in between, then one
+#     or more `HH:MM[:SS]` joined by a dash or `ja`.
+#     Example: "Kello on nyt 20:30" → "Kello on nyt kaksikymmentä
+#     kolmekymmentä"; "klo 20:05" → "kello kaksikymmentä nolla viisi".
+#     A minute is not a bare cardinal: the leading zero is spoken, and a
+#     whole hour drops the minutes entirely.
+#     Standalone `HH:MM` without a prefix is NOT touched, to avoid mangling
+#     sports scores, ratios, or chapter numbering.
 #
 # Must run BEFORE Pass C (centuries: `1500-luvulla` doesn't collide here
 # but date passes care about period-separated digits), Pass D (numeric
@@ -223,18 +227,72 @@ _FI_MONTH_PARTITIVE: tuple[str, ...] = (
 # regex doesn't accidentally swallow decimal numbers or version strings.
 _FI_DATE_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b")
 
-# Clock time: `klo` or `kello` followed by HH:MM. The prefix is mandatory
-# to avoid eating ratios / sports scores / chapter ranges. The hour and
-# minute are validated in the substitution function (0–23, 0–59).
-_FI_TIME_RE = re.compile(r"\b(?:klo|kello)\s+(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+# Clock time: `klo` / `kello`, optionally with a linking verb, then HH:MM.
+# The prefix stays mandatory to avoid eating ratios, sports scores and
+# chapter ranges, but requiring it to sit IMMEDIATELY before the digits was
+# too strict for ordinary Finnish: "Kello on 20:30" fell through to the
+# colon-ratio pass and was read "kaksikymmentä kolmeenkymmeneen", i.e.
+# "twenty to thirty". The linking verb is captured and preserved so the
+# sentence still reads as written. The hour and minute are validated in the
+# substitution function (0–23, 0–59).
+# One clock time, optionally with seconds. The seconds group matters: without
+# it `(\d{2})\b` stopped at the second colon of HH:MM:SS and left the seconds
+# stranded, where a later pass welded them on with a hyphen.
+_FI_ONE_TIME = r"\d{1,2}:\d{2}(?::\d{2})?"
+
+# A clock time, its prefix, and any further times joined to it.
+#
+# The prefix stays mandatory: a bare `HH:MM` is genuinely ambiguous with a
+# sports score, a ratio or a chapter range, and guessing wrong there is worse
+# than missing a time.
+#
+# What it allows has widened three times over, because each narrower version
+# left ordinary Finnish falling through to the colon-ratio pass and being read
+# as "twenty TO thirty":
+#
+#   * `\w*kello` matches a compound noun, so "Herätyskello on 7:00" and
+#     "Seinäkello on 20:30" work. The trailing `\b` keeps "kellotaulu" out,
+#     since the word must END in kello.
+#   * Up to two intervening words, so "Kello on nyt 20:30" and "Kello oli
+#     tasan 20:30" match. Enumerating verb forms did not survive contact with
+#     real sentences.
+#   * A run of times joined by a dash or "ja", so "Kello on 12:30 ja 13:45"
+#     and "kello 20:30-21:45" convert BOTH. Claiming only the first left half
+#     the sentence reading as a ratio.
+_FI_TIME_RE = re.compile(
+    r"\b(?P<prefix>\w*kello|klo)\b"
+    r"(?P<mid>(?:\s+\w+){0,2}?)"
+    rf"\s+(?P<times>{_FI_ONE_TIME}(?:\s*(?:[-–]|ja)\s*{_FI_ONE_TIME})*)",
+    re.IGNORECASE,
+)
+
+# Splits a run of times into times and the separators between them.
+_FI_TIME_SPLIT_RE = re.compile(r"\s*([-–]|ja)\s*")
+
+
+def _match_case(source: str, word: str) -> str:
+    """Give ``word`` the capitalisation ``source`` was written with.
+
+    `klo` is spoken in full as "kello", and lower-casing it unconditionally
+    started sentences with a lower-case word: "Klo 20:30 alkaa esitys" became
+    "kello ... alkaa esitys". The same sentence got two different treatments
+    depending on which spelling the writer used.
+    """
+    if source.isupper():
+        return word.upper()
+    if source[:1].isupper():
+        return word[:1].upper() + word[1:]
+    return word
 
 
 def _expand_dates_and_times(text: str) -> str:
     """Expand Finnish dates and clock times to spoken form (Pass T).
 
     Date format: ``D.M.YYYY`` → ``{day-ordinal} {month-partitive} {year}``.
-    Time format: ``klo HH:MM`` / ``kello HH:MM`` →
-    ``kello {hour-cardinal} {minute-cardinal}``.
+    Time format: a ``klo`` / ``kello`` prefix, optionally with up to two
+    words after it, then one or more ``HH:MM[:SS]`` joined by a dash or
+    ``ja``. The prefix and any intervening words are echoed back so the
+    sentence still reads as written.
 
     Invalid dates (day > 31, month > 12) and invalid times (hour > 23,
     minute > 59) are left unchanged so that pathological inputs fall
@@ -259,17 +317,57 @@ def _expand_dates_and_times(text: str) -> str:
         month_word = _FI_MONTH_PARTITIVE[month - 1]
         return f"{day_word} {month_word} {year_word}"
 
-    def _time_sub(m: re.Match[str]) -> str:
-        hour = int(m.group(1))
-        minute = int(m.group(2))
+    def _clock_words(token: str):
+        """One HH:MM[:SS] as spoken Finnish, or None if it is not a time."""
+        parts = [int(x) for x in token.split(":")]
+        hour, minute = parts[0], parts[1]
+        second = parts[2] if len(parts) > 2 else None
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            return m.group(0)
+            return None
+        if second is not None and not (0 <= second <= 59):
+            return None
         try:
-            hour_word = num2words(hour, lang="fi")
-            minute_word = num2words(minute, lang="fi")
+            words = [num2words(hour, lang="fi")]
+            # A minute is NOT a bare cardinal. "20:05" read as "kaksikymmentä
+            # viisi" is twenty-five, and "20:00" as "kaksikymmentä nolla" is
+            # "twenty zero". Finnish says the leading zero out loud and drops
+            # the minutes entirely on the hour.
+            if minute or second is not None:
+                if minute < 10:
+                    words.append("nolla")
+                words.append(num2words(minute, lang="fi"))
+            if second is not None:
+                if second < 10:
+                    words.append("nolla")
+                words.append(num2words(second, lang="fi"))
         except (NotImplementedError, OverflowError, ValueError, TypeError):
-            return m.group(0)
-        return f"kello {hour_word} {minute_word}"
+            return None
+        return " ".join(words)
+
+    def _time_sub(m: re.Match[str]) -> str:
+        prefix, mid, times = m.group("prefix"), m.group("mid"), m.group("times")
+        pieces = _FI_TIME_SPLIT_RE.split(times)
+        spoken = []
+        for piece in pieces:
+            if piece in {"-", "–"}:
+                # A range. Rendered as a plain gap rather than a word: nothing
+                # here knows whether the writer meant "from ... to" or a list,
+                # and inventing either would be worse than leaving the pause.
+                spoken.append(" ")
+                continue
+            if piece == "ja":
+                spoken.append(" ja ")
+                continue
+            words = _clock_words(piece)
+            if words is None:
+                # An impossible time. Leave the WHOLE match untouched so the
+                # input falls through unmolested rather than half-converted.
+                return m.group(0)
+            spoken.append(words)
+        spoken_prefix = (
+            _match_case(prefix, "kello") if prefix.lower() == "klo" else prefix
+        )
+        return f"{spoken_prefix}{mid} " + "".join(spoken).strip()
 
     text = _FI_DATE_RE.sub(_date_sub, text)
     text = _FI_TIME_RE.sub(_time_sub, text)
