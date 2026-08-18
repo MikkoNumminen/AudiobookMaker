@@ -217,15 +217,18 @@ def sweep_env(tmp_path, monkeypatch):
     chunks_dir = tmp_path / ".chunks"
     chunks_dir.mkdir()
     texts = ["x" * 200] * 12
-    durations = {i: 14.0 for i in range(12)}   # 0.070 s/char
-    durations[5] = 12.0                        # 0.060 — short, floor-clearing
+    # Content-addressed cache: identical text still gets one entry per
+    # occurrence, so twelve identical chunks are twelve distinct files.
+    keys = gca._chunk_keys(texts, "fi", "")
+    by_key = {k: 14.0 for k in keys}           # 0.070 s/char
+    by_key[keys[5]] = 12.0                     # 0.060 — short, floor-clearing
 
-    for i in range(12):
-        (chunks_dir / f"ch01_chunk{i:04d}.wav").write_bytes(b"stub")
+    for key in keys:
+        gca._chunk_cache_path(chunks_dir, key).write_bytes(b"stub")
 
     monkeypatch.setattr(
         gca, "_cached_audio_seconds",
-        lambda p: durations[int(str(p)[-8:-4])],
+        lambda p: by_key[Path(p).stem[len("chunk_"):]],
     )
     saved = {}
     monkeypatch.setitem(
@@ -236,15 +239,15 @@ def sweep_env(tmp_path, monkeypatch):
         lambda path, wav, sr: saved.__setitem__(str(path), wav.shape[1] / sr)
     )
     monkeypatch.setattr(gca, "_clear_chatterbox_state", lambda e: None)
-    return chunks_dir, texts, saved
+    return chunks_dir, texts, saved, keys
 
 
 def test_sweep_replaces_only_the_short_chunk(sweep_env):
-    chunks_dir, texts, saved = sweep_env
+    chunks_dir, texts, saved, keys = sweep_env
     engine = _FakeEngine([14.0])          # the re-roll comes back healthy
 
     replaced = gca._run_median_sweep(
-        engine, chunks_dir, 1, texts, "fi", None
+        engine, chunks_dir, 1, texts, keys, "fi", None
     )
 
     assert replaced == 1
@@ -254,11 +257,11 @@ def test_sweep_replaces_only_the_short_chunk(sweep_env):
 
 def test_sweep_keeps_the_original_when_no_reroll_is_better(sweep_env):
     """A worse take must never overwrite a merely-mediocre one."""
-    chunks_dir, texts, saved = sweep_env
+    chunks_dir, texts, saved, keys = sweep_env
     engine = _FakeEngine([5.0, 6.0, 4.0])   # every re-roll is worse
 
     replaced = gca._run_median_sweep(
-        engine, chunks_dir, 1, texts, "fi", None
+        engine, chunks_dir, 1, texts, keys, "fi", None
     )
 
     assert replaced == 0
@@ -271,12 +274,12 @@ def test_sweep_rejects_a_rambling_reroll(sweep_env):
     A re-roll far over the rambling edge is certainly not truncated,
     which is exactly why a naive "prefer more audio" rule would ship it.
     """
-    chunks_dir, texts, saved = sweep_env
+    chunks_dir, texts, saved, keys = sweep_env
     rambling = gca.MAX_AUDIO_S_PER_CHAR * 200 * 2
     engine = _FakeEngine([rambling, rambling, rambling])
 
     replaced = gca._run_median_sweep(
-        engine, chunks_dir, 1, texts, "fi", None
+        engine, chunks_dir, 1, texts, keys, "fi", None
     )
 
     assert replaced == 0
@@ -284,11 +287,11 @@ def test_sweep_rejects_a_rambling_reroll(sweep_env):
 
 
 def test_sweep_honours_a_stop_request(sweep_env):
-    chunks_dir, texts, _ = sweep_env
+    chunks_dir, texts, _, keys = sweep_env
     engine = _FakeEngine([14.0])
 
     replaced = gca._run_median_sweep(
-        engine, chunks_dir, 1, texts, "fi", None,
+        engine, chunks_dir, 1, texts, keys, "fi", None,
         should_stop=lambda: True,
     )
 
@@ -300,13 +303,14 @@ def test_sweep_does_nothing_on_a_healthy_chapter(tmp_path, monkeypatch):
     chunks_dir = tmp_path / ".chunks"
     chunks_dir.mkdir()
     texts = ["x" * 200] * 12
-    for i in range(12):
-        (chunks_dir / f"ch01_chunk{i:04d}.wav").write_bytes(b"stub")
+    keys = gca._chunk_keys(texts, "fi", "")
+    for key in keys:
+        gca._chunk_cache_path(chunks_dir, key).write_bytes(b"stub")
     monkeypatch.setattr(gca, "_cached_audio_seconds", lambda p: 14.0)
     engine = _FakeEngine([])
 
     replaced = gca._run_median_sweep(
-        engine, chunks_dir, 1, texts, "fi", None
+        engine, chunks_dir, 1, texts, keys, "fi", None
     )
 
     assert replaced == 0

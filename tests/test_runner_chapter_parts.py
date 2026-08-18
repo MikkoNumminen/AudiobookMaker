@@ -156,19 +156,21 @@ class TestIterTrimmedChunksRange:
     def test_start_skips_earlier_chunks(self, runner, tmp_path):
         pytest.importorskip("pydub")
         _needs_audio_decoder()
-        for chi in range(5):
-            self._float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
+        keys = runner._chunk_keys([f"teksti {i}" for i in range(5)], "fi", "")
+        for key in keys:
+            self._float32_wav(runner._chunk_cache_path(tmp_path, key))
         got = list(
-            runner._iter_trimmed_chunks(tmp_path, 1, 5, None, None, start=3)
+            runner._iter_trimmed_chunks(tmp_path, keys, 5, None, None, start=3)
         )
         assert len(got) == 2
 
     def test_default_start_reads_everything(self, runner, tmp_path):
         pytest.importorskip("pydub")
         _needs_audio_decoder()
-        for chi in range(3):
-            self._float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
-        got = list(runner._iter_trimmed_chunks(tmp_path, 1, 3, None, None))
+        keys = runner._chunk_keys([f"teksti {i}" for i in range(3)], "fi", "")
+        for key in keys:
+            self._float32_wav(runner._chunk_cache_path(tmp_path, key))
+        got = list(runner._iter_trimmed_chunks(tmp_path, keys, 3, None, None))
         assert len(got) == 3
 
 

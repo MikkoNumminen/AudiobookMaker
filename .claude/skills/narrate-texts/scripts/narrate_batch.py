@@ -118,9 +118,21 @@ def _cache_is_reusable(work_stem: Path, src: Path, lang: str,
                        chunk_chars: int) -> bool:
     """True when the cached chunks were built from this exact text.
 
-    The chunk cache is keyed by INDEX. If the text or the chunk size has
-    changed since it was written, chunk N now holds different words than
-    the file it is about to be spliced into — and the runner reuses it
+    HISTORICAL. The runner's chunk cache is now keyed by CONTENT: the
+    filename is a hash of the chunk's text, language and voice, so a chunk
+    whose words are unchanged is reused wherever it has moved to, and a
+    chunk whose words changed simply misses. Splicing stale audio into a
+    moved slot is no longer possible, and this guard's full-rebuild is no
+    longer the only thing preventing it.
+
+    It is kept because it is still the only check on THIS script's own
+    assumptions, and because a full rebuild is cheap insurance for a dev
+    tool. If it starts costing real time, deleting it is safe now in a way
+    it was not before.
+
+    What it was written for: the cache used to be keyed by INDEX. If the
+    text or the chunk size changed, chunk N held different words than the
+    file it was about to be spliced into — and the runner reused it
     anyway, because its health check only asks whether the audio length
     is plausible for the character count.
 

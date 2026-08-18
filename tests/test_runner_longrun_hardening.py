@@ -72,11 +72,12 @@ class TestChunksAreNarrowedToSixteenBit:
         handed values up to 65536 and the trim silently did nothing."""
         pytest.importorskip("pydub")
         _needs_audio_decoder()
-        for chi in range(2):
-            _float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
+        keys = runner._chunk_keys(["eka", "toka"], "fi", "")
+        for key in keys:
+            _float32_wav(runner._chunk_cache_path(tmp_path, key))
 
         segs = list(
-            runner._iter_trimmed_chunks(tmp_path, 1, 2, None, None)
+            runner._iter_trimmed_chunks(tmp_path, keys, 2, None, None)
         )
         assert segs, "no chunks yielded"
         for seg in segs:
@@ -86,8 +87,9 @@ class TestChunksAreNarrowedToSixteenBit:
         """The actual defect, expressed as the number that mattered."""
         pytest.importorskip("pydub")
         _needs_audio_decoder()
-        _float32_wav(tmp_path / "ch01_chunk0000.wav")
-        seg = next(runner._iter_trimmed_chunks(tmp_path, 1, 1, None, None))
+        keys = runner._chunk_keys(["eka"], "fi", "")
+        _float32_wav(runner._chunk_cache_path(tmp_path, keys[0]))
+        seg = next(runner._iter_trimmed_chunks(tmp_path, keys, 1, None, None))
         peak = max(abs(v) for v in seg.get_array_of_samples())
         assert peak / 32768.0 <= 1.0
 
