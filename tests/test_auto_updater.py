@@ -173,6 +173,64 @@ class TestExtractWhatsNew:
         body = "### What's new\n### Installation\nRun it.\nSHA-256: " + "e" * 64
         assert extract_whats_new(body) == ""
 
+    # The pipeline now writes the news straight from docs/RELEASE_NOTES_NEXT.md,
+    # so a body has no literal "What's new" heading and the news carries its own
+    # "###" sub-headings. Stopping at the first heading emptied the banner
+    # entirely for v3.23.0 — the update prompt showed a version and no notes.
+    SECTIONED_BODY = "\n".join([
+        "## AudiobookMaker 3.23.0",
+        "",
+        "### Continue an interrupted conversion",
+        "The app now shows a Continue button.",
+        "",
+        "### Fixes",
+        "- Silence trimming works",
+        "",
+        "### Installation",
+        "Run the installer and dismiss SmartScreen.",
+        "",
+        "### CLI (command-line interface)",
+        "Download the CLI zip.",
+        "",
+        "---",
+        "SHA-256: " + "a" * 64,
+        "CLI: SHA-256: " + "b" * 64,
+    ])
+
+    def test_keeps_sub_headings_when_notes_are_sectioned(self) -> None:
+        out = extract_whats_new(self.SECTIONED_BODY)
+        assert "### Continue an interrupted conversion" in out
+        assert "The app now shows a Continue button." in out
+        assert "### Fixes" in out
+        assert "- Silence trimming works" in out
+
+    def test_sectioned_body_still_drops_the_technical_tail(self) -> None:
+        out = extract_whats_new(self.SECTIONED_BODY)
+        assert "Installation" not in out
+        assert "SmartScreen" not in out
+        assert "Download the CLI zip" not in out
+        assert "SHA-256" not in out
+        assert "a" * 64 not in out
+
+    def test_starts_after_title_when_no_whats_new_heading(self) -> None:
+        # The title itself must not leak into the banner text.
+        out = extract_whats_new(self.SECTIONED_BODY)
+        assert not out.startswith("## AudiobookMaker")
+        assert "3.23.0" not in out
+
+    def test_stops_at_horizontal_rule(self) -> None:
+        body = "## AudiobookMaker 1.0.0\n\n### Fixes\n- a fix\n\n---\nSHA-256: " + "c" * 64
+        assert extract_whats_new(body) == "### Fixes\n- a fix"
+
+    def test_bullet_list_is_not_mistaken_for_a_horizontal_rule(self) -> None:
+        body = "## AudiobookMaker 1.0.0\n\n- a change\n- another\n\n### Installation\nx"
+        assert extract_whats_new(body) == "- a change\n- another"
+
+    def test_no_title_and_no_heading_returns_empty(self) -> None:
+        # Hand-written release: caller hides the expander rather than dumping
+        # raw markdown into the banner.
+        assert extract_whats_new("Just some freeform text about the build.") == ""
+
 
 class TestUpdateInfoSha256Field:
     def test_dataclass_has_sha256_field(self) -> None:

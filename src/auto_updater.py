@@ -254,31 +254,54 @@ def _extract_sha256(release_notes: str) -> str | None:
     return None
 
 
+# Headings that open the machine/technical tail of a release body. Everything
+# from here down is install instructions and hashes, not news.
+_WHATS_NEW_STOP_RE = re.compile(
+    r"(?i)^(?:#{1,6}\s*(?:installation|cli)\b|(?:cli:\s*)?sha-?256:|-{3,}\s*$)"
+)
+_WHATS_NEW_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*what['’]?s new\s*:?\s*$")
+_RELEASE_TITLE_RE = re.compile(r"(?i)^##\s+audiobookmaker\b")
+
+
 def extract_whats_new(release_notes: str) -> str:
     """Pull the human-readable "What's new" section out of a release body.
 
     The release pipeline writes a structured body (see build-release.yml): a
-    ``## AudiobookMaker <ver>`` title, a ``### What's new`` section, then
-    ``### Installation``, ``### CLI``, and machine-only ``SHA-256:`` lines. The
-    update banner only wants the "What's new" prose, so return that section's
-    text with the trailing technical sections stripped. Returns "" when the
-    body has no such section (older or hand-written releases) so the caller can
-    simply hide the expander rather than show a wall of markdown.
+    ``## AudiobookMaker <ver>`` title, the news prose, then ``### Installation``,
+    ``### CLI``, and machine-only ``SHA-256:`` lines. The update banner wants
+    only the news, so return everything between the title and that tail.
+
+    Capture must NOT stop at the first heading it meets. The news prose carries
+    its own ``###`` sub-headings, so stopping at any heading truncated the
+    banner to nothing the moment the notes grew sections. Stop only at the
+    install/CLI/hash tail.
+
+    Older bodies put the news under a literal ``### What's new`` heading. That
+    still works and takes precedence over the title as the starting point.
+    Returns "" when neither marker is present (hand-written releases) so the
+    caller can hide the expander rather than show a wall of markdown.
     """
     if not isinstance(release_notes, str) or not release_notes.strip():
         return ""
+    lines = release_notes.splitlines()
+
+    # Prefer an explicit "What's new" heading; fall back to the release title.
+    start: int | None = None
+    for i, line in enumerate(lines):
+        if _WHATS_NEW_HEADING_RE.match(line.strip()):
+            start = i + 1
+            break
+    if start is None:
+        for i, line in enumerate(lines):
+            if _RELEASE_TITLE_RE.match(line.strip()):
+                start = i + 1
+                break
+    if start is None:
+        return ""
+
     out: list[str] = []
-    capturing = False
-    for line in release_notes.splitlines():
-        stripped = line.strip()
-        if not capturing:
-            # Begin at the "What's new" heading — tolerant of ## / ###, the
-            # straight or curly apostrophe, and an optional trailing colon.
-            if re.match(r"#{1,6}\s*what['’]?s new\s*:?\s*$", stripped, re.IGNORECASE):
-                capturing = True
-            continue
-        # Stop at the next markdown heading or the SHA-256 / CLI-SHA block.
-        if stripped.startswith("#") or re.match(r"(?i)^(cli:\s*)?sha-?256:", stripped):
+    for line in lines[start:]:
+        if _WHATS_NEW_STOP_RE.match(line.strip()):
             break
         out.append(line)
     # Drop leading/trailing blank lines so the banner text is tight.
