@@ -11,9 +11,16 @@ Edge-TTS and Piper engines don't need this bridge — they run in-process via
 ``src.tts_engine.text_to_speech`` on a background thread.
 
 Why a parser instead of a ``--json-progress`` flag: the runner already uses
-``print(..., flush=True)`` for every meaningful event, stdout is line-
-buffered, and there is no ``tqdm`` bleeding ``\\r`` carriage returns into the
-stream. Regex parsing is cheap and avoids churn on the runner script.
+``print(..., flush=True)`` for every meaningful event, so regex parsing is
+cheap and avoids churn on the runner script.
+
+The pipe is opened BINARY and UNBUFFERED, and lines are split here (see
+``iter_lines``) rather than by text-mode ``readline``. Anything the child
+emits, including a dependency's ``\\r``-updated progress bar, counts as the
+child being alive before it counts as anything else. That is what the idle
+watchdog needs, and what a line-oriented reader could not promise: liveness
+would have depended on the newline handling, which is not a property anyone
+would think to preserve while changing an encoding or a buffer size.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import IO, Callable, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +46,23 @@ logger = logging.getLogger(__name__)
 # byte at a time, small enough that it is never a meaningful buffer.
 _READ_CHUNK_BYTES = 65536
 
-# Both line terminators, checked explicitly rather than delegated.
-_LINE_TERMINATORS = (0x0A, 0x0D)  # \n, \r
+# Both line terminators, found in one pass.
+_LINE_TERMINATOR_RE = re.compile(rb"[\r\n]")
 
 
-def iter_lines(stream, on_bytes=None):
-    """Yield decoded lines from a BINARY stream, one at a time.
+# A "line" longer than this is flushed as one anyway. Without a cap, output
+# that never contains a terminator (a stray binary write into the merged
+# stderr, a giant single-line traceback repr) grows the buffer to the full
+# payload with nothing reaching the event queue, so the GUI shows a frozen run
+# and the memory is only released when the child exits.
+_MAX_LINE_BYTES = 1 << 20
+
+
+def iter_lines(
+    stream: "IO[bytes]",
+    on_bytes: Optional[Callable[[], None]] = None,
+) -> "Iterator[str]":
+    """Yield decoded lines from a BLOCKING BINARY stream, one at a time.
 
     ``on_bytes`` is called for every chunk of bytes read, before any of it is
     interpreted. That callback is the whole point of this function existing.
@@ -53,9 +71,11 @@ def iter_lines(stream, on_bytes=None):
     and liveness was stamped per LINE. That made "is the child alive" depend
     on a property of the line parser: it worked only because ``text=True``
     turns a lone carriage return into a line terminator, so a progress bar
-    that emits ``\\r`` and never ``\\n`` still produced lines. True today,
+    that emits ``
+`` and never ``
+`` still produced lines. True at the time,
     verified, and silently broken by any future change to encoding, buffering
-    or newline handling — at which point a working runner looks wedged and the
+    or newline handling - at which point a working runner looks wedged and the
     idle watchdog terminates it.
 
     Reading bytes and splitting lines here separates the two questions. A byte
@@ -63,31 +83,48 @@ def iter_lines(stream, on_bytes=None):
     Both terminators are handled explicitly, so nothing depends on the
     platform's universal-newline behaviour any more.
 
-    A ``\\r\\n`` pair yields an empty line between the two terminators; callers
+    BLOCKING is a precondition. A raw non-blocking stream returns ``None``
+    when no data is ready, which is not EOF; treating it as EOF would close
+    the pipe and report a clean drain while the child was still producing
+    output. ``None`` is skipped rather than trusted.
+
+    A ``
+
+`` pair yields an empty line between the two terminators; callers
     already skip empty lines. Decoding is per line with ``errors="replace"``,
-    so a chunk boundary that lands mid-character cannot raise — the bytes stay
-    in the buffer until the line is complete.
+    so a chunk boundary landing mid-character cannot mangle it - the bytes
+    stay in the buffer until the line is complete.
     """
     buf = bytearray()
     while True:
         chunk = stream.read(_READ_CHUNK_BYTES)
+        if chunk is None:
+            # Non-blocking stream with nothing ready. Not EOF.
+            continue
         if not chunk:
             break
         if on_bytes is not None:
             on_bytes()
         buf.extend(chunk)
+        # One scan per line from a moving offset, rather than two full-buffer
+        # `find` probes and a memmove per line. On a newline-only stream the
+        # carriage-return probe used to rescan the whole buffer to find
+        # nothing, once per line: measured at 128 MB of scanning for 61 KB of
+        # input, on the GUI's reader thread.
+        pos = 0
         while True:
-            cut = -1
-            for terminator in _LINE_TERMINATORS:
-                found = buf.find(terminator)
-                if found != -1 and (cut == -1 or found < cut):
-                    cut = found
-            if cut == -1:
+            match = _LINE_TERMINATOR_RE.search(buf, pos)
+            if match is None:
                 break
-            yield bytes(buf[:cut]).decode("utf-8", "replace")
-            del buf[: cut + 1]
+            yield buf[pos:match.start()].decode("utf-8", "replace")
+            pos = match.end()
+        if pos:
+            del buf[:pos]
+        if len(buf) >= _MAX_LINE_BYTES:
+            yield buf.decode("utf-8", "replace")
+            buf.clear()
     if buf:
-        yield bytes(buf).decode("utf-8", "replace")
+        yield buf.decode("utf-8", "replace")
 
 
 # ---------------------------------------------------------------------------

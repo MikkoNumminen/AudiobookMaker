@@ -386,7 +386,10 @@ class TestRunnerConstruction:
         captured: dict = {}
 
         class _FakeProc:
-            stdout = io.StringIO("")
+            # BYTES. The reader is binary now; a str stream passes here only
+            # because the payload is empty, and raises TypeError inside the
+            # daemon reader thread the moment anyone gives it content.
+            stdout = io.BytesIO(b"")
 
             def poll(self) -> int:
                 return 0

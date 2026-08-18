@@ -1097,9 +1097,54 @@ class ChatterboxInstaller(EngineInstaller):
         except Exception as exc:
             return f"Smoke test could not run: {exc}"
 
+        # The deadline and the cancel check used to live INSIDE the read loop
+        # below, which meant neither could fire while the loop was blocked in
+        # readline(). A child that produced no newline - the exact shape of a
+        # wedged interpreter, which is what a smoke test is looking for - hung
+        # the install modal indefinitely. A watchdog enforces both from
+        # outside, so the read loop ends on EOF either way.
+        import threading
+        import time
+
+        watchdog_fired: dict = {"reason": None}
+        smoke_done = threading.Event()
+
+        def _watchdog() -> None:
+            # Must stop when the run does. A watchdog that keeps waiting out
+            # its full budget after a normal finish fires against a process
+            # object that is already reaped, and any exception it raises there
+            # surfaces as an unhandled thread exception far from its cause.
+            try:
+                deadline_at = time.monotonic() + _SMOKE_TEST_TIMEOUT_S
+                while not smoke_done.is_set():
+                    if cancel_event is not None and cancel_event.wait(0.2):
+                        watchdog_fired["reason"] = "cancelled"
+                        break
+                    if cancel_event is None:
+                        time.sleep(0.2)
+                    if time.monotonic() >= deadline_at:
+                        watchdog_fired["reason"] = "timeout"
+                        break
+                else:
+                    return  # finished normally; nothing to stop
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except Exception:
+                # Never let the watchdog itself take the install down. The
+                # in-loop checks are still there for every case where the
+                # child does produce output.
+                logger.debug("smoke-test watchdog failed", exc_info=True)
+
+        watcher = threading.Thread(target=_watchdog, daemon=True,
+                                   name="smoke-test-watchdog")
+        watcher.start()
+
         try:
             deadline = _SMOKE_TEST_TIMEOUT_S
-            import time
             start = time.monotonic()
             for line in proc.stdout:  # type: ignore[union-attr]
                 output_lines.append(line.rstrip())
@@ -1126,6 +1171,13 @@ class ChatterboxInstaller(EngineInstaller):
                             pass
                     return f"Smoke test timed out after {_SMOKE_TEST_TIMEOUT_S}s"
             proc.wait(timeout=10)
+            # The loop can also end because the WATCHDOG stopped the child,
+            # which is the path taken when it never emitted a newline for the
+            # in-loop checks to run on. Report that as the same outcome.
+            if watchdog_fired["reason"] == "timeout":
+                return f"Smoke test timed out after {_SMOKE_TEST_TIMEOUT_S}s"
+            if watchdog_fired["reason"] == "cancelled":
+                return None  # caller re-checks cancel_event
         except Exception as exc:
             try:
                 proc.kill()
@@ -1134,6 +1186,10 @@ class ChatterboxInstaller(EngineInstaller):
                 pass
             return f"Smoke test could not run: {exc}"
         finally:
+            # Stop the watchdog whichever way the run ended. Left running it
+            # waits out its full budget against an already-reaped process.
+            smoke_done.set()
+            watcher.join(timeout=1.0)
             if proc.stdout is not None:
                 try:
                     proc.stdout.close()
