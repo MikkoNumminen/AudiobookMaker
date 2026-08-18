@@ -267,9 +267,10 @@ def main() -> int:
     ap.add_argument("--force", action="store_true",
                     help="Re-convert even when the output MP3 already exists.")
     ap.add_argument("--keep-cache", action="store_true",
-                    help="Reuse the chunk cache. UNSAFE if the text changed: "
-                         "the cache is keyed by chunk INDEX, so shifted "
-                         "boundaries splice in audio from the old text.")
+                    help="Reuse the chunk cache. Safe across text edits now: "
+                         "the runner keys each chunk by its CONTENT, so "
+                         "unchanged chunks are reused wherever they moved to "
+                         "and only changed ones are re-synthesized.")
     args = ap.parse_args()
 
     repo = _repo_root()

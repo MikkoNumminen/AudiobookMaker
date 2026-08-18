@@ -34,6 +34,10 @@ from __future__ import annotations
 
 import argparse
 import glob
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from chunk_paths import chunk_wav_path, chunk_wavs  # noqa: E402
 import importlib.util
 import io
 import re
@@ -91,7 +95,7 @@ def _detect(mod, raw, language, work):
     Files converted before the switch to 200-char chunks still have 300,
     and chunking at the wrong size misaligns every comparison silently.
     """
-    on_disk = len(glob.glob(f"{work}/.chunks/ch01_chunk*.wav"))
+    on_disk = len(chunk_wavs(work))
     for size in (200, 300):
         chunks = _chunk_at(mod, raw, language, size)
         if len(chunks) == on_disk:
@@ -126,7 +130,7 @@ def main() -> int:
 
     findings = 0
     for i, text in enumerate(chunks):
-        wav = f"{args.work}/.chunks/ch01_chunk{i:04d}.wav"
+        wav = str(chunk_wav_path(args.work, i, chunks, args.language))
         # vad_filter MUST stay off. With it on, the transcriber silently
         # discards short or quiet chunks and returns nothing, which reads
         # here as a total loss — two perfectly good title chunks were

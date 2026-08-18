@@ -23,15 +23,18 @@ Hardware expectations:
 
 Resume semantics:
   * Per-chunk WAV cache at .local/audiobooks/{pdf_stem}/.chunks/
-    ch{ci:02d}_chunk{chi:04d}.wav. Re-running the script skips any
-    chunk whose WAV already exists. Ctrl-C is safe between chunks.
+    chunk_<hash>.wav, where the hash covers the chunk's TEXT, language
+    and voice. Re-running skips any chunk whose file already exists and
+    is healthy, so changing the text or the chunking rules only
+    re-synthesizes the chunks that actually changed, wherever they moved
+    to. Ctrl-C is safe between chunks.
   * .progress.json in the output dir tracks completed chapters, total
     chunks done, wall-clock elapsed, and estimated remaining time.
   * Pass --no-resume to wipe the cache dir and start from scratch.
 
 Output layout:
   .local/audiobooks/{pdf_stem}/
-    .chunks/ch{ci:02d}_chunk{chi:04d}.wav   (intermediate)
+    .chunks/chunk_<hash>.wav                (intermediate, content-keyed)
     .progress.json                          (resume state)
     {idx:02d}_{safe_title}.mp3              (one per chapter)
     00_full.mp3                             (concatenated book)
@@ -1864,16 +1867,70 @@ def _postprocess(seg):
     return seg
 
 
-def _voice_key(args) -> str:
-    """Identity of the voice a chunk was synthesized with.
+def _fingerprint_path(path_str: str) -> str:
+    """Identify a file or directory by its CONTENTS, not just its name.
 
-    Part of the cache key, so switching voice pack or reference clip can never
-    hand back audio in the previous voice. The GUI guards this too, but the
-    runner must be correct when driven directly from the CLI.
+    A voice pack is normally re-trained IN PLACE, writing back to the same
+    directory. Hashing only the path would leave the key byte-identical, every
+    chunk would hit, and the whole book would ship in the previous voice — the
+    exact failure the key exists to prevent, arriving through the door marked
+    "same voice".
+
+    Size and mtime rather than a full content hash: a pack holds hundreds of
+    megabytes of adapter weights and this runs once per conversion.
     """
+    if not path_str:
+        return ""
+    target = Path(path_str)
+    if not target.exists():
+        return f"{path_str}|missing"
+    if target.is_file():
+        stat = target.stat()
+        return f"{path_str}|{stat.st_size}|{int(stat.st_mtime)}"
+    parts = []
+    for child in sorted(target.rglob("*")):
+        if child.is_file():
+            stat = child.stat()
+            parts.append(f"{child.name}|{stat.st_size}|{int(stat.st_mtime)}")
+    return f"{path_str}|" + "|".join(parts)
+
+
+def _voice_key(args) -> str:
+    """Identity of everything that shapes a chunk's audio besides its text.
+
+    Part of the cache key, so none of these can change under a cache that then
+    hands back audio made with the old ones. The GUI guards voice changes too,
+    but the runner must be correct when driven straight from the CLI — and the
+    GUI cannot guard the ones below that are not user-visible at all.
+
+    Included, and why each:
+
+    * The voice pack and reference clip, BY CONTENT. Re-training a pack in
+      place keeps its path identical; see _fingerprint_path.
+    * The sampling constants. Retune them and a resumed book is half old
+      renders and half new ones, spliced into one chapter with an audible
+      change of pace and nothing in the log.
+    * The chatterbox package version, as a stand-in for the model revision.
+      Not the model weights' hash, which would be better, but it means an
+      engine upgrade that moves the finetune cannot silently reuse the
+      previous engine's audio. Deliberately NOT the app version: that would
+      invalidate every cache on every release, including releases that do not
+      touch synthesis at all.
+    """
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        engine_rev = _pkg_version("chatterbox-tts")
+    except Exception:
+        engine_rev = ""
+
     return "|".join([
-        str(getattr(args, "voice_pack", "") or ""),
-        str(getattr(args, "ref_audio", "") or ""),
+        _fingerprint_path(str(getattr(args, "voice_pack", "") or "")),
+        _fingerprint_path(str(getattr(args, "ref_audio", "") or "")),
+        f"t={FI_TEMPERATURE}",
+        f"e={FI_EXAGGERATION}",
+        f"c={FI_CFG_WEIGHT}",
+        f"engine={engine_rev}",
     ])
 
 
@@ -1904,7 +1961,7 @@ def _chunk_cache_path(chunks_dir: Path, key: str) -> Path:
     return chunks_dir / f"chunk_{key}.wav"
 
 
-def _chunk_keys(chunks: list, language: str, voice_key: str) -> list:
+def _chunk_keys(chunks: list, language: str, voice_key: str, seen=None) -> list:
     """Cache keys for one chapter, in order.
 
     Repeated text gets an occurrence number so two identical sentences keep
@@ -1918,13 +1975,59 @@ def _chunk_keys(chunks: list, language: str, voice_key: str) -> list:
     heading above a repeated line leaves both occurrences exactly where they
     were in the count.
     """
-    seen: dict = {}
+    # `seen` is threaded across the WHOLE BOOK by the caller. Kept per
+    # chapter it collided across chapters: a repeated epigraph in chapters 1
+    # and 7 both got occurrence 0, so both mapped to one file. Chapter 7's
+    # median sweep could then re-roll it and overwrite the audio chapter 1
+    # assembles from, changing chapter 1 without chapter 1 being touched.
+    # A fresh run also under-counted, because chapter 7 saw the file chapter 1
+    # had just written, took the cache-hit branch, and never incremented the
+    # progress total — so the bar could never reach 100%.
+    if seen is None:
+        seen = {}
     keys = []
     for text in chunks:
         occurrence = seen.get(text, 0)
         seen[text] = occurrence + 1
         keys.append(_chunk_cache_key(text, language, voice_key, occurrence))
     return keys
+
+
+# NOTE on a known limitation of the occurrence counter. If a chapter contains
+# the same sentence twice and the author edits only the FIRST, the survivor
+# becomes the sole instance of its text and is renumbered from occurrence 1 to
+# occurrence 0. Its words did not change, but its key did, so it is
+# re-synthesized once and its old file is swept as an orphan. This is not
+# position dependence -- inserting or removing unrelated chunks never moves
+# it -- but it is a dependence on the OTHER occurrences of the same text.
+#
+# Left as-is deliberately: the alternative is matching duplicates to existing
+# files by content at load time, which is real bookkeeping for a case that
+# costs one chunk when it happens.
+
+
+def _discard_orphaned_chunks(chunks_dir: Path, live_keys) -> int:
+    """Delete cached chunks that no chunk in the current plan refers to.
+
+    Content addressing means a superseded chunk is never overwritten, only
+    abandoned: edit three typos and three WAVs are orphaned, change the
+    normalizer and effectively the entire previous cache is. The old
+    plan-fingerprint wipe at least reclaimed that space; without a sweep here
+    the directory grows without bound across edits.
+
+    Only runs when the plan is known to be complete, so a resumed run cannot
+    delete chunks it is about to need.
+    """
+    live = {f"chunk_{key}.wav" for key in live_keys}
+    removed = 0
+    for path in sorted(chunks_dir.glob("chunk_*.wav")):
+        if path.name not in live:
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
 
 
 def _discard_legacy_index_cache(chunks_dir: Path) -> int:
@@ -1935,13 +2038,23 @@ def _discard_legacy_index_cache(chunks_dir: Path) -> int:
     those positions was never stored. It is a one-time loss on upgrade, and
     the reason the scheme changed is so it is the LAST one.
     """
-    stale = sorted(chunks_dir.glob("ch[0-9]*_chunk[0-9]*.wav"))
-    for path in stale:
+    removed = 0
+    failed = 0
+    for path in sorted(chunks_dir.glob("ch[0-9]*_chunk[0-9]*.wav")):
         try:
             path.unlink()
+            removed += 1
         except OSError:
-            pass
-    return len(stale)
+            # Locked by a media player, or read-only. Counting it as removed
+            # would print the same "discarded N" line on every future run.
+            failed += 1
+    if failed:
+        print(
+            f"[setup] could not delete {failed} old chunk file(s); they are "
+            f"harmless but will keep taking up space",
+            flush=True,
+        )
+    return removed
 
 
 def _write_progress(progress_path: Path, state: dict) -> None:
@@ -2266,6 +2379,10 @@ def main() -> int:
     # Pre-compute chunks for each selected chapter (deterministic, cheap).
     plan = []  # [(pos, chapter, chunks, heading_indices, cache_keys)]
     total_chunks = 0
+    # The voice is fixed for the whole run; derive it once. The occurrence
+    # counter spans the whole book so two chapters cannot share a key.
+    voice_key = _voice_key(args)
+    key_counter: dict = {}
     for pos, ch in selected:
         chunks, heading_indices = _prepare_chapter_chunks(
             ch, args.chunk_chars, args.chunks_per_chapter,
@@ -2275,7 +2392,7 @@ def main() -> int:
             continue
         plan.append((
             pos, ch, chunks, heading_indices,
-            _chunk_keys(chunks, args.language, _voice_key(args)),
+            _chunk_keys(chunks, args.language, voice_key, seen=key_counter),
         ))
         total_chunks += len(chunks)
     print(f"[setup] total chunks to synthesize: {total_chunks}", flush=True)
@@ -2283,6 +2400,15 @@ def main() -> int:
     # One-time cleanup: chunks named by the old index scheme cannot be
     # matched to content keys, because their filenames record a position
     # and the plan that produced those positions was never stored.
+    orphans = _discard_orphaned_chunks(
+        chunks_dir, {k for _p, _c, _t, _h, ks in plan for k in ks}
+    )
+    if orphans:
+        print(
+            f"[setup] removed {orphans} cached chunk(s) no longer referenced "
+            f"by this text",
+            flush=True,
+        )
     legacy = _discard_legacy_index_cache(chunks_dir)
     if legacy:
         print(

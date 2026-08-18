@@ -282,3 +282,130 @@ class TestOneHeadingLengthConstant:
         # A plain sub-heading: not a chapter opener, but is a heading to pause at.
         assert not pdf_heading("Kasteluohjeet")
         assert chunk_heading("Kasteluohjeet")
+
+
+class TestCacheReviewRegressions:
+    """Defects found reviewing the content-addressed cache."""
+
+    def test_the_same_text_in_two_chapters_gets_two_keys(self, runner):
+        """The occurrence counter was per chapter, so a repeated epigraph in
+        chapters 1 and 7 mapped to ONE file. Chapter 7's median sweep could
+        re-roll it and overwrite the audio chapter 1 assembles from."""
+        seen = {}
+        ch1 = runner._chunk_keys(["Toistuva.", "Eka."], "fi", "", seen=seen)
+        ch7 = runner._chunk_keys(["Toistuva.", "Muu."], "fi", "", seen=seen)
+        assert ch1[0] != ch7[0]
+        assert len({*ch1, *ch7}) == 4
+
+    def test_a_retrained_voice_pack_changes_the_key(self, runner, tmp_path):
+        """A pack is normally re-trained IN PLACE. Hashing only its path left
+        the key identical and the whole book shipped in the previous voice."""
+        import time
+        from types import SimpleNamespace
+
+        pack = tmp_path / "pack"
+        pack.mkdir()
+        (pack / "adapter.bin").write_bytes(b"v1")
+        args = SimpleNamespace(voice_pack=str(pack), ref_audio=None)
+        before = runner._voice_key(args)
+
+        time.sleep(1.1)
+        (pack / "adapter.bin").write_bytes(b"v2-retrained-and-larger")
+        assert runner._voice_key(args) != before
+
+    def test_the_same_pack_is_stable(self, runner, tmp_path):
+        from types import SimpleNamespace
+        pack = tmp_path / "pack"
+        pack.mkdir()
+        (pack / "adapter.bin").write_bytes(b"v1")
+        args = SimpleNamespace(voice_pack=str(pack), ref_audio=None)
+        assert runner._voice_key(args) == runner._voice_key(args)
+
+    def test_sampling_constants_are_in_the_key(self, runner):
+        """Retune them and a resumed book is half old renders, half new,
+        spliced into one chapter with an audible change of pace."""
+        from types import SimpleNamespace
+        args = SimpleNamespace(voice_pack=None, ref_audio=None)
+        key = runner._voice_key(args)
+        assert str(runner.FI_TEMPERATURE) in key
+        assert str(runner.FI_EXAGGERATION) in key
+        assert str(runner.FI_CFG_WEIGHT) in key
+
+    def test_orphaned_chunks_are_swept(self, runner, tmp_path):
+        """Content addressing abandons superseded chunks rather than
+        overwriting them, so without a sweep the directory grows forever."""
+        chunks_dir = tmp_path / ".chunks"
+        chunks_dir.mkdir()
+        live = runner._chunk_keys(["Eka.", "Toka."], "fi", "")
+        for key in live:
+            runner._chunk_cache_path(chunks_dir, key).write_bytes(b"keep")
+        runner._chunk_cache_path(chunks_dir, "deadbeef" * 4).write_bytes(b"old")
+
+        removed = runner._discard_orphaned_chunks(chunks_dir, set(live))
+        assert removed == 1
+        assert len(list(chunks_dir.glob("chunk_*.wav"))) == 2
+
+    def test_the_sweep_keeps_everything_still_referenced(self, runner, tmp_path):
+        chunks_dir = tmp_path / ".chunks"
+        chunks_dir.mkdir()
+        live = runner._chunk_keys(["Eka."], "fi", "")
+        runner._chunk_cache_path(chunks_dir, live[0]).write_bytes(b"keep")
+        assert runner._discard_orphaned_chunks(chunks_dir, set(live)) == 0
+
+    def test_legacy_cleanup_counts_only_successful_deletions(self, runner, tmp_path):
+        """Counting attempts meant a locked file was reported as discarded and
+        re-reported on every future run."""
+        chunks_dir = tmp_path / ".chunks"
+        chunks_dir.mkdir()
+        (chunks_dir / "ch01_chunk0000.wav").write_bytes(b"old")
+        assert runner._discard_legacy_index_cache(chunks_dir) == 1
+        assert runner._discard_legacy_index_cache(chunks_dir) == 0
+
+
+class TestVerifiersFindContentKeyedChunks:
+    """The transcript check is the completion gate for every narration. When
+    the cache scheme changed, both verifiers still built index-based paths,
+    found nothing, and reported good audio as unverifiable."""
+
+    def _helper(self):
+        import importlib.util
+        from pathlib import Path
+        path = (
+            Path(__file__).resolve().parents[1]
+            / ".claude" / "skills" / "narrate-texts" / "scripts" / "chunk_paths.py"
+        )
+        spec = importlib.util.spec_from_file_location("_chunk_paths", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_finds_a_content_keyed_chunk(self, runner, tmp_path):
+        helper = self._helper()
+        chunks = tmp_path / ".chunks"
+        chunks.mkdir()
+        texts = ["Eka virke.", "Toka virke."]
+        keys = runner._chunk_keys(texts, "fi", "")
+        for key in keys:
+            runner._chunk_cache_path(chunks, key).write_bytes(b"x")
+        found = helper.chunk_wav_path(tmp_path, 1, texts, "fi")
+        assert found.exists()
+        assert found.name.startswith("chunk_")
+
+    def test_lists_both_naming_schemes(self, runner, tmp_path):
+        helper = self._helper()
+        chunks = tmp_path / ".chunks"
+        chunks.mkdir()
+        (chunks / "ch01_chunk0000.wav").write_bytes(b"old")
+        runner._chunk_cache_path(
+            chunks, runner._chunk_keys(["Eka."], "fi", "")[0]
+        ).write_bytes(b"new")
+        assert len(helper.chunk_wavs(tmp_path)) == 2
+
+    def test_falls_back_to_the_old_name(self, tmp_path):
+        """A cache written by an older build must still be verifiable."""
+        helper = self._helper()
+        chunks = tmp_path / ".chunks"
+        chunks.mkdir()
+        (chunks / "ch01_chunk0000.wav").write_bytes(b"old")
+        assert helper.chunk_wav_path(tmp_path, 0, ["Eka."], "fi").name == \
+            "ch01_chunk0000.wav"

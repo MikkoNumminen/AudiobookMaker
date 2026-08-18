@@ -7,8 +7,9 @@ pydub's pure-Python low-pass filter on top). That is gigabytes at the very last
 step, after fourteen hours of synthesis had already succeeded.
 
 Splitting at ASSEMBLY time rather than in the plan is deliberate: the chunk
-cache filenames stay `ch{pos}_chunk{i}`, so a partial run made by an older
-build still resumes.
+CACHE is untouched by it, so splitting a chapter into parts never costs a
+re-synthesis. (The cache is content-keyed now; when this was written it was
+keyed by index and the point was that the indices did not move.)
 
 The correctness bar: audio at a part boundary must match what a single-file
 assembly would have produced, which means seams are decided by a chunk's
