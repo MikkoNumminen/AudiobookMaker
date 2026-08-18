@@ -223,6 +223,9 @@ MAX_AUDIO_S_PER_CHAR = 0.200
 # sentence can be brief), so skip the band guard. Tiny chunks are also merged
 # away upstream (CHUNK_MIN_CHARS) so they rarely reach the synth.
 MIN_AUDIO_RETRY_CHAR_FLOOR = 40
+# A spoken heading longer than this is rambling, whatever its length in
+# characters. Generous: a long title read slowly is still a few seconds.
+HEADING_MAX_AUDIO_S = 8.0
 MIN_AUDIO_MAX_RETRIES = 5        # 1 initial + up to 5 re-rolls
 
 # --- Relative sweep (Pass R) -------------------------------------------
@@ -526,14 +529,18 @@ def _select_chapters(book, only: set[int] | None):
 
 def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int,
                             language: str = "fi"):
-    """Normalize + chunk a chapter's content. Returns list[str].
+    """Normalize + chunk a chapter's content.
+
+    Returns ``(chunks, heading_indices)`` — NOT a bare list. Callers that
+    iterate the return value directly get the chunk list and an index set as
+    two "chunks".
 
     Routes through the language-aware dispatcher so English runs
     don't get Finnish-specific rewrites (Roman numerals expanded
     as Finnish ordinals, case-inflected numbers, etc.).
     """
     from src.tts_chunking import (
-        looks_like_heading,
+        classify_heading_blocks,
         split_blocks_into_chunks,
         split_into_blocks,
     )
@@ -554,8 +561,17 @@ def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int,
     content = normalize_text(raw, language)
     norm_blocks = split_into_blocks(content)
     if len(norm_blocks) == len(raw_blocks):
-        flags = [looks_like_heading(b) for b in raw_blocks]
+        flags = classify_heading_blocks(raw_blocks)
     else:
+        # Not an error, but it means this chapter gets no heading pauses at
+        # all, and a user reporting "the pauses came back on chapter 7" needs
+        # something in the log to point at.
+        print(
+            f"[setup] chapter block structure changed during normalization "
+            f"({len(raw_blocks)} -> {len(norm_blocks)}); no heading pauses "
+            f"for this chapter",
+            flush=True,
+        )
         flags = [False] * len(norm_blocks)
 
     # min_chars folds stray sub-60-char clauses into a neighbor: Chatterbox
@@ -1124,7 +1140,9 @@ def _cached_audio_seconds(cache_path) -> float:
             return -1.0
 
 
-def _ratio_badness(audio_s: float, chunk_chars: int) -> float:
+def _ratio_badness(
+    audio_s: float, chunk_chars: int, *, is_heading: bool = False
+) -> float:
     """0.0 if audio-seconds-per-char sits in the healthy band, else the
     distance outside it. Used both to validate a cached chunk and to pick the
     least-bad retry attempt (truncated vs rambling).
@@ -1145,6 +1163,16 @@ def _ratio_badness(audio_s: float, chunk_chars: int) -> float:
     """
     if chunk_chars <= 0:
         return 0.0
+
+    # A heading is judged on absolute length, not on ratio. Titles are 5-20
+    # characters, and s/char is meaningless at that size: "Alku." spoken with
+    # any lead-in and tail clears MAX_AUDIO_S_PER_CHAR immediately, so every
+    # heading in the book would fail the band guard, burn all five re-rolls,
+    # and ship with a "STILL rambling" warning. The guard still catches a
+    # genuine ramble, which on a title means many seconds of invented speech.
+    if is_heading:
+        return max(0.0, audio_s - HEADING_MAX_AUDIO_S)
+
     r = audio_s / chunk_chars
     if r > MAX_AUDIO_S_PER_CHAR:
         return r - MAX_AUDIO_S_PER_CHAR        # rambling / repetition (any size)
@@ -1340,7 +1368,9 @@ def _run_median_sweep(
     return replaced
 
 
-def _cached_chunk_healthy(cache_path, chunk_chars: int) -> bool:
+def _cached_chunk_healthy(
+    cache_path, chunk_chars: int, *, is_heading: bool = False
+) -> bool:
     """True if a cached chunk WAV's audio length is in the healthy band.
 
     The cache key is the chunk INDEX, and a chunk was historically reused
@@ -1358,7 +1388,7 @@ def _cached_chunk_healthy(cache_path, chunk_chars: int) -> bool:
     secs = _cached_audio_seconds(cache_path)
     if secs <= 0:
         return False
-    return _ratio_badness(secs, chunk_chars) == 0.0
+    return _ratio_badness(secs, chunk_chars, is_heading=is_heading) == 0.0
 
 
 # Closing wrappers that can legitimately sit AFTER pause punctuation (quotes,
@@ -1532,6 +1562,9 @@ def _assemble_chunks(seg_iter, chunk_texts, *, index_offset=0, total=None,
     """
     from pydub import AudioSegment
     n = len(chunk_texts) if total is None else total
+    # Hoisted: the per-chunk loop below runs thousands of times on a real
+    # book and nothing in it mutates this.
+    heads = headings or frozenset()
     data = bytearray()
     rate = width = channels = None
     for local_i, seg in enumerate(seg_iter):
@@ -1548,7 +1581,6 @@ def _assemble_chunks(seg_iter, chunk_texts, *, index_offset=0, total=None,
         seg = seg.set_channels(channels).set_frame_rate(rate).set_sample_width(width)
         data += seg.raw_data
         if chi < n - 1:
-            heads = headings or set()
             gap_ms = _seam_gap_ms(
                 chunk_texts[chi],
                 is_heading=chi in heads,
@@ -1820,6 +1852,72 @@ def _postprocess(seg):
     if seg.dBFS != float("-inf"):
         seg = seg.apply_gain(delta)
     return seg
+
+
+def _chunk_plan_fingerprint(plan, chunk_chars: int, language: str) -> str:
+    """Hash of the exact chunk plan the cache would be built from.
+
+    The chunk WAV cache is keyed by INDEX only, and `--resume` is the default,
+    so the reuse test asks whether a file exists and whether its duration is
+    plausible for the character count. Neither notices that chunk 12 now holds
+    different text than it did. Any change to chunking — a new sentence rule,
+    a heading forcing a boundary, a different --chunk-chars — silently splices
+    previously-synthesized audio into slots that have moved, and the finished
+    book reads the wrong sentences in the wrong places with nothing in the log.
+
+    Storing this next to the cache turns that into a detected mismatch. The
+    narrate-texts skill guards the same thing the same way.
+    """
+    import hashlib
+
+    payload = {
+        "chunk_chars": chunk_chars,
+        "language": language,
+        "chapters": [
+            {"pos": pos, "chunks": chunks, "headings": sorted(headings)}
+            for pos, _ch, chunks, headings in plan
+        ],
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _guard_cache_against_plan_change(
+    fingerprint_path: Path, chunks_dir: Path, current: str, resuming: bool
+) -> None:
+    """Discard a chunk cache that was built from a different chunk plan."""
+    previous = None
+    try:
+        if fingerprint_path.is_file():
+            previous = json.loads(
+                fingerprint_path.read_text(encoding="utf-8")
+            ).get("fingerprint")
+    except Exception:
+        previous = None  # unreadable: treat as no record and rebuild the file
+
+    if resuming and previous and previous != current:
+        stale = sorted(chunks_dir.glob("*.wav"))
+        print(
+            f"[setup] the chunk plan changed since these {len(stale)} cached "
+            f"chunks were made (different text, chunk size, or chunking "
+            f"rules). Re-synthesizing from scratch: reusing them would splice "
+            f"old audio into the wrong places.",
+            flush=True,
+        )
+        for p in stale:
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    try:
+        fingerprint_path.parent.mkdir(parents=True, exist_ok=True)
+        fingerprint_path.write_text(
+            json.dumps({"fingerprint": current}, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        # Losing the record costs a needless re-synthesis next time, which is
+        # far better than taking down a run that is otherwise fine.
+        print("[setup] could not record the chunk plan fingerprint", flush=True)
 
 
 def _write_progress(progress_path: Path, state: dict) -> None:
@@ -2155,6 +2253,16 @@ def main() -> int:
         total_chunks += len(chunks)
     print(f"[setup] total chunks to synthesize: {total_chunks}", flush=True)
 
+    # Before anything reads the cache: make sure it was built from THIS chunk
+    # plan. The cache is keyed by index, so a changed plan reuses old audio in
+    # moved slots and the book quietly contains the wrong sentences.
+    _guard_cache_against_plan_change(
+        out_root / ".chunk_plan.json",
+        chunks_dir,
+        _chunk_plan_fingerprint(plan, args.chunk_chars, args.language),
+        resuming=args.resume,
+    )
+
     device = _resolve_device(args.device)
     print(f"[setup] device={device}", flush=True)
 
@@ -2197,7 +2305,9 @@ def main() -> int:
             cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
             if not cache_path.exists():
                 continue
-            if _cached_chunk_healthy(cache_path, len(chunk_text)):
+            if _cached_chunk_healthy(
+                cache_path, len(chunk_text), is_heading=chi in _headings
+            ):
                 cached_done += 1
             else:
                 stale_unhealthy += 1
@@ -2243,8 +2353,9 @@ def main() -> int:
                 # its text). A stale truncation is treated as a miss and
                 # re-synthesized; the ta.save at the end of this block
                 # overwrites the bad file.
+                is_heading = chi in headings
                 if cache_path.exists() and _cached_chunk_healthy(
-                    cache_path, len(chunk_text)
+                    cache_path, len(chunk_text), is_heading=is_heading
                 ):
                     continue
 
@@ -2267,7 +2378,9 @@ def main() -> int:
                 # brief short sentence is left alone.
                 best_wav, best_audio_s, best_dt = wav, audio_s, dt
                 for attempt in range(1, MIN_AUDIO_MAX_RETRIES + 1):
-                    if _ratio_badness(best_audio_s, chunk_chars) == 0.0:
+                    if _ratio_badness(
+                        best_audio_s, chunk_chars, is_heading=is_heading
+                    ) == 0.0:
                         break
                     ratio = best_audio_s / chunk_chars
                     kind = ("early-stop" if ratio < MIN_AUDIO_S_PER_CHAR
@@ -2285,12 +2398,16 @@ def main() -> int:
                     retries_used = attempt
                     # always charge the wall-clock
                     dt += dt_r
-                    if _ratio_badness(audio_s_r, chunk_chars) < _ratio_badness(
-                        best_audio_s, chunk_chars
+                    if _ratio_badness(
+                        audio_s_r, chunk_chars, is_heading=is_heading
+                    ) < _ratio_badness(
+                        best_audio_s, chunk_chars, is_heading=is_heading
                     ):
                         best_wav, best_audio_s, best_dt = wav_r, audio_s_r, dt_r
                 wav, audio_s = best_wav, best_audio_s
-                if _ratio_badness(best_audio_s, chunk_chars) > 0.0:
+                if _ratio_badness(
+                    best_audio_s, chunk_chars, is_heading=is_heading
+                ) > 0.0:
                     ratio = best_audio_s / chunk_chars
                     kind = ("truncated" if ratio < MIN_AUDIO_S_PER_CHAR
                             else "rambling")

@@ -193,7 +193,12 @@ def _build_chapters(paragraphs: list[tuple[str, bool]]) -> list[Chapter]:
     """
     has_style_headings = any(is_heading for _, is_heading in paragraphs)
     if not has_style_headings:
-        full_text = "\n".join(text for text, _ in paragraphs)
+        # Blank line between paragraphs, not a single newline. A Word
+        # paragraph IS a block, but the shared cleaner collapses lone
+        # newlines to spaces (in a PDF they are line wrapping), so a
+        # single-newline join handed the chunker one unbroken line and
+        # every heading in a no-heading-styles .docx lost its pause.
+        full_text = "\n\n".join(text for text, _ in paragraphs)
         return _split_into_chapters([(1, full_text)])
 
     chapters: list[Chapter] = []
@@ -232,7 +237,12 @@ def _build_chapters(paragraphs: list[tuple[str, bool]]) -> list[Chapter]:
     # back to the heuristic splitter so we never return zero chapters when
     # there is text to read.
     if not chapters:
-        full_text = "\n".join(text for text, _ in paragraphs)
+        # Blank line between paragraphs, not a single newline. A Word
+        # paragraph IS a block, but the shared cleaner collapses lone
+        # newlines to spaces (in a PDF they are line wrapping), so a
+        # single-newline join handed the chunker one unbroken line and
+        # every heading in a no-heading-styles .docx lost its pause.
+        full_text = "\n\n".join(text for text, _ in paragraphs)
         return _split_into_chapters([(1, full_text)])
     return chapters
 

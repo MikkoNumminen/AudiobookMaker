@@ -13,7 +13,7 @@ body -- the real run produced a single chunk for a four-paragraph document.
 
 The subtle part is WHERE a heading can be recognised. `terminate_paragraphs`
 appends a full stop to every unpunctuated paragraph-final line, which is
-exactly the signal that separates "Varallisuusoikeus" from "Loppu." So
+exactly the signal that separates a bare title from "Loppu." So
 classification has to happen on the RAW text and be carried forward; done
 after normalization, every short paragraph in the book earns a section pause.
 """
@@ -47,13 +47,17 @@ def runner():
     return mod
 
 
-_BOOK = """Luku 6 esineoikeus
+# Invented for this test. Deliberately a mundane subject with no source:
+# the shapes under test are "short unpunctuated line" and "paragraph", and
+# anything that reads like an excerpt from a real book has no place in a
+# tracked fixture (CLAUDE.md, third-party material).
+_BOOK = """Luku 6 puutarhanhoito
 
-Esineoikeus jakautuu kahteen osaan. Toinen niistä on omistusoikeus.
+Puutarha jakautuu kahteen osaan. Toinen niistä on kasvimaa.
 
-Varallisuusoikeus
+Kasteluohjeet
 
-Varallisuusoikeus on laaja ala. Se kattaa monta asiaa."""
+Kastelu kannattaa tehdä aamulla. Silloin haihtuminen on vähäisintä."""
 
 
 def _prepare(runner, text, chunk_chars=200):
@@ -63,10 +67,10 @@ def _prepare(runner, text, chunk_chars=200):
 
 class TestHeadingDetectionOnRawText:
     @pytest.mark.parametrize("text", [
-        "Varallisuusoikeus",
-        "Luku 6 esineoikeus",
+        "Kasteluohjeet",
+        "Luku 6 puutarhanhoito",
         "6. Esineoikeus",
-        "VARALLISUUSOIKEUS",
+        "KASTELUOHJEET",
         "Tauot lauseiden välillä",
     ])
     def test_headings(self, text):
@@ -101,9 +105,9 @@ class TestHeadingDetectionOnRawText:
 
 class TestBlockChunking:
     def test_a_heading_becomes_its_own_chunk(self):
-        blocks = [("Luku 6 esineoikeus", True), ("Leipätekstiä tässä.", False)]
+        blocks = [("Luku 6 puutarhanhoito", True), ("Leipätekstiä tässä.", False)]
         chunks, heads = split_blocks_into_chunks(blocks, 200, 60)
-        assert chunks[0] == "Luku 6 esineoikeus"
+        assert chunks[0] == "Luku 6 puutarhanhoito"
         assert heads == {0}
 
     def test_a_short_heading_is_not_folded_into_the_body(self):
@@ -141,20 +145,20 @@ class TestEndToEndThroughTheRunner:
         chunks, heads = _prepare(runner, _BOOK)
         assert len(chunks) > 1
         assert 0 in heads
-        assert chunks[0].startswith("Luku kuusi esineoikeus")
+        assert chunks[0].startswith("Luku kuusi puutarhanhoito")
         assert "jakautuu" not in chunks[0]
 
     def test_every_heading_is_flagged(self, runner):
         chunks, heads = _prepare(runner, _BOOK)
         flagged = [chunks[i] for i in sorted(heads)]
         assert len(flagged) == 2
-        assert any("esineoikeus" in f.lower() for f in flagged)
-        assert any("Varallisuusoikeus" in f for f in flagged)
+        assert any("puutarhanhoito" in f.lower() for f in flagged)
+        assert any("Kasteluohjeet" in f for f in flagged)
 
     def test_body_sentences_are_not_flagged(self, runner):
         chunks, heads = _prepare(runner, _BOOK)
         for i, c in enumerate(chunks):
-            if "jakautuu" in c or "laaja ala" in c:
+            if "jakautuu" in c or "aamulla" in c:
                 assert i not in heads, c
 
     def test_a_document_with_no_headings_is_unaffected(self, runner):

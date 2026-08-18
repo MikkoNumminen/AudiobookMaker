@@ -213,7 +213,32 @@ def parse_epub(file_path: str | Path) -> ParsedBook:
         for noise in soup(["script", "style"]):
             noise.decompose()
 
-        raw_text = soup.get_text(separator=" ", strip=True)
+        # Extract BLOCK BY BLOCK, joined with a blank line, rather than
+        # flattening the whole chapter with `get_text(separator=" ")`.
+        #
+        # The flat form threw away every paragraph and heading boundary in the
+        # document: a chapter arrived downstream as one unbroken line, so the
+        # chunker had no blank lines to find, and an <h2> sub-heading was read
+        # straight into the body with no pause. That is the defect users
+        # report as "you cannot hear where a new chapter starts", and for EPUB
+        # it survived two separate attempts to fix it further down the
+        # pipeline, because the structure was already gone by then.
+        #
+        # `div` is deliberately absent: a div wrapping paragraphs would yield
+        # its own text AND each child's, duplicating the chapter. The listed
+        # tags are the leaf-ish blocks real EPUB XHTML uses. Anything with no
+        # recognised blocks at all falls back to the old flat extraction.
+        _BLOCK_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6",
+                       "p", "li", "blockquote", "pre")
+        blocks = []
+        for element in soup.find_all(_BLOCK_TAGS):
+            block_text = element.get_text(separator=" ", strip=True)
+            if block_text:
+                blocks.append(block_text)
+        raw_text = (
+            "\n\n".join(blocks) if blocks
+            else soup.get_text(separator=" ", strip=True)
+        )
         # Scrub replacement chars (from mismatched encodings) before we
         # measure length — a document that is ONLY replacement chars is
         # junk, not content.
