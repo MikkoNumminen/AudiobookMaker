@@ -212,8 +212,58 @@ class TestAssemblyUsesTheFlags:
         without = runner._assemble_chunks(
             (self._seg() for _ in texts), texts, headings=set(),
         )
-        # The heading seam is longer than the sentence seam it replaces.
-        assert len(with_heading) > len(without)
+        # Assert the EXACT delta, not merely "longer". A greater-than check
+        # passes for a 1 ms gap, and passes just as happily if the pause is
+        # applied on only one side of the title — both of which are the
+        # regressions worth catching.
+        #
+        # Only one seam changes: the one after chunk 0. Unflagged, a bare
+        # title ends on a word and classifies as "mid", so its baseline gap is
+        # ZERO -- a heading is otherwise pulled TIGHTER against the body than
+        # an ordinary sentence, which is the opposite of what it needs.
+        expected = runner.HEADING_SEAM_GAP_MS - 0
+        assert len(with_heading) - len(without) == expected
+
+    def test_a_heading_in_the_middle_widens_both_of_its_seams(self, runner):
+        """The pause before a title matters as much as the one after it."""
+        pytest.importorskip("pydub")
+        texts = ["Eka kappale.", "Otsikko", "Toka kappale."]
+        framed = runner._assemble_chunks(
+            (self._seg() for _ in texts), texts, headings={1},
+        )
+        plain = runner._assemble_chunks(
+            (self._seg() for _ in texts), texts, headings=set(),
+        )
+        # Two seams change: the one BEFORE the title (sentence-tier ->
+        # heading) and the one after it (mid -> heading).
+        expected = (
+            (runner.HEADING_SEAM_GAP_MS - runner.SENTENCE_SEAM_GAP_MS)
+            + (runner.HEADING_SEAM_GAP_MS - 0)
+        )
+        assert len(framed) - len(plain) == expected
+
+    def test_heading_indices_are_chapter_absolute_in_a_split_part(self, runner):
+        """`_assemble_chapter_parts` passes chapter-absolute indices while the
+        segment iterator is part-relative. That is the classic off-by-offset
+        spot, and a heading landing on a part boundary decides which MP3 the
+        900 ms ends up in."""
+        pytest.importorskip("pydub")
+        texts = ["Eka.", "Toka.", "Otsikko", "Kolmas.", "Neljas."]
+        # Assemble only the second half, where chunk 2 (absolute) is a heading.
+        part = runner._assemble_chunks(
+            (self._seg() for _ in texts[2:]), texts,
+            index_offset=2, total=len(texts), headings={2},
+        )
+        no_heads = runner._assemble_chunks(
+            (self._seg() for _ in texts[2:]), texts,
+            index_offset=2, total=len(texts), headings=set(),
+        )
+        # Chunk 2 is the heading and opens this part, so exactly the seam
+        # after it widens, from the mid-tier zero. If the offset were
+        # mishandled the flag would land on a different chunk and the delta
+        # would come out as a sentence-tier difference instead.
+        expected = runner.HEADING_SEAM_GAP_MS - 0
+        assert len(part) - len(no_heads) == expected
 
     def test_no_headings_matches_previous_behaviour(self, runner):
         pytest.importorskip("pydub")
