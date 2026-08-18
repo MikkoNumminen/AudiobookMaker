@@ -223,10 +223,19 @@ _FI_MONTH_PARTITIVE: tuple[str, ...] = (
 # regex doesn't accidentally swallow decimal numbers or version strings.
 _FI_DATE_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b")
 
-# Clock time: `klo` or `kello` followed by HH:MM. The prefix is mandatory
-# to avoid eating ratios / sports scores / chapter ranges. The hour and
-# minute are validated in the substitution function (0–23, 0–59).
-_FI_TIME_RE = re.compile(r"\b(?:klo|kello)\s+(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+# Clock time: `klo` / `kello`, optionally with a linking verb, then HH:MM.
+# The prefix stays mandatory to avoid eating ratios, sports scores and
+# chapter ranges, but requiring it to sit IMMEDIATELY before the digits was
+# too strict for ordinary Finnish: "Kello on 20:30" fell through to the
+# colon-ratio pass and was read "kaksikymmentae kolmeenkymmeneen", i.e.
+# "twenty to thirty". The linking verb is captured and preserved so the
+# sentence still reads as written. The hour and minute are validated in the
+# substitution function (0–23, 0–59).
+_FI_TIME_RE = re.compile(
+    r"\b(klo|kello)((?:\s+(?:on|oli|olisi|olemme|olivat|ovat))?)\s+"
+    r"(\d{1,2}):(\d{2})\b",
+    re.IGNORECASE,
+)
 
 
 def _expand_dates_and_times(text: str) -> str:
@@ -260,8 +269,9 @@ def _expand_dates_and_times(text: str) -> str:
         return f"{day_word} {month_word} {year_word}"
 
     def _time_sub(m: re.Match[str]) -> str:
-        hour = int(m.group(1))
-        minute = int(m.group(2))
+        prefix, linker = m.group(1), m.group(2)
+        hour = int(m.group(3))
+        minute = int(m.group(4))
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             return m.group(0)
         try:
@@ -269,7 +279,11 @@ def _expand_dates_and_times(text: str) -> str:
             minute_word = num2words(minute, lang="fi")
         except (NotImplementedError, OverflowError, ValueError, TypeError):
             return m.group(0)
-        return f"kello {hour_word} {minute_word}"
+        # `klo` is spoken in full as "kello"; anything the writer actually
+        # spelled out, including a linking verb, is kept as written so the
+        # sentence still reads naturally.
+        spoken_prefix = "kello" if prefix.lower() == "klo" else prefix
+        return f"{spoken_prefix}{linker} {hour_word} {minute_word}"
 
     text = _FI_DATE_RE.sub(_date_sub, text)
     text = _FI_TIME_RE.sub(_time_sub, text)
