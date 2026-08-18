@@ -130,10 +130,68 @@ def _merge_short_chunks(
     return out
 
 
+# A blank line. Every format the app reads (TXT, and the PDF/EPUB/DOCX
+# parsers' output) uses one to separate a heading from the body and one
+# paragraph from the next.
+_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n\s*")
+
+# A heading is short. Longer than this and it is prose, whatever it looks
+# like — an unpunctuated line of 200 characters is a parser artifact or a
+# run-on, not a section title.
+HEADING_MAX_CHARS = 80
+
+
+def looks_like_heading(text: str) -> bool:
+    """True when a RAW, blank-line-delimited block is a heading.
+
+    Must be applied to the text as the document author wrote it, BEFORE
+    ``terminate_paragraphs`` runs. That pass gives every paragraph-final line
+    a full stop so the sentence splitter stops gluing headings to the body,
+    and in doing so it erases the one reliable difference between a heading
+    and a one-sentence paragraph: the heading never carried a terminator of
+    its own. Run this after normalization and "Varallisuusoikeus." and
+    "Loppu." are indistinguishable, and every short paragraph in the book
+    earns a section-break pause.
+
+    Conservative on purpose. A false positive drops a long silence into the
+    middle of prose, which is worse than the missing pause it was meant to fix.
+
+    No attempt is made to work out heading LEVEL. Chapter, section and
+    subsection are not distinguishable from shape in the documents this app is
+    handed, and guessing wrong is worse than treating them alike: two tiers
+    are what a listener actually needs to hear.
+    """
+    stripped = text.strip()
+    if not stripped or len(stripped) > HEADING_MAX_CHARS:
+        return False
+    if "\n" in stripped:            # more than one line: a paragraph
+        return False
+    if not any(c.isalpha() for c in stripped):
+        return False
+    # Must OPEN like a title: a capital, or its own number ("6. Esineoikeus").
+    first = stripped[0]
+    if not (first.isupper() or first.isdigit()):
+        return False
+    # And must CLOSE without a terminator. This is the whole signal.
+    return stripped[-1] not in _SENTENCE_END and stripped[-1] not in {
+        ",", ";", ":", "—", "–",
+    }
+
+
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences, preserving punctuation.
 
-    Handles the hard cases that a naive split-on-period-loses-to:
+    A BLANK LINE is a hard boundary, applied before any punctuation analysis.
+    Without it a heading merges into the sentence that follows it: a chapter
+    opening came out as the single unit ``"Luku 6 esineoikeus\\n\\nEsineoikeus
+    jakautuu kahteen osaan."`` and was synthesized as one continuous
+    utterance. There was no seam to put a pause at, so the narrator read the
+    title and ran straight on into the body with nothing to mark the change —
+    reported from the field as the reason a listener cannot tell where a new
+    chapter begins.
+
+    Within a block, the punctuation rules below are unchanged. They handle
+    the hard cases that a naive split-on-period-loses-to:
       * Abbreviations ("esim.", "ks.", "Mr.", "Dr.") — period does not end
         the sentence.
       * Numbered items and decimals ("1100-luvun", "5.2", "I.") — period
@@ -142,6 +200,21 @@ def _split_sentences(text: str) -> list[str]:
       * A period is only a real sentence end when followed by whitespace and
         then an uppercase letter, digit-uppercase combination, or end of text.
     """
+    if not text:
+        return []
+
+    # Blank lines first, then punctuation within each block.
+    blocks = [b for b in _BLANK_LINE_RE.split(text) if b.strip()]
+    if len(blocks) > 1:
+        out: list[str] = []
+        for block in blocks:
+            out.extend(_split_sentences_in_block(block))
+        return out
+    return _split_sentences_in_block(text)
+
+
+def _split_sentences_in_block(text: str) -> list[str]:
+    """Punctuation-based sentence split within one blank-line-delimited block."""
     if not text:
         return []
 
@@ -300,3 +373,56 @@ def _word_split(text: str, max_chars: int) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def split_blocks_into_chunks(
+    blocks: list[tuple[str, bool]],
+    max_chars: int = MAX_CHUNK_CHARS,
+    min_chars: int = 0,
+) -> tuple[list[str], set[int]]:
+    """Chunk pre-classified blocks. Returns ``(chunks, heading_indices)``.
+
+    ``blocks`` is ``[(text, is_heading), ...]`` in document order. The caller
+    decides what is a heading, because the evidence is destroyed before this
+    point: `terminate_paragraphs` gives every paragraph-final line a full
+    stop, after which "Varallisuusoikeus." and "Loppu." are the same shape.
+    Only the RAW text, before that pass, distinguishes them — a heading is the
+    one that carried no terminator of its own.
+
+    Consecutive non-heading blocks are still packed together exactly as
+    before. Chunking each paragraph independently would strand every short
+    paragraph as its own chunk, and Chatterbox rambles for ten seconds on a
+    tiny input — the failure `_merge_short_chunks` exists to prevent. Only a
+    heading forces a boundary.
+    """
+    chunks: list[str] = []
+    heading_indices: set[int] = set()
+    pending: list[str] = []
+
+    def _flush() -> None:
+        if not pending:
+            return
+        # Re-joined with the blank line so the sentence splitter still sees
+        # the paragraph structure inside this run of blocks.
+        joined = "\n\n".join(pending)
+        chunks.extend(split_text_into_chunks(joined, max_chars, min_chars))
+        pending.clear()
+
+    for text, is_heading in blocks:
+        text = text.strip()
+        if not text:
+            continue
+        if is_heading:
+            _flush()
+            heading_indices.add(len(chunks))
+            chunks.append(text)
+        else:
+            pending.append(text)
+    _flush()
+    return chunks, heading_indices
+
+
+def split_into_blocks(text: str) -> list[str]:
+    """Split on blank lines. Blank lines survive normalization, so block
+    indices line up between the raw and the normalized text."""
+    return [b.strip() for b in _BLANK_LINE_RE.split(text) if b.strip()]

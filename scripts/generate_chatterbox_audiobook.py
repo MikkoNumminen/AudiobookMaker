@@ -312,6 +312,15 @@ VAD_FALLBACK_TRAIL_KEEP_MS = 100
 # weird ~1.1s pause at a comma that happened to land on a chunk seam.
 CLAUSE_SEAM_GAP_MS = 150
 SENTENCE_SEAM_GAP_MS = 370
+# Around a heading. Applied on BOTH sides, so a section title is framed by
+# silence rather than butted against the prose either side of it.
+#
+# Audiobooks mark a section change with a pause and nothing else — no spoken
+# "new chapter" announcement — so this has to be clearly longer than the
+# 370 ms that follows an ordinary full stop, or a listener reads it as just
+# another sentence break. Reported from the field: the narrator ran the title
+# straight into the body and there was no way to hear where a chapter began.
+HEADING_SEAM_GAP_MS = 900
 
 # The Finnish model sometimes renders very long pauses (up to ~1.6s measured)
 # at a period or comma that lands in the MIDDLE of a chunk. VAD only trims the
@@ -523,18 +532,43 @@ def _prepare_chapter_chunks(chapter, chunk_chars: int, chunks_cap: int,
     don't get Finnish-specific rewrites (Roman numerals expanded
     as Finnish ordinals, case-inflected numbers, etc.).
     """
-    from src.tts_engine import split_text_into_chunks
+    from src.tts_chunking import (
+        looks_like_heading,
+        split_blocks_into_chunks,
+        split_into_blocks,
+    )
     from src.tts_normalizer import normalize_text
-    content = _trim_to_sentence_start(chapter.content.strip())
-    content = normalize_text(content, language)
+    raw = _trim_to_sentence_start(chapter.content.strip())
+
+    # Headings are classified on the RAW text, then chunked on the normalized
+    # text. The classification cannot be done after normalization: its
+    # `terminate_paragraphs` pass appends a full stop to every unpunctuated
+    # paragraph-final line, which is exactly what tells a heading apart from a
+    # one-sentence paragraph. Do it late and every short paragraph in the book
+    # earns a section-break pause.
+    #
+    # Blank lines survive normalization, so block indices line up between the
+    # two. If they ever stop lining up, fall back to no headings rather than
+    # pausing in the wrong places.
+    raw_blocks = split_into_blocks(raw)
+    content = normalize_text(raw, language)
+    norm_blocks = split_into_blocks(content)
+    if len(norm_blocks) == len(raw_blocks):
+        flags = [looks_like_heading(b) for b in raw_blocks]
+    else:
+        flags = [False] * len(norm_blocks)
+
     # min_chars folds stray sub-60-char clauses into a neighbor: Chatterbox
     # rambles for 10+ seconds on a tiny fragment, so it must never see one.
-    chunks = split_text_into_chunks(
-        content, max_chars=chunk_chars, min_chars=CHUNK_MIN_CHARS
+    chunks, heading_indices = split_blocks_into_chunks(
+        list(zip(norm_blocks, flags)),
+        max_chars=chunk_chars,
+        min_chars=CHUNK_MIN_CHARS,
     )
     if chunks_cap and chunks_cap > 0:
         chunks = chunks[:chunks_cap]
-    return chunks
+        heading_indices = {i for i in heading_indices if i < chunks_cap}
+    return chunks, heading_indices
 
 
 def _format_hms(seconds: float) -> str:
@@ -590,9 +624,9 @@ def _dry_run(args) -> int:
     per_chunk_audio_s = 15.0  # rough: 300 chars -> ~15s Finnish audio
     print(f"[dry-run] {len(selected)} chapters pass filters", flush=True)
     for pos, ch in selected:
-        chunks = _prepare_chapter_chunks(ch, args.chunk_chars,
-                                         args.chunks_per_chapter,
-                                         language=args.language)
+        chunks, _ = _prepare_chapter_chunks(ch, args.chunk_chars,
+                                            args.chunks_per_chapter,
+                                            language=args.language)
         total_chars += len(ch.content)
         total_chunks += len(chunks)
         title_preview = ch.title[:60] if ch.title else f"chapter {ch.index}"
@@ -1369,8 +1403,22 @@ def _seam_kind(chunk_text: str) -> str:
     return "mid"
 
 
-def _seam_gap_ms(chunk_text: str) -> int:
-    """Inter-chunk gap (ms) to add after ``chunk_text`` based on its seam kind."""
+def _seam_gap_ms(
+    chunk_text: str, *, is_heading: bool = False, next_is_heading: bool = False
+) -> int:
+    """Inter-chunk gap (ms) to add after ``chunk_text``.
+
+    Whether a chunk IS a heading is decided by the chunker, which saw the
+    blank lines, and passed in here. It cannot be recovered from the text:
+    once `terminate_paragraphs` has given every paragraph-final line a full
+    stop, a heading reads exactly like any other short capitalised sentence.
+
+    ``next_is_heading`` widens the seam BEFORE a title too. A pause only after
+    it would let the preceding paragraph run straight into the heading, so the
+    section break would still be inaudible on the way in.
+    """
+    if is_heading or next_is_heading:
+        return HEADING_SEAM_GAP_MS
     return {
         "sentence": SENTENCE_SEAM_GAP_MS,
         "clause": CLAUSE_SEAM_GAP_MS,
@@ -1446,7 +1494,8 @@ def _cap_leading_silence(seg, keep_ms, threshold_db=MID_JOIN_SILENCE_DB):
     return seg
 
 
-def _assemble_chunks(seg_iter, chunk_texts, *, index_offset=0, total=None):
+def _assemble_chunks(seg_iter, chunk_texts, *, index_offset=0, total=None,
+                     headings=None):
     """Concatenate VAD-trimmed chunk segments with tiered inter-chunk pauses.
 
     ``index_offset`` and ``total`` let a caller assemble a SLICE of a chapter
@@ -1499,7 +1548,12 @@ def _assemble_chunks(seg_iter, chunk_texts, *, index_offset=0, total=None):
         seg = seg.set_channels(channels).set_frame_rate(rate).set_sample_width(width)
         data += seg.raw_data
         if chi < n - 1:
-            gap_ms = _seam_gap_ms(chunk_texts[chi])
+            heads = headings or set()
+            gap_ms = _seam_gap_ms(
+                chunk_texts[chi],
+                is_heading=chi in heads,
+                next_is_heading=(chi + 1) in heads,
+            )
             if gap_ms:
                 gap = (AudioSegment.silent(duration=gap_ms)
                        .set_channels(channels)
@@ -1629,7 +1683,7 @@ def _part_path(chapter_mp3: Path, part_idx: int, n_parts: int) -> Path:
 
 def _assemble_chapter_parts(
     chunks_dir, pos, chunks, chapter_mp3,
-    vad_model, get_speech_timestamps, should_stop=None,
+    vad_model, get_speech_timestamps, should_stop=None, headings=None,
 ):
     """Assemble a chapter into one or more MP3s.
 
@@ -1667,6 +1721,7 @@ def _assemble_chapter_parts(
             chunks,
             index_offset=start,
             total=len(chunks),
+            headings=headings,
         )
         combined = _postprocess(combined)
         combined.export(str(out_path), format="mp3", bitrate="128k")
@@ -2087,15 +2142,16 @@ def main() -> int:
     print(f"[setup] {len(selected)} chapters selected", flush=True)
 
     # Pre-compute chunks for each selected chapter (deterministic, cheap).
-    plan = []  # [(pos, chapter, chunks)]
+    plan = []  # [(pos, chapter, chunks, heading_indices)]
     total_chunks = 0
     for pos, ch in selected:
-        chunks = _prepare_chapter_chunks(ch, args.chunk_chars,
-                                         args.chunks_per_chapter,
-                                         language=args.language)
+        chunks, heading_indices = _prepare_chapter_chunks(
+            ch, args.chunk_chars, args.chunks_per_chapter,
+            language=args.language,
+        )
         if not chunks:
             continue
-        plan.append((pos, ch, chunks))
+        plan.append((pos, ch, chunks, heading_indices))
         total_chunks += len(chunks)
     print(f"[setup] total chunks to synthesize: {total_chunks}", flush=True)
 
@@ -2136,7 +2192,7 @@ def main() -> int:
     # counted — it will be re-synthesized below, so it is pending work.
     cached_done = 0
     stale_unhealthy = 0
-    for pos, ch, chunks in plan:
+    for pos, ch, chunks, _headings in plan:
         for chi, chunk_text in enumerate(chunks):
             cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
             if not cache_path.exists():
@@ -2166,7 +2222,7 @@ def main() -> int:
     synth_audio_s = 0.0
 
     try:
-        for ci_pos, (pos, ch, chunks) in enumerate(plan, start=1):
+        for ci_pos, (pos, ch, chunks, headings) in enumerate(plan, start=1):
             safe = _safe_title(ch.title or f"chapter_{ch.index}")
             chapter_mp3 = out_root / f"{pos:02d}_{safe}.mp3"
             chapter_mp3_paths.append(chapter_mp3)
@@ -2351,6 +2407,7 @@ def main() -> int:
                     chunks_dir, pos, chunks, chapter_mp3,
                     vad_model, get_speech_timestamps,
                     should_stop=lambda: stop_flag["stop"],
+                    headings=headings,
                 )
                 if len(written_parts) > 1:
                     # Replace the single planned path with the parts actually
