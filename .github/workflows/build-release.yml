@@ -371,18 +371,22 @@ jobs:
           $exeName = "AudiobookMaker-Setup-$version.exe"
           $cliZipName = "${{ steps.cli_zip.outputs.ZIP_NAME }}"
           $cliHash = "${{ steps.cli_sha.outputs.CLI_HASH }}"
+          # What's new comes from docs/RELEASE_NOTES_NEXT.md, updated as part
+          # of each release cut. It used to be hardcoded here, which meant it
+          # silently went stale: every release after the first shipped notes
+          # describing the ORIGINAL unified release rather than its own
+          # changes. A missing file is not fatal, but it is loud, because
+          # notes that describe the wrong release are worse than none.
+          $whatsNew = @()
+          if (Test-Path "docs/RELEASE_NOTES_NEXT.md") {
+            $whatsNew = @(Get-Content "docs/RELEASE_NOTES_NEXT.md")
+          } else {
+            Write-Host "::warning::docs/RELEASE_NOTES_NEXT.md is missing; publishing without a What's new section"
+          }
           $lines = @(
             "## AudiobookMaker $version",
-            "",
-            "Unified release - one app, one installer, all engines.",
-            "",
-            "### What's new",
-            "",
-            "- Single unified GUI replaces both the old Main and Launcher installers",
-            "- Finnish/English UI language toggle",
-            "- PDF and plain text input modes",
-            "- In-app engine installer (install Chatterbox without leaving the app)",
-            "- Edge-TTS, Piper, and Chatterbox Finnish all in one window",
+            ""
+          ) + $whatsNew + @(
             "",
             "### Installation",
             "",
