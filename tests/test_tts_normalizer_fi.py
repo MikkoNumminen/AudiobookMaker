@@ -1535,8 +1535,16 @@ class TestExpandDatesAndTimes:
         assert "viisitoista" in out
 
     def test_time_midnight(self) -> None:
+        """A whole hour drops its minutes, midnight included.
+
+        Was "kello nolla nolla". The minutes are now dropped on the hour for
+        every hour, because keeping them made 20:00 read "kaksikymmentä
+        nolla" -- "twenty zero". Consistency costs midnight its second
+        "nolla"; reading 00:00 as "kello nolla" is what the same rule gives.
+        """
         out = _expand_dates_and_times("klo 00:00")
-        assert "kello nolla nolla" in out
+        assert "kello nolla" in out
+        assert "nolla nolla" not in out
 
     def test_time_invalid_hour_left_alone(self) -> None:
         # Hour 25 is not a valid time → leave literal in place.

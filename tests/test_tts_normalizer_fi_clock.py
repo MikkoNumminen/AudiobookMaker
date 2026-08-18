@@ -1,14 +1,20 @@
-"""Tests for Finnish clock times that are not written `klo HH:MM`.
+"""Tests for Finnish clock times in ordinary prose.
 
 Found while building a listening test (2026-08-18): "Kello on 20:30" came out
-"kaksikymmentä kolmeenkymmeneen" — "twenty to thirty". The clock pass required
-`klo` or `kello` to sit IMMEDIATELY before the digits, so an ordinary sentence
-with a linking verb fell through to Pass X, the colon-ratio pass, which read
-the time as a ratio.
+"kaksikymmentä kolmeenkymmeneen" — "twenty to thirty". The pass required
+`klo`/`kello` to sit immediately before the digits, so a sentence with a verb
+in between fell through to Pass X, the colon-ratio pass.
 
-The prefix requirement itself is deliberate and stays: a bare `HH:MM` is
-genuinely ambiguous with sports scores, ratios and chapter ranges, and the
-cost of guessing wrong there is worse than the cost of a missed time.
+Reviewing that fix surfaced a worse one underneath it: the minute was spoken
+as a bare cardinal, so 20:05 read as "kaksikymmentä viisi" (twenty-five) and
+20:00 as "kaksikymmentä nolla" (twenty zero). Widening the pass made a
+long-standing bug fire far more often, which is how it was noticed.
+
+These assert exact full strings. Substring checks let the first version of
+this file pass while asserting the absence of a string no code path could
+produce. Note `_expand_dates_and_times` is also covered directly in
+tests/test_tts_normalizer_fi.py; this file goes through `normalize_text`
+because the reported defect was an interaction BETWEEN passes.
 """
 from __future__ import annotations
 
@@ -17,70 +23,125 @@ import pytest
 from src.tts_normalizer import normalize_text
 
 
-class TestPrefixedTimes:
-    @pytest.mark.parametrize("text", ["klo 20:30", "kello 20:30"])
-    def test_the_original_forms_still_work(self, text):
-        out = normalize_text(text, "fi")
-        assert "kaksikymmentä" in out and "kolmekymmentä" in out
-        assert ":" not in out
-
-    def test_klo_is_spoken_in_full(self):
-        """The abbreviation is read aloud as the whole word."""
-        assert normalize_text("klo 20:30", "fi").startswith("kello")
+def _n(text: str) -> str:
+    return normalize_text(text, "fi").strip()
 
 
-class TestLinkingVerbs:
-    """The reported defect: an ordinary sentence, not a bare timestamp."""
+class TestMinutesAreSpokenCorrectly:
+    """The bug the widening exposed."""
 
-    @pytest.mark.parametrize("text,verb", [
-        ("Kello on 20:30", "on"),
-        ("Kello oli 20:30", "oli"),
-        ("Kello olisi 20:30", "olisi"),
+    def test_a_leading_zero_is_spoken(self):
+        """20:05 as "kaksikymmentä viisi" is twenty-FIVE."""
+        assert _n("Kello on 20:05") == "Kello on kaksikymmentä nolla viisi"
+
+    def test_single_digit_hour_and_minute(self):
+        assert _n("Kello on 03:07") == "Kello on kolme nolla seitsemän"
+
+    def test_a_whole_hour_drops_the_minutes(self):
+        """"kaksikymmentä nolla" is "twenty zero"; Finnish says the hour."""
+        assert _n("klo 20:00") == "kello kaksikymmentä"
+
+    def test_a_normal_minute_is_unchanged(self):
+        assert _n("kello 20:30") == "kello kaksikymmentä kolmekymmentä"
+
+    def test_seconds_are_read_not_stranded(self):
+        """`(\\d{2})\\b` stopped at the second colon and a later pass welded
+        the seconds on with a hyphen."""
+        assert _n("Kello on 20:30:45") == (
+            "Kello on kaksikymmentä kolmekymmentä neljäkymmentä viisi"
+        )
+
+
+class TestPrefixReach:
+    """Each of these fell through to the ratio pass before."""
+
+    def test_a_linking_verb(self):
+        assert _n("Kello on 20:30") == "Kello on kaksikymmentä kolmekymmentä"
+
+    @pytest.mark.parametrize("sentence,expected", [
+        ("Kello on nyt 20:30", "Kello on nyt kaksikymmentä kolmekymmentä"),
+        ("Kello oli tasan 20:30", "Kello oli tasan kaksikymmentä kolmekymmentä"),
     ])
-    def test_a_linking_verb_no_longer_breaks_the_match(self, text, verb):
-        out = normalize_text(text, "fi")
-        assert "kaksikymmentä kolmekymmentä" in out, out
-        assert verb in out, "the linking verb was dropped from the sentence"
+    def test_an_adverb_as_well_as_a_verb(self, sentence, expected):
+        """Enumerating verb forms did not survive contact with real prose."""
+        assert _n(sentence) == expected
 
-    def test_the_ratio_reading_is_gone(self):
-        """`kolmeenkymmeneen` is the illative the ratio pass produces."""
-        assert "kolmeenkymmeneen" not in normalize_text("Kello on 20:30", "fi")
+    def test_a_compound_clock_noun(self):
+        """`\\b` needs a standalone token, so "Herätyskello" used to miss."""
+        assert _n("Herätyskello on 7:00") == "Herätyskello on seitsemän"
 
-    def test_capitalisation_is_preserved(self):
-        """The sentence still starts with a capital after rewriting."""
-        assert normalize_text("Kello on 20:30", "fi").startswith("Kello on")
+    def test_two_times_in_one_sentence(self):
+        """Claiming only the first left half the sentence a ratio."""
+        assert _n("Kello on 12:30 ja 13:45") == (
+            "Kello on kaksitoista kolmekymmentä ja kolmetoista "
+            "neljäkymmentä viisi"
+        )
 
-    def test_no_colon_survives(self):
-        assert ":" not in normalize_text("Kello on 20:30", "fi")
+    def test_a_range_converts_both_and_leaves_no_hyphen(self):
+        """The hyphen used to weld onto the spoken number and the second time
+        was read as a ratio. The dash becomes a plain gap: nothing here knows
+        whether the writer meant "from ... to" or a list."""
+        assert _n("kello 20:30-21:45") == (
+            "kello kaksikymmentä kolmekymmentä kaksikymmentä yksi "
+            "neljäkymmentä viisi"
+        )
+
+
+class TestCapitalisation:
+    def test_klo_expands_to_kello_keeping_the_capital(self):
+        """Lower-casing it unconditionally started sentences with a
+        lower-case word, and only for writers who wrote `Klo`."""
+        assert _n("Klo 20:30 alkaa esitys.") == (
+            "Kello kaksikymmentä kolmekymmentä alkaa esitys."
+        )
+
+    def test_a_written_out_prefix_is_echoed_as_written(self):
+        assert _n("Kello on 20:30").startswith("Kello on")
 
 
 class TestRatiosAreStillRatios:
-    """The prefix requirement exists to protect these. It must keep doing so."""
+    """The prefix requirement exists to protect these."""
 
-    def test_a_bare_ratio_is_untouched_by_the_clock_pass(self):
-        assert "yksi viiteen" in normalize_text("suhde 1:5", "fi")
+    def test_a_bare_ratio_with_a_two_digit_second_term(self):
+        """A single-digit minute cannot match the clock regex at all, so a
+        `1:5` guard would pass even with the prefix rule deleted."""
+        assert _n("suhde 1:50") == "suhde yksi viiteenkymmeneen"
+
+    def test_a_word_merely_containing_kello_does_not_match(self):
+        """"kellotaulu" does not END in kello, so it is not a clock prefix.
+        Two-digit minute on purpose, so the guard is actually exercised."""
+        assert "kolmeenkymmeneen" in _n("kellotaulu 20:30")
 
     def test_a_bare_time_is_still_left_alone(self):
         """Deliberate: `20:30` with no prefix is ambiguous with a score.
 
-        Pinning the CURRENT behaviour, not endorsing it — if bare times ever
-        need handling, this test is the place that says what changes.
+        Pinning CURRENT behaviour, not endorsing it. If bare times ever need
+        handling, this test is what records the change.
         """
-        out = normalize_text("Juna lähtee 20:30", "fi")
-        assert "kolmeenkymmeneen" in out
+        assert "kolmeenkymmeneen" in _n("Juna lähtee 20:30")
 
-    def test_a_word_that_merely_starts_with_kello_does_not_match(self):
-        out = normalize_text("kellotaulu 1:5", "fi")
-        assert "yksi viiteen" in out
+    def test_a_distant_prefix_does_not_reach(self):
+        """Two intervening words is the limit; beyond that a `kello` earlier
+        in the sentence must not capture an unrelated ratio."""
+        assert "kolmeenkymmeneen" in _n("Kello soi ja sitten tuli 20:30")
 
 
 class TestInvalidTimes:
-    def test_an_impossible_time_is_not_read_as_a_clock(self):
-        """Hour 25 / minute 99 fail validation and fall through, which is the
-        documented behaviour for pathological input."""
-        out = normalize_text("Kello on 25:99", "fi")
-        assert "kello kaksikymmentä viisi yhdeksänkymmentä yhdeksän" not in out
+    def test_an_impossible_time_falls_through_to_the_ratio_pass(self):
+        """Pins the REAL output. The previous version of this test asserted
+        the absence of a string no code path could produce, so it passed
+        whether or not the validation guard existed."""
+        assert _n("Kello on 25:99") == (
+            "Kello on kaksikymmentä viisi yhdeksäänkymmeneen yhdeksään"
+        )
 
-    @pytest.mark.parametrize("text", ["klo 00:00", "kello 23:59"])
-    def test_the_range_boundaries_are_valid(self, text):
-        assert ":" not in normalize_text(text, "fi")
+    def test_an_impossible_second_leaves_the_whole_match_alone(self):
+        """Half-converting is worse than not converting."""
+        assert "kolmekymmentä neljäkymmentä" not in _n("Kello on 20:30:99")
+
+    @pytest.mark.parametrize("text,expected", [
+        ("klo 00:00", "kello nolla"),
+        ("kello 23:59", "kello kaksikymmentä kolme viisikymmentä yhdeksän"),
+    ])
+    def test_the_range_boundaries_are_valid(self, text, expected):
+        assert _n(text) == expected
