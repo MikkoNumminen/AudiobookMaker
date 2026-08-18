@@ -81,71 +81,88 @@ class TestListsAreNotHeadings:
         assert flags == [False, True, False]
 
 
-class TestCacheIsGuardedAgainstPlanChange:
-    """The chunk cache is keyed by INDEX and resume is the default, so a
-    changed chunk plan splices old audio into moved slots and the book quietly
-    contains the wrong sentences. This branch changes the plan for essentially
-    every document, and the Continue button makes resuming the normal path.
+class TestCacheSurvivesAPlanChange:
+    """The cache is content-addressed, so changing the chunk plan no longer
+    throws away work.
+
+    It used to be keyed by INDEX, which made it worthless the moment chunking
+    changed: every index moved, so the whole cache was discarded (hours of GPU
+    time) or — before the plan fingerprint landed — old audio was silently
+    reused for different words.
     """
 
-    def test_fingerprint_changes_when_chunking_changes(self, runner):
-        a = [(1, None, ["Eka.", "Toka."], set())]
-        b = [(1, None, ["Eka.", "Toka.", "Kolmas."], set())]
-        assert runner._chunk_plan_fingerprint(
-            a, 200, "fi"
-        ) != runner._chunk_plan_fingerprint(b, 200, "fi")
+    def test_inserting_a_heading_keeps_every_existing_key(self, runner):
+        """The scenario that motivated this: a heading appears at the top of a
+        chapter, every chunk shifts down one, and nothing needs re-synthesizing
+        except the heading itself."""
+        before = runner._chunk_keys(["Eka.", "Toka.", "Kolmas."], "fi", "")
+        after = runner._chunk_keys(
+            ["Otsikko", "Eka.", "Toka.", "Kolmas."], "fi", ""
+        )
+        assert after[1:] == before
 
-    def test_fingerprint_changes_when_headings_change(self, runner):
-        a = [(1, None, ["Otsikko", "Teksti."], set())]
-        b = [(1, None, ["Otsikko", "Teksti."], {0})]
-        assert runner._chunk_plan_fingerprint(
-            a, 200, "fi"
-        ) != runner._chunk_plan_fingerprint(b, 200, "fi")
+    def test_changed_text_changes_only_that_key(self, runner):
+        a = runner._chunk_keys(["Eka.", "Toka."], "fi", "")
+        b = runner._chunk_keys(["Eka.", "Muutettu."], "fi", "")
+        assert a[0] == b[0]
+        assert a[1] != b[1]
 
-    def test_fingerprint_changes_with_chunk_size_and_language(self, runner):
-        plan = [(1, None, ["Eka."], set())]
-        base = runner._chunk_plan_fingerprint(plan, 200, "fi")
-        assert runner._chunk_plan_fingerprint(plan, 300, "fi") != base
-        assert runner._chunk_plan_fingerprint(plan, 200, "en") != base
+    def test_language_is_part_of_the_key(self, runner):
+        assert runner._chunk_keys(["Eka."], "fi", "")[0] !=             runner._chunk_keys(["Eka."], "en", "")[0]
 
-    def test_identical_plans_match(self, runner):
-        plan = [(1, None, ["Eka.", "Toka."], {0})]
-        assert runner._chunk_plan_fingerprint(
-            plan, 200, "fi"
-        ) == runner._chunk_plan_fingerprint(plan, 200, "fi")
+    def test_voice_is_part_of_the_key(self, runner):
+        """Otherwise switching voice pack hands back audio in the old voice."""
+        assert runner._chunk_keys(["Eka."], "fi", "pack-a")[0] !=             runner._chunk_keys(["Eka."], "fi", "pack-b")[0]
 
-    def test_a_changed_plan_discards_the_cache(self, runner, tmp_path):
+    def test_repeated_text_gets_separate_entries(self, runner):
+        """Two identical sentences must not share one file: the sweep
+        re-rolling one would silently change the other, and a repeated refrain
+        would play the byte-identical take every time."""
+        keys = runner._chunk_keys(["Sama.", "Eri.", "Sama."], "fi", "")
+        assert len(set(keys)) == 3
+
+    def test_repeated_text_keys_are_still_position_independent(self, runner):
+        before = runner._chunk_keys(["Sama.", "Eri.", "Sama."], "fi", "")
+        after = runner._chunk_keys(["Otsikko", "Sama.", "Eri.", "Sama."], "fi", "")
+        assert after[1:] == before
+
+    def test_the_filename_carries_the_key(self, runner, tmp_path):
+        key = runner._chunk_keys(["Eka."], "fi", "")[0]
+        assert runner._chunk_cache_path(tmp_path, key).name == f"chunk_{key}.wav"
+
+    def test_voice_key_covers_pack_and_reference_clip(self, runner):
+        from types import SimpleNamespace
+        a = runner._voice_key(SimpleNamespace(voice_pack="p", ref_audio=None))
+        b = runner._voice_key(SimpleNamespace(voice_pack=None, ref_audio="r"))
+        c = runner._voice_key(SimpleNamespace(voice_pack=None, ref_audio=None))
+        assert len({a, b, c}) == 3
+
+
+class TestLegacyCacheMigration:
+    def test_index_named_chunks_are_discarded_once(self, runner, tmp_path):
+        """Their filenames record a position, and the plan that produced those
+        positions was never stored, so they cannot be matched to content keys.
+        A one-time loss on upgrade, and the reason the scheme changed is so it
+        is the last one."""
         chunks_dir = tmp_path / ".chunks"
         chunks_dir.mkdir()
         for i in range(3):
-            (chunks_dir / f"ch01_chunk{i:04d}.wav").write_bytes(b"stale")
-        fp = tmp_path / ".chunk_plan.json"
-        runner._guard_cache_against_plan_change(fp, chunks_dir, "aaa", resuming=True)
-        runner._guard_cache_against_plan_change(fp, chunks_dir, "bbb", resuming=True)
+            (chunks_dir / f"ch01_chunk{i:04d}.wav").write_bytes(b"old")
+        assert runner._discard_legacy_index_cache(chunks_dir) == 3
         assert list(chunks_dir.glob("*.wav")) == []
 
-    def test_an_unchanged_plan_keeps_the_cache(self, runner, tmp_path):
+    def test_content_keyed_chunks_are_left_alone(self, runner, tmp_path):
         chunks_dir = tmp_path / ".chunks"
         chunks_dir.mkdir()
-        (chunks_dir / "ch01_chunk0000.wav").write_bytes(b"good")
-        fp = tmp_path / ".chunk_plan.json"
-        runner._guard_cache_against_plan_change(fp, chunks_dir, "aaa", resuming=True)
-        runner._guard_cache_against_plan_change(fp, chunks_dir, "aaa", resuming=True)
+        key = runner._chunk_keys(["Eka."], "fi", "")[0]
+        runner._chunk_cache_path(chunks_dir, key).write_bytes(b"keep")
+        assert runner._discard_legacy_index_cache(chunks_dir) == 0
         assert len(list(chunks_dir.glob("*.wav"))) == 1
 
-    def test_the_fingerprint_is_recorded_on_a_fresh_run(self, runner, tmp_path):
+    def test_an_empty_directory_is_fine(self, runner, tmp_path):
         chunks_dir = tmp_path / ".chunks"
         chunks_dir.mkdir()
-        fp = tmp_path / ".chunk_plan.json"
-        runner._guard_cache_against_plan_change(fp, chunks_dir, "aaa", resuming=True)
-        assert fp.is_file()
-
-    def test_an_unreadable_record_is_not_fatal(self, runner, tmp_path):
-        chunks_dir = tmp_path / ".chunks"
-        chunks_dir.mkdir()
-        fp = tmp_path / ".chunk_plan.json"
-        fp.write_text("{ not json", encoding="utf-8")
-        runner._guard_cache_against_plan_change(fp, chunks_dir, "aaa", resuming=True)
+        assert runner._discard_legacy_index_cache(chunks_dir) == 0
 
 
 class TestFormatCoverage:
@@ -265,3 +282,130 @@ class TestOneHeadingLengthConstant:
         # A plain sub-heading: not a chapter opener, but is a heading to pause at.
         assert not pdf_heading("Kasteluohjeet")
         assert chunk_heading("Kasteluohjeet")
+
+
+class TestCacheReviewRegressions:
+    """Defects found reviewing the content-addressed cache."""
+
+    def test_the_same_text_in_two_chapters_gets_two_keys(self, runner):
+        """The occurrence counter was per chapter, so a repeated epigraph in
+        chapters 1 and 7 mapped to ONE file. Chapter 7's median sweep could
+        re-roll it and overwrite the audio chapter 1 assembles from."""
+        seen = {}
+        ch1 = runner._chunk_keys(["Toistuva.", "Eka."], "fi", "", seen=seen)
+        ch7 = runner._chunk_keys(["Toistuva.", "Muu."], "fi", "", seen=seen)
+        assert ch1[0] != ch7[0]
+        assert len({*ch1, *ch7}) == 4
+
+    def test_a_retrained_voice_pack_changes_the_key(self, runner, tmp_path):
+        """A pack is normally re-trained IN PLACE. Hashing only its path left
+        the key identical and the whole book shipped in the previous voice."""
+        import time
+        from types import SimpleNamespace
+
+        pack = tmp_path / "pack"
+        pack.mkdir()
+        (pack / "adapter.bin").write_bytes(b"v1")
+        args = SimpleNamespace(voice_pack=str(pack), ref_audio=None)
+        before = runner._voice_key(args)
+
+        time.sleep(1.1)
+        (pack / "adapter.bin").write_bytes(b"v2-retrained-and-larger")
+        assert runner._voice_key(args) != before
+
+    def test_the_same_pack_is_stable(self, runner, tmp_path):
+        from types import SimpleNamespace
+        pack = tmp_path / "pack"
+        pack.mkdir()
+        (pack / "adapter.bin").write_bytes(b"v1")
+        args = SimpleNamespace(voice_pack=str(pack), ref_audio=None)
+        assert runner._voice_key(args) == runner._voice_key(args)
+
+    def test_sampling_constants_are_in_the_key(self, runner):
+        """Retune them and a resumed book is half old renders, half new,
+        spliced into one chapter with an audible change of pace."""
+        from types import SimpleNamespace
+        args = SimpleNamespace(voice_pack=None, ref_audio=None)
+        key = runner._voice_key(args)
+        assert str(runner.FI_TEMPERATURE) in key
+        assert str(runner.FI_EXAGGERATION) in key
+        assert str(runner.FI_CFG_WEIGHT) in key
+
+    def test_orphaned_chunks_are_swept(self, runner, tmp_path):
+        """Content addressing abandons superseded chunks rather than
+        overwriting them, so without a sweep the directory grows forever."""
+        chunks_dir = tmp_path / ".chunks"
+        chunks_dir.mkdir()
+        live = runner._chunk_keys(["Eka.", "Toka."], "fi", "")
+        for key in live:
+            runner._chunk_cache_path(chunks_dir, key).write_bytes(b"keep")
+        runner._chunk_cache_path(chunks_dir, "deadbeef" * 4).write_bytes(b"old")
+
+        removed = runner._discard_orphaned_chunks(chunks_dir, set(live))
+        assert removed == 1
+        assert len(list(chunks_dir.glob("chunk_*.wav"))) == 2
+
+    def test_the_sweep_keeps_everything_still_referenced(self, runner, tmp_path):
+        chunks_dir = tmp_path / ".chunks"
+        chunks_dir.mkdir()
+        live = runner._chunk_keys(["Eka."], "fi", "")
+        runner._chunk_cache_path(chunks_dir, live[0]).write_bytes(b"keep")
+        assert runner._discard_orphaned_chunks(chunks_dir, set(live)) == 0
+
+    def test_legacy_cleanup_counts_only_successful_deletions(self, runner, tmp_path):
+        """Counting attempts meant a locked file was reported as discarded and
+        re-reported on every future run."""
+        chunks_dir = tmp_path / ".chunks"
+        chunks_dir.mkdir()
+        (chunks_dir / "ch01_chunk0000.wav").write_bytes(b"old")
+        assert runner._discard_legacy_index_cache(chunks_dir) == 1
+        assert runner._discard_legacy_index_cache(chunks_dir) == 0
+
+
+class TestVerifiersFindContentKeyedChunks:
+    """The transcript check is the completion gate for every narration. When
+    the cache scheme changed, both verifiers still built index-based paths,
+    found nothing, and reported good audio as unverifiable."""
+
+    def _helper(self):
+        import importlib.util
+        from pathlib import Path
+        path = (
+            Path(__file__).resolve().parents[1]
+            / ".claude" / "skills" / "narrate-texts" / "scripts" / "chunk_paths.py"
+        )
+        spec = importlib.util.spec_from_file_location("_chunk_paths", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_finds_a_content_keyed_chunk(self, runner, tmp_path):
+        helper = self._helper()
+        chunks = tmp_path / ".chunks"
+        chunks.mkdir()
+        texts = ["Eka virke.", "Toka virke."]
+        keys = runner._chunk_keys(texts, "fi", "")
+        for key in keys:
+            runner._chunk_cache_path(chunks, key).write_bytes(b"x")
+        found = helper.chunk_wav_path(tmp_path, 1, texts, "fi")
+        assert found.exists()
+        assert found.name.startswith("chunk_")
+
+    def test_lists_both_naming_schemes(self, runner, tmp_path):
+        helper = self._helper()
+        chunks = tmp_path / ".chunks"
+        chunks.mkdir()
+        (chunks / "ch01_chunk0000.wav").write_bytes(b"old")
+        runner._chunk_cache_path(
+            chunks, runner._chunk_keys(["Eka."], "fi", "")[0]
+        ).write_bytes(b"new")
+        assert len(helper.chunk_wavs(tmp_path)) == 2
+
+    def test_falls_back_to_the_old_name(self, tmp_path):
+        """A cache written by an older build must still be verifiable."""
+        helper = self._helper()
+        chunks = tmp_path / ".chunks"
+        chunks.mkdir()
+        (chunks / "ch01_chunk0000.wav").write_bytes(b"old")
+        assert helper.chunk_wav_path(tmp_path, 0, ["Eka."], "fi").name == \
+            "ch01_chunk0000.wav"

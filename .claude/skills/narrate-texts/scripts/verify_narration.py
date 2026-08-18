@@ -35,6 +35,10 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import statistics
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from chunk_paths import chunk_wav_path  # noqa: E402
 import sys
 from pathlib import Path
 
@@ -74,11 +78,12 @@ def wav_seconds(path: Path) -> float:
     return info.frames / info.samplerate
 
 
-def analyse(work: Path, texts: list[str]) -> tuple[float, list[dict]]:
+def analyse(work: Path, texts: list[str], language: str = "fi"
+            ) -> tuple[float, list[dict]]:
     """Return (median_rate, rows). Rows carry per-chunk rate + flag."""
     rows = []
     for i, t in enumerate(texts):
-        wav = work / ".chunks" / f"ch01_chunk{i:04d}.wav"
+        wav = chunk_wav_path(work, i, texts, language)
         if not wav.exists():
             continue
         secs = wav_seconds(wav)
@@ -120,14 +125,14 @@ def verify_one(mod, work: Path, text_file: Path, language: str,
         print(f"    chunk{r['chunk']:04d} {r['rate']:.4f} s/char "
               f"(short ~{(1 - r['rate'] / median) * 100:.0f}%)")
         if do_transcribe:
-            wav = work / ".chunks" / f"ch01_chunk{r['chunk']:04d}.wav"
+            wav = chunk_wav_path(work, r['chunk'], [x['text'] for x in rows], language)
             print(f"      TEXT : {r['text']}")
             print(f"      HEARD: {transcribe(wav, language)}")
 
     if do_transcribe and not short:
         # English hides its failures; sample the slowest few regardless.
         for r in sorted(rows, key=lambda x: x["rate"])[:2]:
-            wav = work / ".chunks" / f"ch01_chunk{r['chunk']:04d}.wav"
+            wav = chunk_wav_path(work, r['chunk'], [x['text'] for x in rows], language)
             print(f"    spot-check chunk{r['chunk']:04d}")
             print(f"      TEXT : {r['text']}")
             print(f"      HEARD: {transcribe(wav, language)}")
