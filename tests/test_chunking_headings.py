@@ -219,3 +219,64 @@ class TestAssemblyUsesTheFlags:
             (self._seg() for _ in texts), texts, headings=set(),
         )
         assert a.raw_data == b.raw_data
+
+
+class TestBothLanguagesBehaveTheSame:
+    """The heading logic is language-agnostic and must stay that way.
+
+    Nothing in the chunker knows about language, and `terminate_paragraphs`
+    runs BEFORE the per-language dispatch, so both pipelines get it. The one
+    place this could silently diverge is block alignment: classification
+    happens on the raw text and chunking on the normalized text, so if one
+    language's normalizer ever stopped preserving blank lines, its block
+    indices would stop lining up and the code would fall back to no headings
+    — correct, but silently pause-less in that language only.
+    """
+
+    _EN = (
+        "Chapter 6 Property Law\n\n"
+        "Property law falls into two parts. One of them is ownership.\n\n"
+        "Assets And Claims\n\n"
+        "This area is broad. It covers both objects and receivables."
+    )
+    _FI = _BOOK
+
+    @pytest.mark.parametrize("lang,text", [("en", _EN), ("fi", _FI)])
+    def test_blank_lines_survive_normalization(self, lang, text):
+        """The load-bearing assumption behind raw/normalized block alignment."""
+        from src.tts_normalizer import normalize_text
+        assert len(split_into_blocks(normalize_text(text, lang))) == len(
+            split_into_blocks(text)
+        )
+
+    @pytest.mark.parametrize("lang,text", [("en", _EN), ("fi", _FI)])
+    def test_headings_are_found(self, lang, text):
+        chapter = SimpleNamespace(content=text, title="T", index=0)
+        # Imported lazily inside the runner fixture's module scope.
+        import importlib.util
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        )
+        spec = importlib.util.spec_from_file_location(f"_r_{lang}", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[f"_r_{lang}"] = mod
+        spec.loader.exec_module(mod)
+
+        chunks, heads = mod._prepare_chapter_chunks(
+            chapter, 200, 0, language=lang
+        )
+        assert len(heads) == 2, f"{lang}: expected both headings, got {heads}"
+        assert 0 in heads, f"{lang}: the opening title was not flagged"
+
+    def test_english_and_finnish_flag_the_same_positions(self, runner):
+        """Same document shape in either language must give the same seams."""
+        en = runner._prepare_chapter_chunks(
+            SimpleNamespace(content=self._EN, title="T", index=0),
+            200, 0, language="en",
+        )
+        fi = runner._prepare_chapter_chunks(
+            SimpleNamespace(content=self._FI, title="T", index=0),
+            200, 0, language="fi",
+        )
+        assert en[1] == fi[1], "heading positions diverged between languages"
