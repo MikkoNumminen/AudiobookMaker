@@ -175,3 +175,24 @@ def _reset_piper_import_cache():
 
     _reset_piper_probe()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_job_state(tmp_path_factory, monkeypatch):
+    """Point the saved-job file at a temp path for every test.
+
+    Two reasons, both discovered the hard way:
+
+    1. Tests must not write to the developer's real
+       ``~/.audiobookmaker/last_job.json``. A test that starts the synthesis
+       path records a job there, which then survives the run.
+    2. A job file left behind by one test changes the behaviour of another:
+       an "exit" event auto-resumes when a resumable job exists and reports a
+       failure when one does not, so a stray file made the runner-exit tests
+       pass alone and fail in the suite.
+    """
+    from src import job_state
+
+    job_dir = tmp_path_factory.mktemp("job_state")
+    monkeypatch.setattr(job_state, "JOB_FILE", job_dir / "last_job.json")
+    yield

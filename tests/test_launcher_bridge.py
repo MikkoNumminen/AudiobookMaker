@@ -778,12 +778,14 @@ class _WaiterState:
     Mirrors the fields of ``_RunnerState`` that ``_waiter_loop`` and its
     helpers touch — including ``cancel_requested``, which gates whether the
     waiter escalates to terminate/kill or just keeps waiting for the runner
-    to exit on its own.
+    to exit on its own, and ``last_output_at``, which the waiter compares
+    against the idle budget.
     """
 
     def __init__(self, proc):
         from queue import Queue as _Queue
         from threading import Event as _Event
+        from time import monotonic as _monotonic
 
         self.proc = proc
         self.reader = None
@@ -792,6 +794,7 @@ class _WaiterState:
         self.cancel_requested = _Event()
         self.reader_error = None
         self.waiter_error = None
+        self.last_output_at = _monotonic()
 
 
 def _make_runner_with_proc(proc, *, cancel: bool = False):

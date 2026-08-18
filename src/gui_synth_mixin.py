@@ -273,6 +273,21 @@ class SynthMixin(_Base):
             self._fail(self._s("subprocess_failed").format(error=exc))
             return
 
+        # Record the job only once the subprocess is actually up. Saving
+        # earlier would leave a "resumable" job behind for a run that never
+        # produced a single cached chunk, and Continue would then offer to
+        # resume nothing.
+        #
+        # A sample run is excluded: it is a 500-character snippet, it finishes
+        # in seconds, and offering to continue one would be noise.
+        if not getattr(self, "_is_sample_run", False):
+            recorder = getattr(self, "_record_job_start", None)
+            if recorder is not None:
+                try:
+                    recorder()
+                except Exception:
+                    logger.exception("could not record job start")
+
         threading.Thread(
             target=self._relay_chatterbox_events, daemon=True,
             name="chatterbox-relay",

@@ -1238,10 +1238,22 @@ def _run_median_sweep(
     )
 
     replaced = 0
-    for chi, chars, secs in suspects:
+    for n_done, (chi, chars, secs) in enumerate(suspects, start=1):
         if should_stop is not None and should_stop():
             print("[sweep] stop requested; leaving the rest as-is", flush=True)
             break
+
+        # The sweep runs AFTER the chunk loop, so the progress bar has already
+        # reached its last chunk count and stops moving. On a long chapter this
+        # pass can re-generate hundreds of chunks (up to
+        # MEDIAN_SWEEP_MAX_RETRIES takes each), which is hours of a screen that
+        # looks frozen. One line per candidate is what makes it legible — and
+        # it doubles as the stdout activity the bridge's idle watchdog needs.
+        print(
+            f"[sweep] ch{pos:02d} {n_done}/{len(suspects)} "
+            f"checking chunk{chi:04d}",
+            flush=True,
+        )
 
         text = chunk_texts[chi]
         best_secs, best_wav = secs, None
@@ -1434,8 +1446,16 @@ def _cap_leading_silence(seg, keep_ms, threshold_db=MID_JOIN_SILENCE_DB):
     return seg
 
 
-def _assemble_chunks(seg_iter, chunk_texts):
+def _assemble_chunks(seg_iter, chunk_texts, *, index_offset=0, total=None):
     """Concatenate VAD-trimmed chunk segments with tiered inter-chunk pauses.
+
+    ``index_offset`` and ``total`` let a caller assemble a SLICE of a chapter
+    while still deciding seams by the chunk's position in the whole chapter.
+    That distinction is the whole point: chunk 0 keeps its full leading silence
+    because it opens the chapter, and the last chunk keeps its trailing silence
+    because it closes one. Judged per slice instead, every slice boundary would
+    gain an opening pause and lose a closing one. Defaults reproduce the
+    whole-chapter behaviour exactly.
 
     ``seg_iter`` yields each chunk's already-VAD-trimmed ``AudioSegment`` in
     order; ``chunk_texts`` is the parallel list of chunk strings used to size
@@ -1462,10 +1482,11 @@ def _assemble_chunks(seg_iter, chunk_texts):
     input.
     """
     from pydub import AudioSegment
-    n = len(chunk_texts)
+    n = len(chunk_texts) if total is None else total
     data = bytearray()
     rate = width = channels = None
-    for chi, seg in enumerate(seg_iter):
+    for local_i, seg in enumerate(seg_iter):
+        chi = index_offset + local_i  # position in the CHAPTER, not the slice
         seg = _cap_internal_silences(seg, MAX_INTERNAL_SILENCE_MS)
         if chi > 0:  # not the chapter opening — tighten the seam lead-in
             seg = _cap_leading_silence(seg, MID_JOIN_HEAD_KEEP_MS)
@@ -1492,19 +1513,40 @@ def _assemble_chunks(seg_iter, chunk_texts):
     )
 
 
-def _iter_trimmed_chunks(chunks_dir, pos, n, vad_model, get_speech_timestamps):
-    """Yield each cached chunk wav, VAD-trimmed, in order (one at a time)."""
+def _iter_trimmed_chunks(chunks_dir, pos, n, vad_model, get_speech_timestamps,
+                         start=0):
+    """Yield cached chunk wavs ``start``..``n``-1, VAD-trimmed, one at a time.
+
+    Chunks are written by ``ta.save`` of a float32 tensor, so on disk they are
+    32-bit float WAV (``audio_format=0x0003``, 96 000 B/s at 24 kHz) and pydub
+    decodes them at ``sample_width=4``. Narrowing to 16-bit here fixes two
+    separate things:
+
+    * ``_vad_trim`` scales samples by ``/ 32768.0``, which is only correct for
+      16-bit input. At width 4 the peak sample is 2 147 483 648, so Silero VAD
+      was being handed values up to 65 536 instead of 1.0 and the trim was a
+      silent no-op.
+    * Everything downstream — the assembly buffer, its ``bytes()`` copy, and
+      pydub's pure-Python low-pass filter — holds half as much.
+
+    Nothing is lost: the output is a 128 kbps MP3, far below what 16 bits at
+    24 kHz resolves. ``_assemble_chunks`` takes its canonical format from the
+    first chunk, so setting it here carries through every later chunk and gap.
+    """
     from pydub import AudioSegment
-    for chi in range(n):
+    for chi in range(start, n):
         cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
-        seg = AudioSegment.from_file(str(cache_path))
+        seg = AudioSegment.from_file(str(cache_path)).set_sample_width(2)
         yield _vad_trim(seg, vad_model, get_speech_timestamps)
 
 
 def _vad_trim(seg, vad_model, get_speech_timestamps):
-    """Silero-VAD loose-Finnish tail/head trim. seg: pydub AudioSegment."""
-    import torch
-    import torchaudio
+    """Silero-VAD loose-Finnish tail/head trim. seg: pydub AudioSegment.
+
+    The no-model fallback is pure pydub, so torch is imported only on the path
+    that actually needs it. That path exists for exactly the case where the VAD
+    model could not be loaded, which is a poor moment to require torch.
+    """
     from pydub.silence import detect_leading_silence
     if vad_model is None:
         lead = detect_leading_silence(
@@ -1516,6 +1558,9 @@ def _vad_trim(seg, vad_model, get_speech_timestamps):
         start = max(0, lead - VAD_FALLBACK_HEAD_KEEP_MS)
         end = len(seg) - max(0, trail - VAD_FALLBACK_TRAIL_KEEP_MS)
         return seg[start:end] if end > start else seg
+
+    import torch
+    import torchaudio
 
     samples = torch.tensor(seg.get_array_of_samples(),
                            dtype=torch.float32) / 32768.0
@@ -1537,6 +1582,180 @@ def _vad_trim(seg, vad_model, get_speech_timestamps):
     if last_end_ms <= first_start_ms:
         return seg
     return seg[first_start_ms:last_end_ms]
+
+
+# Chunks per output MP3. A chapter longer than this is written as several
+# numbered parts.
+#
+# Assembly holds the part's whole PCM in a bytearray, copies it into an
+# AudioSegment, then runs pydub's pure-Python low-pass filter over it, which
+# itself holds several copies. At 16-bit 24 kHz mono that is ~48 KB per second
+# of audio per copy, so the peak is roughly six times the part's audio length
+# in bytes. A book that parses as ONE chapter (no detectable structure — the
+# common case for a plain PDF) made that the whole book: a tester's 2229-chunk
+# chapter is ~8 hours of audio, which is gigabytes of peak RAM at the very last
+# step, after 14 hours of synthesis had already succeeded.
+#
+# 400 chunks is ~1.4 h of audio, so a part peaks around 1 GB and fits anywhere.
+# Splitting also means a crash costs one part rather than the book, and the
+# user has playable audio long before the run ends.
+CHUNKS_PER_PART = 400
+
+
+def _chapter_part_ranges(n_chunks: int, per_part: int = CHUNKS_PER_PART):
+    """Split ``n_chunks`` into (start, end) halves-open ranges.
+
+    A chapter that fits in one part yields exactly one range, so the common
+    case is unchanged and keeps its original single filename.
+    """
+    if n_chunks <= 0:
+        return []
+    if n_chunks <= per_part:
+        return [(0, n_chunks)]
+    return [
+        (start, min(start + per_part, n_chunks))
+        for start in range(0, n_chunks, per_part)
+    ]
+
+
+def _part_path(chapter_mp3: Path, part_idx: int, n_parts: int) -> Path:
+    """Filename for one part. A single-part chapter keeps its original name."""
+    if n_parts <= 1:
+        return chapter_mp3
+    return chapter_mp3.with_name(
+        f"{chapter_mp3.stem}_part{part_idx + 1:02d}{chapter_mp3.suffix}"
+    )
+
+
+def _assemble_chapter_parts(
+    chunks_dir, pos, chunks, chapter_mp3,
+    vad_model, get_speech_timestamps, should_stop=None,
+):
+    """Assemble a chapter into one or more MP3s.
+
+    Returns ``[(path, duration_ms), ...]``. The caller prints the canonical
+    ``[chapter n/m] wrote <file> (Xs)`` line for each, which is the shape the
+    GUI's line parser turns into a chapter-written event.
+
+    Each part is encoded and flushed to disk before the next is started, so
+    peak memory is set by the part size rather than the chapter, and a failure
+    partway through leaves every earlier part playable.
+
+    Seam decisions are made from each chunk's position in the CHAPTER, not in
+    its part, so the audio at a part boundary is the same as it would be in a
+    single-file assembly. What does differ is loudness normalization, which is
+    applied per part exactly as it is already applied per chapter in any
+    multi-chapter book.
+    """
+    ranges = _chapter_part_ranges(len(chunks))
+    written = []
+    for part_idx, (start, end) in enumerate(ranges):
+        if should_stop is not None and should_stop():
+            raise _StopRequested()
+        out_path = _part_path(chapter_mp3, part_idx, len(ranges))
+        if len(ranges) > 1:
+            print(
+                f"[assemble] part {part_idx + 1}/{len(ranges)} "
+                f"(chunks {start}-{end - 1})",
+                flush=True,
+            )
+        combined = _assemble_chunks(
+            _iter_trimmed_chunks(
+                chunks_dir, pos, end, vad_model, get_speech_timestamps,
+                start=start,
+            ),
+            chunks,
+            index_offset=start,
+            total=len(chunks),
+        )
+        combined = _postprocess(combined)
+        combined.export(str(out_path), format="mp3", bitrate="128k")
+        written.append((out_path, len(combined)))
+        # Drop the reference before building the next part, so two parts'
+        # buffers never coexist.
+        del combined
+    return written
+
+
+def _concat_to_full(paths, out_path, gap_after_ms):
+    """Join finished MP3s into ``00_full.mp3`` without holding the book in RAM.
+
+    ``gap_after_ms[i]`` is the silence to insert after ``paths[i]`` — a real
+    chapter break gets ``INTER_CHAPTER_SILENCE_MS``, and a boundary between two
+    PARTS of the same chapter gets nothing, because that is one continuous
+    piece of narration that only happens to be stored as several files.
+
+    Returns the total duration in milliseconds.
+
+    Streams via ffmpeg's concat demuxer. The previous implementation built one
+    AudioSegment with ``full += ...`` and then ran ``_postprocess`` over it,
+    which is the whole book in memory several times over at the very last step
+    of the run. That was dormant while a structureless book produced a single
+    chapter file; splitting long chapters into parts woke it up, on exactly the
+    books least able to survive it.
+
+    Dropping ``_postprocess`` here is also a correctness fix: every input was
+    already low-passed and gain-normalized before it was written, so the old
+    code applied both a second time to the concatenation.
+    """
+    import shutil
+    import subprocess as sp
+    import tempfile
+
+    from pydub import AudioSegment
+
+    from src.ffmpeg_path import get_ffmpeg_exe, setup_ffmpeg_path
+
+    present = [(p, gap_after_ms[i]) for i, p in enumerate(paths) if p.exists()]
+    for p in paths:
+        if not p.exists():
+            print(f"[full] skipping missing {p.name}", flush=True)
+    if not present:
+        raise RuntimeError("no chapter files to concatenate")
+
+    setup_ffmpeg_path()
+    ffmpeg_exe = get_ffmpeg_exe()
+    if not ffmpeg_exe:
+        raise FileNotFoundError("ffmpeg not found; cannot build the full book")
+
+    staging = Path(tempfile.mkdtemp(prefix="abm_full_"))
+    try:
+        # One silence file, referenced as many times as needed, so a long book
+        # does not write N copies of the same gap to disk.
+        gap_path = staging / "gap.mp3"
+        if any(ms for _p, ms in present[:-1]):
+            AudioSegment.silent(
+                duration=INTER_CHAPTER_SILENCE_MS
+            ).export(str(gap_path), format="mp3", bitrate="128k")
+
+        listing = staging / "concat.txt"
+        lines = []
+        for i, (p, gap_ms) in enumerate(present):
+            lines.append(f"file '{p.as_posix()}'")
+            if gap_ms and i < len(present) - 1:
+                lines.append(f"file '{gap_path.as_posix()}'")
+        listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Re-encode rather than -c copy: the inputs came from separate encoder
+        # invocations and a stream copy can leave gaps or a broken duration.
+        result = sp.run(
+            [
+                ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
+                "-i", str(listing),
+                "-c:a", "libmp3lame", "-b:a", "128k",
+                str(out_path),
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            tail = (result.stderr or "").strip().splitlines()[-3:]
+            raise RuntimeError(
+                f"ffmpeg concat failed ({result.returncode}): {' | '.join(tail)}"
+            )
+        # Read the duration back from the header rather than decoding the file.
+        return int(_cached_audio_seconds(out_path) * 1000)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _postprocess(seg):
@@ -1936,6 +2155,12 @@ def main() -> int:
 
     completed_chapters: list[dict] = []
     chapter_mp3_paths: list[Path] = []
+    # Silence to insert after each entry in chapter_mp3_paths. A real chapter
+    # break earns INTER_CHAPTER_SILENCE_MS; a boundary between two parts of the
+    # SAME chapter earns nothing, because that is one continuous piece of
+    # narration split only for memory reasons. Without this, a six-part chapter
+    # gained five artificial half-second gaps mid-sentence.
+    chapter_gap_after: list[int] = []
 
     synth_wall_s = 0.0
     synth_audio_s = 0.0
@@ -1945,6 +2170,7 @@ def main() -> int:
             safe = _safe_title(ch.title or f"chapter_{ch.index}")
             chapter_mp3 = out_root / f"{pos:02d}_{safe}.mp3"
             chapter_mp3_paths.append(chapter_mp3)
+            chapter_gap_after.append(INTER_CHAPTER_SILENCE_MS)
 
             print(
                 f"[chapter {ci_pos}/{len(plan)}] idx={ch.index} "
@@ -2036,7 +2262,23 @@ def main() -> int:
                     "input_chars": len(chunk_text),
                     "audio_s": round(audio_s, 3),
                     "synth_s": round(dt, 3),
-                    "rtf": round(dt / audio_s, 3) if audio_s > 0 else None,
+                    # Two different questions, so two numbers.
+                    #
+                    # `rtf` is how fast the model generates: the WINNING
+                    # attempt's own time over its own audio. It used to divide
+                    # the total wall-clock (which `dt += dt_r` charges for
+                    # every discarded re-roll) by the winner's audio alone, so
+                    # a chunk that took four attempts reported four times the
+                    # generation cost. Averaged over a run, that turned a
+                    # rising retry rate into an apparent engine slowdown: a
+                    # tester reported RTF drifting 0.97 -> 1.61 overnight on a
+                    # run whose clean-generation RTF never left ~1.03.
+                    #
+                    # `wall_rtf` keeps the total including retries, because
+                    # that is the number the ETA is built from and the retries
+                    # are real time the user waits.
+                    "rtf": round(best_dt / audio_s, 3) if audio_s > 0 else None,
+                    "wall_rtf": round(dt / audio_s, 3) if audio_s > 0 else None,
                     "s_per_char": round(audio_s / max(1, len(chunk_text)), 4),
                     "retries_used": retries_used,
                     "hook_count": _chatterbox_hook_count(engine),
@@ -2048,7 +2290,13 @@ def main() -> int:
 
                 # ETA/RTF reporting based on THIS session's synthesis only
                 # (cached chunks aren't timed).
-                rtf = dt / audio_s if audio_s > 0 else float("inf")
+                #
+                # The displayed RTF is the winner's, for the reason spelled out
+                # in the stats record above: charging discarded re-rolls to it
+                # makes a rising retry rate look like a dying GPU. The ETA
+                # below still uses the full wall-clock, because retries are
+                # time the user genuinely waits.
+                rtf = best_dt / audio_s if audio_s > 0 else float("inf")
                 elapsed = time.time() - wall_start
                 remaining_chunks = total_chunks - total_done
                 if synth_wall_s > 0 and (total_done - cached_done) > 0:
@@ -2088,23 +2336,74 @@ def main() -> int:
                 raise _StopRequested()
             print(f"[chapter {ci_pos}/{len(plan)}] assembling MP3...",
                   flush=True)
-            combined = _assemble_chunks(
-                _iter_trimmed_chunks(
-                    chunks_dir, pos, len(chunks),
+            # Assembly is the most expensive possible place to fail: every
+            # chunk is already synthesized, so a crash here throws away the
+            # whole run's compute for want of a final encode. It is also the
+            # most memory-hungry step (one buffer for the chapter's PCM, a
+            # copy of it, then pydub's pure-Python low-pass filter on top), so
+            # MemoryError is a live outcome on a long single-chapter book.
+            #
+            # The `[error]` prefix matters: it is the only shape the GUI's line
+            # parser turns into a real error event. A bare traceback reaches
+            # the GUI as ordinary log lines.
+            try:
+                written_parts = _assemble_chapter_parts(
+                    chunks_dir, pos, chunks, chapter_mp3,
                     vad_model, get_speech_timestamps,
-                ),
-                chunks,
-            )
-            combined = _postprocess(combined)
-            combined.export(str(chapter_mp3), format="mp3", bitrate="128k")
-            print(f"[chapter {ci_pos}/{len(plan)}] wrote {chapter_mp3.name} "
-                  f"({len(combined) / 1000.0:.1f}s)", flush=True)
+                    should_stop=lambda: stop_flag["stop"],
+                )
+                if len(written_parts) > 1:
+                    # Replace the single planned path with the parts actually
+                    # written, so the full-book concat and progress.json both
+                    # describe what is on disk. Only the LAST part is followed
+                    # by a chapter break; the joins between parts are mid-
+                    # chapter and get no gap at all.
+                    chapter_mp3_paths.pop()
+                    chapter_gap_after.pop()
+                    chapter_mp3_paths.extend(p for p, _ms in written_parts)
+                    chapter_gap_after.extend(
+                        [0] * (len(written_parts) - 1) + [INTER_CHAPTER_SILENCE_MS]
+                    )
+                    # progress.json points at the FIRST part: it is where the
+                    # chapter starts, which is what any consumer looking for
+                    # "the chapter's audio" expects.
+                    chapter_mp3 = written_parts[0][0]
+            except _StopRequested:
+                raise
+            except MemoryError:
+                print(
+                    f"[error] ran out of memory assembling chapter {ci_pos} "
+                    f"({len(chunks)} parts). Every part is still cached in "
+                    f"{chunks_dir} — nothing was lost.",
+                    flush=True,
+                )
+                return 1
+            except Exception as exc:
+                print(
+                    f"[error] could not assemble chapter {ci_pos}: "
+                    f"{type(exc).__name__}: {exc}. Every part is still cached "
+                    f"in {chunks_dir} — nothing was lost.",
+                    flush=True,
+                )
+                return 1
+            for _part_path_written, _part_ms in written_parts:
+                print(
+                    f"[chapter {ci_pos}/{len(plan)}] wrote "
+                    f"{_part_path_written.name} ({_part_ms / 1000.0:.1f}s)",
+                    flush=True,
+                )
 
             completed_chapters.append({
                 "pos": pos,
                 "source_index": ch.index,
                 "title": ch.title,
+                # `mp3` stays the chapter's FIRST file so existing readers keep
+                # working; `parts` lists every file when the chapter was split,
+                # so nothing has to guess the naming scheme to find them all.
                 "mp3": str(chapter_mp3.relative_to(out_root)),
+                "parts": [
+                    str(p.relative_to(out_root)) for p, _ms in written_parts
+                ],
                 "chunks": len(chunks),
             })
             _write_progress(progress_path, {
@@ -2135,20 +2434,28 @@ def main() -> int:
 
     # Full-book concatenation.
     if len(chapter_mp3_paths) > 1:
-        print(f"[full] concatenating {len(chapter_mp3_paths)} chapters", flush=True)
-        full = AudioSegment.empty()
-        gap = AudioSegment.silent(duration=INTER_CHAPTER_SILENCE_MS)
-        for i, p in enumerate(chapter_mp3_paths):
-            if not p.exists():
-                print(f"[full] skipping missing {p.name}", flush=True)
-                continue
-            full += AudioSegment.from_file(str(p))
-            if i < len(chapter_mp3_paths) - 1:
-                full += gap
-        full = _postprocess(full)
+        print(f"[full] concatenating {len(chapter_mp3_paths)} files", flush=True)
         full_path = out_root / "00_full.mp3"
-        full.export(str(full_path), format="mp3", bitrate="128k")
-        print(f"[full] wrote {full_path} ({len(full) / 1000.0:.1f}s)",
+        try:
+            total_ms = _concat_to_full(
+                chapter_mp3_paths, full_path, chapter_gap_after,
+            )
+        except MemoryError:
+            print(
+                f"[error] ran out of memory building the full-book MP3. Every "
+                f"chapter file in {out_root} is complete and playable.",
+                flush=True,
+            )
+            return 1
+        except Exception as exc:
+            print(
+                f"[error] could not build the full-book MP3: "
+                f"{type(exc).__name__}: {exc}. Every chapter file in "
+                f"{out_root} is complete and playable.",
+                flush=True,
+            )
+            return 1
+        print(f"[full] wrote {full_path} ({total_ms / 1000.0:.1f}s)",
               flush=True)
 
     print(f"[done] {total_done}/{total_chunks} chunks, "

@@ -68,6 +68,24 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
     )
     host._sample_btn.grid(row=0, column=1, padx=(0, gui_style.PAD_MD))
 
+    # Continue: only ever visible when a previous conversion stopped with
+    # work left. It carries the accent fill rather than the muted secondary
+    # style because when it IS shown it is the thing the user wants \u2014 every
+    # chunk already on disk is hours they do not have to spend again.
+    #
+    # Placed beside Convert on purpose. The user arrives at a fresh window
+    # with no file loaded (Convert disabled), and the whole point is that
+    # they do not have to re-add the source file to get their run back.
+    host._continue_btn = ctk.CTkButton(
+        btn_row, text="Jatka", command=host._on_continue_click,
+        height=44, width=190,
+        font=gui_style.font_button(),
+        image=gui_style.icon("play", size=18),
+        compound="left",
+    )
+    host._continue_btn.grid(row=0, column=6, padx=(gui_style.PAD_SM, 0))
+    host._continue_btn.grid_remove()
+
     # Vertical separator marks the Configure/Produce → Review/Output
     # boundary. Convert + Make sample on the left of it are the
     # production path; Preview + Open folder on the right are for
@@ -131,6 +149,18 @@ def build_action_row(host: "UnifiedApp", parent: ctk.CTkFrame, row: int) -> None
         width=180, anchor="e",
     )
     host._status_label_val.grid(row=0, column=1, sticky="e")
+
+    # Explains what Continue would do, and says so when the app already
+    # retried on its own. An automatic retry that leaves no trace looks
+    # like the app took twice as long for no reason.
+    host._resume_hint = ctk.CTkLabel(
+        ar, text="",
+        font=gui_style.font_small(),
+        text_color=gui_style.TEXT_SECONDARY,
+        anchor="w", justify="left",
+    )
+    host._resume_hint.grid(row=3, column=0, sticky="w", pady=(2, 0))
+    host._resume_hint.grid_remove()
 
     # ETA label (kept for existing code paths; placed unobtrusively).
     host._eta_label = ctk.CTkLabel(
