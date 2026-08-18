@@ -1677,6 +1677,87 @@ def _assemble_chapter_parts(
     return written
 
 
+def _concat_to_full(paths, out_path, gap_after_ms):
+    """Join finished MP3s into ``00_full.mp3`` without holding the book in RAM.
+
+    ``gap_after_ms[i]`` is the silence to insert after ``paths[i]`` — a real
+    chapter break gets ``INTER_CHAPTER_SILENCE_MS``, and a boundary between two
+    PARTS of the same chapter gets nothing, because that is one continuous
+    piece of narration that only happens to be stored as several files.
+
+    Returns the total duration in milliseconds.
+
+    Streams via ffmpeg's concat demuxer. The previous implementation built one
+    AudioSegment with ``full += ...`` and then ran ``_postprocess`` over it,
+    which is the whole book in memory several times over at the very last step
+    of the run. That was dormant while a structureless book produced a single
+    chapter file; splitting long chapters into parts woke it up, on exactly the
+    books least able to survive it.
+
+    Dropping ``_postprocess`` here is also a correctness fix: every input was
+    already low-passed and gain-normalized before it was written, so the old
+    code applied both a second time to the concatenation.
+    """
+    import shutil
+    import subprocess as sp
+    import tempfile
+
+    from pydub import AudioSegment
+
+    from src.ffmpeg_path import get_ffmpeg_exe, setup_ffmpeg_path
+
+    present = [(p, gap_after_ms[i]) for i, p in enumerate(paths) if p.exists()]
+    for p in paths:
+        if not p.exists():
+            print(f"[full] skipping missing {p.name}", flush=True)
+    if not present:
+        raise RuntimeError("no chapter files to concatenate")
+
+    setup_ffmpeg_path()
+    ffmpeg_exe = get_ffmpeg_exe()
+    if not ffmpeg_exe:
+        raise FileNotFoundError("ffmpeg not found; cannot build the full book")
+
+    staging = Path(tempfile.mkdtemp(prefix="abm_full_"))
+    try:
+        # One silence file, referenced as many times as needed, so a long book
+        # does not write N copies of the same gap to disk.
+        gap_path = staging / "gap.mp3"
+        if any(ms for _p, ms in present[:-1]):
+            AudioSegment.silent(
+                duration=INTER_CHAPTER_SILENCE_MS
+            ).export(str(gap_path), format="mp3", bitrate="128k")
+
+        listing = staging / "concat.txt"
+        lines = []
+        for i, (p, gap_ms) in enumerate(present):
+            lines.append(f"file '{p.as_posix()}'")
+            if gap_ms and i < len(present) - 1:
+                lines.append(f"file '{gap_path.as_posix()}'")
+        listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Re-encode rather than -c copy: the inputs came from separate encoder
+        # invocations and a stream copy can leave gaps or a broken duration.
+        result = sp.run(
+            [
+                ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
+                "-i", str(listing),
+                "-c:a", "libmp3lame", "-b:a", "128k",
+                str(out_path),
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            tail = (result.stderr or "").strip().splitlines()[-3:]
+            raise RuntimeError(
+                f"ffmpeg concat failed ({result.returncode}): {' | '.join(tail)}"
+            )
+        # Read the duration back from the header rather than decoding the file.
+        return int(_cached_audio_seconds(out_path) * 1000)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def _postprocess(seg):
     """7 kHz low-pass + loudness normalize to TARGET_DBFS."""
     seg = seg.low_pass_filter(LOWPASS_HZ)
@@ -2074,6 +2155,12 @@ def main() -> int:
 
     completed_chapters: list[dict] = []
     chapter_mp3_paths: list[Path] = []
+    # Silence to insert after each entry in chapter_mp3_paths. A real chapter
+    # break earns INTER_CHAPTER_SILENCE_MS; a boundary between two parts of the
+    # SAME chapter earns nothing, because that is one continuous piece of
+    # narration split only for memory reasons. Without this, a six-part chapter
+    # gained five artificial half-second gaps mid-sentence.
+    chapter_gap_after: list[int] = []
 
     synth_wall_s = 0.0
     synth_audio_s = 0.0
@@ -2083,6 +2170,7 @@ def main() -> int:
             safe = _safe_title(ch.title or f"chapter_{ch.index}")
             chapter_mp3 = out_root / f"{pos:02d}_{safe}.mp3"
             chapter_mp3_paths.append(chapter_mp3)
+            chapter_gap_after.append(INTER_CHAPTER_SILENCE_MS)
 
             print(
                 f"[chapter {ci_pos}/{len(plan)}] idx={ch.index} "
@@ -2267,10 +2355,19 @@ def main() -> int:
                 if len(written_parts) > 1:
                     # Replace the single planned path with the parts actually
                     # written, so the full-book concat and progress.json both
-                    # describe what is on disk.
+                    # describe what is on disk. Only the LAST part is followed
+                    # by a chapter break; the joins between parts are mid-
+                    # chapter and get no gap at all.
                     chapter_mp3_paths.pop()
+                    chapter_gap_after.pop()
                     chapter_mp3_paths.extend(p for p, _ms in written_parts)
-                    chapter_mp3 = written_parts[-1][0]
+                    chapter_gap_after.extend(
+                        [0] * (len(written_parts) - 1) + [INTER_CHAPTER_SILENCE_MS]
+                    )
+                    # progress.json points at the FIRST part: it is where the
+                    # chapter starts, which is what any consumer looking for
+                    # "the chapter's audio" expects.
+                    chapter_mp3 = written_parts[0][0]
             except _StopRequested:
                 raise
             except MemoryError:
@@ -2300,7 +2397,13 @@ def main() -> int:
                 "pos": pos,
                 "source_index": ch.index,
                 "title": ch.title,
+                # `mp3` stays the chapter's FIRST file so existing readers keep
+                # working; `parts` lists every file when the chapter was split,
+                # so nothing has to guess the naming scheme to find them all.
                 "mp3": str(chapter_mp3.relative_to(out_root)),
+                "parts": [
+                    str(p.relative_to(out_root)) for p, _ms in written_parts
+                ],
                 "chunks": len(chunks),
             })
             _write_progress(progress_path, {
@@ -2331,20 +2434,28 @@ def main() -> int:
 
     # Full-book concatenation.
     if len(chapter_mp3_paths) > 1:
-        print(f"[full] concatenating {len(chapter_mp3_paths)} chapters", flush=True)
-        full = AudioSegment.empty()
-        gap = AudioSegment.silent(duration=INTER_CHAPTER_SILENCE_MS)
-        for i, p in enumerate(chapter_mp3_paths):
-            if not p.exists():
-                print(f"[full] skipping missing {p.name}", flush=True)
-                continue
-            full += AudioSegment.from_file(str(p))
-            if i < len(chapter_mp3_paths) - 1:
-                full += gap
-        full = _postprocess(full)
+        print(f"[full] concatenating {len(chapter_mp3_paths)} files", flush=True)
         full_path = out_root / "00_full.mp3"
-        full.export(str(full_path), format="mp3", bitrate="128k")
-        print(f"[full] wrote {full_path} ({len(full) / 1000.0:.1f}s)",
+        try:
+            total_ms = _concat_to_full(
+                chapter_mp3_paths, full_path, chapter_gap_after,
+            )
+        except MemoryError:
+            print(
+                f"[error] ran out of memory building the full-book MP3. Every "
+                f"chapter file in {out_root} is complete and playable.",
+                flush=True,
+            )
+            return 1
+        except Exception as exc:
+            print(
+                f"[error] could not build the full-book MP3: "
+                f"{type(exc).__name__}: {exc}. Every chapter file in "
+                f"{out_root} is complete and playable.",
+                flush=True,
+            )
+            return 1
+        print(f"[full] wrote {full_path} ({total_ms / 1000.0:.1f}s)",
               flush=True)
 
     print(f"[done] {total_done}/{total_chunks} chunks, "

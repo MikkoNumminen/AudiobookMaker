@@ -46,6 +46,8 @@ def app(_shared_app, clean_registry, tmp_path, monkeypatch):
     _shared_app._job_state = None
     _shared_app._pending_auto_retries = 0
     _shared_app._chatterbox_runner = None
+    _shared_app._resume_cache_valid = False
+    _shared_app._resume_cache = None
     while not _shared_app._event_queue.empty():
         _shared_app._event_queue.get_nowait()
     return _shared_app
@@ -72,39 +74,39 @@ def _saved_job(tmp_path, **overrides) -> JobState:
 
 class TestContinueVisibility:
     def test_hidden_when_there_is_nothing_to_continue(self, app):
-        app._refresh_resume_affordance()
+        app._refresh_resume_affordance(reload=True)
         assert app._continue_btn.grid_info() == {}
 
     def test_shown_after_a_failed_job(self, app, tmp_path):
         _saved_job(tmp_path)
-        app._refresh_resume_affordance()
+        app._refresh_resume_affordance(reload=True)
         app.update_idletasks()
         assert app._continue_btn.grid_info() != {}
 
     def test_hidden_after_a_finished_job(self, app, tmp_path):
         _saved_job(tmp_path, status="done")
-        app._refresh_resume_affordance()
+        app._refresh_resume_affordance(reload=True)
         app.update_idletasks()
         assert app._continue_btn.grid_info() == {}
 
     def test_hidden_while_a_run_is_in_flight(self, app, tmp_path):
         _saved_job(tmp_path)
         app._synth_running = True
-        app._refresh_resume_affordance()
+        app._refresh_resume_affordance(reload=True)
         assert app._continue_btn.grid_info() == {}
         app._synth_running = False
 
     def test_hint_reports_how_much_was_done(self, app, tmp_path):
         """The user needs to see that Continue skips work, not repeats it."""
         _saved_job(tmp_path)
-        app._refresh_resume_affordance()
+        app._refresh_resume_affordance(reload=True)
         text = app._resume_hint.cget("text")
         assert "2229" in text and "4100" in text
 
     def test_hint_says_when_the_app_already_retried(self, app, tmp_path):
         """An automatic retry that leaves no trace looks like a slow app."""
         _saved_job(tmp_path, auto_retries=1)
-        app._refresh_resume_affordance()
+        app._refresh_resume_affordance(reload=True)
         assert app._resume_hint.cget("text") != ""
         assert len(app._resume_hint.cget("text")) > 40
 
@@ -203,7 +205,7 @@ class TestAutoRetry:
 
 class TestJobLifecycle:
     def test_finishing_clears_the_job(self, app, tmp_path):
-        _saved_job(tmp_path)
+        app._job_state = _saved_job(tmp_path)
         app._record_job_finished("done")
         assert job_state.load() is None
 
@@ -222,3 +224,125 @@ class TestJobLifecycle:
     def test_progress_is_safe_with_no_job(self, app):
         app._job_state = None
         app._record_job_progress(10, 100)  # must not raise
+
+
+class TestReviewRegressions:
+    """One test per defect found reviewing the first cut of this feature."""
+
+    def test_auto_retry_returns_to_idle_before_restarting(self, app, tmp_path):
+        """The retry could never fire: _on_convert_click refuses to start while
+        _synth_running is set, and nothing cleared it on the exit path. The
+        original tests missed this by patching `after` and never running the
+        callback, so the app was left permanently wedged."""
+        _saved_job(tmp_path, auto_retries=0)
+        app._synth_running = True
+        with patch.object(app, "after"):
+            app._auto_retry_or_offer_continue()
+        assert app._synth_running is False
+
+    def test_the_scheduled_retry_actually_starts_a_run(self, app, tmp_path):
+        """Run the scheduled callback for real instead of asserting it exists."""
+        _saved_job(tmp_path, auto_retries=0)
+        app._synth_running = True
+        scheduled = []
+        with patch.object(app, "after", side_effect=lambda ms, fn: scheduled.append(fn)):
+            app._auto_retry_or_offer_continue()
+        assert scheduled, "no retry was scheduled"
+        with patch.object(app, "_on_convert_click") as convert:
+            scheduled[0]()
+        assert convert.call_count == 1
+
+    def test_cancel_is_not_treated_as_a_crash(self, app, tmp_path):
+        """Cancel also exits without a completion line, so it reaches the same
+        branch. Retrying it would relaunch the run the user just stopped."""
+        _saved_job(tmp_path, auto_retries=0)
+        app._cancel_requested = True
+        app._synth_running = True
+        app._event_queue.put(ProgressEvent(kind="exit", returncode=0))
+        try:
+            with patch.object(app, "after") as after, patch.object(app, "_fail") as fail:
+                app._pump_events()
+            assert fail.call_count == 0, "cancel reported as a failure"
+            assert after.call_count == 0, "cancel triggered an auto-retry"
+        finally:
+            app._cancel_requested = False
+
+    def test_cancel_marks_the_job_cancelled(self, app, tmp_path):
+        app._job_state = _saved_job(tmp_path)
+        app._cancel_requested = True
+        app._synth_running = True
+        app._event_queue.put(ProgressEvent(kind="exit", returncode=0))
+        try:
+            with patch.object(app, "after"):
+                app._pump_events()
+            assert job_state.load() is None
+        finally:
+            app._cancel_requested = False
+
+    def test_an_unrelated_run_does_not_clear_the_saved_job(self, app, tmp_path):
+        """A 20-second sample, or an Edge run, used to delete the pointer to a
+        14-hour run's cached chunks."""
+        _saved_job(tmp_path)
+        app._job_state = None          # this run never recorded a job
+        app._record_job_finished("done")
+        assert job_state.load() is not None
+
+    def test_input_mode_is_restored(self, app, tmp_path):
+        """_input_mode reads the active tab, so Continue would otherwise run
+        against whichever tab happened to be selected."""
+        _saved_job(tmp_path, input_mode="pdf")
+        text_tab = next(k for k, v in app._tab_name_map.items() if v == "text")
+        app._input_nb.set(text_tab)
+        with patch.object(app, "_on_convert_click"):
+            app._on_continue_click()
+        assert app._input_mode == "pdf"
+
+    def test_text_job_restores_its_text(self, app, tmp_path):
+        """After a restart the widget holds the placeholder and Convert would
+        refuse with 'no text'."""
+        job_state.save(JobState(
+            input_mode="text", input_text="Tämä on tallennettu teksti.",
+            status="failed",
+        ))
+        app._resume_cache_valid = False
+        with patch.object(app, "_on_convert_click"):
+            app._on_continue_click()
+        assert "tallennettu teksti" in app._text_widget.get("1.0", "end")
+        assert app._text_has_placeholder is False
+
+    def test_a_changed_chunk_size_blocks_the_resume(self, app, tmp_path):
+        """The cache key is the chunk INDEX, so re-chunking at a different size
+        reuses every old WAV for different words, silently."""
+        _saved_job(tmp_path, chunk_chars=300)
+        var = getattr(app, "_chunk_chars_var", None)
+        if var is None:
+            pytest.skip("no chunk-size control on this build")
+        var.set(200)
+        try:
+            with patch.object(app, "_on_convert_click") as convert, \
+                    patch("src.gui_unified.messagebox.showerror") as err:
+                app._on_continue_click()
+            assert convert.call_count == 0
+            assert err.call_count == 1
+        finally:
+            var.set(300)
+
+    def test_the_hint_never_shows_a_raw_string_key(self, app, tmp_path):
+        """`text_tab` is not a key; _s() falls back to returning the key."""
+        job_state.save(JobState(
+            input_mode="text", input_text="jotain", status="failed",
+            total_done=5, total_chunks=10,
+        ))
+        app._resume_cache_valid = False
+        app._refresh_resume_affordance(reload=True)
+        assert "text_tab" not in app._resume_hint.cget("text")
+
+    def test_the_affordance_does_not_hit_disk_on_every_call(self, app, tmp_path):
+        """It runs from _update_action_buttons_state, which is bound to
+        <KeyRelease>: a file read per keystroke on the UI thread."""
+        _saved_job(tmp_path)
+        app._refresh_resume_affordance(reload=True)
+        with patch.object(job_state, "load_resumable") as load:
+            for _ in range(20):
+                app._refresh_resume_affordance()
+        assert load.call_count == 0

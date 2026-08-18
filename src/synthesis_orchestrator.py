@@ -572,12 +572,18 @@ def build_chatterbox_runner(
             content = (request.input_text or "").strip()
             if not content:
                 raise ChatterboxBuildError("no_text")
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8",
-            )
-            tmp.write(content)
-            tmp.close()
-            text_path = tmp.name
+            # The runner derives its output root — and therefore its chunk
+            # cache — from this file's STEM. A random tempfile name meant the
+            # same pasted text landed in a different cache directory on every
+            # run, so re-running after a failure re-synthesized everything from
+            # scratch while the previous chunks sat orphaned under a name
+            # nobody could guess. Naming the file after a digest of its own
+            # content makes the same text resolve to the same cache.
+            import hashlib
+
+            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+            text_path = str(Path(tempfile.gettempdir()) / f"abm_text_{digest}.txt")
+            Path(text_path).write_text(content, encoding="utf-8")
             tmp_files.append(text_path)
 
         python_exe = resolve_chatterbox_python()

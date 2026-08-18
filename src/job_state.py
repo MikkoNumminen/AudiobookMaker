@@ -32,7 +32,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-JOB_DIR = Path.home() / ".audiobookmaker"
+# The config root has one owner. Re-deriving `Path.home() / ".audiobookmaker"`
+# here would have made it the fifth copy of that literal in src/.
+from src.app_config import CONFIG_DIR as JOB_DIR
+
 JOB_FILE = JOB_DIR / "last_job.json"
 
 # A job in one of these states has nothing left to do.
@@ -149,8 +152,28 @@ def load(path: Optional[Path] = None) -> Optional[JobState]:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return None
-        known = {f for f in JobState.__dataclass_fields__}
-        return JobState(**{k: v for k, v in raw.items() if k in known})
+        # Dataclasses do not check types, so a structurally-valid file with a
+        # wrong-typed value constructs fine and blows up much later, far from
+        # here. `total_chunks: null` used to reach `if state.total_chunks > 0`
+        # inside the button-state refresh, which runs on every keystroke — one
+        # TypeError dialog per key. Coerce what can be coerced, drop what
+        # cannot, and let the field defaults stand in.
+        fields = JobState.__dataclass_fields__
+        clean: dict = {}
+        for key, value in raw.items():
+            if key not in fields or value is None:
+                continue
+            expected = fields[key].type
+            try:
+                if "int" in str(expected) and not isinstance(value, bool):
+                    clean[key] = int(value)
+                elif "str" in str(expected):
+                    clean[key] = str(value)
+                else:
+                    clean[key] = value
+            except (TypeError, ValueError):
+                continue  # unusable value; the default is safer than a crash
+        return JobState(**clean)
     except Exception:
         logger.warning("could not load job state from %s", path, exc_info=True)
         return None

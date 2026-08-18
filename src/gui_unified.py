@@ -85,6 +85,14 @@ from src import engine_registry  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# Event kinds the pump deliberately does not act on. `log` and `signal` are
+# already surfaced by the raw-line logging at the top of the loop;
+# `setup_total` and `chapter_start` carry counts the chunk events restate.
+# Anything NOT listed here and not handled is logged as unexpected.
+_IGNORED_EVENT_KINDS = frozenset({
+    "log", "signal", "setup_total", "chapter_start",
+})
+
 
 # ---------------------------------------------------------------------------
 # Repo root (needed for Chatterbox runner script resolution)
@@ -233,11 +241,13 @@ _STRINGS = {
         "runner_died": "Muunnos keskeytyi odottamatta (koodi {rc}). Jo tehdyt osat on tallennettu.",
         "continue_btn": "Jatka keskeytynyttä",
         "resuming_count": "Jatketaan: {done}/{total} osaa jo valmiina",
-        "resume_available": "Keskeytynyt muunnos: {name} — {done}/{total} osaa valmiina. Jatka-painike käyttää jo tehdyt osat uudelleen.",
+        "resume_available": "Keskeytynyt muunnos: {name}, {done}/{total} osaa valmiina. Jatka-painike käyttää jo tehdyt osat uudelleen.",
         "resume_available_nocount": "Keskeytynyt muunnos: {name}. Jatka-painike käyttää jo tehdyt osat uudelleen.",
-        "resume_auto_retrying": "Muunnos keskeytyi. Yritetään automaattisesti uudelleen (yritys {n}) — jo tehdyt osat säilyvät.",
+        "resume_auto_retrying": "Muunnos keskeytyi. Yritetään automaattisesti uudelleen (yritys {n}). Jo tehdyt osat säilyvät.",
         "resume_auto_failed": "Muunnos keskeytyi myös automaattisen uudelleenyrityksen jälkeen. Jo tehdyt osat on tallennettu.",
         "resume_started": "Jatketaan keskeytynyttä muunnosta.",
+        "resume_settings_changed": "Osan pituus on eri kuin keskeytyneessä muunnoksessa ({saved} merkkiä). Jatkaminen käyttäisi vanhoja osia väärille sanoille. Palauta arvoksi {saved} tai aloita alusta.",
+        "resume_voice_changed": "Ääni on eri kuin keskeytyneessä muunnoksessa. Jatkaminen vaihtaisi kertojan kesken kirjan. Valitse alkuperäinen ääni tai aloita alusta.",
         "resume_source_missing": "Alkuperäistä tiedostoa ei löydy enää: {path}",
         "resume_language_changed": "Kieli on eri kuin keskeytyneessä muunnoksessa ({saved}). Jatkaminen sekoittaisi kaksi ääntä. Vaihda kieleksi {saved} tai aloita alusta.",
         "loading_engine": "Ladataan moottoria\u2026 (ensimm\u00e4inen kerta lataa mallit, voi kest\u00e4\u00e4 minuutteja)",
@@ -372,11 +382,13 @@ _STRINGS = {
         "runner_died": "The conversion stopped unexpectedly (code {rc}). The parts already made have been saved.",
         "continue_btn": "Continue previous",
         "resuming_count": "Continuing: {done}/{total} parts already done",
-        "resume_available": "Unfinished conversion: {name} — {done}/{total} parts done. Continue reuses the parts already made.",
+        "resume_available": "Unfinished conversion: {name}, {done}/{total} parts done. Continue reuses the parts already made.",
         "resume_available_nocount": "Unfinished conversion: {name}. Continue reuses the parts already made.",
-        "resume_auto_retrying": "The conversion stopped. Retrying automatically (attempt {n}) — the parts already made are kept.",
+        "resume_auto_retrying": "The conversion stopped. Retrying automatically (attempt {n}). The parts already made are kept.",
         "resume_auto_failed": "The conversion stopped again after one automatic retry. The parts already made have been saved.",
         "resume_started": "Continuing the unfinished conversion.",
+        "resume_settings_changed": "The part length differs from the unfinished conversion ({saved} characters). Continuing would reuse old parts for different words. Set it back to {saved} or start over.",
+        "resume_voice_changed": "The voice differs from the unfinished conversion. Continuing would change narrator partway through the book. Pick the original voice or start over.",
         "resume_source_missing": "The original file is no longer there: {path}",
         "resume_language_changed": "The language differs from the unfinished conversion ({saved}). Continuing would mix two voices. Switch back to {saved} or start over.",
         "loading_engine": "Loading engine\u2026 (first run downloads models, can take a few minutes)",
@@ -3504,10 +3516,12 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 self._handle_runner_exit(ev)
                 return  # Stop pumping.
 
-            elif ev.kind not in ("log", "signal"):
+            elif ev.kind not in _IGNORED_EVENT_KINDS:
                 # Defensive: a kind added to the bridge but not handled here
                 # would otherwise vanish silently, which is exactly how the
-                # "exit" hang survived so long.
+                # "exit" hang survived so long. The ignore list has to name
+                # every kind the GUI deliberately drops, or the guard fires on
+                # every run and a genuinely new kind is lost in the noise.
                 logger.debug("unhandled progress event kind: %r", ev.kind)
 
         # Reschedule if still running.
@@ -3803,7 +3817,32 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         from src import job_state
 
         plan = getattr(self, "_chatterbox_plan", None)
+
+        # Chunk size and voice pack both invalidate the cache, so they have to
+        # be recorded to be checked on resume. The cache key is the chunk
+        # INDEX, and the health check only compares duration against character
+        # count — so re-chunking the same text at a different size still finds
+        # every old WAV "healthy" and plays the wrong audio for most of the
+        # book, silently.
+        chunk_chars = 300
+        chunk_var = getattr(self, "_chunk_chars_var", None)
+        if chunk_var is not None:
+            try:
+                chunk_chars = int(chunk_var.get())
+            except Exception:
+                chunk_chars = 300
+        voice_pack_path = None
+        selector = getattr(self, "_selected_voice_pack", None)
+        if selector is not None:
+            try:
+                pack = selector()
+                voice_pack_path = str(pack.root) if pack is not None else None
+            except Exception:
+                logger.debug("could not resolve voice pack", exc_info=True)
+
         state = job_state.JobState(
+            chunk_chars=chunk_chars,
+            voice_pack_path=voice_pack_path,
             input_mode=self._input_mode,
             pdf_path=str(self._pdf_path) if self._pdf_path else None,
             input_text=(
@@ -3823,6 +3862,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         )
         self._job_state = state
         job_state.save(state)
+        self._resume_cache_valid = False  # a new job exists on disk
 
     def _record_job_progress(self, done: int, total: int) -> None:
         """Keep the saved job's progress roughly current.
@@ -3841,22 +3881,40 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             job_state.save(state)
 
     def _record_job_finished(self, status: str = "done") -> None:
+        """Clear the saved job — but ONLY if this run is the one it describes.
+
+        The "done" event fires for every run, including a 20-second sample and
+        any Edge/Piper conversion. Clearing unconditionally meant that checking
+        the voice with Make sample, right after a 14-hour run died, deleted the
+        pointer to its 2229 cached chunks and made the Continue button vanish.
+        A run that never recorded a job has no business ending one.
+        """
         from src import job_state
 
         state = getattr(self, "_job_state", None)
-        if state is not None:
-            state.status = status
-            job_state.save(state)
+        if state is None:
+            # Not our job to finish. Leave any saved job alone.
+            self._refresh_resume_affordance(reload=True)
+            return
+        state.status = status
+        job_state.save(state)
         job_state.clear()
         self._job_state = None
         self._pending_auto_retries = 0
-        self._refresh_resume_affordance()
+        self._refresh_resume_affordance(reload=True)
 
-    def _refresh_resume_affordance(self) -> None:
+    def _refresh_resume_affordance(self, reload: bool = False) -> None:
         """Show or hide Continue based on whether there is anything to continue.
 
         Safe to call before the widgets exist (startup ordering) and while a
         run is in flight, when the affordance must stay hidden.
+
+        The saved job is CACHED. This runs from _update_action_buttons_state,
+        which is bound to <KeyRelease>, so reading the file here meant a stat +
+        read + JSON parse + another stat on the Tk main thread for every single
+        keystroke in the text box. What the button shows only changes when a
+        run starts or ends, so those call sites pass ``reload=True`` and
+        everything else uses the cached value.
         """
         from src import job_state
 
@@ -3869,13 +3927,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             hint.grid_remove()
             return
 
-        state = job_state.load_resumable()
+        if reload or not getattr(self, "_resume_cache_valid", False):
+            self._resume_cache = job_state.load_resumable()
+            self._resume_cache_valid = True
+        state = self._resume_cache
         if state is None:
             btn.grid_remove()
             hint.grid_remove()
             return
 
-        name = Path(state.pdf_path).name if state.pdf_path else self._s("text_tab")
+        name = Path(state.pdf_path).name if state.pdf_path else self._s("tab_text")
         if state.total_chunks > 0:
             text = self._s("resume_available").format(
                 name=name, done=state.total_done, total=state.total_chunks
@@ -3903,8 +3964,28 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         # button that does nothing when clicked.
         state = job_state.load()
         if state is None:
-            self._refresh_resume_affordance()
+            self._refresh_resume_affordance(reload=True)
             return
+
+        # `_input_mode` is a property reading the active tab, so Continue would
+        # otherwise run against whichever tab happened to be selected —
+        # converting the text box when the saved job was a PDF, or vice versa.
+        # Select the tab the job was started from before anything reads it.
+        for tab_name, mode in self._tab_name_map.items():
+            if mode == state.input_mode:
+                try:
+                    self._input_nb.set(tab_name)
+                except Exception:
+                    logger.debug("could not restore input tab", exc_info=True)
+                break
+
+        if state.input_mode == "text":
+            # Restore the text itself: after an app restart the widget holds
+            # the placeholder, and Convert would refuse with "no text".
+            if state.input_text:
+                self._text_widget.delete("1.0", tk.END)
+                self._text_widget.insert("1.0", state.input_text)
+                self._text_has_placeholder = False
 
         if state.input_mode == "pdf":
             if not state.pdf_path or not Path(state.pdf_path).is_file():
@@ -3913,7 +3994,7 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                     self._s("resume_source_missing").format(path=state.pdf_path),
                 )
                 job_state.clear()
-                self._refresh_resume_affordance()
+                self._refresh_resume_affordance(reload=True)
                 return
             # Same widget updates the file browser performs, minus
             # _auto_output_path: the saved output path is restored below and
@@ -3937,10 +4018,51 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
             )
             return
 
+        # Same reasoning for the two other settings that silently invalidate
+        # the cache. Chunk size changes where the text is cut, so every cached
+        # WAV would be reused for different words; a voice pack change is the
+        # mid-book narrator swap the language check already guards against.
+        current_chunk = 300
+        chunk_var = getattr(self, "_chunk_chars_var", None)
+        if chunk_var is not None:
+            try:
+                current_chunk = int(chunk_var.get())
+            except Exception:
+                current_chunk = 300
+        if state.chunk_chars and current_chunk != state.chunk_chars:
+            messagebox.showerror(
+                self._s("error"),
+                self._s("resume_settings_changed").format(saved=state.chunk_chars),
+            )
+            return
+
+        current_pack = None
+        selector = getattr(self, "_selected_voice_pack", None)
+        if selector is not None:
+            try:
+                pack = selector()
+                current_pack = str(pack.root) if pack is not None else None
+            except Exception:
+                current_pack = None
+        if (state.voice_pack_path or None) != (current_pack or None):
+            messagebox.showerror(
+                self._s("error"),
+                self._s("resume_voice_changed"),
+            )
+            return
+
+        # Restore the output path into the widget the unified app actually
+        # uses. An earlier version set `_out_var`, which only exists on the
+        # legacy gui.py — so the visible Save-to field kept the stale path and
+        # the saved location had no effect on where the runner wrote. Since the
+        # runner keys its chunk cache off that directory, that quietly turned
+        # every Continue into a fresh start.
         if state.output_path_hint:
             self._output_path = state.output_path_hint
-            if hasattr(self, "_out_var"):
-                self._out_var.set(state.output_path_hint)
+            self._out_entry.configure(state="normal")
+            self._out_entry.delete(0, tk.END)
+            self._out_entry.insert(0, state.output_path_hint)
+            self._out_entry.configure(state="disabled")
 
         # Carry the retry count forward so a manual Continue of an
         # already-auto-retried job does not reset the budget.
@@ -3964,21 +4086,29 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         job_state.save(state)
 
         if not state.may_auto_retry():
-            self._refresh_resume_affordance()
+            self._refresh_resume_affordance(reload=True)
             return False
 
         self._pending_auto_retries = state.auto_retries + 1
         state.auto_retries = self._pending_auto_retries
         job_state.save(state)
-        self._append_log(
-            self._s("resume_auto_retrying").format(n=self._pending_auto_retries)
+
+        # Return to idle FIRST. _on_convert_click refuses to start while
+        # _synth_running is set, and nothing else clears it on this path: the
+        # exit branch returns straight out of the pump without reaching the
+        # "done" handler that normally calls _set_idle_state. Scheduling the
+        # retry without this left the app wedged forever — status stuck on
+        # "retrying", Convert greyed out, pump dead, no way out but to kill it.
+        # Strictly worse than the hang this whole branch was written to fix.
+        self._set_idle_state()
+
+        message = self._s("resume_auto_retrying").format(
+            n=self._pending_auto_retries
         )
-        self._status_label_val.configure(
-            text=self._s("resume_auto_retrying").format(n=self._pending_auto_retries)
-        )
-        # Off the event-pump call stack: this tears down run state and starts
-        # a new subprocess, which must not happen inside the pump that is
-        # still unwinding the previous one.
+        self._append_log(message)
+        self._status_label_val.configure(text=message)
+        # Off the event-pump call stack: this starts a new subprocess, which
+        # must not happen inside the pump still unwinding the previous one.
         self.after(1500, self._on_continue_click)
         return True
 
@@ -3993,6 +4123,16 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
         """
         rc = getattr(ev, "returncode", None)
         logger.error("Runner exited without completing (returncode=%r)", rc)
+
+        # A cancelled run also exits without a completion line, so it arrives
+        # here looking exactly like a crash. Without this check the app would
+        # report the user's own Cancel as a failure and then silently relaunch
+        # the 14-hour conversion they had just stopped.
+        if getattr(self, "_cancel_requested", False):
+            self._record_job_finished("cancelled")
+            self._set_idle_state()
+            self._status_label_val.configure(text=self._s("cancelled"))
+            return
 
         # One silent resume before bothering the user. Returns True when a
         # retry is under way, in which case reporting a failure now would

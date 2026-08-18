@@ -155,3 +155,69 @@ class TestIterTrimmedChunksRange:
             self._float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
         got = list(runner._iter_trimmed_chunks(tmp_path, 1, 3, None, None))
         assert len(got) == 3
+
+
+class TestFullBookConcatIsStreamed:
+    """Splitting a chapter woke a dormant memory bomb in the full-book concat."""
+
+    def test_concat_does_not_build_one_audiosegment(self, runner):
+        """`full += AudioSegment.from_file(p)` over every part is the whole
+        book in RAM, then `_postprocess` copies it several more times — the
+        exact failure the split was added to prevent, reintroduced at the
+        very last step of the run."""
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        ).read_text(encoding="utf-8")
+        assert "full += AudioSegment.from_file" not in src
+        assert "_concat_to_full" in src
+
+    def test_concat_does_not_postprocess_again(self, runner):
+        """Every input was already low-passed and gain-normalized before it was
+        written, so doing it again to the concatenation double-applies both."""
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        ).read_text(encoding="utf-8")
+        i = src.index("def _concat_to_full")
+        # Slice to the NEXT top-level def, or the window runs on into
+        # _postprocess's own definition and the assertion is meaningless.
+        j = src.index("\ndef ", i + 1)
+        # Assert on the CALL, not the name: the docstring explains at length
+        # why it is absent, so a bare name check matches its own rationale.
+        assert "_postprocess(" not in src[i:j]
+
+    def test_concat_failure_is_reported_not_fatal(self, runner):
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        ).read_text(encoding="utf-8")
+        assert "[error] ran out of memory building the full-book MP3" in src
+
+
+class TestPartBoundariesGetNoChapterGap:
+    """A split chapter is one continuous narration stored as several files."""
+
+    def test_gap_list_marks_only_the_last_part(self, runner):
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        ).read_text(encoding="utf-8")
+        assert "chapter_gap_after" in src
+        assert "[0] * (len(written_parts) - 1) + [INTER_CHAPTER_SILENCE_MS]" in src
+
+    def test_progress_json_lists_every_part(self, runner):
+        """Recording only one file leaves any consumer pointing at a fraction
+        of the chapter."""
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        ).read_text(encoding="utf-8")
+        assert '"parts": [' in src
+
+    def test_progress_json_points_at_the_first_part(self, runner):
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "generate_chatterbox_audiobook.py"
+        ).read_text(encoding="utf-8")
+        assert "chapter_mp3 = written_parts[0][0]" in src

@@ -169,3 +169,45 @@ class TestSaveNeverBreaksARun:
         blocked = tmp_path / "a-file-not-a-dir" / "last_job.json"
         (tmp_path / "a-file-not-a-dir").write_text("in the way", encoding="utf-8")
         job_state.save(JobState(), blocked)  # must not raise
+
+
+class TestTypeCorruptFilesDoNotCrashTheApp:
+    """A structurally-valid file with a wrong-typed value used to construct
+    fine and blow up much later — inside the button-state refresh, which runs
+    on every keystroke, i.e. one error dialog per key."""
+
+    def test_null_count_does_not_reach_a_comparison(self, job_file):
+        job_file.write_text(
+            json.dumps({"status": "failed", "total_chunks": None, "total_done": 5}),
+            encoding="utf-8",
+        )
+        loaded = job_state.load(job_file)
+        assert loaded is not None
+        assert loaded.total_chunks > 0 or loaded.total_chunks == 0  # comparable
+
+    def test_numeric_string_is_coerced(self, job_file):
+        job_file.write_text(
+            json.dumps({"status": "failed", "total_chunks": "4100"}),
+            encoding="utf-8",
+        )
+        assert job_state.load(job_file).total_chunks == 4100
+
+    def test_unusable_value_falls_back_to_the_default(self, job_file):
+        job_file.write_text(
+            json.dumps({"status": "failed", "chunk_chars": "not a number"}),
+            encoding="utf-8",
+        )
+        assert job_state.load(job_file).chunk_chars == 300
+
+    def test_progress_fraction_survives_a_corrupt_file(self, job_file):
+        job_file.write_text(
+            json.dumps({"status": "failed", "total_chunks": None}),
+            encoding="utf-8",
+        )
+        job_state.load(job_file).progress_fraction()  # must not raise
+
+
+class TestConfigRootHasOneOwner:
+    def test_job_dir_comes_from_app_config(self):
+        from src.app_config import CONFIG_DIR
+        assert job_state.JOB_DIR == CONFIG_DIR

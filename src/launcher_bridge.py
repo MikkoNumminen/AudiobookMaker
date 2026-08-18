@@ -546,11 +546,16 @@ class ChatterboxRunner:
                 # s3gen flow out-of-range "ERROR" + follow-up pair) into a
                 # single neutral info line — or drop the follow-up — before the
                 # line enters the tail buffer or the severity-routing pipeline.
+                # Liveness is stamped from the RAW line, before the noise
+                # filter and before the empty-line skip above have a say. A
+                # burst of suppressed upstream warnings still means the child
+                # is alive, and treating it as silence would let the idle
+                # watchdog terminate a working runner.
+                self._state.last_output_at = time.monotonic()
                 rewritten = parser.rewrite_upstream_noise(line)
                 if rewritten is None:
                     continue
                 line = rewritten
-                self._state.last_output_at = time.monotonic()
                 self._state.tail.append(line)
                 ev = parser.parse(line)
                 self._state.event_queue.put(ev)
