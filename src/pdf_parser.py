@@ -17,6 +17,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
+from src.tts_chunking import HEADING_MAX_CHARS as _MAX_HEADING_LEN
+
 logger = logging.getLogger(__name__)
 
 
@@ -206,10 +208,30 @@ _ALL_CAPS_RE = re.compile(r"^[A-ZÄÖÅ\s]{4,50}$")
 
 # Upper bound on heading length. Real chapter titles are short; anything longer
 # is almost certainly a line of prose that happens to start like a heading.
-_MAX_HEADING_LEN = 80
+#
+# Single-sourced with the chunker's heading detector (imported at the top of
+# this module). The two used to declare 80 independently, which is a silent
+# drift waiting to happen: they answer related questions about the same
+# documents and would have diverged the first time either was tuned.
 
 
 def _looks_like_heading(line: str) -> bool:
+    """True when a line opens a new CHAPTER (this parser's question).
+
+    Not the same question as ``tts_chunking.looks_like_heading``, and the two
+    must not be conflated:
+
+    * This one decides chapter SPLITTING. A match becomes ``Chapter.title``
+      and is removed from the chapter body — so a heading matched here is
+      never narrated at all, and separation comes from the chapter being its
+      own MP3 with an inter-chapter gap between files.
+    * The chunker's decides whether to PAUSE around a heading that stays in
+      the text. It only ever sees the sub-headings this one did not match.
+
+    Between them every heading is handled, by one route or the other. Change
+    either and check what moves between the two: a heading that stops matching
+    here starts being spoken with pauses instead of vanishing into a filename.
+    """
     line = line.strip()
     if not line:
         return False

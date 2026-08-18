@@ -130,10 +130,99 @@ def _merge_short_chunks(
     return out
 
 
+# A blank line.
+#
+# The `\r?` on both sides is not optional. The corpus files on disk are CRLF,
+# and `\n[ \t]*\n` cannot match `\r\n\r\n` because the `\r` between the two
+# newlines is neither a space nor a tab. Without it the entire heading feature
+# silently disappeared on CRLF input: no headings, no blank-line sentence
+# boundary, straight back to pre-fix behaviour with nothing in the log.
+# src/tts_normalizer.py writes the same idea as `(?=\r?\n[ \t]*\r?\n)`, and
+# the comment above it warns about exactly this input.
+#
+# COVERAGE, so the next reader is not misled: not every format arrives here
+# with blank lines intact. The EPUB parser flattens a chapter into one
+# space-joined string, and the DOCX no-heading-styles path joins paragraphs
+# with single newlines that the shared cleaner then turns into spaces. Those
+# inputs have no blocks to find and get no heading pauses.
+_BLANK_LINE_RE = re.compile(r"\r?\n[ \t]*\r?\n\s*")
+
+# Closing wrappers that can sit AFTER a sentence terminator. Mirrors
+# `_TRAILING_WRAP` in the runner's `_seam_kind`, which already looks through
+# these for the very same question.
+_TRAILING_WRAP = "\"'»”’)]}"
+
+# A run of this many heading-shaped blocks in a row is a LIST, not a stack of
+# titles. a run of short list items is three short capitalised
+# unterminated blocks, indistinguishable from three headings, and giving each
+# 900 ms on both sides reads a four-item list with nearly two seconds of dead
+# air between items. Two in a row stays allowed: a chapter number above its
+# title is a real and common shape.
+_MAX_CONSECUTIVE_HEADINGS = 2
+
+# A heading is short. Longer than this and it is prose, whatever it looks
+# like — an unpunctuated line of 200 characters is a parser artifact or a
+# run-on, not a section title.
+HEADING_MAX_CHARS = 80
+
+
+def looks_like_heading(text: str) -> bool:
+    """True when a RAW, blank-line-delimited block is a heading.
+
+    Must be applied to the text as the document author wrote it, BEFORE
+    ``terminate_paragraphs`` runs. That pass gives every paragraph-final line
+    a full stop so the sentence splitter stops gluing headings to the body,
+    and in doing so it erases the one reliable difference between a heading
+    and a one-sentence paragraph: the heading never carried a terminator of
+    its own. Run this after normalization and a title and a one-sentence paragraph are indistinguishable, and every short paragraph in the book
+    earns a section-break pause.
+
+    Conservative on purpose. A false positive drops a long silence into the
+    middle of prose, which is worse than the missing pause it was meant to fix.
+
+    No attempt is made to work out heading LEVEL. Chapter, section and
+    subsection are not distinguishable from shape in the documents this app is
+    handed, and guessing wrong is worse than treating them alike: two tiers
+    are what a listener actually needs to hear.
+    """
+    stripped = text.strip()
+    if not stripped or len(stripped) > HEADING_MAX_CHARS:
+        return False
+    if "\n" in stripped:            # more than one line: a paragraph
+        return False
+    if not any(c.isalpha() for c in stripped):
+        return False
+    # Must OPEN like a title: a capital, or its own number ("6. Esineoikeus").
+    first = stripped[0]
+    if not (first.isupper() or first.isdigit()):
+        return False
+    # And must CLOSE without a terminator. This is the whole signal.
+    #
+    # Look through a closing quote or bracket first. Without that, a line of
+    # dialogue — Hän sanoi: "Ei koskaan." — reads as unterminated because its
+    # final character is the quote mark, and every such sentence in the book
+    # becomes a heading.
+    closed = stripped.rstrip(_TRAILING_WRAP).rstrip()
+    if not closed:
+        return False
+    return closed[-1] not in _SENTENCE_END and closed[-1] not in {
+        ",", ";", ":", "—", "–",
+    }
+
+
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences, preserving punctuation.
 
-    Handles the hard cases that a naive split-on-period-loses-to:
+    A BLANK LINE is a hard boundary, applied before any punctuation analysis.
+    Without it a heading merges into the sentence that follows it: a chapter
+    opening came out as the single unit ``"<chapter title>\\n\\n<first body
+    sentence>."`` and was synthesized as one continuous utterance. There was no seam to put a pause at, so the narrator read the
+    title and ran straight on into the body with nothing to mark the change —
+    reported from the field as the reason a listener cannot tell where a new
+    chapter begins.
+
+    Within a block, the punctuation rules below are unchanged. They handle
+    the hard cases that a naive split-on-period-loses-to:
       * Abbreviations ("esim.", "ks.", "Mr.", "Dr.") — period does not end
         the sentence.
       * Numbered items and decimals ("1100-luvun", "5.2", "I.") — period
@@ -142,6 +231,21 @@ def _split_sentences(text: str) -> list[str]:
       * A period is only a real sentence end when followed by whitespace and
         then an uppercase letter, digit-uppercase combination, or end of text.
     """
+    if not text:
+        return []
+
+    # Blank lines first, then punctuation within each block.
+    blocks = split_into_blocks(text)
+    if len(blocks) > 1:
+        out: list[str] = []
+        for block in blocks:
+            out.extend(_split_sentences_in_block(block))
+        return out
+    return _split_sentences_in_block(text)
+
+
+def _split_sentences_in_block(text: str) -> list[str]:
+    """Punctuation-based sentence split within one blank-line-delimited block."""
     if not text:
         return []
 
@@ -300,3 +404,84 @@ def _word_split(text: str, max_chars: int) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def split_blocks_into_chunks(
+    blocks: list[tuple[str, bool]],
+    max_chars: int = MAX_CHUNK_CHARS,
+    min_chars: int = 0,
+) -> tuple[list[str], set[int]]:
+    """Chunk pre-classified blocks. Returns ``(chunks, heading_indices)``.
+
+    ``blocks`` is ``[(text, is_heading), ...]`` in document order. The caller
+    decides what is a heading, because the evidence is destroyed before this
+    point: `terminate_paragraphs` gives every paragraph-final line a full
+    stop, after which a bare title and a one-sentence paragraph are the same
+    shape.
+    Only the RAW text, before that pass, distinguishes them — a heading is the
+    one that carried no terminator of its own.
+
+    Consecutive non-heading blocks are still packed together exactly as
+    before. Chunking each paragraph independently would strand every short
+    paragraph as its own chunk, and Chatterbox rambles for ten seconds on a
+    tiny input — the failure `_merge_short_chunks` exists to prevent. Only a
+    heading forces a boundary.
+    """
+    chunks: list[str] = []
+    heading_indices: set[int] = set()
+    pending: list[str] = []
+
+    def _flush() -> None:
+        if not pending:
+            return
+        # Re-joined with the blank line so the sentence splitter still sees
+        # the paragraph structure inside this run of blocks.
+        joined = "\n\n".join(pending)
+        chunks.extend(split_text_into_chunks(joined, max_chars, min_chars))
+        pending.clear()
+
+    for text, is_heading in blocks:
+        text = text.strip()
+        if not text:
+            continue
+        if is_heading:
+            _flush()
+            heading_indices.add(len(chunks))
+            chunks.append(text)
+        else:
+            pending.append(text)
+    _flush()
+    return chunks, heading_indices
+
+
+def classify_heading_blocks(blocks: list[str]) -> list[bool]:
+    """Decide which of ``blocks`` are headings, using their neighbours.
+
+    Shape alone cannot tell a heading from a list item: a list item is short,
+    capitalised and unterminated exactly like a title is. What
+    separates them is that titles do not come in runs. A stretch of three or
+    more heading-shaped blocks is a list, a table of contents, or an index,
+    and none of them wants a section-break pause between every entry.
+
+    Two in a row survives on purpose, because a chapter number above its title
+    is an ordinary way to write one.
+    """
+    shaped = [looks_like_heading(b) for b in blocks]
+    out = list(shaped)
+    run_start = None
+    for i, is_shaped in enumerate(shaped + [False]):
+        if is_shaped:
+            if run_start is None:
+                run_start = i
+            continue
+        if run_start is not None and i - run_start > _MAX_CONSECUTIVE_HEADINGS:
+            for j in range(run_start, i):
+                out[j] = False
+        run_start = None
+    return out
+
+
+def split_into_blocks(text: str) -> list[str]:
+    """Split on blank lines. Blank lines survive normalization, so block
+    indices line up between the raw and the normalized text."""
+    return [b.strip() for b in _BLANK_LINE_RE.split(text) if b.strip()]
