@@ -79,6 +79,25 @@ Update README download links at the same time. They point at
 — grep for the old version string and replace all occurrences in
 `README.md`.
 
+### Step 3b — write `docs/RELEASE_NOTES_NEXT.md` for this release
+
+The workflow reads this file and publishes it as the release body's news
+section. It is **not** reset automatically, so a stale file ships the previous
+release's notes under the new version number.
+
+Two rules keep the in-app banner working:
+
+- **Open with a flat summary paragraph**, before any `###` sub-heading.
+  Versions up to 3.23.0 stop reading at the first sub-heading, so a file that
+  opens with `### Something` shows those users an empty notes panel. The
+  summary is the only part they see; make it stand on its own.
+- **Reset the file after each release** so the next cut starts from a blank
+  slate rather than re-shipping notes that describe an older version.
+
+Write for the person pressing the button: what changed for them, in plain
+language. Section headings below the summary are fine and are shown in full
+to 3.24.0 and later.
+
 ### Step 4 — commit and push
 
 One commit, conventional:

@@ -405,8 +405,15 @@ jobs:
           } else {
             Write-Host "::warning::docs/RELEASE_NOTES_NEXT.md is missing; publishing without a What's new section"
           }
+          # Versions up to 3.23.0 look for this exact heading and stop reading
+          # at the first sub-heading under it, so they only ever see text that
+          # sits between the two. Keep the heading, and keep RELEASE_NOTES_NEXT
+          # opening with a flat summary paragraph, or every user still on an
+          # older build gets an update prompt with an empty notes panel.
           $lines = @(
             "## AudiobookMaker $version",
+            "",
+            "### What's new",
             ""
           ) + $whatsNew + @(
             "",
