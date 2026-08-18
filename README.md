@@ -34,12 +34,14 @@ https://github.com/MikkoNumminen/AudiobookMaker/raw/master/assets/demos/english_
 
 ## What's new
 
-**v3.22.0 — Convert is more reliable, and the app shows what it's doing:**
+**v3.23.0: pick up where a conversion stopped, and hear where chapters begin:**
 
-- **No more stuck "Converting…"** — if the synthesis engine crashes mid-run, the app now notices, shows the error, and returns to a ready state instead of leaving the progress bar spinning forever with every button greyed out.
-- **"Loading engine…" while the model loads** — picking the Chatterbox engine loads several gigabytes of model into memory before the first audio appears. The app now animates the bar and says "Loading engine…" during that wait, so a slow first run no longer looks frozen.
-- **Messy documents read cleanly** — real PDFs, EPUBs, and Word files are full of invisible formatting characters (non-breaking spaces, zero-width joiners, odd Unicode spaces). The text cleaner now folds or strips them before synthesis, so the voice reads the actual words instead of choking on hidden markup.
-- **Fewer leaks and crashes under the hood** — temporary build files are cleaned up after every Chatterbox run, an over-long unbroken word can no longer jam the chunker, a malformed progress line can't silently kill a run, and a stalled engine subprocess is cleaned up instead of left orphaned.
+- **Continue an interrupted conversion.** If a conversion stops before it finishes, a **Continue** button picks it up where it left off and reuses the parts already made. You do not have to add the file again, and it tells you how much is already done. If it stops while you are away, the app tries once more on its own and says so afterwards.
+- **Long books are no longer cut short.** A conversion that ran past 12 hours used to be stopped by the app itself. That limit is gone. A book-length conversion on a mid-range graphics card can take 14 hours or more, and that is now a normal job rather than one that gets killed near the end.
+- **You can hear where a new chapter starts.** Headings get a clear pause on both sides instead of running straight into the text. Works in Finnish and English, and for PDF, EPUB, Word and plain text.
+- **Long chapters are saved in parts.** A very long chapter is written as several numbered files, so you get audio you can listen to sooner and keep what was finished if something goes wrong late in a run.
+- **Finnish legal texts read correctly.** Section signs, chapter and section references, court decisions and law abbreviations are read as words instead of being skipped or read as something else.
+- **Fixes.** Silence trimming at the edges of each part now actually runs (it never did before), clock times are read as times rather than ratios, a failed conversion shows an error instead of looking busy forever, and the time estimate no longer drifts upward on long runs.
 
 Older releases are listed in [docs/RELEASES.md](docs/RELEASES.md).
 
