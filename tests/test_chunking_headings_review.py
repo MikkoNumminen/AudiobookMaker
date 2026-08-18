@@ -81,35 +81,6 @@ class TestListsAreNotHeadings:
         assert flags == [False, True, False]
 
 
-class TestHeadingsAreNotTinyChunkGarbage:
-    """A heading bypasses min_chars, handing Chatterbox the tiny input that
-    CHUNK_MIN_CHARS exists to prevent. The band guard applies its rambling
-    edge at every size, so a 5-char title taking over a second failed it,
-    burned all five re-rolls, and shipped with a STILL-rambling warning."""
-
-    def test_a_short_heading_does_not_trip_the_rambling_guard(self, runner):
-        # 5 chars at 1.5 s is 0.30 s/char, far over the 0.200 ceiling, and
-        # completely normal for a spoken title.
-        assert runner._ratio_badness(1.5, 5, is_heading=True) == 0.0
-
-    def test_the_same_audio_is_rambling_for_a_body_chunk(self, runner):
-        """The guard must keep working for everything that is not a title."""
-        assert runner._ratio_badness(1.5, 5, is_heading=False) > 0.0
-
-    def test_a_genuinely_rambling_heading_is_still_caught(self, runner):
-        """Exempt from the ratio, not from all judgement."""
-        assert runner._ratio_badness(30.0, 5, is_heading=True) > 0.0
-
-    def test_the_ceiling_is_generous(self, runner):
-        assert runner.HEADING_MAX_AUDIO_S >= 5.0
-
-    def test_cached_heading_chunks_use_the_same_rule(self, runner):
-        """Otherwise every cached heading is judged unhealthy on resume and
-        re-synthesized on every restart, forever."""
-        sig = inspect.signature(runner._cached_chunk_healthy)
-        assert "is_heading" in sig.parameters
-
-
 class TestCacheIsGuardedAgainstPlanChange:
     """The chunk cache is keyed by INDEX and resume is the default, so a
     changed chunk plan splices old audio into moved slots and the book quietly
@@ -227,3 +198,70 @@ class TestFormatCoverage:
         from src.pdf_parser import clean_text
         joined = "\n".join(["Otsikko", "Eka kappale.", "Toka kappale."])
         assert len(split_into_blocks(clean_text(joined))) == 1
+
+
+class TestShortUtterancesAreJudgedFairly:
+    """The band guard's rambling ceiling carries a fixed overhead now.
+
+    Every utterance costs the model some lead-in and tail regardless of
+    length, so a pure seconds-per-character ceiling is far too strict on
+    anything short. Both a heading and a one-line paragraph stranded between
+    two headings failed it, burned all five re-rolls, and shipped with a
+    STILL-rambling warning.
+    """
+
+    def test_a_five_char_heading_passes(self, runner):
+        # 1.5 s over 5 chars is 0.30 s/char, three times the per-char ceiling,
+        # and completely normal for a spoken title.
+        assert runner._ratio_badness(1.5, 5) == 0.0
+
+    def test_a_short_stranded_paragraph_passes(self, runner):
+        """A heading forces a block boundary, so a lone short paragraph
+        between two headings cannot be folded into a neighbour and arrives
+        as its own small chunk."""
+        assert runner._ratio_badness(2.0, 21) == 0.0
+
+    def test_a_tiny_rambler_is_still_caught(self, runner):
+        """The blanket sub-floor exemption was the ORIGINAL bug: it let tiny
+        ramblers ship unchecked. The overhead must not reintroduce it."""
+        assert runner._ratio_badness(5.0, 7) > 0.0
+        assert runner._ratio_badness(12.0, 7) > 0.0
+
+    def test_long_chunks_are_effectively_unchanged(self, runner):
+        """On a 300-char chunk the overhead moves the ceiling by one second
+        out of sixty, so established behaviour is untouched."""
+        assert runner._ratio_badness(20.0, 300) == 0.0
+        assert runner._ratio_badness(70.0, 300) > 0.0
+
+    def test_the_truncation_edge_still_works(self, runner):
+        assert runner._ratio_badness(5.0, 300) > 0.0
+
+    def test_no_heading_special_case_remains(self, runner):
+        """The overhead model covers headings and short paragraphs alike, so
+        the guard needs no knowledge of which chunks are titles."""
+        import inspect
+        assert "is_heading" not in inspect.signature(runner._ratio_badness).parameters
+        assert "is_heading" not in inspect.signature(
+            runner._cached_chunk_healthy
+        ).parameters
+
+
+class TestOneHeadingLengthConstant:
+    def test_the_two_classifiers_share_it(self):
+        """Both answer related questions about the same documents and both
+        declared 80 independently, which would have drifted the first time
+        either was tuned."""
+        from src.pdf_parser import _MAX_HEADING_LEN
+        from src.tts_chunking import HEADING_MAX_CHARS
+        assert _MAX_HEADING_LEN is HEADING_MAX_CHARS
+
+    def test_the_two_classifiers_answer_different_questions(self):
+        """A PDF chapter heading is consumed into Chapter.title and dropped
+        from the body, so it is never narrated; the chunker's detector only
+        ever sees the sub-headings the PDF parser did not match. Pinning the
+        difference so nobody 'unifies' them into one rule by mistake."""
+        from src.pdf_parser import _looks_like_heading as pdf_heading
+        from src.tts_chunking import looks_like_heading as chunk_heading
+        # A plain sub-heading: not a chapter opener, but is a heading to pause at.
+        assert not pdf_heading("Kasteluohjeet")
+        assert chunk_heading("Kasteluohjeet")

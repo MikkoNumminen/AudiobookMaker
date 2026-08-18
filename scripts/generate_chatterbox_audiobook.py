@@ -223,9 +223,12 @@ MAX_AUDIO_S_PER_CHAR = 0.200
 # sentence can be brief), so skip the band guard. Tiny chunks are also merged
 # away upstream (CHUNK_MIN_CHARS) so they rarely reach the synth.
 MIN_AUDIO_RETRY_CHAR_FLOOR = 40
-# A spoken heading longer than this is rambling, whatever its length in
-# characters. Generous: a long title read slowly is still a few seconds.
-HEADING_MAX_AUDIO_S = 8.0
+# Fixed cost of speaking anything at all: the model's lead-in and tail.
+# Added to the rambling ceiling so a short utterance is not judged as if
+# it should have been spoken at the same seconds-per-character rate as a
+# 300-character paragraph. A title, or a one-line paragraph between two
+# headings, is legitimately short and legitimately slow.
+SYNTH_OVERHEAD_S = 1.0
 MIN_AUDIO_MAX_RETRIES = 5        # 1 initial + up to 5 re-rolls
 
 # --- Relative sweep (Pass R) -------------------------------------------
@@ -1140,9 +1143,7 @@ def _cached_audio_seconds(cache_path) -> float:
             return -1.0
 
 
-def _ratio_badness(
-    audio_s: float, chunk_chars: int, *, is_heading: bool = False
-) -> float:
+def _ratio_badness(audio_s: float, chunk_chars: int) -> float:
     """0.0 if audio-seconds-per-char sits in the healthy band, else the
     distance outside it. Used both to validate a cached chunk and to pick the
     least-bad retry attempt (truncated vs rambling).
@@ -1164,18 +1165,28 @@ def _ratio_badness(
     if chunk_chars <= 0:
         return 0.0
 
-    # A heading is judged on absolute length, not on ratio. Titles are 5-20
-    # characters, and s/char is meaningless at that size: "Alku." spoken with
-    # any lead-in and tail clears MAX_AUDIO_S_PER_CHAR immediately, so every
-    # heading in the book would fail the band guard, burn all five re-rolls,
-    # and ship with a "STILL rambling" warning. The guard still catches a
-    # genuine ramble, which on a title means many seconds of invented speech.
-    if is_heading:
-        return max(0.0, audio_s - HEADING_MAX_AUDIO_S)
+    # The rambling ceiling carries a FIXED OVERHEAD as well as a per-character
+    # rate. Every utterance costs the model some lead-in and tail regardless of
+    # length, so a pure ratio is far too strict on anything short: "Alku."
+    # spoken normally takes ~1.5 s, which is 0.30 s/char and three times over
+    # the per-char ceiling. Without the overhead every heading, and every short
+    # paragraph stranded between two headings, failed the guard, burned all
+    # five re-rolls, and shipped with a "STILL rambling" warning.
+    #
+    # This is NOT the blanket sub-floor exemption that was the original bug.
+    # That let a tiny rambler through unchecked; this still catches one — a
+    # 7-char fragment rambling for 5 s is judged against a 2.4 s ceiling and
+    # fails, exactly as it did before.
+    #
+    # On a long chunk the overhead is noise (a 300-char chunk moves from a
+    # 60.0 s ceiling to 61.0 s), so the behaviour that matters is unchanged.
+    max_audio_s = SYNTH_OVERHEAD_S + chunk_chars * MAX_AUDIO_S_PER_CHAR
+    if audio_s > max_audio_s:
+        # Reported on the per-char scale so the number stays comparable with
+        # the truncation edge below and with the logged s_per_char.
+        return (audio_s - max_audio_s) / chunk_chars
 
     r = audio_s / chunk_chars
-    if r > MAX_AUDIO_S_PER_CHAR:
-        return r - MAX_AUDIO_S_PER_CHAR        # rambling / repetition (any size)
     if chunk_chars >= MIN_AUDIO_RETRY_CHAR_FLOOR and r < MIN_AUDIO_S_PER_CHAR:
         return MIN_AUDIO_S_PER_CHAR - r       # early-stop truncation
     return 0.0
@@ -1368,9 +1379,7 @@ def _run_median_sweep(
     return replaced
 
 
-def _cached_chunk_healthy(
-    cache_path, chunk_chars: int, *, is_heading: bool = False
-) -> bool:
+def _cached_chunk_healthy(cache_path, chunk_chars: int) -> bool:
     """True if a cached chunk WAV's audio length is in the healthy band.
 
     The cache key is the chunk INDEX, and a chunk was historically reused
@@ -1388,7 +1397,7 @@ def _cached_chunk_healthy(
     secs = _cached_audio_seconds(cache_path)
     if secs <= 0:
         return False
-    return _ratio_badness(secs, chunk_chars, is_heading=is_heading) == 0.0
+    return _ratio_badness(secs, chunk_chars) == 0.0
 
 
 # Closing wrappers that can legitimately sit AFTER pause punctuation (quotes,
@@ -2305,9 +2314,7 @@ def main() -> int:
             cache_path = chunks_dir / f"ch{pos:02d}_chunk{chi:04d}.wav"
             if not cache_path.exists():
                 continue
-            if _cached_chunk_healthy(
-                cache_path, len(chunk_text), is_heading=chi in _headings
-            ):
+            if _cached_chunk_healthy(cache_path, len(chunk_text)):
                 cached_done += 1
             else:
                 stale_unhealthy += 1
@@ -2353,9 +2360,8 @@ def main() -> int:
                 # its text). A stale truncation is treated as a miss and
                 # re-synthesized; the ta.save at the end of this block
                 # overwrites the bad file.
-                is_heading = chi in headings
                 if cache_path.exists() and _cached_chunk_healthy(
-                    cache_path, len(chunk_text), is_heading=is_heading
+                    cache_path, len(chunk_text)
                 ):
                     continue
 
@@ -2378,9 +2384,7 @@ def main() -> int:
                 # brief short sentence is left alone.
                 best_wav, best_audio_s, best_dt = wav, audio_s, dt
                 for attempt in range(1, MIN_AUDIO_MAX_RETRIES + 1):
-                    if _ratio_badness(
-                        best_audio_s, chunk_chars, is_heading=is_heading
-                    ) == 0.0:
+                    if _ratio_badness(best_audio_s, chunk_chars) == 0.0:
                         break
                     ratio = best_audio_s / chunk_chars
                     kind = ("early-stop" if ratio < MIN_AUDIO_S_PER_CHAR
@@ -2398,16 +2402,12 @@ def main() -> int:
                     retries_used = attempt
                     # always charge the wall-clock
                     dt += dt_r
-                    if _ratio_badness(
-                        audio_s_r, chunk_chars, is_heading=is_heading
-                    ) < _ratio_badness(
-                        best_audio_s, chunk_chars, is_heading=is_heading
+                    if _ratio_badness(audio_s_r, chunk_chars) < _ratio_badness(
+                        best_audio_s, chunk_chars
                     ):
                         best_wav, best_audio_s, best_dt = wav_r, audio_s_r, dt_r
                 wav, audio_s = best_wav, best_audio_s
-                if _ratio_badness(
-                    best_audio_s, chunk_chars, is_heading=is_heading
-                ) > 0.0:
+                if _ratio_badness(best_audio_s, chunk_chars) > 0.0:
                     ratio = best_audio_s / chunk_chars
                     kind = ("truncated" if ratio < MIN_AUDIO_S_PER_CHAR
                             else "rambling")
