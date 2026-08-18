@@ -674,20 +674,30 @@ class TestProgressEvent:
 
 
 class _FakeReadline:
-    """Minimal stand-in for proc.stdout that exposes the readline() +
-    close() pair the reader thread expects."""
+    """Minimal stand-in for proc.stdout: the read() + close() pair the reader
+    thread expects.
+
+    Binary now. The reader reads BYTES and splits lines itself, so that "the
+    child produced output" can be established before anything decides what the
+    output means. Accepts str lines for readability and encodes them.
+    """
 
     def __init__(self, lines):
-        self._lines = list(lines)
-        self._i = 0
+        payload = "".join(
+            line if isinstance(line, str) else line.decode("utf-8")
+            for line in lines
+        )
+        self._data = payload.encode("utf-8")
+        self._pos = 0
         self.closed = False
 
-    def readline(self):
-        if self._i >= len(self._lines):
-            return ""
-        line = self._lines[self._i]
-        self._i += 1
-        return line
+    def read(self, size=-1):
+        if self._pos >= len(self._data):
+            return b""
+        end = len(self._data) if size is None or size < 0 else self._pos + size
+        chunk = self._data[self._pos:end]
+        self._pos = end
+        return chunk
 
     def close(self):
         self.closed = True

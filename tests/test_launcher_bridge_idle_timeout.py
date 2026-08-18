@@ -111,11 +111,15 @@ class TestIdleTimeout:
                 return lb.ProgressEvent(kind="log", raw_line=line)
 
         class _Stdout:
-            def __init__(self):
-                self._lines = iter(["one line\n", ""])
+            """Binary: the reader reads bytes and splits lines itself, so
+            liveness is established before anything decides what the bytes
+            mean."""
 
-            def readline(self):
-                return next(self._lines)
+            def __init__(self):
+                self._chunks = iter([b"one line\n", b""])
+
+            def read(self, size=-1):
+                return next(self._chunks, b"")
 
             def close(self):
                 pass

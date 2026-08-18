@@ -35,6 +35,61 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+# One read syscall's worth. Large enough that a chatty runner is not read a
+# byte at a time, small enough that it is never a meaningful buffer.
+_READ_CHUNK_BYTES = 65536
+
+# Both line terminators, checked explicitly rather than delegated.
+_LINE_TERMINATORS = (0x0A, 0x0D)  # \n, \r
+
+
+def iter_lines(stream, on_bytes=None):
+    """Yield decoded lines from a BINARY stream, one at a time.
+
+    ``on_bytes`` is called for every chunk of bytes read, before any of it is
+    interpreted. That callback is the whole point of this function existing.
+
+    The reader used to be ``iter(stream.readline, "")`` on a text-mode pipe,
+    and liveness was stamped per LINE. That made "is the child alive" depend
+    on a property of the line parser: it worked only because ``text=True``
+    turns a lone carriage return into a line terminator, so a progress bar
+    that emits ``\\r`` and never ``\\n`` still produced lines. True today,
+    verified, and silently broken by any future change to encoding, buffering
+    or newline handling — at which point a working runner looks wedged and the
+    idle watchdog terminates it.
+
+    Reading bytes and splitting lines here separates the two questions. A byte
+    arriving means the child is alive, whatever the bytes turn out to mean.
+    Both terminators are handled explicitly, so nothing depends on the
+    platform's universal-newline behaviour any more.
+
+    A ``\\r\\n`` pair yields an empty line between the two terminators; callers
+    already skip empty lines. Decoding is per line with ``errors="replace"``,
+    so a chunk boundary that lands mid-character cannot raise — the bytes stay
+    in the buffer until the line is complete.
+    """
+    buf = bytearray()
+    while True:
+        chunk = stream.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        if on_bytes is not None:
+            on_bytes()
+        buf.extend(chunk)
+        while True:
+            cut = -1
+            for terminator in _LINE_TERMINATORS:
+                found = buf.find(terminator)
+                if found != -1 and (cut == -1 or found < cut):
+                    cut = found
+            if cut == -1:
+                break
+            yield bytes(buf[:cut]).decode("utf-8", "replace")
+            del buf[: cut + 1]
+    if buf:
+        yield bytes(buf).decode("utf-8", "replace")
+
+
 # ---------------------------------------------------------------------------
 # Event types
 # ---------------------------------------------------------------------------
@@ -439,10 +494,11 @@ class ChatterboxRunner:
             argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
+            # BINARY and unbuffered. `iter_lines` reads bytes, stamps
+            # liveness on each chunk, then splits and decodes. Text mode
+            # would put the newline handling back between the child and
+            # the watchdog, which is the coupling this removes.
+            bufsize=0,
             env=env,
             creationflags=creationflags,
         )
@@ -533,12 +589,21 @@ class ChatterboxRunner:
     # Internal threads
     # ------------------------------------------------------------------
 
+    def _mark_alive(self) -> None:
+        """Record that the child produced output just now.
+
+        Called per chunk of BYTES, before anything interprets them, so a
+        burst of output the parser later discards still counts as the
+        child being alive. The waiter compares this against the idle
+        budget; getting it wrong terminates a working runner.
+        """
+        self._state.last_output_at = time.monotonic()
+
     def _reader_loop(self, parser: ChatterboxLineParser) -> None:
         proc = self._state.proc
         assert proc is not None and proc.stdout is not None
         try:
-            for raw in iter(proc.stdout.readline, ""):
-                line = raw.rstrip("\r\n")
+            for line in iter_lines(proc.stdout, self._mark_alive):
                 if not line:
                     continue
                 # Reframe known-benign upstream chatterbox noise (the
@@ -546,12 +611,9 @@ class ChatterboxRunner:
                 # s3gen flow out-of-range "ERROR" + follow-up pair) into a
                 # single neutral info line — or drop the follow-up — before the
                 # line enters the tail buffer or the severity-routing pipeline.
-                # Liveness is stamped from the RAW line, before the noise
-                # filter and before the empty-line skip above have a say. A
-                # burst of suppressed upstream warnings still means the child
-                # is alive, and treating it as silence would let the idle
-                # watchdog terminate a working runner.
-                self._state.last_output_at = time.monotonic()
+                #
+                # Liveness is NOT stamped here: `iter_lines` already did it,
+                # per chunk of bytes, before any of this ran. See _mark_alive.
                 rewritten = parser.rewrite_upstream_noise(line)
                 if rewritten is None:
                     continue
