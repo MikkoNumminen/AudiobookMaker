@@ -92,17 +92,39 @@ jobs:
           # (fetched fresh each build). NOTE: this is TRANSPORT integrity (the
           # file matches what BtbN published) — same trust level as the old
           # hardcoded SHA, NOT a defence against a compromised upstream build.
-          # When ffmpeg's stable branch moves on (n7.2, ...), bump the n7.1 in
-          # FFMPEG_ZIP to the current branch.
+          # When ffmpeg's stable branch moves on, bump FFMPEG_ZIP. If nobody
+          # does, the step now picks the newest stable build from the same
+          # checksum manifest and warns, rather than failing the release.
           FFMPEG_BASE: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
-          FFMPEG_ZIP: ffmpeg-n7.1-latest-win64-gpl-7.1.zip
+          FFMPEG_ZIP: ffmpeg-n8.1-latest-win64-gpl-8.1.zip
         run: |
           set -euo pipefail
           # -f: fail on HTTP errors. The old `-L` (no -f) silently saved a
           # 9-byte 404 page as ffmpeg.zip, surfacing only later as a confusing
           # hash mismatch.
-          curl -fL -o ffmpeg.zip "${FFMPEG_BASE}/${FFMPEG_ZIP}"
+          # Checksums FIRST: it is also the manifest of what actually exists.
           curl -fL -o checksums.sha256 "${FFMPEG_BASE}/checksums.sha256"
+          # The pinned name is a PREFERENCE, not a dependency. BtbN deletes a
+          # stable line when it moves on, and a hardcoded name then 404s and
+          # blocks every release until someone edits this file. That happened:
+          # the pin sat at n7.1 until upstream dropped it, and the release that
+          # discovered it was one shipping an auto-update fix.
+          #
+          # When the pin is gone, fall to the newest stable n<x>.<y> build in
+          # the manifest. Selection comes from the same file the integrity
+          # check uses, so this cannot be pointed at an unlisted asset.
+          if grep -qF " ${FFMPEG_ZIP}" checksums.sha256 ||              grep -qF " *${FFMPEG_ZIP}" checksums.sha256; then
+            echo "ffmpeg: using pinned ${FFMPEG_ZIP}"
+          else
+            picked=$(sed 's/^\S*\s*\*\?//' checksums.sha256               | grep -E '^ffmpeg-n[0-9]+\.[0-9]+-latest-win64-gpl-[0-9]+\.[0-9]+\.zip$'               | sort -V | tail -1)
+            if [ -z "${picked}" ]; then
+              echo "::error::pinned ${FFMPEG_ZIP} is gone and no stable win64-gpl build was found upstream"
+              exit 1
+            fi
+            echo "::warning::pinned ${FFMPEG_ZIP} is no longer published; using ${picked}. Update FFMPEG_ZIP to keep builds reproducible."
+            FFMPEG_ZIP="${picked}"
+          fi
+          curl -fL -o ffmpeg.zip "${FFMPEG_BASE}/${FFMPEG_ZIP}"
           # Pull BtbN's published hash for exactly this asset (tolerate a
           # leading '*' binary-mode marker) and verify the download against it.
           expected=$(awk -v f="${FFMPEG_ZIP}" '{n=$2; sub(/^\*/,"",n); if(n==f) print $1}' checksums.sha256)
