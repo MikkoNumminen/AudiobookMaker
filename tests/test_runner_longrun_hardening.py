@@ -42,6 +42,19 @@ def _float32_wav(path: Path, seconds: float = 0.5, rate: int = 24000) -> None:
     path.write_bytes(hdr + samples)
 
 
+def _needs_audio_decoder():
+    """Skip when the audio toolchain is absent.
+
+    Decoding a 32-bit float WAV goes through ffmpeg/ffprobe: pydub's built-in
+    reader does not handle `audio_format=0x0003`, so it shells out. CI runners
+    for the pure-Python jobs have neither binary, and a missing decoder is not
+    a defect in the code under test.
+    """
+    import shutil
+    if shutil.which("ffprobe") is None and shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg/ffprobe not available; cannot decode float32 WAV")
+
+
 class TestChunksAreNarrowedToSixteenBit:
     """The cache is 32-bit float. Two bugs followed from reading it as-is."""
 
@@ -58,6 +71,7 @@ class TestChunksAreNarrowedToSixteenBit:
         16-bit input. At width 4 the peak sample is 2**31, so Silero VAD was
         handed values up to 65536 and the trim silently did nothing."""
         pytest.importorskip("pydub")
+        _needs_audio_decoder()
         for chi in range(2):
             _float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
 
@@ -71,6 +85,7 @@ class TestChunksAreNarrowedToSixteenBit:
     def test_sample_scaling_lands_in_vad_range(self, tmp_path, runner):
         """The actual defect, expressed as the number that mattered."""
         pytest.importorskip("pydub")
+        _needs_audio_decoder()
         _float32_wav(tmp_path / "ch01_chunk0000.wav")
         seg = next(runner._iter_trimmed_chunks(tmp_path, 1, 1, None, None))
         peak = max(abs(v) for v in seg.get_array_of_samples())

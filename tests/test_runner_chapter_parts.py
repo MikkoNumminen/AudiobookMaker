@@ -37,6 +37,19 @@ def runner():
     return mod
 
 
+def _needs_audio_decoder():
+    """Skip when the audio toolchain is absent.
+
+    Decoding a 32-bit float WAV goes through ffmpeg/ffprobe: pydub's built-in
+    reader does not handle `audio_format=0x0003`, so it shells out. CI runners
+    for the pure-Python jobs have neither binary, and a missing decoder is not
+    a defect in the code under test.
+    """
+    import shutil
+    if shutil.which("ffprobe") is None and shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg/ffprobe not available; cannot decode float32 WAV")
+
+
 class TestPartRanges:
     def test_a_short_chapter_is_one_part(self, runner):
         assert runner._chapter_part_ranges(10, per_part=400) == [(0, 10)]
@@ -142,6 +155,7 @@ class TestIterTrimmedChunksRange:
 
     def test_start_skips_earlier_chunks(self, runner, tmp_path):
         pytest.importorskip("pydub")
+        _needs_audio_decoder()
         for chi in range(5):
             self._float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
         got = list(
@@ -151,6 +165,7 @@ class TestIterTrimmedChunksRange:
 
     def test_default_start_reads_everything(self, runner, tmp_path):
         pytest.importorskip("pydub")
+        _needs_audio_decoder()
         for chi in range(3):
             self._float32_wav(tmp_path / f"ch01_chunk{chi:04d}.wav")
         got = list(runner._iter_trimmed_chunks(tmp_path, 1, 3, None, None))
