@@ -44,6 +44,17 @@ CATALOG_DOCS = [
     REPO_ROOT / "docs" / "AI_FIRST_GUIDE.md",
 ]
 
+# Docs allowed to carry catalog rows without being required to. Dropping
+# README.md from the required list left it completely unchecked: rows added
+# back later would never be validated, which is the exact silent drift this
+# script exists to stop. So it is checked only if it actually lists skills.
+OPTIONAL_CATALOG_DOCS = [REPO_ROOT / "README.md"]
+
+# With the table living elsewhere, the README's link is how a reader reaches
+# it. A rotted pointer hides the catalog as effectively as deleting it.
+_CATALOG_POINTER = "docs/skill_catalog.md"
+_POINTER_DOC = REPO_ROOT / "README.md"
+
 # A catalog entry links a skill by its full path: `.claude/skills/<slug>/SKILL.md`.
 # Bare backticked names (e.g. the "retired skills" sentence's `audit-followup`)
 # deliberately do NOT match — prose mentions of retired or hypothetical skills
@@ -71,36 +82,59 @@ def check() -> list[str]:
         return [f"no skills found under {rel} — is the path right?"]
 
     for doc in CATALOG_DOCS:
-        rel = doc.relative_to(REPO_ROOT)
-        if not doc.exists():
-            problems.append(f"{rel}: catalog doc is missing")
-            continue
-        text = doc.read_text(encoding="utf-8")
-        listed = set(_SKILL_LINK_RE.findall(text))
+        problems.extend(_check_catalog_doc(doc, actual, required=True))
+    for doc in OPTIONAL_CATALOG_DOCS:
+        problems.extend(_check_catalog_doc(doc, actual, required=False))
 
-        for slug in sorted(actual - listed):
+    if _POINTER_DOC.exists():
+        if _CATALOG_POINTER not in _POINTER_DOC.read_text(encoding="utf-8"):
             problems.append(
-                f"{rel}: skill '{slug}' exists under .claude/skills/ but is "
-                f"not linked in the catalog"
+                f"{_POINTER_DOC.relative_to(REPO_ROOT)}: no link to "
+                f"{_CATALOG_POINTER}, so the catalog is unreachable from it"
             )
-        for slug in sorted(listed - actual):
-            problems.append(
-                f"{rel}: catalog links skill '{slug}' but "
-                f".claude/skills/{slug}/ does not exist"
-            )
+    return problems
 
-        claims = [int(n) for n in _COUNT_CLAIM_RE.findall(text)]
-        if not claims:
+
+def _check_catalog_doc(doc: Path, actual: set[str], *, required: bool) -> list[str]:
+    """Validate one doc's skill rows and count claim against the directory.
+
+    An optional doc listing no skills is simply not a catalog, so it is
+    skipped. One that DOES list skills is held to the same standard as a
+    required catalog: half-checked rows are how drift gets in.
+    """
+    rel = doc.relative_to(REPO_ROOT)
+    if not doc.exists():
+        return [f"{rel}: catalog doc is missing"] if required else []
+
+    text = doc.read_text(encoding="utf-8")
+    listed = set(_SKILL_LINK_RE.findall(text))
+    if not required and not listed:
+        return []
+
+    problems: list[str] = []
+    for slug in sorted(actual - listed):
+        problems.append(
+            f"{rel}: skill '{slug}' exists under .claude/skills/ but is "
+            f"not linked in the catalog"
+        )
+    for slug in sorted(listed - actual):
+        problems.append(
+            f"{rel}: catalog links skill '{slug}' but "
+            f".claude/skills/{slug}/ does not exist"
+        )
+
+    claims = [int(n) for n in _COUNT_CLAIM_RE.findall(text)]
+    if not claims and required:
+        problems.append(
+            f"{rel}: no \"N in-repo skills\" count claim found to verify "
+            f"(expected one stating {len(actual)})"
+        )
+    for claimed in claims:
+        if claimed != len(actual):
             problems.append(
-                f"{rel}: no \"N in-repo skills\" count claim found to verify "
-                f"(expected one stating {len(actual)})"
+                f"{rel}: count claim says {claimed} in-repo skills but "
+                f"{len(actual)} exist"
             )
-        for claimed in claims:
-            if claimed != len(actual):
-                problems.append(
-                    f"{rel}: count claim says {claimed} in-repo skills but "
-                    f"{len(actual)} exist"
-                )
     return problems
 
 
