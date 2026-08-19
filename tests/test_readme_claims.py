@@ -18,7 +18,17 @@ README = REPO_ROOT / "README.md"
 NORMALIZER = REPO_ROOT / "src" / "tts_normalizer_fi.py"
 
 _README_PASS_CLAIM = re.compile(r"(\d+)\s+normalization passes")
-_PASS_LETTER = re.compile(r"\bPass ([A-Z])\b")
+
+# Two pass-naming forms the first version of this regex (`\bPass ([A-Z])\b`)
+# could not see, so it undercounted by two and locked a stale README number:
+#
+#   Pass J1 / J2 / J3  — a numbered sub-pass. The digit is a word character,
+#                        so there is no \b after the letter and nothing matched.
+#   Pass Å             — the minus-sign pass. Å is outside ASCII [A-Z].
+#
+# Both are applied in the pipeline like any other pass. The optional digit is
+# consumed and not captured, so J1/J2/J3 collapse to a single "J".
+_PASS_LETTER = re.compile(r"\bPass ([A-ZÅÄÖ])\d?\b")
 
 
 def _code_pass_count() -> int:
