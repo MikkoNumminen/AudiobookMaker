@@ -260,19 +260,18 @@ def _extract_sha256(release_notes: str) -> str | None:
 WHATS_NEW_END_MARKER = "<!-- /whats-new -->"
 _WHATS_NEW_END_RE = re.compile(r"^<!--\s*/whats-new\s*-->$")
 
-# Fallback for bodies published before the sentinel existed. These match the
-# pipeline's OWN technical headings exactly rather than any heading starting
-# with the same word. The earlier prefix form (`(?:installation|cli)\b`) also
+# The pipeline's own tail headings. These end the news whatever else the body
+# contains, so a sentinel that was moved or lost cannot turn install steps and
+# hashes into banner text.
+#
+# Matched EXACTLY, not by prefix. An earlier `(?:installation|cli)\b` form also
 # matched news headings: "### CLI gets a resume flag" is a plausible section
 # for a project that ships a CLI, and it silently truncated the banner there,
-# dropping every section after it.
+# dropping every section after it. The exact form leaves such titles alone.
 #
-# Exact matching is safe for legacy bodies because they are fixed content and
-# were checked: v3.18.0 through v3.23.0 all use exactly these two headings and
-# a `---` rule before the hash block.
-# The pipeline's own tail headings, matched exactly. These end the news
-# whatever else the body contains: a sentinel that was moved or lost must not
-# turn install steps and hashes into banner text.
+# Safe for bodies published before the sentinel existed, which are fixed
+# content and were checked: v3.17.2 through v3.23.0 all use these two headings
+# verbatim, with a `---` rule before the hash block.
 _TAIL_HEADING_RE = re.compile(
     r"(?i)^(?:"
     r"#{1,6}\s*installation\s*$"
@@ -301,8 +300,12 @@ def extract_whats_new(release_notes: str) -> str:
     banner to nothing the moment the notes grew sections.
 
     Where the news ends is taken from the ``<!-- /whats-new -->`` sentinel the
-    pipeline emits, not inferred from wording. Bodies published before the
-    sentinel fall back to matching the pipeline's exact technical headings.
+    pipeline emits rather than inferred from wording, together with the
+    pipeline's exact tail headings, which end the news in every body so a
+    misplaced sentinel cannot spill the tail into the banner. The weaker
+    markers, a ``---`` rule and a line opening with a hash, are ordinary
+    content inside release notes and are honoured only when no sentinel is
+    present.
 
     Older bodies put the news under a literal ``### What's new`` heading. That
     still works and takes precedence over the title as the starting point.
@@ -328,12 +331,11 @@ def extract_whats_new(release_notes: str) -> str:
         return ""
 
     region = lines[start:]
-    # When the body states where the news ends, that is the ONLY terminator.
-    # Running the heuristics alongside it re-introduced the bug they exist to
-    # avoid: `---` is ordinary markdown, and a horizontal rule or a setext
-    # underline inside the notes cut the banner off mid-way. Presence is
-    # tested within the captured region, so a stray sentinel above the start
-    # marker cannot disable the fallback for a body that needs it.
+    # A body that says where its news ends does not need the weak markers, and
+    # running them anyway cut the banner short: `---` is ordinary markdown, so
+    # a rule between sections or a setext underline ended capture mid-way.
+    # Presence is tested inside the captured region, so a stray sentinel above
+    # the start marker cannot disable the fallback for a body that needs it.
     has_sentinel = any(_WHATS_NEW_END_RE.match(ln.strip()) for ln in region)
 
     out: list[str] = []
