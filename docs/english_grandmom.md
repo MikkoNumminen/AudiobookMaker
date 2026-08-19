@@ -3,8 +3,10 @@
 Grandmom (Isoäiti in Finnish) is the default voice that ships with
 AudiobookMaker. She speaks both Finnish and English, but **the two
 languages go through different pipelines under the hood.** This doc
-explains how the English path works, why it occasionally produces
-slurred sentences or hallucinated tokens, and what you can do about it.
+explains how the English path works, why its prosody can drift toward
+Finnish rhythm, and what you can do about it. It also records one
+quirk that was blamed on the engine for months and turned out to be
+our own bug (see "Correction" below).
 
 ## The two-pipeline reality
 
@@ -132,38 +134,54 @@ Some Finnish rhythm leaks through. Observable symptoms:
 
 - **Periods that do not produce pauses.** English readers expect a
   clear pause at `.` before a new sentence starts. Finnish narration
-  often runs sentences together with shorter terminal pauses.
-  English Grandmom inherits this and sometimes blurs `"...up. Want
-  to know more?"` into `"...upwant to know more"` with no break.
-- **Specific failure word: sentence-final "up."** Reproduced
-  consistently in two runs on 2026-05-17 — the word `"up"` at
-  sentence-final position fails: the model consistently slurs
-  through the period; often (but not always) also hallucinates a
-  filler token before the next sentence. Tested with two different
-  next sentences (`". Want to know more?"` and `". To learn more..."`)
-  and got the same shape of failure both times. Replacing the
-  closing sentence with any non-"up" ending (`"I am not joking."`,
-  `"Yes, really."`) cleared the artifact on the first try in both
-  variants. The evidence is consistent with a word-level failure
-  rather than random non-determinism, though the sample size is
-  small. Workaround: before running an English synth, scan the
-  text for sentence-final `"up."` and reword.
+  often runs sentences together with shorter terminal pauses, and
+  English Grandmom inherits some of that.
 - **Question/exclamation prosody is muted.** The Finnish reference
   rarely contains heavy question-pitch rises or exclamation
   emphasis, so the English output reads as more level than a
   dedicated English voice would.
-- **Mid-sentence token hallucinations.** On certain prosodic
-  transitions (declarative → interrogative, short imperative starts),
-  the autoregressive model can insert spurious tokens that read as
-  invented filler words. Observed 2026-05-17 on the text
-  *"...I'm not making that up. Want to know more?..."*: the model
-  produced *"...not making that up would you want to know more..."*
-  with no period pause and an invented "would you" between the
-  sentences.
 
-These are not bugs in the code. They are a property of the
-autoregressive multilingual TTS architecture combined with a
-cross-language reference clip.
+These are a property of the autoregressive multilingual TTS
+architecture combined with a cross-language reference clip, not
+something a code change can remove.
+
+### Correction: the "up." quirk was our bug, not the model's
+
+This section used to carry a third symptom, reported on 2026-05-17
+as a word-level engine failure: sentence-final `"up."` slurring
+through the period, sometimes with an invented filler word after
+it. It listed a workaround, which was to scan English text for
+sentence-final `"up."` and reword it before synthesis.
+
+That diagnosis was wrong, and the workaround is obsolete. The cause
+was in our own text normalizer. Dotted abbreviations were built from
+their literal text with no leading anchor, so the `p.` abbreviation
+matched the last two characters of **any** word ending in `p`:
+
+    "wake up. Then"                  ->  "wake upage Then"
+    "without a gap. Changing pages"  ->  "without a gapage Changing pages"
+
+The period was consumed by the match, which is why the sentences ran
+together, and the model was faithfully narrating a word that does not
+exist. Every English word ending in `p` before a sentence period was
+affected, not just `"up"`. Rewording appeared to fix it only because
+any replacement ending avoided the trigger.
+
+Fixed by anchoring dotted abbreviations to a word start (commit
+`ccc8713`), with regression coverage in
+`tests/test_tts_normalizer_en_abbrev_anchoring.py`.
+
+Two things worth carrying forward from this:
+
+- **A duration check could never have caught it.** "gapage" takes
+  about as long to say as "gap", so the chunk stayed a perfectly
+  normal length while saying nonsense. It was found by transcribing
+  the audio and reading it against the source.
+- **The hallucinated-filler observation is not evidence of anything.**
+  It was recorded on text the normalizer was corrupting, so the model
+  was improvising over a malformed sentence. Whether English Grandmom
+  invents filler tokens on clean input is untested; treat it as an
+  open question rather than a known trait.
 
 ## Why "period → pause" is not just a rule we can add
 
