@@ -321,12 +321,21 @@ def extract_whats_new(release_notes: str) -> str:
     if start is None:
         return ""
 
+    region = lines[start:]
+    # When the body states where the news ends, that is the ONLY terminator.
+    # Running the heuristics alongside it re-introduced the bug they exist to
+    # avoid: `---` is ordinary markdown, and a horizontal rule or a setext
+    # underline inside the notes cut the banner off mid-way. Presence is
+    # tested within the captured region, so a stray sentinel above the start
+    # marker cannot disable the fallback for a body that needs it.
+    has_sentinel = any(_WHATS_NEW_END_RE.match(ln.strip()) for ln in region)
+
     out: list[str] = []
-    for line in lines[start:]:
+    for line in region:
         stripped = line.strip()
-        # Sentinel first: it is authoritative, so a news section may safely be
-        # titled "Installation" or "CLI" in any body the pipeline wrote.
-        if _WHATS_NEW_END_RE.match(stripped) or _WHATS_NEW_STOP_RE.match(stripped):
+        if _WHATS_NEW_END_RE.match(stripped):
+            break
+        if not has_sentinel and _WHATS_NEW_STOP_RE.match(stripped):
             break
         out.append(line)
     # Drop leading/trailing blank lines so the banner text is tight.
