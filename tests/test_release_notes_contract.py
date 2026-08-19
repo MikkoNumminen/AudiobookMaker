@@ -244,6 +244,37 @@ def test_crlf_body_with_a_sentinel_reads_cleanly() -> None:
     assert "### Installation" not in out
 
 
+def test_a_misplaced_sentinel_does_not_dump_the_tail_into_the_banner() -> None:
+    """Regression: trusting the sentinel absolutely was unsafe if it moved.
+
+    A hand-edited release whose sentinel ends up below the hashes made the
+    banner show install steps and the SHA-256 line as though they were news.
+    The pipeline's own tail headings now end the news regardless.
+    """
+    body = "\n".join([
+        "## AudiobookMaker 9.9.9",
+        "",
+        "### What's new",
+        "",
+        "Summary line.",
+        "",
+        "### Installation",
+        "",
+        "1. Download it",
+        "",
+        "### CLI (command-line interface)",
+        "",
+        "Get the zip",
+        "",
+        "---",
+        "SHA-256: " + "a" * 64,
+        "",
+        WHATS_NEW_END_MARKER,
+    ])
+    out = extract_whats_new(body)
+    assert out == "Summary line."
+
+
 def test_a_body_published_before_the_sentinel_still_reads() -> None:
     """Every release up to 3.23.0 lacks the sentinel and must keep working."""
     legacy = "\n".join([

@@ -270,14 +270,20 @@ _WHATS_NEW_END_RE = re.compile(r"^<!--\s*/whats-new\s*-->$")
 # Exact matching is safe for legacy bodies because they are fixed content and
 # were checked: v3.18.0 through v3.23.0 all use exactly these two headings and
 # a `---` rule before the hash block.
-_WHATS_NEW_STOP_RE = re.compile(
+# The pipeline's own tail headings, matched exactly. These end the news
+# whatever else the body contains: a sentinel that was moved or lost must not
+# turn install steps and hashes into banner text.
+_TAIL_HEADING_RE = re.compile(
     r"(?i)^(?:"
     r"#{1,6}\s*installation\s*$"
     r"|#{1,6}\s*cli\s*\(command-line interface\)\s*$"
-    r"|(?:cli:\s*)?sha-?256:"
-    r"|-{3,}\s*$"
     r")"
 )
+
+# Weaker markers, trusted only for bodies with no sentinel. A `---` rule and a
+# line opening with a hash are both legitimate inside release notes, so they
+# may only end the news when nothing better says where it stops.
+_LEGACY_STOP_RE = re.compile(r"(?i)^(?:(?:cli:\s*)?sha-?256:|-{3,}\s*$)")
 _WHATS_NEW_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*what['’]?s new\s*:?\s*$")
 _RELEASE_TITLE_RE = re.compile(r"(?i)^##\s+audiobookmaker\b")
 
@@ -333,9 +339,9 @@ def extract_whats_new(release_notes: str) -> str:
     out: list[str] = []
     for line in region:
         stripped = line.strip()
-        if _WHATS_NEW_END_RE.match(stripped):
+        if _WHATS_NEW_END_RE.match(stripped) or _TAIL_HEADING_RE.match(stripped):
             break
-        if not has_sentinel and _WHATS_NEW_STOP_RE.match(stripped):
+        if not has_sentinel and _LEGACY_STOP_RE.match(stripped):
             break
         out.append(line)
     # Drop leading/trailing blank lines so the banner text is tight.
