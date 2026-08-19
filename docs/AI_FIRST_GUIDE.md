@@ -112,8 +112,8 @@ command + `--help`, or when it restates CLAUDE.md rules that
 auto-load every session. Of the current 12 in-repo skills (plus a
 handful of Claude Code builtins like `simplify`, `loop`, `schedule`),
 ten are the survivors of a 2026-05-19 audit that retired four skills
-for those exact failure modes (see `README.md` "Skill catalog" for
-the audit verdicts); `engine-venv-triage` landed after that audit,
+for those exact failure modes (see [skill_catalog.md](skill_catalog.md)
+for the audit verdicts); `engine-venv-triage` landed after that audit,
 encoding the v3.16.0–v3.17.3 field saga, and `narrate-texts` later
 still, bundling the narration batch runner and verifier as scripts so
 they stop being rewritten inline every session. Resist adding more

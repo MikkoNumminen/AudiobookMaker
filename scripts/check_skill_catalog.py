@@ -2,15 +2,15 @@
 """Verify the human-readable skill catalogs match .claude/skills/.
 
 The repo advertises its committed skills in two AI-facing docs — the
-README.md "Skill catalog" table and the docs/AI_FIRST_GUIDE.md skill index.
+docs/skill_catalog.md table and the docs/AI_FIRST_GUIDE.md skill index.
 Both must stay in sync with the actual .claude/skills/ directory: a skill
 added to the tree but left out of the catalog (or removed from the tree but
 left in the catalog) is silent drift. It has bitten this repo twice — the
 catalogs said "10 skills" while 11 were committed, and engine-venv-triage
 was missing from the index table.
 
-Nothing caught it because (a) README.md is not in the docs-integrity test's
-scan list, and (b) a catalog edit — or adding a new SKILL.md — is a
+Nothing caught it because (a) the catalog page was not in the docs-integrity
+test's scan list, and (b) a catalog edit — or adding a new SKILL.md — is a
 pure-markdown change, so the pre-commit hook's docs-only shortcut skips the
 test suite for exactly these commits.
 
@@ -35,8 +35,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = REPO_ROOT / ".claude" / "skills"
 
 # Docs that maintain a human-readable catalog of the committed skills.
+# The catalog table used to live in README.md and moved to docs/skill_catalog.md
+# — it is a maintenance record, not something a user needs to install the app.
+# The README now links to it and carries no rows, so scanning README here would
+# fail on a missing count claim rather than catch anything.
 CATALOG_DOCS = [
-    REPO_ROOT / "README.md",
+    REPO_ROOT / "docs" / "skill_catalog.md",
     REPO_ROOT / "docs" / "AI_FIRST_GUIDE.md",
 ]
 
@@ -108,7 +112,7 @@ def main(argv: list[str]) -> int:
             print(f"  - {p}")
         print()
         print("Fix the skill rows and the 'N in-repo skills' count in")
-        print("README.md and docs/AI_FIRST_GUIDE.md to match the directory.")
+        print("docs/skill_catalog.md and docs/AI_FIRST_GUIDE.md to match the directory.")
         return 1
     print(f"Skill catalog is in sync ({len(actual_skill_slugs())} skills).")
     return 0

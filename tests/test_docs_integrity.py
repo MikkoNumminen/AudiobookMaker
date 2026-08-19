@@ -42,6 +42,7 @@ SCANNED_DOCS = [
     REPO_ROOT / "docs" / "AGENT_QUICKSTART.md",
     REPO_ROOT / "docs" / "MEMORY_MIGRATIONS.md",
     REPO_ROOT / "docs" / "CONVENTIONS.md",
+    REPO_ROOT / "docs" / "skill_catalog.md",
     *sorted((REPO_ROOT / ".claude" / "skills").glob("*/SKILL.md")),
 ]
 
@@ -188,7 +189,7 @@ def test_scanned_docs_all_exist() -> None:
 
 
 def test_skill_catalog_in_sync() -> None:
-    """README and AI_FIRST_GUIDE skill catalogs must match .claude/skills/."""
+    """skill_catalog and AI_FIRST_GUIDE catalogs must match .claude/skills/."""
     problems = check_skill_catalog()
     assert not problems, "Skill catalog drift:\n" + "\n".join(
         f"  - {p}" for p in problems
