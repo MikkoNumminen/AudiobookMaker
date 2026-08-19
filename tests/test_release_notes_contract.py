@@ -178,6 +178,103 @@ def test_an_unexpected_technical_section_does_not_reach_the_banner() -> None:
     assert "Compare the hash." not in out
 
 
+def test_a_horizontal_rule_in_the_news_does_not_truncate_it() -> None:
+    """Regression: `---` was a stop even when the sentinel said where news ends.
+
+    A horizontal rule is ordinary markdown for separating sections, so this
+    was likelier to fire than any of the heading cases.
+    """
+    out = extract_whats_new(_assembled_body([
+        "Summary line.",
+        "",
+        "### First",
+        "a",
+        "",
+        "---",
+        "",
+        "### Second",
+        "b",
+    ]))
+    assert "### Second" in out, "content after a horizontal rule was dropped"
+    assert "SHA-256" not in out
+    assert "### Installation" not in out
+
+
+def test_a_setext_underline_in_the_news_does_not_truncate_it() -> None:
+    """`Title` over `-----` is a markdown H2, and matched the rule pattern."""
+    out = extract_whats_new(_assembled_body([
+        "Summary line.",
+        "",
+        "Big heading",
+        "-----------",
+        "",
+        "### Later",
+        "c",
+    ]))
+    assert "### Later" in out
+    assert "SHA-256" not in out
+
+
+def test_a_hash_line_quoted_in_the_news_does_not_truncate_it() -> None:
+    """Notes explaining hash verification may quote the line verbatim.
+
+    The stop pattern anchors to the start of the line, so a quoted example
+    beginning "SHA-256:" looked exactly like the machine tail.
+    """
+    out = extract_whats_new(_assembled_body([
+        "Summary line.",
+        "",
+        "### Verifying a download",
+        "Each release ends with a line like this one:",
+        "",
+        "SHA-256: " + "f" * 64,
+        "",
+        "### After",
+        "y",
+    ]))
+    assert "### After" in out, "content after a quoted hash line was dropped"
+
+
+def test_crlf_body_with_a_sentinel_reads_cleanly() -> None:
+    """GitHub serves release bodies with CRLF."""
+    body = _assembled_body(["Summary line.", "", "### One", "x"]).replace("\n", "\r\n")
+    out = extract_whats_new(body)
+    assert "### One" in out
+    assert "\r" not in out
+    assert "### Installation" not in out
+
+
+def test_a_misplaced_sentinel_does_not_dump_the_tail_into_the_banner() -> None:
+    """Regression: trusting the sentinel absolutely was unsafe if it moved.
+
+    A hand-edited release whose sentinel ends up below the hashes made the
+    banner show install steps and the SHA-256 line as though they were news.
+    The pipeline's own tail headings now end the news regardless.
+    """
+    body = "\n".join([
+        "## AudiobookMaker 9.9.9",
+        "",
+        "### What's new",
+        "",
+        "Summary line.",
+        "",
+        "### Installation",
+        "",
+        "1. Download it",
+        "",
+        "### CLI (command-line interface)",
+        "",
+        "Get the zip",
+        "",
+        "---",
+        "SHA-256: " + "a" * 64,
+        "",
+        WHATS_NEW_END_MARKER,
+    ])
+    out = extract_whats_new(body)
+    assert out == "Summary line."
+
+
 def test_a_body_published_before_the_sentinel_still_reads() -> None:
     """Every release up to 3.23.0 lacks the sentinel and must keep working."""
     legacy = "\n".join([
