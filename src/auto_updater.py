@@ -254,10 +254,29 @@ def _extract_sha256(release_notes: str) -> str | None:
     return None
 
 
-# Headings that open the machine/technical tail of a release body. Everything
-# from here down is install instructions and hashes, not news.
+# The pipeline closes the news with this sentinel, so the boundary between
+# what the user reads and the machine tail is stated rather than guessed.
+# build-release.yml emits it; keep the two in step.
+WHATS_NEW_END_MARKER = "<!-- /whats-new -->"
+_WHATS_NEW_END_RE = re.compile(r"^<!--\s*/whats-new\s*-->$")
+
+# Fallback for bodies published before the sentinel existed. These match the
+# pipeline's OWN technical headings exactly rather than any heading starting
+# with the same word. The earlier prefix form (`(?:installation|cli)\b`) also
+# matched news headings: "### CLI gets a resume flag" is a plausible section
+# for a project that ships a CLI, and it silently truncated the banner there,
+# dropping every section after it.
+#
+# Exact matching is safe for legacy bodies because they are fixed content and
+# were checked: v3.18.0 through v3.23.0 all use exactly these two headings and
+# a `---` rule before the hash block.
 _WHATS_NEW_STOP_RE = re.compile(
-    r"(?i)^(?:#{1,6}\s*(?:installation|cli)\b|(?:cli:\s*)?sha-?256:|-{3,}\s*$)"
+    r"(?i)^(?:"
+    r"#{1,6}\s*installation\s*$"
+    r"|#{1,6}\s*cli\s*\(command-line interface\)\s*$"
+    r"|(?:cli:\s*)?sha-?256:"
+    r"|-{3,}\s*$"
+    r")"
 )
 _WHATS_NEW_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*what['’]?s new\s*:?\s*$")
 _RELEASE_TITLE_RE = re.compile(r"(?i)^##\s+audiobookmaker\b")
@@ -273,8 +292,11 @@ def extract_whats_new(release_notes: str) -> str:
 
     Capture must NOT stop at the first heading it meets. The news prose carries
     its own ``###`` sub-headings, so stopping at any heading truncated the
-    banner to nothing the moment the notes grew sections. Stop only at the
-    install/CLI/hash tail.
+    banner to nothing the moment the notes grew sections.
+
+    Where the news ends is taken from the ``<!-- /whats-new -->`` sentinel the
+    pipeline emits, not inferred from wording. Bodies published before the
+    sentinel fall back to matching the pipeline's exact technical headings.
 
     Older bodies put the news under a literal ``### What's new`` heading. That
     still works and takes precedence over the title as the starting point.
@@ -301,7 +323,10 @@ def extract_whats_new(release_notes: str) -> str:
 
     out: list[str] = []
     for line in lines[start:]:
-        if _WHATS_NEW_STOP_RE.match(line.strip()):
+        stripped = line.strip()
+        # Sentinel first: it is authoritative, so a news section may safely be
+        # titled "Installation" or "CLI" in any body the pipeline wrote.
+        if _WHATS_NEW_END_RE.match(stripped) or _WHATS_NEW_STOP_RE.match(stripped):
             break
         out.append(line)
     # Drop leading/trailing blank lines so the banner text is tight.
