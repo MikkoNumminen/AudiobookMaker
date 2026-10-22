@@ -331,6 +331,22 @@ class TestCacheReviewRegressions:
         assert str(runner.FI_EXAGGERATION) in key
         assert str(runner.FI_CFG_WEIGHT) in key
 
+    def test_the_device_is_not_in_the_key(self, runner, monkeypatch):
+        """A run that falls back to the CPU (GPU without kernels in the
+        installed torch) and the run after the repair, back on the GPU, must
+        address the same chunk files — that is what lets the second run reuse
+        every part the first one finished."""
+        from types import SimpleNamespace
+        chunks = ["Ensimmäinen lause.", "Toinen lause."]
+        keys = {}
+        for device in ("cuda", "cpu"):
+            args = SimpleNamespace(voice_pack=None, ref_audio=None, device=device)
+            keys[device] = runner._chunk_keys(chunks, "fi", runner._voice_key(args))
+        assert keys["cuda"] == keys["cpu"]
+        # ...and reuse is the default, so the GUI needs no extra flag for it.
+        monkeypatch.setattr(sys, "argv", ["runner", "--text-file", "x.txt"])
+        assert runner.parse_args().resume is True
+
     def test_orphaned_chunks_are_swept(self, runner, tmp_path):
         """Content addressing abandons superseded chunks rather than
         overwriting them, so without a sweep the directory grows forever."""
