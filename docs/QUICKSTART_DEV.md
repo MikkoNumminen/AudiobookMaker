@@ -139,7 +139,9 @@ python3.11 -m venv .venv-chatterbox
 source .venv-chatterbox/bin/activate
 pip install --upgrade pip
 
-# PyTorch 2.6.0 with CUDA 12.4 runtime
+# PyTorch with the CUDA build that has kernels for your GPU (the table and
+# the reasoning live in src/torch_builds.py). Up to an RTX 40 / H100
+# (compute capability <= 9.x) that is 2.6.0 + cu124:
 pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
 # Chatterbox + the extras the Windows installer also installs.
@@ -148,6 +150,14 @@ pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.
 # (Pinning matters: a floating transformers is what caused the
 # "Could not import module 'LlamaModel'" engine-load failures.)
 pip install -r installer/requirements-chatterbox.txt
+
+# RTX 50 / Blackwell instead: 2.8.0 + cu128. chatterbox-tts declares
+# torch==2.6.0, so resolving it would swap torch for the CPU wheel; install
+# everything else first, then chatterbox-tts alone without deps.
+#   pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+#   grep -v '^chatterbox-tts' installer/requirements-chatterbox.txt > /tmp/rest.txt
+#   pip install -r /tmp/rest.txt
+#   pip install --no-deps chatterbox-tts==0.1.7
 
 # Optional: Finnish "gemination patch" that reduces stuttering on long
 # sequences. Windows applies it automatically. On Linux, open

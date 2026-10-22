@@ -139,6 +139,31 @@ def detect_gpu() -> GpuInfo:
     return GpuInfo()
 
 
+def detect_compute_capabilities() -> list[tuple[int, int]]:
+    """Compute capability of each NVIDIA GPU, in nvidia-smi order.
+
+    e.g. ``[(12, 0)]`` for one RTX 50-series card. Kept out of
+    :func:`detect_gpu` because nvidia-smi from drivers before ~R510 rejects
+    the ``compute_cap`` field outright, and that must not hide the GPU itself.
+    Returns ``[]`` when there is no nvidia-smi or it cannot report the field.
+    """
+    from src.torch_builds import parse_capability
+
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    caps = [parse_capability(line) for line in result.stdout.splitlines()]
+    return [c for c in caps if c is not None]
+
+
 def check_disk_space(path: str = "") -> DiskInfo:
     """Check free disk space at the given path.
 

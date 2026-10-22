@@ -18,6 +18,7 @@ import pytest
 
 import src.engine_installer as ei
 from src.engine_installer import ChatterboxInstaller, PiperInstaller
+from src.torch_builds import GPU_BUILDS
 
 
 def _noop_progress(_p) -> None:
@@ -45,12 +46,37 @@ def _main_pip_calls(run_mock):
     return out
 
 
+def test_installed_torch_version_reads_the_build(tmp_path) -> None:
+    inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+    with mock.patch("subprocess.run", return_value=MagicMock(
+            returncode=0, stdout="2.6.0+cu124\n")):
+        assert inst._installed_torch_version(tmp_path / "py.exe") == "2.6.0+cu124"
+    # torch missing or broken -> None (the rebuild path handles it)
+    with mock.patch("subprocess.run", return_value=MagicMock(
+            returncode=1, stdout="")):
+        assert inst._installed_torch_version(tmp_path / "py.exe") is None
+    with mock.patch("subprocess.run", side_effect=OSError("boom")):
+        assert inst._installed_torch_version(tmp_path / "py.exe") is None
+
+
 # ---------------------------------------------------------------------------
 # _pip_install force flag
 # ---------------------------------------------------------------------------
 
 
 class TestPipInstallForce:
+    @pytest.fixture(autouse=True)
+    def _cu124_machine(self):
+        # Pin the build choice and the installed-torch probe so these tests
+        # neither query this machine's GPU nor depend on what it has.
+        with mock.patch.object(
+            ChatterboxInstaller, "_select_torch_build",
+            return_value=(GPU_BUILDS[0], ""),
+        ), mock.patch.object(
+            ChatterboxInstaller, "_installed_torch_version", return_value=None,
+        ):
+            yield
+
     def test_force_adds_force_reinstall_to_main_step(self, tmp_path) -> None:
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
         with mock.patch.object(
@@ -75,12 +101,15 @@ class TestPipInstallForce:
         assert main_calls
         assert "--force-reinstall" not in main_calls[-1]
 
-    def test_force_leaves_cuda_torch_step_untouched(self, tmp_path) -> None:
-        # When the existing torch is already a CUDA build, the torch step is NOT
+    def test_force_leaves_matching_torch_step_untouched(self, tmp_path) -> None:
+        # When the venv already holds the selected build, the torch step is NOT
         # force-reinstalled (no wasteful multi-GB re-download) and never carries
         # --no-deps (that flag is only for the main package step).
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
-        with mock.patch.object(inst, "_torch_is_noncuda", return_value=False), \
+        with mock.patch.object(
+                 inst, "_installed_torch_version",
+                 return_value=GPU_BUILDS[0].local_version,
+             ), \
              mock.patch.object(
                  ei, "_run_subprocess", return_value=MagicMock(returncode=0)
              ) as run:
@@ -96,16 +125,19 @@ class TestPipInstallForce:
             assert "--force-reinstall" not in argv
             assert "--no-deps" not in argv
 
-    def test_force_reinstalls_torch_in_place_when_cpu_build(self, tmp_path) -> None:
-        # A non-CUDA torch (e.g. clobbered by an old repair) is force-reinstalled
-        # from the cu124 index in-place — recovering without a full rebuild.
+    @pytest.mark.parametrize("force", [True, False])
+    def test_other_installed_build_is_force_reinstalled(self, tmp_path, force) -> None:
+        # A different build (a CPU wheel an old repair pulled in) is replaced
+        # in-place from the selected build's index, on install and repair alike.
         inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
-        with mock.patch.object(inst, "_torch_is_noncuda", return_value=True), \
+        with mock.patch.object(
+                 inst, "_installed_torch_version", return_value="2.6.0+cpu",
+             ), \
              mock.patch.object(
                  ei, "_run_subprocess", return_value=MagicMock(returncode=0)
              ) as run:
             inst._pip_install(
-                tmp_path / "py.exe", _noop_progress, threading.Event(), force=True
+                tmp_path / "py.exe", _noop_progress, threading.Event(), force=force
             )
         torch_calls = [
             c.args[0] for c in run.call_args_list
@@ -113,19 +145,7 @@ class TestPipInstallForce:
         ]
         assert torch_calls
         assert "--force-reinstall" in torch_calls[-1]
-        assert any(ei.TORCH_CUDA_INDEX in str(tok) for tok in torch_calls[-1])
-
-    def test_torch_is_noncuda_classifies_build(self, tmp_path) -> None:
-        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
-        # exit 3 = torch.version.cuda falsy (CPU build) → needs cu124 reinstall
-        with mock.patch("subprocess.run", return_value=MagicMock(returncode=3)):
-            assert inst._torch_is_noncuda(tmp_path / "py.exe") is True
-        # exit 0 = CUDA build → leave it
-        with mock.patch("subprocess.run", return_value=MagicMock(returncode=0)):
-            assert inst._torch_is_noncuda(tmp_path / "py.exe") is False
-        # unprobable (import error / no torch / crash) → False (rebuild handles)
-        with mock.patch("subprocess.run", side_effect=OSError("boom")):
-            assert inst._torch_is_noncuda(tmp_path / "py.exe") is False
+        assert GPU_BUILDS[0].index_url in torch_calls[-1]
 
     def test_force_adds_no_deps_to_main_step(self, tmp_path) -> None:
         # Without --no-deps, --force-reinstall reinstalls chatterbox-tts's torch

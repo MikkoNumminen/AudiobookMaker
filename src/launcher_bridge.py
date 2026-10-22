@@ -137,8 +137,9 @@ class ProgressEvent:
     """One progress event parsed from the runner's stdout."""
 
     kind: str
-    """One of: setup_total, setup_cached, chapter_start, chunk, chapter_done,
-    full_done, done, error, signal, log, exit."""
+    """One of: setup_total, setup_cached, setup_loading, gpu_fallback,
+    chapter_start, chunk, chapter_done, full_done, done, error, signal, log,
+    exit."""
 
     chapter_idx: int = 0  # 1-based
     chapter_total: int = 0
@@ -152,6 +153,11 @@ class ProgressEvent:
     output_path: str = ""
     returncode: int = 0
     raw_line: str = ""
+    # kind="gpu_fallback": the GPU has no kernels in the installed torch build,
+    # so the runner carries on on the CPU.
+    gpu_name: str = ""
+    gpu_capability: str = ""
+    torch_build: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +198,9 @@ class ChatterboxLineParser:
     # the GUI can show "Loading engine…" with an animated bar instead of a
     # frozen-looking 0%.
     _SETUP_LOADING_RE = re.compile(r"^\[setup\] (?:starting engine|loading TTS engine)")
+    _GPU_FALLBACK_RE = re.compile(
+        r"^\[setup\] gpu fallback: gpu=(.+?); capability=(\S+); torch=(\S+)$"
+    )
     _CHAPTER_START_RE = re.compile(
         r"^\[chapter (\d+)/(\d+)\] idx=(\d+) title=(.+?) chunks=(\d+)"
     )
@@ -343,6 +352,16 @@ class ChatterboxLineParser:
 
         if self._SETUP_LOADING_RE.match(line):
             return ProgressEvent(kind="setup_loading", raw_line=line)
+
+        m = self._GPU_FALLBACK_RE.match(line)
+        if m:
+            return ProgressEvent(
+                kind="gpu_fallback",
+                gpu_name=m.group(1),
+                gpu_capability=m.group(2),
+                torch_build=m.group(3),
+                raw_line=line,
+            )
 
         m = self._CHAPTER_START_RE.match(line)
         if m:

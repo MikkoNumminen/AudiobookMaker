@@ -335,10 +335,19 @@ failing produced a set of invariants, each enforced by tests:
   from creation until smoke passes; while present the engine reads as
   not-installed, so Convert can't run against (and corrupt) a
   half-built venv.
+- **torch build per GPU.** A CUDA torch wheel only has kernels for the GPU
+  generations in its `torch.cuda.get_arch_list()`; on any other GPU it fails
+  mid-conversion with "no kernel image is available". The installer picks the
+  build from a table keyed by the GPU's compute capability
+  ([src/torch_builds.py](../src/torch_builds.py)): 2.6.0+cu124 up to Hopper,
+  2.8.0+cu128 for Blackwell (RTX 50), the CPU build when nothing covers the
+  GPU. The runner checks the same rule at startup and falls back to the CPU
+  for that run, with a message, if the GPU is not covered.
 - **Repair semantics.** Repair force-reinstalls the pinned package set
   with `--no-deps` (so chatterbox's torch dependency can't clobber the
-  cu124 CUDA wheel with a CPU build), reinstalls torch in place when a
-  non-CUDA build is detected, and escalates to a clean rebuild only on
+  CUDA wheel with a CPU build), reinstalls torch in place whenever the
+  venv holds a different build than the one picked for the GPU, and
+  escalates to a clean rebuild only on
   corruption-shaped smoke failures (`_CORRUPTION_SMOKE_SIGNATURES`) —
   never on environmental ones like a missing NVIDIA driver.
 

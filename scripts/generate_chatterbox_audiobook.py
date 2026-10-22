@@ -160,7 +160,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-06-10.1"
+RUNNER_BUILD = "2026-10-22.1"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -673,15 +673,68 @@ def _dry_run(args) -> int:
 # ---------------------------------------------------------------------------
 
 
+GPU_REINSTALL_HINT = (
+    "Fix: when this conversion has finished (or after you stop it), click the "
+    "Install engines button in the top-right of the main window and Repair "
+    "the Chatterbox engine. The installer then picks the torch build that "
+    "matches this GPU."
+)
+
+
+def _gpu_arch_mismatch(torch) -> list[str]:
+    """Explain why the CUDA device cannot run this torch build; [] if it can.
+
+    A torch build only carries kernels for the GPUs in get_arch_list(). On any
+    other GPU, CUDA still reports available and tensors still copy to the card,
+    but the first real computation dies with "no kernel image is available for
+    execution on the device" (seen when a new GPU went into a machine whose
+    engine was installed for the old one). Rule and build table:
+    src/torch_builds.py.
+    """
+    from src.torch_builds import arch_list_covers
+
+    index = torch.cuda.current_device()
+    capability = tuple(torch.cuda.get_device_capability(index))
+    arch_list = torch.cuda.get_arch_list()
+    if arch_list_covers(arch_list, capability):
+        return []
+    return [
+        f"GPU {torch.cuda.get_device_name(index)} (compute capability "
+        f"{capability[0]}.{capability[1]}) cannot run the installed torch "
+        f"{torch.__version__}, which only has GPU code for "
+        f"{' '.join(arch_list) or 'no GPU'}.",
+        GPU_REINSTALL_HINT,
+    ]
+
+
 def _resolve_device(requested: str) -> str:
     import torch
-    if requested == "auto":
-        if torch.cuda.is_available():
+    if requested in ("auto", "cuda") and torch.cuda.is_available():
+        mismatch = _gpu_arch_mismatch(torch)
+        if not mismatch:
             return "cuda"
+        for line in mismatch:
+            print(f"[warn] {line}", flush=True)
+        # One structured line for the GUI, which shows it as a notice in the
+        # user's language (launcher_bridge.ChatterboxLineParser, "gpu_fallback").
+        index = torch.cuda.current_device()
+        major, minor = torch.cuda.get_device_capability(index)
+        print(f"[setup] gpu fallback: gpu={torch.cuda.get_device_name(index)}; "
+              f"capability={major}.{minor}; torch={torch.__version__}",
+              flush=True)
+        print("[warn] Using the CPU for this conversion instead: it works, but "
+              "much more slowly. Finished parts are kept and reused after the "
+              "fix.", flush=True)
+        return "cpu"
+    if requested == "auto":
         print("[warn] CUDA not available; falling back to cpu (slow).",
               flush=True)
+        if not torch.version.cuda:
+            print(f"[warn] The installed torch {torch.__version__} is a "
+                  "CPU-only build. If this machine has an NVIDIA GPU: "
+                  + GPU_REINSTALL_HINT, flush=True)
         return "cpu"
-    if requested == "cuda" and not torch.cuda.is_available():
+    if requested == "cuda":
         print("[warn] CUDA requested but not available; using cpu.",
               flush=True)
         return "cpu"
@@ -909,7 +962,11 @@ def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
                 "falling back to torch.load",
                 exc,
             )
-            state = torch.load(str(pt_path), weights_only=False)
+            # map_location: a pack saved from a CUDA run would otherwise
+            # restore onto CUDA even when this run is on the CPU (no GPU, a
+            # CPU-only torch, or a GPU this torch build has no kernels for).
+            state = torch.load(str(pt_path), weights_only=False,
+                               map_location="cpu")
 
         # ``set_peft_model_state_dict`` handles the key-name normalization
         # between the safetensors dump (which omits the ``.default``
@@ -2092,9 +2149,19 @@ def _selftest() -> int:
     """
     try:
         import torch
-        # Exercise CUDA with a real allocation so a CPU-only or broken cu124
-        # wheel fails here, not at first synthesis.
-        _ = torch.zeros(1).cuda()
+        if torch.version.cuda:
+            # A torch build without kernels for this GPU must fail here, with
+            # the reason, rather than mid-conversion. The kernel launch below
+            # alone would catch it, but only as "no kernel image".
+            mismatch = _gpu_arch_mismatch(torch)
+            if mismatch:
+                for line in mismatch:
+                    print(f"[error] {line}", flush=True)
+                return 2
+            # Run a real kernel: a broken CUDA wheel fails here, not at first
+            # synthesis. A plain copy to the GPU launches no kernel and would
+            # pass. A CPU build (no GPU any build supports) has nothing to run.
+            torch.ones(8, device="cuda").mul(2).sum().item()
         import torchaudio  # noqa: F401
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa: F401
         import silero_vad  # noqa: F401
