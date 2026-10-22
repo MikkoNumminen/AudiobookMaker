@@ -38,7 +38,7 @@
 # torch / torchaudio are deliberately NOT in this file. They install
 # separately via the CUDA wheel index (--index-url) so chatterbox-tts's
 # resolver treats torch as already satisfied and does not pull the CPU
-# wheel. See TORCH_WHEEL_VERSION / TORCH_CUDA_INDEX in both installers.
+# wheel. Which build depends on the GPU: see the table in src/torch_builds.py.
 
 # --- engine ---
 chatterbox-tts==0.1.7
@@ -59,6 +59,10 @@ pykakasi==2.3.0
 pyloudnorm==0.2.0
 safetensors==0.5.3
 huggingface_hub==1.10.1
+# Built by every tokenizer load (Chinese segmentation); missing, it logs a
+# warning on each engine load. Pinned so a --no-deps chatterbox install
+# (any torch build but 2.6.0, see src/torch_builds.py) still gets it.
+spacy-pkuseg==1.0.1
 
 # --- runner + voice-pack companions (named explicitly by the installers) ---
 silero-vad==6.2.1

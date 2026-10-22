@@ -109,12 +109,34 @@ def test_unknown_capability_keeps_the_validated_build() -> None:
 
 
 @pytest.mark.parametrize(
+    "capabilities, installed, build",
+    [
+        # Probe failed or timed out this once: keep the GPU build that is
+        # there rather than "repairing" a working cu128 venv back to cu124.
+        ([], "2.8.0+cu128", CU128),
+        ([], "2.6.0+cpu", CU124),
+        # An installed build that still covers the GPU is kept (no re-download
+        # when an RTX 50 is swapped back for an RTX 40)...
+        ([(8, 6)], "2.8.0+cu128", CU128),
+        # ...but one that does not is replaced: the field case.
+        ([(12, 0)], "2.6.0+cu124", CU128),
+        ([(5, 2)], "2.8.0+cu128", CU124),   # 2.8 dropped Maxwell
+        ([(13, 0)], "2.8.0+cu128", CPU_BUILD),
+    ],
+)
+def test_installed_build_is_kept_while_it_fits(capabilities, installed, build) -> None:
+    assert select_torch_build(True, capabilities, installed) == build
+
+
+@pytest.mark.parametrize(
     "capabilities, build",
     [
         ([(12, 0), (8, 6)], CU128),  # one build covers both: prefer it
         ([(8, 6), (12, 0)], CU128),
-        ([(12, 0), (5, 2)], CU128),  # none covers both: serve the first GPU
-        ([(5, 2), (12, 0)], CU124),
+        # None covers both: serve the newest, which CUDA numbers first by
+        # default — whatever order nvidia-smi lists them in.
+        ([(12, 0), (5, 2)], CU128),
+        ([(5, 2), (12, 0)], CU128),
         ([(13, 0), (8, 6)], CPU_BUILD),
     ],
 )

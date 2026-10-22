@@ -160,7 +160,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-06-10.1"
+RUNNER_BUILD = "2026-10-22.1"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -674,9 +674,10 @@ def _dry_run(args) -> int:
 
 
 GPU_REINSTALL_HINT = (
-    "Fix: click the Install engines button in the top-right of the main "
-    "window and Repair the Chatterbox engine (or install it again). The "
-    "installer then picks the torch build that matches this GPU."
+    "Fix: when this conversion has finished (or after you stop it), click the "
+    "Install engines button in the top-right of the main window and Repair "
+    "the Chatterbox engine. The installer then picks the torch build that "
+    "matches this GPU."
 )
 
 
@@ -714,6 +715,13 @@ def _resolve_device(requested: str) -> str:
             return "cuda"
         for line in mismatch:
             print(f"[warn] {line}", flush=True)
+        # One structured line for the GUI, which shows it as a notice in the
+        # user's language (launcher_bridge.ChatterboxLineParser, "gpu_fallback").
+        index = torch.cuda.current_device()
+        major, minor = torch.cuda.get_device_capability(index)
+        print(f"[setup] gpu fallback: gpu={torch.cuda.get_device_name(index)}; "
+              f"capability={major}.{minor}; torch={torch.__version__}",
+              flush=True)
         print("[warn] Using the CPU for this conversion instead: it works, but "
               "much more slowly. Finished parts are kept and reused after the "
               "fix.", flush=True)
@@ -722,11 +730,9 @@ def _resolve_device(requested: str) -> str:
         print("[warn] CUDA not available; falling back to cpu (slow).",
               flush=True)
         if not torch.version.cuda:
-            print(f"[warn] The installed torch {torch.__version__} is the "
-                  "CPU-only build, chosen because no torch build supported "
-                  "this machine's GPU when the engine was installed. A newer "
-                  "AudiobookMaker may have one: " + GPU_REINSTALL_HINT,
-                  flush=True)
+            print(f"[warn] The installed torch {torch.__version__} is a "
+                  "CPU-only build. If this machine has an NVIDIA GPU: "
+                  + GPU_REINSTALL_HINT, flush=True)
         return "cpu"
     if requested == "cuda":
         print("[warn] CUDA requested but not available; using cpu.",
@@ -956,7 +962,11 @@ def _apply_lora_adapter(engine, voice_pack_dir: Path) -> None:
                 "falling back to torch.load",
                 exc,
             )
-            state = torch.load(str(pt_path), weights_only=False)
+            # map_location: a pack saved from a CUDA run would otherwise
+            # restore onto CUDA even when this run is on the CPU (no GPU, a
+            # CPU-only torch, or a GPU this torch build has no kernels for).
+            state = torch.load(str(pt_path), weights_only=False,
+                               map_location="cpu")
 
         # ``set_peft_model_state_dict`` handles the key-name normalization
         # between the safetensors dump (which omits the ``.default``

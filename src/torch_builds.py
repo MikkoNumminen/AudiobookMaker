@@ -144,29 +144,43 @@ def arch_list_covers(arch_list: Sequence[str], capability: Capability) -> bool:
 
 
 def select_torch_build(
-    has_nvidia: bool, capabilities: Sequence[Capability]
+    has_nvidia: bool,
+    capabilities: Sequence[Capability],
+    installed: Optional[str] = None,
 ) -> TorchBuild:
     """Pick the torch build for this machine.
 
-    ``capabilities`` holds one entry per NVIDIA GPU, in nvidia-smi order. A
-    build that covers all of them is preferred. On a mixed machine that no
-    single build covers, the first GPU is served; CUDA may number the GPUs
-    differently (fastest first), and the runner's startup check falls back to
-    the CPU if the GPU it lands on is the uncovered one.
+    ``capabilities`` holds one entry per NVIDIA GPU. A build that covers all
+    of them is preferred. On a mixed machine that no single build covers, the
+    newest GPU is served: CUDA numbers the fastest GPU first by default, so
+    that is the ``cuda`` device the runner (and the install smoke test) uses.
+    If it is not, the runner's startup check falls back to the CPU.
+
+    ``installed`` is the venv's current ``torch.__version__``, if any. A GPU
+    build already installed that still covers the GPUs is kept, so a repair
+    never swaps one working multi-GB build for another.
     """
     if not has_nvidia:
         return CPU_BUILD
+    current = next((b for b in GPU_BUILDS if b.local_version == installed), None)
     if not capabilities:
-        # An NVIDIA GPU whose nvidia-smi is too old to report compute_cap
-        # (drivers before ~R510). Every GPU that needs a newer row also needs
-        # a much newer driver than that, so the first row is the right build;
-        # the runner's startup check still catches it if not.
-        return GPU_BUILDS[0]
+        # The capability is unknown: nvidia-smi too old to report it (drivers
+        # before ~R510), or it failed or timed out this once. Keep a GPU build
+        # that is already there; it was chosen when the probe worked.
+        # Otherwise take the first row: every GPU that needs a newer row also
+        # needs a much newer driver than ~R510. The runner's startup check
+        # still catches it if this guess is wrong.
+        return current or GPU_BUILDS[0]
+    if current is not None and all(
+        arch_list_covers(current.arch_list, c) for c in capabilities
+    ):
+        return current
     for build in GPU_BUILDS:
         if all(arch_list_covers(build.arch_list, c) for c in capabilities):
             return build
     # Mixed GPUs no single build covers: serve the one synthesis runs on.
+    newest = max(capabilities)
     for build in GPU_BUILDS:
-        if arch_list_covers(build.arch_list, capabilities[0]):
+        if arch_list_covers(build.arch_list, newest):
             return build
     return CPU_BUILD

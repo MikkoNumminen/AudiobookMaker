@@ -131,8 +131,19 @@ class TestInstallerPipSteps:
         assert any(e.message == "msg" for e in events)
 
     def test_old_build_is_replaced_on_plain_install(self, tmp_path) -> None:
-        # The field case: a venv built with cu124, now on an RTX 50 card.
+        # The field case: a venv built with cu124, now on an RTX 50 card. The
+        # version differs, so pip upgrades on its own: no forced re-download
+        # of torch's dependencies.
         argvs, _ = _pip_argvs(CU128, installed="2.6.0+cu124", tmp_path=tmp_path)
+        torch_argv = _torch_argv(argvs)
+        assert "torch==2.8.0" in torch_argv and CU128.index_url in torch_argv
+        assert "--force-reinstall" not in torch_argv
+
+    @pytest.mark.parametrize("installed", ["2.6.0+cpu", "2.6.0"])
+    def test_same_version_other_build_is_forced(self, tmp_path, installed) -> None:
+        # pip calls 2.6.0+cpu (or PyPI's untagged CPU 2.6.0) "already
+        # satisfied" for torch==2.6.0, so only a forced reinstall swaps it.
+        argvs, _ = _pip_argvs(CU124, installed=installed, tmp_path=tmp_path)
         assert "--force-reinstall" in _torch_argv(argvs)
 
     def test_matching_build_is_not_redownloaded(self, tmp_path) -> None:
@@ -171,7 +182,10 @@ class TestStandaloneInstaller:
              mock.patch.object(post_install, "pip_install") as pip:
             post_install.install_python_packages(Path("py.exe"))
         argvs = [c.args[1] for c in pip.call_args_list]
-        assert any(build.index_url in a for a in argvs)
+        torch_argv = next(a for a in argvs if build.index_url in a)
+        # The exact local version, so a same-version other build is replaced.
+        assert f"torch=={build.local_version}" in torch_argv
+        assert f"torchaudio=={build.local_version}" in torch_argv
         with_chatterbox = [a for a in argvs if "chatterbox-tts==0.1.7" in a]
         assert len(with_chatterbox) == 1
         assert ("--no-deps" in with_chatterbox[0]) is build.overrides_chatterbox_pin
@@ -217,7 +231,19 @@ class TestPreflightDecision:
         assert "sm_90" in out
         assert "Install engines" in out and "Repair" in out
         assert "CPU" in out
-        assert all(line.startswith("[warn]") for line in out.splitlines())
+        # The GUI turns this one line into a dialog; everything else is a
+        # warning in the log.
+        assert ("[setup] gpu fallback: gpu=NVIDIA GeForce RTX 5070; "
+                "capability=12.0; torch=2.6.0+cu124") in out.splitlines()
+        assert all(line.startswith(("[warn]", "[setup] gpu fallback:"))
+                   for line in out.splitlines())
+
+    def test_mismatch_is_not_mistaken_for_a_broken_venv(self, capsys) -> None:
+        # The installer rebuilds the venv (~30 min) on corruption-shaped smoke
+        # failures. A rebuild with the same build cannot fix a GPU mismatch.
+        with mock.patch.dict(sys.modules, {"torch": _fake_torch()}):
+            gca._resolve_device("auto")
+        assert not ei._smoke_error_looks_like_corruption(capsys.readouterr().out)
 
     def test_no_gpu(self, capsys) -> None:
         with mock.patch.dict(sys.modules, {"torch": _fake_torch(available=False)}):
@@ -309,3 +335,24 @@ class TestFallbackRunsTheConversionOnCpu:
         out = capsys.readouterr().out
         assert "[setup] device=cpu" in out
         assert "cannot run the installed torch 2.6.0+cu124" in out
+
+
+class TestLegacyVoicePackOnCpu:
+    def test_pickled_adapter_is_loaded_onto_the_cpu(self, tmp_path) -> None:
+        """A legacy adapter.pt saved from a CUDA run must not restore onto CUDA
+        when this run fell back to the CPU."""
+        pack = tmp_path / "pack"
+        pack.mkdir()
+        (pack / "adapter.pt").write_bytes(b"pickled")
+        torch = _fake_torch()
+        safetensors_torch = MagicMock()
+        safetensors_torch.load_file.side_effect = ValueError("not safetensors")
+        peft = MagicMock()
+        modules = {
+            "torch": torch, "peft": peft, "peft.utils": peft.utils,
+            "safetensors": MagicMock(torch=safetensors_torch),
+            "safetensors.torch": safetensors_torch,
+        }
+        with mock.patch.dict(sys.modules, modules):
+            gca._apply_lora_adapter(MagicMock(), pack)
+        assert torch.load.call_args.kwargs["map_location"] == "cpu"

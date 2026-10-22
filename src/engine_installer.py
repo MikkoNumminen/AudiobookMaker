@@ -104,6 +104,8 @@ PIP_PACKAGES_MAIN = [
     "pyloudnorm==0.2.0",
     "safetensors==0.5.3",
     "huggingface_hub==1.10.1",
+    # Built on every tokenizer load; see requirements-chatterbox.txt.
+    "spacy-pkuseg==1.0.1",
     # Runner companions.
     "silero-vad==6.2.1",
     "pydub==0.25.1",
@@ -352,8 +354,9 @@ _STRINGS = {
         "torch_install_failed": "torch-asennus epäonnistui",
         "torch_build_gpu": "Näytönohjaimelle valitaan torch {build}.",
         "torch_build_cpu_no_match": (
-            "Tälle näytönohjaimelle (laskentakyky {caps}) ei vielä ole "
-            "sopivaa torch-versiota, joten asennetaan CPU-versio {build}. "
+            "Mikään tämän version asentamista torch-versioista ei tue tätä "
+            "näytönohjainta (laskentakyky {caps}), joten asennetaan "
+            "CPU-versio {build}. "
             "Muunnos toimii, mutta on paljon hitaampi."
         ),
         "torch_build_cpu_no_gpu": (
@@ -372,9 +375,9 @@ _STRINGS = {
         "torch_install_failed": "torch install failed",
         "torch_build_gpu": "Choosing torch {build} for this graphics card.",
         "torch_build_cpu_no_match": (
-            "No torch build supports this graphics card (compute capability "
-            "{caps}) yet, so the CPU build {build} is installed. Conversion "
-            "works, but much more slowly."
+            "None of the torch builds this version installs supports this "
+            "graphics card (compute capability {caps}), so the CPU build "
+            "{build} is installed. Conversion works, but much more slowly."
         ),
         "torch_build_cpu_no_gpu": (
             "No NVIDIA graphics card found, so the CPU build {build} is "
@@ -1370,14 +1373,17 @@ class ChatterboxInstaller(EngineInstaller):
             )
         return self._venv_python
 
-    def _select_torch_build(self) -> tuple[TorchBuild, str]:
+    def _select_torch_build(
+        self, installed: Optional[str] = None
+    ) -> tuple[TorchBuild, str]:
         """The torch build for this machine's GPU, and a line telling the user.
 
-        The table lives in src/torch_builds.py.
+        ``installed`` is the venv's current torch build, kept when it still
+        fits. The table lives in src/torch_builds.py.
         """
         gpu = detect_gpu()
         caps = detect_compute_capabilities()
-        build = select_torch_build(gpu.has_nvidia, caps)
+        build = select_torch_build(gpu.has_nvidia, caps, installed)
         if build.is_cuda:
             key = "torch_build_gpu"
         elif gpu.has_nvidia:
@@ -1416,11 +1422,9 @@ class ChatterboxInstaller(EngineInstaller):
         """Install torch + chatterbox packages.
 
         torch comes from the build :meth:`_select_torch_build` picks for this
-        GPU. Whenever the venv already holds a different build it is
-        force-reinstalled: a version-pinned ``pip install torch==X`` skips an
-        already-present torch even when it is the wrong build (a CPU wheel a
+        GPU, which replaces whatever build the venv held before (a CPU wheel a
         bad repair pulled in, or a cu124 wheel on a GPU that cu124 has no
-        kernels for), and that wrong build would survive every reinstall.
+        kernels for).
 
         ``force`` adds ``--force-reinstall --no-deps`` to the main package step
         so a drifted venv is repaired (a too-new transformers is pulled back to
@@ -1445,7 +1449,8 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
-        build, build_msg = self._select_torch_build()
+        installed = self._installed_torch_version(venv_py)
+        build, build_msg = self._select_torch_build(installed)
         log.info("Chatterbox torch build: %s", build.local_version)
         progress_cb(InstallProgress(3, 5, "Asennetaan torch", message=build_msg))
 
@@ -1455,8 +1460,15 @@ class ChatterboxInstaller(EngineInstaller):
             f"torchaudio=={build.version}",
             "--index-url", build.index_url,
         ]
-        installed = self._installed_torch_version(venv_py)
-        if installed is not None and installed != build.local_version:
+        # pip upgrades or downgrades a different version on its own, but sees
+        # the same version with another build tag (2.6.0+cpu, or PyPI's
+        # untagged CPU 2.6.0, against 2.6.0+cu124) as already satisfied, and
+        # that wrong build would survive every reinstall.
+        if (
+            installed is not None
+            and installed != build.local_version
+            and installed.split("+")[0] == build.version
+        ):
             log.info("Replacing torch %s with %s", installed, build.local_version)
             torch_cmd.append("--force-reinstall")
         result = _run_subprocess(
@@ -1490,9 +1502,8 @@ class ChatterboxInstaller(EngineInstaller):
             # chatterbox-tts declares torch==2.6.0. Resolving it next to a
             # different build makes pip swap that build for PyPI's torch 2.6.0
             # (CPU-only on Windows), so it goes in on its own, without deps,
-            # after everything else. The dependencies it needs are all pinned
-            # in PIP_PACKAGES_MAIN; the two it declares but the runner never
-            # imports (gradio, and the Chinese-only spacy-pkuseg) are skipped.
+            # after everything else. Every dependency it declares is pinned in
+            # PIP_PACKAGES_MAIN except gradio, which only its demo app uses.
             chatterbox_separately = True
             packages = [
                 p for p in PIP_PACKAGES_MAIN if not p.startswith("chatterbox-tts==")

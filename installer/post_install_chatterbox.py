@@ -83,6 +83,8 @@ PIP_PACKAGES_MAIN = [
     "pyloudnorm==0.2.0",
     "safetensors==0.5.3",
     "huggingface_hub==1.10.1",
+    # Built on every tokenizer load; see requirements-chatterbox.txt.
+    "spacy-pkuseg==1.0.1",
     # Runner companions.
     "silero-vad==6.2.1",
     "pydub==0.25.1",
@@ -254,8 +256,11 @@ def install_python_packages(venv_py: Path) -> None:
     pip_install(
         venv_py,
         [
-            f"torch=={build.version}",
-            f"torchaudio=={build.version}",
+            # The exact local version (2.6.0+cu124, not 2.6.0): pip calls a
+            # same-version other build (2.6.0+cpu) satisfied by a bare
+            # torch==2.6.0 and would leave it in place.
+            f"torch=={build.local_version}",
+            f"torchaudio=={build.local_version}",
             "--index-url",
             build.index_url,
         ],

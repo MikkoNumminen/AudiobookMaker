@@ -251,6 +251,17 @@ _STRINGS = {
         "resume_source_missing": "Alkuperäistä tiedostoa ei löydy enää: {path}",
         "resume_language_changed": "Kieli on eri kuin keskeytyneessä muunnoksessa ({saved}). Jatkaminen sekoittaisi kaksi ääntä. Vaihda kieleksi {saved} tai aloita alusta.",
         "loading_engine": "Ladataan moottoria\u2026 (ensimm\u00e4inen kerta lataa mallit, voi kest\u00e4\u00e4 minuutteja)",
+        "gpu_fallback_title": "N\u00e4yt\u00f6nohjain ei toimi t\u00e4m\u00e4n asennuksen kanssa",
+        "gpu_fallback_msg": (
+            "N\u00e4yt\u00f6nohjain {gpu} (laskentakyky {cap}) ei toimi asennetun "
+            "torch-version {torch} kanssa.\n\n"
+            "T\u00e4m\u00e4 muunnos jatkuu suorittimella (CPU). Se toimii, mutta on "
+            "paljon hitaampi.\n\n"
+            "Korjaus: kun muunnos on valmis tai pys\u00e4ytetty, avaa "
+            "Asenna moottoreita\u2026 ja valitse Chatterbox-moottorille Korjaa. "
+            "Asennus valitsee n\u00e4yt\u00f6nohjaimelle sopivan torch-version. "
+            "Jo tehdyt osat s\u00e4ilyv\u00e4t."
+        ),
         "cancelling": "Peruuta\u2026",
         "done": "Valmis!",
         "error": "Virhe",
@@ -392,6 +403,17 @@ _STRINGS = {
         "resume_source_missing": "The original file is no longer there: {path}",
         "resume_language_changed": "The language differs from the unfinished conversion ({saved}). Continuing would mix two voices. Switch back to {saved} or start over.",
         "loading_engine": "Loading engine\u2026 (first run downloads models, can take a few minutes)",
+        "gpu_fallback_title": "Graphics card does not work with this install",
+        "gpu_fallback_msg": (
+            "The graphics card {gpu} (compute capability {cap}) cannot run "
+            "the installed torch {torch}.\n\n"
+            "This conversion continues on the CPU. It works, but much more "
+            "slowly.\n\n"
+            "Fix: when the conversion has finished or been stopped, open "
+            "Install engines\u2026 and Repair the Chatterbox engine. The "
+            "installer picks the torch build that matches this card. The "
+            "parts already made are kept."
+        ),
         "cancelling": "Cancelling\u2026",
         "done": "Done!",
         "error": "Error",
@@ -3407,6 +3429,18 @@ class UnifiedApp(SynthMixin, UpdateMixin, ctk.CTk):
                 # seconds; minutes on a first-run download). The bar keeps
                 # animating (indeterminate); just tell the user why.
                 self._status_label_val.configure(text=self._s("loading_engine"))
+
+            elif ev.kind == "gpu_fallback":
+                # The GPU has no kernels in the installed torch build; the
+                # runner carries on on the CPU. A log line is easy to miss on
+                # a 10x slower run, so say it, and how to fix it, in a dialog.
+                # after(0) lets the pump keep the progress moving behind it.
+                message = self._s("gpu_fallback_msg").format(
+                    gpu=ev.gpu_name, cap=ev.gpu_capability, torch=ev.torch_build
+                )
+                self.after(0, lambda m=message: messagebox.showwarning(
+                    self._s("gpu_fallback_title"), m, parent=self
+                ))
 
             elif ev.kind == "setup_cached":
                 # The runner counted healthy chunks already on disk and is
