@@ -24,7 +24,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from src.system_checks import find_python311, detect_gpu, check_disk_space
+from src.system_checks import (
+    check_disk_space,
+    detect_compute_capabilities,
+    detect_gpu,
+    find_python311,
+)
+from src.torch_builds import TorchBuild, select_torch_build
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +72,8 @@ PYTHON_INSTALLER_URL = (
 )
 PYTHON_INSTALLER_SIZE_MB = 25
 
-TORCH_WHEEL_VERSION = "2.6.0"
-TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
+# The torch build is not a single pin: it depends on the GPU. See the table
+# in src/torch_builds.py, used through ChatterboxInstaller._select_torch_build.
 
 # Pinned dependency chain for the Chatterbox engine venv. This MUST stay
 # identical to installer/requirements-chatterbox.txt and the matching list
@@ -78,8 +84,9 @@ TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 # link in this chain) is what produced the silent "Could not import module
 # 'LlamaModel'" engine-load failures. See the requirements file's header for
 # the full rationale and bump policy. torch / torchaudio install separately
-# via TORCH_CUDA_INDEX so chatterbox-tts's resolver does not pull the CPU
-# wheel — keep them out of this list.
+# from the wheel index of the build picked for the GPU (src/torch_builds.py)
+# so chatterbox-tts's resolver does not pull the CPU wheel — keep them out of
+# this list.
 PIP_PACKAGES_MAIN = [
     "chatterbox-tts==0.1.7",
     # The load-bearing chain (the LlamaModel failure lives here).
@@ -232,8 +239,9 @@ _CORRUPTION_SMOKE_SIGNATURES = (
     "winerror 127",
     "error loading",
     # A CPU-only torch wheel (wrong BUILD, not missing hardware) reports this —
-    # e.g. after a bad force-reinstall clobbered the cu124 wheel. A clean
-    # rebuild reinstalls the cu124 CUDA wheel and fixes it. Distinct from a
+    # e.g. after a bad force-reinstall clobbered the CUDA wheel. A clean
+    # rebuild reinstalls the CUDA wheel picked for the GPU and fixes it.
+    # Distinct from a
     # genuine "Found no NVIDIA driver" / "CUDA error", which a rebuild can't fix
     # and which therefore is NOT in this list.
     "torch not compiled with cuda enabled",
@@ -342,6 +350,16 @@ _STRINGS = {
         "python_install_failed": "Python-asennus epäonnistui (koodi {code})",
         "venv_create_failed": "Ympäristön luonti epäonnistui: {err}",
         "torch_install_failed": "torch-asennus epäonnistui",
+        "torch_build_gpu": "Näytönohjaimelle valitaan torch {build}.",
+        "torch_build_cpu_no_match": (
+            "Tälle näytönohjaimelle (laskentakyky {caps}) ei vielä ole "
+            "sopivaa torch-versiota, joten asennetaan CPU-versio {build}. "
+            "Muunnos toimii, mutta on paljon hitaampi."
+        ),
+        "torch_build_cpu_no_gpu": (
+            "NVIDIA-näytönohjainta ei löytynyt, joten asennetaan CPU-versio "
+            "{build}. Muunnos toimii, mutta on paljon hitaampi."
+        ),
         "chatterbox_install_failed": "chatterbox-asennus epäonnistui",
     },
     "en": {
@@ -352,6 +370,16 @@ _STRINGS = {
         "python_install_failed": "Python install failed (code {code})",
         "venv_create_failed": "Virtualenv creation failed: {err}",
         "torch_install_failed": "torch install failed",
+        "torch_build_gpu": "Choosing torch {build} for this graphics card.",
+        "torch_build_cpu_no_match": (
+            "No torch build supports this graphics card (compute capability "
+            "{caps}) yet, so the CPU build {build} is installed. Conversion "
+            "works, but much more slowly."
+        ),
+        "torch_build_cpu_no_gpu": (
+            "No NVIDIA graphics card found, so the CPU build {build} is "
+            "installed. Conversion works, but much more slowly."
+        ),
         "chatterbox_install_failed": "chatterbox install failed",
     },
 }
@@ -1065,10 +1093,13 @@ class ChatterboxInstaller(EngineInstaller):
         else:
             probe = (
                 "import torch\n"
-                # Exercise CUDA: allocate a real tensor on the device so a
-                # broken cu124 wheel fails here rather than silently
-                # continuing.
-                "_ = torch.zeros(1).cuda()\n"
+                # Run a real kernel on the GPU: a broken CUDA wheel, or one
+                # without kernels for this GPU ("no kernel image is
+                # available"), fails here rather than mid-conversion. A plain
+                # copy to the device would pass on the latter. A CPU build
+                # has no GPU to check.
+                "if torch.version.cuda:\n"
+                "    torch.ones(8, device='cuda').mul(2).sum().item()\n"
                 "from chatterbox.mtl_tts import ChatterboxMultilingualTTS\n"
                 "import silero_vad\n"
                 "import pydub\n"
@@ -1339,29 +1370,41 @@ class ChatterboxInstaller(EngineInstaller):
             )
         return self._venv_python
 
-    def _torch_is_noncuda(self, venv_py: Path) -> bool:
-        """True if the venv's torch is installed but is NOT a CUDA build.
+    def _select_torch_build(self) -> tuple[TorchBuild, str]:
+        """The torch build for this machine's GPU, and a line telling the user.
 
-        A version-pinned ``pip install torch==X`` skips an already-present torch
-        even when it's the wrong (CPU) build — so the repair path uses this to
-        decide whether to force the cu124 wheel back in-place (fixing e.g. a
-        venv a prior bad force-reinstall clobbered to the CPU wheel) instead of
-        falling through to the full clean-rebuild escalation. Returns False when
-        torch is a CUDA build, is not installed, or can't be probed — those are
-        handled by the normal install and the smoke-test + rebuild path.
+        The table lives in src/torch_builds.py.
+        """
+        gpu = detect_gpu()
+        caps = detect_compute_capabilities()
+        build = select_torch_build(gpu.has_nvidia, caps)
+        if build.is_cuda:
+            key = "torch_build_gpu"
+        elif gpu.has_nvidia:
+            key = "torch_build_cpu_no_match"
+        else:
+            key = "torch_build_cpu_no_gpu"
+        caps_text = ", ".join(f"{a}.{b}" for a, b in caps) or "?"
+        return build, _s(key, self.ui_lang, build=build.local_version, caps=caps_text)
+
+    def _installed_torch_version(self, venv_py: Path) -> Optional[str]:
+        """``torch.__version__`` in the venv (e.g. ``"2.6.0+cu124"``), or None.
+
+        None when torch is missing, broken or can't be probed — the normal
+        install and the smoke-test + rebuild path handle those.
         """
         try:
             proc = subprocess.run(
-                [
-                    str(venv_py), "-c",
-                    "import torch, sys; sys.exit(0 if torch.version.cuda else 3)",
-                ],
+                [str(venv_py), "-c", "import torch; print(torch.__version__)"],
                 capture_output=True,
+                text=True,
                 timeout=60,
             )
         except Exception:
-            return False
-        return proc.returncode == 3
+            return None
+        if proc.returncode != 0:
+            return None
+        return proc.stdout.strip() or None
 
     def _pip_install(
         self,
@@ -1372,20 +1415,22 @@ class ChatterboxInstaller(EngineInstaller):
     ) -> None:
         """Install torch + chatterbox packages.
 
+        torch comes from the build :meth:`_select_torch_build` picks for this
+        GPU. Whenever the venv already holds a different build it is
+        force-reinstalled: a version-pinned ``pip install torch==X`` skips an
+        already-present torch even when it is the wrong build (a CPU wheel a
+        bad repair pulled in, or a cu124 wheel on a GPU that cu124 has no
+        kernels for), and that wrong build would survive every reinstall.
+
         ``force`` adds ``--force-reinstall --no-deps`` to the main package step
         so a drifted venv is repaired (a too-new transformers is pulled back to
         the pin) WITHOUT re-resolving dependencies. ``--no-deps`` is essential:
         plain ``--force-reinstall`` also reinstalls chatterbox-tts's ``torch``
-        dependency from PyPI (a CPU wheel), clobbering the cu124 CUDA torch
+        dependency from PyPI (a CPU wheel), clobbering the CUDA torch
         installed just above — which then fails synth/smoke with "Torch not
         compiled with CUDA enabled". Every runtime dependency is already pinned
         in PIP_PACKAGES_MAIN, so re-pinning just the listed packages is the
         correct, torch-safe repair.
-
-        Separately, a repair force-reinstalls the cu124 torch wheel in-place
-        when it detects the installed torch is a non-CUDA build (see
-        :meth:`_torch_is_noncuda`) — recovering a previously-clobbered venv with
-        one torch re-download instead of a full rebuild.
         """
         # Upgrade pip.
         _run_subprocess(
@@ -1400,26 +1445,26 @@ class ChatterboxInstaller(EngineInstaller):
         if cancel_event.is_set():
             return
 
-        # CUDA torch. A plain version-pinned install skips an already-present
-        # torch even if it's the wrong (CPU) build, so on a repair we probe the
-        # installed build and force the cu124 wheel back in when it's not CUDA
-        # (e.g. a prior bad force-reinstall pulled the CPU wheel). This fixes
-        # such a venv in-place — one torch re-download — instead of needing the
-        # full clean-rebuild escalation.
+        build, build_msg = self._select_torch_build()
+        log.info("Chatterbox torch build: %s", build.local_version)
+        progress_cb(InstallProgress(3, 5, "Asennetaan torch", message=build_msg))
+
         torch_cmd = [
             str(venv_py), "-m", "pip", "install",
-            f"torch=={TORCH_WHEEL_VERSION}",
-            f"torchaudio=={TORCH_WHEEL_VERSION}",
-            "--index-url", TORCH_CUDA_INDEX,
+            f"torch=={build.version}",
+            f"torchaudio=={build.version}",
+            "--index-url", build.index_url,
         ]
-        if force and self._torch_is_noncuda(venv_py):
+        installed = self._installed_torch_version(venv_py)
+        if installed is not None and installed != build.local_version:
+            log.info("Replacing torch %s with %s", installed, build.local_version)
             torch_cmd.append("--force-reinstall")
         result = _run_subprocess(
             torch_cmd,
             progress_cb=progress_cb,
             step=3,
             total_steps=5,
-            step_label="Asennetaan torch (CUDA)",
+            step_label=f"Asennetaan torch {build.local_version}",
             cancel_event=cancel_event,
         )
         if result.returncode != 0:
@@ -1430,16 +1475,29 @@ class ChatterboxInstaller(EngineInstaller):
 
         # Main packages.
         main_cmd = [str(venv_py), "-m", "pip", "install"]
+        packages = PIP_PACKAGES_MAIN
+        chatterbox_separately = False
         if force:
             # Repair: re-pin the whole set even if pip thinks it is satisfied,
             # so a drifted transformers is replaced by the pinned version.
             # --no-deps is REQUIRED alongside --force-reinstall: without it pip
             # also reinstalls chatterbox-tts's torch dependency from PyPI (a CPU
-            # wheel), clobbering the cu124 CUDA torch and breaking synth with
+            # wheel), clobbering the CUDA torch and breaking synth with
             # "Torch not compiled with CUDA enabled". The whole runtime chain is
             # already pinned in PIP_PACKAGES_MAIN, so deps need no resolution.
             main_cmd += ["--force-reinstall", "--no-deps"]
-        main_cmd += PIP_PACKAGES_MAIN
+        elif build.overrides_chatterbox_pin:
+            # chatterbox-tts declares torch==2.6.0. Resolving it next to a
+            # different build makes pip swap that build for PyPI's torch 2.6.0
+            # (CPU-only on Windows), so it goes in on its own, without deps,
+            # after everything else. The dependencies it needs are all pinned
+            # in PIP_PACKAGES_MAIN; the two it declares but the runner never
+            # imports (gradio, and the Chinese-only spacy-pkuseg) are skipped.
+            chatterbox_separately = True
+            packages = [
+                p for p in PIP_PACKAGES_MAIN if not p.startswith("chatterbox-tts==")
+            ]
+        main_cmd += packages
         result = _run_subprocess(
             main_cmd,
             progress_cb=progress_cb,
@@ -1450,6 +1508,21 @@ class ChatterboxInstaller(EngineInstaller):
         )
         if result.returncode != 0:
             raise RuntimeError(_s("chatterbox_install_failed", self.ui_lang))
+
+        if chatterbox_separately and not cancel_event.is_set():
+            chatterbox_pin = next(
+                p for p in PIP_PACKAGES_MAIN if p.startswith("chatterbox-tts==")
+            )
+            result = _run_subprocess(
+                [str(venv_py), "-m", "pip", "install", "--no-deps", chatterbox_pin],
+                progress_cb=progress_cb,
+                step=3,
+                total_steps=5,
+                step_label="Asennetaan chatterbox",
+                cancel_event=cancel_event,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(_s("chatterbox_install_failed", self.ui_lang))
 
     def _prefetch_models(
         self,

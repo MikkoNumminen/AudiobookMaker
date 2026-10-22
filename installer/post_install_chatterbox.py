@@ -44,10 +44,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Versions pinned to what we verified working on dev_chatterbox_fi.py.
-# Raising these requires a smoke-test.
-TORCH_WHEEL_VERSION = "2.6.0"
-TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
+# Run from a repo checkout: share the GPU -> torch build table (and the GPU
+# probe) with the in-app installer instead of keeping a second copy here.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.append(str(_REPO_ROOT))
+
+from src.system_checks import detect_compute_capabilities, detect_gpu  # noqa: E402
+from src.torch_builds import select_torch_build  # noqa: E402
 
 # Pinned dependency chain for the Chatterbox engine venv. This MUST stay
 # identical to installer/requirements-chatterbox.txt and the matching list
@@ -59,7 +63,7 @@ TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 # 'LlamaModel'" engine-load failures. See the requirements file's header for
 # the full rationale and bump policy.
 #
-# CUDA torch is installed separately via --index-url below so that
+# torch is installed separately via --index-url below so that
 # chatterbox-tts's dep resolver treats torch as already satisfied and does
 # not pull in the CPU wheel — keep torch / torchaudio out of this list.
 PIP_PACKAGES_MAIN = [
@@ -244,18 +248,30 @@ def install_python_packages(venv_py: Path) -> None:
     # wheels correctly.
     pip_install(venv_py, ["--upgrade", "pip"], label="pip")
 
+    # The build depends on the GPU: see the table in src/torch_builds.py.
+    build = select_torch_build(detect_gpu().has_nvidia, detect_compute_capabilities())
+    print(f"  torch build for this machine: {build.local_version}", flush=True)
     pip_install(
         venv_py,
         [
-            f"torch=={TORCH_WHEEL_VERSION}",
-            f"torchaudio=={TORCH_WHEEL_VERSION}",
+            f"torch=={build.version}",
+            f"torchaudio=={build.version}",
             "--index-url",
-            TORCH_CUDA_INDEX,
+            build.index_url,
         ],
-        label="torch (CUDA cu124)",
+        label=f"torch ({build.local_version})",
     )
 
-    pip_install(venv_py, PIP_PACKAGES_MAIN, label="chatterbox + deps")
+    if not build.overrides_chatterbox_pin:
+        pip_install(venv_py, PIP_PACKAGES_MAIN, label="chatterbox + deps")
+        return
+    # chatterbox-tts declares torch==2.6.0; resolved next to another build,
+    # pip would swap that build for PyPI's CPU torch 2.6.0. Install it alone
+    # without deps — everything it needs is pinned in PIP_PACKAGES_MAIN.
+    engine = [p for p in PIP_PACKAGES_MAIN if p.startswith("chatterbox-tts==")]
+    rest = [p for p in PIP_PACKAGES_MAIN if p not in engine]
+    pip_install(venv_py, rest, label="chatterbox deps")
+    pip_install(venv_py, ["--no-deps", *engine], label="chatterbox")
 
 
 # ---------------------------------------------------------------------------

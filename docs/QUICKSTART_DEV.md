@@ -139,8 +139,12 @@ python3.11 -m venv .venv-chatterbox
 source .venv-chatterbox/bin/activate
 pip install --upgrade pip
 
-# PyTorch 2.6.0 with CUDA 12.4 runtime
+# PyTorch with the CUDA build that has kernels for your GPU. Up to an
+# RTX 40 / H100 (compute capability <= 9.x) that is 2.6.0 + cu124:
 pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# An RTX 50 / Blackwell card needs 2.8.0 + cu128 instead, and chatterbox-tts
+# must then go in with --no-deps (it declares torch==2.6.0). The table and
+# the reasoning live in src/torch_builds.py.
 
 # Chatterbox + the extras the Windows installer also installs.
 # installer/requirements-chatterbox.txt is the canonical pinned set both

@@ -45,7 +45,8 @@ block. Never diagnose from the masked one-liner alone.
 |---|---|---|
 | `Torch not compiled with CUDA enabled` | CPU torch wheel in the venv. Historic cause: pre-v3.17.1 Repair ran `pip --force-reinstall` *with deps*, clobbering cu124 torch with PyPI's CPU wheel; the pinned `torch==X` reinstall then no-ops ("already satisfied" — PEP 440 treats `2.6.0+cpu` == `2.6.0`). | v3.17.1+ Repair detects a non-CUDA build and force-reinstalls cu124 in place. On older versions: Uninstall engine → Install fresh. |
 | `ModuleNotFoundError` for a transformers/chatterbox dep | Genuinely broken venv (interrupted install). | Repair — the corruption signatures escalate to a clean rebuild when needed (`_CORRUPTION_SMOKE_SIGNATURES`, `src/engine_installer.py`). |
-| `Found no NVIDIA driver` / `CUDA error:` | Environmental (driver/hardware) — a rebuild can NOT fix it; deliberately excluded from the rebuild signatures. | Driver install / hardware question, not an app fix. |
+| `CUDA error: no kernel image is available for execution on the device` (often in `torch/nn/modules/rnn.py` `flatten_parameters`) | The venv's torch build has no kernels for this GPU — e.g. the cu124 build (sm_50–sm_90) on an RTX 50-series card (sm_120). Reinstalling the same pin cannot fix it. The install smoke test used to pass anyway, because copying a tensor to the GPU runs no kernel. | Run Install engines again on a version with `src/torch_builds.py`: it picks the build by compute capability. Until then the runner's startup check falls back to the CPU with a `[warn]` naming the GPU and the build. A GPU no table row covers needs a new row (see the module's comment). |
+| `Found no NVIDIA driver` / other `CUDA error:` | Environmental (driver/hardware) — a rebuild can NOT fix it; deliberately excluded from the rebuild signatures. | Driver install / hardware question, not an app fix. |
 
 ## Step 3 — the smoke-vs-Convert paradox
 
