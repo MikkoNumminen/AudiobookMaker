@@ -155,11 +155,10 @@ class TestClearChatterboxState:
         class _FakeFinder:
             """Make `import torch` raise ImportError for this test."""
 
-            def find_module(self, name, path=None):
-                return self if name == "torch" else None
-
-            def load_module(self, name):
-                raise ImportError("torch not installed (test shim)")
+            def find_spec(self, name, path=None, target=None):
+                if name == "torch":
+                    raise ImportError("torch not installed (test shim)")
+                return None
 
         sys.meta_path.insert(0, _FakeFinder())
         try:
@@ -234,11 +233,10 @@ class TestGpuMemStats:
         original_torch = sys.modules.pop("torch", None)
 
         class _FakeFinder:
-            def find_module(self, name, path=None):
-                return self if name == "torch" else None
-
-            def load_module(self, name):
-                raise ImportError("no torch in test")
+            def find_spec(self, name, path=None, target=None):
+                if name == "torch":
+                    raise ImportError("no torch in test")
+                return None
 
         sys.meta_path.insert(0, _FakeFinder())
         try:
@@ -814,19 +812,19 @@ class TestRatioBadness:
 class _RaisingFinder:
     """meta_path hook that makes ``import <target>`` raise the given error.
 
-    Mirrors the _FakeFinder pattern used elsewhere in this file (find_module/
-    load_module is deprecated but still honoured on the 3.11 runtime).
+    Mirrors the _FakeFinder pattern used elsewhere in this file. It raises
+    from find_spec because Python 3.12 stopped calling the legacy
+    find_module/load_module pair, which silently disarmed the fake there.
     """
 
     def __init__(self, target: str, exc: BaseException) -> None:
         self._target = target
         self._exc = exc
 
-    def find_module(self, name, path=None):  # noqa: D401 - import hook protocol
-        return self if name == self._target else None
-
-    def load_module(self, name):
-        raise self._exc
+    def find_spec(self, name, path=None, target=None):  # noqa: D401 - import hook protocol
+        if name == self._target:
+            raise self._exc
+        return None
 
 
 class TestMainEngineLoadFailure:
