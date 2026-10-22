@@ -150,6 +150,24 @@ class TestInstallerPipSteps:
         argvs, _ = _pip_argvs(CU128, installed="2.8.0+cu128", tmp_path=tmp_path)
         assert "--force-reinstall" not in _torch_argv(argvs)
 
+    def test_repair_keeps_a_working_build_when_the_probe_fails(self, tmp_path) -> None:
+        # Through the real selector: nvidia-smi gives no capability this once,
+        # and the venv already holds the cu128 build. Repair must not take it
+        # back to cu124.
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+        gpu_patch, caps_patch = _machine(True, [])
+        with gpu_patch, caps_patch, \
+             mock.patch.object(inst, "_installed_torch_version",
+                               return_value=CU128.local_version), \
+             mock.patch.object(
+                 ei, "_run_subprocess", return_value=MagicMock(returncode=0)
+             ) as run:
+            inst._pip_install(tmp_path / "py.exe", lambda _p: None,
+                              threading.Event(), force=True)
+        torch_argv = _torch_argv([c.args[0] for c in run.call_args_list])
+        assert "torch==2.8.0" in torch_argv and CU128.index_url in torch_argv
+        assert "--force-reinstall" not in torch_argv
+
     def test_repair_keeps_no_deps_for_every_build(self, tmp_path) -> None:
         for build in (CU124, CU128):
             argvs, _ = _pip_argvs(build, force=True, tmp_path=tmp_path)
