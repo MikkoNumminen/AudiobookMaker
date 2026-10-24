@@ -1125,6 +1125,11 @@ class ChatterboxInstaller(EngineInstaller):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                # The child writes UTF-8 (isolated_python_env sets it). The
+                # default here is the ANSI codepage, which would garble a
+                # non-ASCII path and can raise on bytes it has no mapping for.
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 env=isolated_python_env(),
             )

@@ -482,6 +482,38 @@ class TestSmokeProbesRealRunner:
         assert "PYTHONPATH" not in captured["env"]
         assert captured["env"]["PYTHONNOUSERSITE"] == "1"
 
+    def test_smoke_passes_from_a_folder_cp1252_cannot_encode(
+        self, tmp_path, monkeypatch
+    ):
+        # Field report: an install folder named "├ä├ñnikirjat" (a garbled
+        # "Äänikirjat"). The runner prints its own path first thing; with a
+        # piped stdout in the ANSI codepage that print raised
+        # UnicodeEncodeError, so every Repair failed its smoke test. This
+        # script does NOT fix its own encoding, so the launch has to.
+        import sys
+
+        import src.engine_installer as ei
+
+        # A developer machine that sets these globally hides the bug.
+        monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+        monkeypatch.delenv("PYTHONUTF8", raising=False)
+        folder = tmp_path / "├ä├ñnikirjat"
+        folder.mkdir()
+        script = folder / "runner.py"
+        script.write_text(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "print(f'[runner] build x @ {Path(__file__).resolve()}', flush=True)\n"
+            "print('OK')\n",
+            encoding="utf-8",
+        )
+        inst = ChatterboxInstaller(venv_path=tmp_path / "venv")
+
+        with patch.object(ei, "RUNNER_SCRIPT_PATH", script):
+            err = inst._smoke_test(Path(sys.executable), threading.Event())
+
+        assert err is None
+
 
 class TestCorruptionSignature:
     """_smoke_error_looks_like_corruption: rebuild on wrong-build/missing
