@@ -528,7 +528,6 @@ class ChatterboxRunner:
 
         env = isolated_python_env()
         env["PYTHONUNBUFFERED"] = "1"
-        env["PYTHONIOENCODING"] = "utf-8"
         # Silence tqdm progress bars from HuggingFace downloads — their
         # carriage returns would pollute the line-based parser.
         env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
@@ -855,6 +854,14 @@ def isolated_python_env() -> dict:
     for leak in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"):
         env.pop(leak, None)
     env["PYTHONNOUSERSITE"] = "1"
+    # A piped stdout on Windows defaults to the ANSI codepage (cp1252), and
+    # the runner prints its own path first thing. An install folder whose
+    # name cp1252 cannot encode killed the smoke test with
+    # UnicodeEncodeError before it checked anything, so Repair could never
+    # pass on that machine while Convert (which already set this) worked.
+    # ":replace" so a lone surrogate (possible in a Windows file name) prints
+    # as "?" instead of raising, the same as the runner's own reconfigure.
+    env["PYTHONIOENCODING"] = "utf-8:replace"
     return env
 
 

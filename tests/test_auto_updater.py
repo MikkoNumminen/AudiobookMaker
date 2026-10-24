@@ -1451,16 +1451,22 @@ class TestApplyUpdateClosesOrphans:
         def fake_exit(_code):
             raise _ExitCalled()
 
+        popen_kwargs = {}
+
+        def fake_popen(*_a, **k):
+            popen_kwargs.update(k)
+
         # Popen is a no-op (so the .bat is written and NOT cleaned up); os._exit
         # is intercepted so the test process survives and the .bat persists.
-        with patch("src.auto_updater.subprocess.Popen", lambda *a, **k: None), \
+        with patch("src.auto_updater.subprocess.Popen", fake_popen), \
              patch("src.auto_updater._write_pending_marker", lambda *a, **k: None), \
              patch("src.auto_updater.os._exit", fake_exit):
             with pytest.raises(_ExitCalled):
                 auto_updater.apply_update(fake_installer)
 
         bat = (tmp_path / "audiobookmaker_relaunch.bat").read_text(encoding="utf-8")
-        assert 'taskkill /F /IM "CustomName.exe"' in bat, bat
+        assert 'taskkill /F /IM "%ABM_APPEXE_NAME%"' in bat, bat
+        assert popen_kwargs["env"]["ABM_APPEXE_NAME"] == "CustomName.exe"
         # And it must precede the installer invocation (else it can't unlock).
         assert bat.index("taskkill") < bat.index("/VERYSILENT"), (
             "taskkill must run before the silent install"
@@ -1503,6 +1509,76 @@ class TestApplyUpdateClosesOrphans:
         assert 'set "EXITCODE=%ERRORLEVEL%"' in bat, bat
         assert '>"%RESULT%" echo {"exit_code": %EXITCODE%}' in bat, bat
         assert bat.index("EXITCODE") < bat.index('start "" "%APPEXE%"')
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="runs the relaunch .bat through cmd.exe"
+)
+class TestRelaunchBatNonAsciiInstallDir:
+    """Field report: an app installed under "Äänikirjat" relaunched from a
+    new "├ä├ñnikirjat" folder after an auto-update. The .bat carried the path
+    as UTF-8 and cmd.exe decoded it in the OEM codepage, so the silent install
+    went to the garbled folder. This runs the generated .bat's own variable
+    setup in a real cmd.exe and checks the path still resolves."""
+
+    def test_install_dir_reaches_cmd_intact(self, tmp_path, monkeypatch):
+        import subprocess
+        from unittest.mock import patch
+        from src import auto_updater
+
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+        monkeypatch.setattr("src.auto_updater.UPDATE_RESULT", tmp_path / "result.json")
+        fake_installer = tmp_path / "installer.exe"
+        fake_installer.write_bytes(b"fake")
+        app_dir = tmp_path / "Äänikirjat" / "AudiobookMaker"
+        (app_dir / "_internal" / "assets").mkdir(parents=True)
+        (app_dir / "_internal" / "assets" / "icon.png").write_bytes(b"\x89PNG")
+        app_exe = app_dir / "AudiobookMaker.exe"
+        app_exe.write_bytes(b"fake")
+        monkeypatch.setattr("src.auto_updater.sys.executable", str(app_exe))
+        fake_single_instance = type("M", (), {"release": staticmethod(lambda: None)})()
+        monkeypatch.setitem(sys.modules, "src.single_instance", fake_single_instance)
+
+        class _ExitCalled(Exception):
+            pass
+
+        def fake_exit(_code):
+            raise _ExitCalled()
+
+        popen_kwargs = {}
+
+        def fake_popen(*_a, **k):
+            popen_kwargs.update(k)
+
+        with patch("src.auto_updater.subprocess.Popen", fake_popen), \
+             patch("src.auto_updater._write_pending_marker", lambda *a, **k: None), \
+             patch("src.auto_updater.os._exit", fake_exit):
+            with pytest.raises(_ExitCalled):
+                auto_updater.apply_update(fake_installer)
+
+        bat = (tmp_path / "audiobookmaker_relaunch.bat").read_bytes().decode("ascii")
+        # Keep the script's variable setup (everything before the first blank
+        # line), then check the variables the installer and relaunch use.
+        setup = bat.split("\r\n\r\n")[0]
+        probe = tmp_path / "probe.bat"
+        found = tmp_path / "found.txt"
+        probe.write_bytes(
+            (
+                setup + "\r\n"
+                f'if exist "%APPDIR%\\AudiobookMaker.exe" if exist "%APPEXE%" '
+                f'echo ok>"{found}"\r\n'
+            ).encode("ascii")
+        )
+        # CREATE_NO_WINDOW like the real launch: a fresh console starts in the
+        # system OEM codepage. Inheriting a UTF-8 (65001) developer console
+        # would make even the old in-file path resolve.
+        subprocess.run(
+            ["cmd.exe", "/c", str(probe)], env=popen_kwargs["env"], timeout=30,
+            check=True, creationflags=subprocess.CREATE_NO_WINDOW,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        assert found.exists(), "cmd.exe could not resolve the non-ASCII install dir"
 
 
 class TestInstallConsistency:

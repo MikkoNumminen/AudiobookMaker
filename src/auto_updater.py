@@ -940,7 +940,9 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         '$timer.Add_Tick({ $form.Close() })\n'
         '$timer.Start()\n'
         '$form.ShowDialog() | Out-Null\n',
-        encoding="utf-8",
+        # With a BOM: Windows PowerShell 5.1 reads a BOM-less script in the
+        # ANSI codepage and would garble a non-ASCII icon path.
+        encoding="utf-8-sig",
     )
 
     # Guard the f-string substitutions below — any batch metacharacter in
@@ -960,14 +962,33 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
     except OSError as exc:
         logger.debug("Could not create update-result dir: %s", exc)
 
+    # The paths reach the script through its environment, never through the
+    # file. cmd.exe decodes a .bat in the OEM codepage (cp850 on Finnish
+    # Windows), so a UTF-8 "Äänikirjat" baked into the file arrived as
+    # "├ä├ñnikirjat": the silent install went to that new folder and the app
+    # relaunched from it, one more layer of garbling on every update.
+    # Environment variables are UTF-16, so they reach the installer intact
+    # whatever the codepage. The same holds for a non-ASCII user name in
+    # %TEMP% and in UPDATE_RESULT.
+    script_env = {
+        **os.environ,
+        "ABM_INSTALLER": str(installer_path),
+        "ABM_APPEXE": app_exe,
+        "ABM_APPDIR": current_install_dir,
+        "ABM_LOG": str(log_file),
+        "ABM_SPLASH": str(splash_ps1),
+        "ABM_RESULT": str(UPDATE_RESULT),
+        "ABM_APPEXE_NAME": app_exe_name,
+    }
+
     lines = [
         "@echo off",
-        f'set "INSTALLER={installer_path}"',
-        f'set "APPEXE={app_exe}"',
-        f'set "APPDIR={current_install_dir}"',
-        f'set "LOG={log_file}"',
-        f'set "SPLASH={splash_ps1}"',
-        f'set "RESULT={UPDATE_RESULT}"',
+        'set "INSTALLER=%ABM_INSTALLER%"',
+        'set "APPEXE=%ABM_APPEXE%"',
+        'set "APPDIR=%ABM_APPDIR%"',
+        'set "LOG=%ABM_LOG%"',
+        'set "SPLASH=%ABM_SPLASH%"',
+        'set "RESULT=%ABM_RESULT%"',
         "",
         'echo [%date% %time%] Update script started >> "%LOG%"',
         # Bring up the splash immediately (fire-and-forget — has its own
@@ -982,7 +1003,7 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         # multi-instance jam (observed in the field). Killing our own image by
         # name is safe here: the only thing that starts the app again is the
         # relaunch below, which runs after the install completes.
-        f'taskkill /F /IM "{app_exe_name}" >NUL 2>&1',
+        'taskkill /F /IM "%ABM_APPEXE_NAME%" >NUL 2>&1',
         "waitfor /t 2 AudiobookMakerSettle 2>NUL",
         'echo [%date% %time%] Running installer... >> "%LOG%"',
         '"%INSTALLER%" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="%APPDIR%"',
@@ -1000,7 +1021,8 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         'echo [%date% %time%] Done. >> "%LOG%"',
         'del "%~f0"',
     ]
-    relaunch_bat.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-8"))
+    # ASCII on purpose: anything else would be decoded in the OEM codepage.
+    relaunch_bat.write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
 
     # If Popen raises (e.g. cmd.exe missing, OSError, permission denied),
     # the splash .ps1 and relaunch .bat we just wrote would leak into
@@ -1011,6 +1033,7 @@ def apply_update(installer_path: Path, expected_version: str = "") -> None:
         subprocess.Popen(
             ["cmd.exe", "/c", str(relaunch_bat)],
             creationflags=subprocess.CREATE_NO_WINDOW,
+            env=script_env,
         )
     except BaseException:
         splash_ps1.unlink(missing_ok=True)
