@@ -915,6 +915,8 @@ class TestSelftest:
         )
         monkeypatch.setattr(sys, "argv", ["gca", "--selftest"])
 
+        # What the script does at startup, before the module-level prints.
+        gca._force_utf8_stdio()
         with patch.object(gca, "_selftest", return_value=0):
             code = gca.main()
 

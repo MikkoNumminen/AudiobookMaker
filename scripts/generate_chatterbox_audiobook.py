@@ -160,7 +160,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-10-25.1"
+RUNNER_BUILD = "2026-10-25.2"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -171,6 +171,28 @@ RUNNER_BUILD = "2026-10-25.1"
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.append(str(_REPO_ROOT))
+
+
+def _force_utf8_stdio() -> None:
+    """Make stdout/stderr UTF-8 before anything prints.
+
+    A piped stdout on Windows defaults to cp1252, and the runner prints its
+    own path (the build stamp, and the ffmpeg setup warning below). An install
+    folder name cp1252 cannot encode crashed the runner on that first print
+    whenever the launcher had not set PYTHONIOENCODING; the installer's smoke
+    test had not, so Repair always failed on such a machine.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
+
+# Only as a script: tests import this module, and reconfiguring pytest's own
+# streams at import time would leak into every other test.
+if __name__ == "__main__":
+    _force_utf8_stdio()
 
 # Point pydub at our bundled ffmpeg/ffprobe. Without this the final MP3
 # assembly step fails with FileNotFoundError when the Chatterbox venv
@@ -2298,17 +2320,6 @@ def _ensure_flow_token_clamp() -> None:
 
 
 def main() -> int:
-    # Before the first print: a piped stdout on Windows defaults to cp1252,
-    # and the build stamp below prints this script's path. An install folder
-    # name cp1252 cannot encode crashed the runner right here whenever the
-    # launcher had not set PYTHONIOENCODING (the installer's smoke test did
-    # not, so Repair always failed on such a machine).
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, OSError):
-            pass
-
     args = parse_args()
 
     # Always identify which copy of this script is executing — a frozen
