@@ -898,6 +898,30 @@ class TestSelftest:
         # Provenance: every run identifies WHICH copy of the script executed.
         assert f"[runner] build {gca.RUNNER_BUILD} @" in out
 
+    def test_stamp_survives_a_path_the_console_codepage_cannot_encode(
+        self, monkeypatch
+    ):
+        # Field report: the runner lived under "├ä├ñnikirjat" and was launched
+        # with a cp1252 stdout pipe. The stamp print raised
+        # UnicodeEncodeError before anything else ran.
+        import io
+
+        out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        err = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        monkeypatch.setattr(sys, "stdout", out)
+        monkeypatch.setattr(sys, "stderr", err)
+        monkeypatch.setattr(
+            gca, "__file__", str(Path("E:/├ä├ñnikirjat/scripts/runner.py"))
+        )
+        monkeypatch.setattr(sys, "argv", ["gca", "--selftest"])
+
+        with patch.object(gca, "_selftest", return_value=0):
+            code = gca.main()
+
+        assert code == 0
+        out.flush()
+        assert "├ä├ñnikirjat" in out.buffer.getvalue().decode("utf-8")
+
     def test_main_prints_stamp_on_normal_runs_too(self, monkeypatch, capsys):
         # No input args -> main exits early with the usage error, but the
         # stamp must already be on stdout (diagnosis works on every log).

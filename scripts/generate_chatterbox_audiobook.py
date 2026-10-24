@@ -160,7 +160,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-10-22.1"
+RUNNER_BUILD = "2026-10-25.1"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -2298,6 +2298,17 @@ def _ensure_flow_token_clamp() -> None:
 
 
 def main() -> int:
+    # Before the first print: a piped stdout on Windows defaults to cp1252,
+    # and the build stamp below prints this script's path. An install folder
+    # name cp1252 cannot encode crashed the runner right here whenever the
+    # launcher had not set PYTHONIOENCODING (the installer's smoke test did
+    # not, so Repair always failed on such a machine).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
     args = parse_args()
 
     # Always identify which copy of this script is executing — a frozen
