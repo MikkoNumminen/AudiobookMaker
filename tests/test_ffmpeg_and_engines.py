@@ -225,6 +225,10 @@ class TestApplyUpdateBatchScript:
 
     def _generate_batch(self, tmp_path: Path) -> str:
         """Run apply_update with mocks and return the batch file contents."""
+        return self._generate_batch_and_env(tmp_path)[0]
+
+    def _generate_batch_and_env(self, tmp_path: Path) -> tuple[str, dict]:
+        """Run apply_update with mocks; return the batch file and its env."""
         from src.auto_updater import apply_update
 
         installer = tmp_path / "AudiobookMaker-Setup-3.0.0.exe"
@@ -244,7 +248,7 @@ class TestApplyUpdateBatchScript:
             mock_popen.assert_called_once()
 
         assert bat_path.exists()
-        return bat_path.read_bytes().decode("utf-8")
+        return bat_path.read_bytes().decode("ascii"), mock_popen.call_args.kwargs["env"]
 
     def test_batch_uses_crlf_line_endings(self, tmp_path: Path) -> None:
         content = self._generate_batch(tmp_path)
@@ -260,18 +264,21 @@ class TestApplyUpdateBatchScript:
         content = self._generate_batch(tmp_path)
         assert "/VERYSILENT" in content
 
-    def test_batch_contains_installer_path(self, tmp_path: Path) -> None:
-        content = self._generate_batch(tmp_path)
-        assert "AudiobookMaker-Setup-3.0.0.exe" in content
+    def test_batch_gets_installer_path_from_its_env(self, tmp_path: Path) -> None:
+        # The path travels in the environment, not the file: cmd.exe would
+        # decode a non-ASCII path in the file in the OEM codepage.
+        content, env = self._generate_batch_and_env(tmp_path)
+        assert env["ABM_INSTALLER"].endswith("AudiobookMaker-Setup-3.0.0.exe")
+        assert 'set "INSTALLER=%ABM_INSTALLER%"' in content
 
     def test_batch_contains_start_command(self, tmp_path: Path) -> None:
         content = self._generate_batch(tmp_path)
         assert 'start ""' in content
 
     def test_batch_contains_log_output(self, tmp_path: Path) -> None:
-        content = self._generate_batch(tmp_path)
+        content, env = self._generate_batch_and_env(tmp_path)
         assert ">> \"%LOG%\"" in content
-        assert "audiobookmaker_update.log" in content
+        assert env["ABM_LOG"].endswith("audiobookmaker_update.log")
 
     def test_batch_launches_splash_before_installer(self, tmp_path: Path) -> None:
         """During the install phase the user must see the goat splash so
