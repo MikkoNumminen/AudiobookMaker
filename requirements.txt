@@ -22,7 +22,7 @@ ebooklib==0.20
 beautifulsoup4==4.14.3
 
 # Text-to-speech
-edge-tts==7.2.8
+edge-tts==7.3.1
 
 # Offline neural TTS (Piper). Voice models (~60MB each) are downloaded
 # to ~/.audiobookmaker/piper_voices/ on first use, not bundled.
