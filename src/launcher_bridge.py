@@ -859,7 +859,9 @@ def isolated_python_env() -> dict:
     # name cp1252 cannot encode killed the smoke test with
     # UnicodeEncodeError before it checked anything, so Repair could never
     # pass on that machine while Convert (which already set this) worked.
-    env["PYTHONIOENCODING"] = "utf-8"
+    # ":replace" so a lone surrogate (possible in a Windows file name) prints
+    # as "?" instead of raising, the same as the runner's own reconfigure.
+    env["PYTHONIOENCODING"] = "utf-8:replace"
     return env
 
 

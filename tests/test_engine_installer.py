@@ -489,6 +489,22 @@ class _FakePipe:
 
 
 class TestRunSubprocess:
+    def test_non_ascii_output_survives_the_ansi_codepage(self, monkeypatch) -> None:
+        # pip prints install paths. Under a cp1252 stdout a path like
+        # "├ä├ñnikirjat" raised in the child, and "ā" (UTF-8 C4 81, no cp1252
+        # mapping for 0x81) raised in the parent's decode.
+        import sys
+
+        monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+        monkeypatch.delenv("PYTHONUTF8", raising=False)
+
+        result = _run_subprocess(
+            [sys.executable, "-c", "print('├ä├ñnikirjat ā')"]
+        )
+
+        assert result.returncode == 0, result.stdout
+        assert result.stdout == "├ä├ñnikirjat ā"
+
     def test_streams_output_to_callback(self) -> None:
         events: list[InstallProgress] = []
 

@@ -574,12 +574,18 @@ def _run_subprocess(
     gets a safe default so a hung pip never freezes the install modal
     indefinitely.
     """
-    merged_env = {**os.environ, **(env or {})}
+    # Every caller runs the venv python (pip, the model prefetch). Have it
+    # write UTF-8 and read it back as UTF-8: pip prints install paths, and a
+    # name the ANSI codepage cannot encode would otherwise raise in the child
+    # or come back garbled in the progress text.
+    merged_env = {**os.environ, "PYTHONIOENCODING": "utf-8:replace", **(env or {})}
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
         env=merged_env,
     )
@@ -1363,10 +1369,16 @@ class ChatterboxInstaller(EngineInstaller):
             return self._venv_python
 
         self._venv_path.parent.mkdir(parents=True, exist_ok=True)
+        from src.launcher_bridge import isolated_python_env
+
         result = subprocess.run(
             [str(python_exe), "-m", "venv", str(self._venv_path)],
             capture_output=True,
             text=True,
+            # Its error text can carry the venv path; see _smoke_test.
+            encoding="utf-8",
+            errors="replace",
+            env=isolated_python_env(),
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -1404,12 +1416,18 @@ class ChatterboxInstaller(EngineInstaller):
         None when torch is missing, broken or can't be probed — the normal
         install and the smoke-test + rebuild path handle those.
         """
+        from src.launcher_bridge import isolated_python_env
+
         try:
             proc = subprocess.run(
                 [str(venv_py), "-c", "import torch; print(torch.__version__)"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=60,
+                # The venv's own torch, as synthesis would import it.
+                env=isolated_python_env(),
             )
         except Exception:
             return None

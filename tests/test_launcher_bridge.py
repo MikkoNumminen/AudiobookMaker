@@ -434,7 +434,7 @@ class TestRunnerConstruction:
         assert env["PATH"] == "/usr/bin"
         # Convert and the installer's smoke test both read the runner's
         # output as UTF-8; the ANSI default crashed on non-ASCII paths.
-        assert env["PYTHONIOENCODING"] == "utf-8"
+        assert env["PYTHONIOENCODING"] == "utf-8:replace"
 
     def test_frozen_candidates_prefer_managed_venv_over_exe_dir(
         self, monkeypatch
