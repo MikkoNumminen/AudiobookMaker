@@ -292,7 +292,7 @@ begin
     KeepDirStartApp();
 
     // Only refresh associations if the user opted in to the pdfassoc task.
-    if IsTaskSelected('pdfassoc') then
+    if WizardIsTaskSelected('pdfassoc') then
     begin
       // Tell the shell that file associations have changed. This causes
       // Explorer to refresh icons and default-program information.
