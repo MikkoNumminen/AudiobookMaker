@@ -60,6 +60,42 @@ def _acquire_windows_mutex() -> bool:
         return True  # If mutex fails, allow the app to run.
 
 
+def _pid_alive(pid: int) -> bool:
+    """True when a process with this PID is running.
+
+    Not ``os.kill(pid, 0)`` on Windows: there signal 0 is CTRL_C_EVENT, so
+    the call sends Ctrl+C to a console process group instead of probing.
+    Given our own PID it interrupted the whole console, which killed test
+    runs (and the shell around them) without a trace.
+    """
+    import os
+
+    if sys.platform == "win32":
+        import ctypes
+
+        if not 0 < pid <= 0xFFFFFFFF:
+            return False  # not a Windows PID; ctypes would raise on it
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True  # it exists; only its state is unreadable
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 def _acquire_lock_file() -> bool:
     """Try to create a lock file. Returns True if no other instance holds it.
 
@@ -95,25 +131,26 @@ def _acquire_lock_file() -> bool:
 
         # Lock exists — check if the PID in it is still alive.
         try:
-            pid = int(_lock_file.read_text().strip())
-            # os.kill(pid, 0) raises OSError if process doesn't exist.
-            os.kill(pid, 0)
+            owner_alive = _pid_alive(int(_lock_file.read_text().strip()))
+        except (ValueError, OSError):
+            owner_alive = False  # unreadable or garbage: treat as stale
+        if owner_alive:
             return False  # Process is still running.
-        except (ValueError, OSError, PermissionError):
-            # Stale lock file — owner is gone. Remove it and retry the
-            # exclusive create. If another process beats us to the retry
-            # (unlinks + recreates between our unlink and our open), our
-            # open("x") fails with FileExistsError and we back off.
-            try:
-                _lock_file.unlink()
-            except OSError:
-                # Someone else already unlinked it; that's fine.
-                pass
-            if _try_create_exclusive():
-                return True
-            # Lost the takeover race to another instance. It holds the
-            # lock now; we are the second instance.
-            return False
+
+        # Stale lock file — owner is gone. Remove it and retry the
+        # exclusive create. If another process beats us to the retry
+        # (unlinks + recreates between our unlink and our open), our
+        # open("x") fails with FileExistsError and we back off.
+        try:
+            _lock_file.unlink()
+        except OSError:
+            # Someone else already unlinked it; that's fine.
+            pass
+        if _try_create_exclusive():
+            return True
+        # Lost the takeover race to another instance. It holds the
+        # lock now; we are the second instance.
+        return False
     except OSError:
         return True  # If lock file fails, allow the app to run.
 
