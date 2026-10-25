@@ -136,8 +136,19 @@ def end_to_end(runner, engine, ref_wav) -> bool:
         return results
 
     library = generate_all()
-    install(engine)
+    if not install(engine):
+        print("[end-to-end] FAIL: the fast decoder did not install (see the line above)")
+        return False
     fast = generate_all()
+    # Without this, a silent fallback would compare the library with itself
+    # and pass.
+    state = engine.t3.inference.fast_decode_state
+    graphs = sorted(engine.t3.inference.fast_decoder.graphs)
+    if not state["enabled"] or not graphs:
+        print(f"[end-to-end] FAIL: the fast decoder fell back to the library loop "
+              f"(enabled={state['enabled']}, graphs={graphs})")
+        return False
+    print(f"[end-to-end] fast decoder stayed on, graphs {graphs}")
     ok = True
     for i, ((lib_wav, lib_s), (fast_wav, fast_s)) in enumerate(zip(library, fast)):
         same = lib_wav.shape == fast_wav.shape and torch.equal(lib_wav, fast_wav)
