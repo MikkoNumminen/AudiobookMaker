@@ -160,7 +160,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-10-25.2"
+RUNNER_BUILD = "2026-10-25.3"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -729,9 +729,43 @@ def _gpu_arch_mismatch(torch) -> list[str]:
     ]
 
 
+def _select_gpu(torch):
+    """Make the GPU this run should use the current CUDA device.
+
+    Returns ``(gpus, chosen)``: every CUDA device found, and the chosen one
+    (None when the installed torch build runs on none of them). Selecting it
+    as the current device makes every later plain ``"cuda"`` (the engine
+    load, the selftest kernel) land on it. Rule: src/torch_builds.pick_gpu.
+    """
+    from src.torch_builds import GpuSpec, pick_gpu
+
+    gpus = []
+    for index in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(index)
+        gpus.append(GpuSpec(
+            index=index,
+            name=props.name,
+            capability=(props.major, props.minor),
+            sm_count=props.multi_processor_count,
+            memory_bytes=props.total_memory,
+        ))
+    chosen = pick_gpu(gpus, torch.cuda.get_arch_list())
+    if chosen is not None:
+        torch.cuda.set_device(chosen.index)
+    return gpus, chosen
+
+
 def _resolve_device(requested: str) -> str:
     import torch
     if requested in ("auto", "cuda") and torch.cuda.is_available():
+        gpus, chosen = _select_gpu(torch)
+        if chosen is not None:
+            if len(gpus) > 1:
+                for gpu in gpus:
+                    print(f"[setup] found GPU {gpu.index}: {gpu.describe()}",
+                          flush=True)
+            print(f"[setup] GPU in use: {chosen.describe()}", flush=True)
+            return "cuda"
         mismatch = _gpu_arch_mismatch(torch)
         if not mismatch:
             return "cuda"
@@ -2175,7 +2209,8 @@ def _selftest() -> int:
             # A torch build without kernels for this GPU must fail here, with
             # the reason, rather than mid-conversion. The kernel launch below
             # alone would catch it, but only as "no kernel image".
-            mismatch = _gpu_arch_mismatch(torch)
+            _gpus, chosen = _select_gpu(torch)
+            mismatch = [] if chosen is not None else _gpu_arch_mismatch(torch)
             if mismatch:
                 for line in mismatch:
                     print(f"[error] {line}", flush=True)

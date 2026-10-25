@@ -214,8 +214,15 @@ class TestStandaloneInstaller:
 # ---------------------------------------------------------------------------
 
 
+def _props(name, capability, sm_count=48, memory_gb=12):
+    return SimpleNamespace(name=name, major=capability[0], minor=capability[1],
+                           multi_processor_count=sm_count,
+                           total_memory=memory_gb * 2**30)
+
+
 def _fake_torch(*, available=True, capability=(12, 0), build=CU124,
-                name="NVIDIA GeForce RTX 5070"):
+                name="NVIDIA GeForce RTX 5070", gpus=None):
+    """torch with CUDA mocked. ``gpus`` lists extra devices as _props()."""
     torch = MagicMock()
     torch.__version__ = build.local_version
     torch.version = SimpleNamespace(cuda="12.x" if build.is_cuda else None)
@@ -224,6 +231,9 @@ def _fake_torch(*, available=True, capability=(12, 0), build=CU124,
     torch.cuda.get_device_capability.return_value = capability
     torch.cuda.get_device_name.return_value = name
     torch.cuda.get_arch_list.return_value = list(build.arch_list)
+    devices = gpus if gpus is not None else [_props(name, capability)]
+    torch.cuda.device_count.return_value = len(devices) if available else 0
+    torch.cuda.get_device_properties.side_effect = lambda index: devices[index]
     return torch
 
 
@@ -255,6 +265,43 @@ class TestPreflightDecision:
                 "capability=12.0; torch=2.6.0+cu124") in out.splitlines()
         assert all(line.startswith(("[warn]", "[setup] gpu fallback:"))
                    for line in out.splitlines())
+
+    def test_names_the_gpu_in_use(self, capsys) -> None:
+        torch = _fake_torch(capability=(12, 0), build=CU128,
+                            name="NVIDIA GeForce RTX 5060 Ti")
+        with mock.patch.dict(sys.modules, {"torch": torch}):
+            assert gca._resolve_device("auto") == "cuda"
+        out = capsys.readouterr().out
+        assert "[setup] GPU in use: NVIDIA GeForce RTX 5060 Ti" in out
+        assert "found GPU" not in out  # one card: no inventory
+        torch.cuda.set_device.assert_called_once_with(0)
+
+    def test_new_card_is_used_when_the_old_one_is_still_installed(self, capsys) -> None:
+        # GTX 1080 still in slot 0 next to the new RTX 5060 Ti; cu128 runs on
+        # both. The run must land on the new card, and the log says so.
+        torch = _fake_torch(build=CU128, gpus=[
+            _props("NVIDIA GeForce GTX 1080", (6, 1), sm_count=20, memory_gb=8),
+            _props("NVIDIA GeForce RTX 5060 Ti", (12, 0), sm_count=36, memory_gb=16),
+        ])
+        with mock.patch.dict(sys.modules, {"torch": torch}):
+            assert gca._resolve_device("auto") == "cuda"
+        torch.cuda.set_device.assert_called_once_with(1)
+        out = capsys.readouterr().out
+        assert "[setup] found GPU 0: NVIDIA GeForce GTX 1080" in out
+        assert "[setup] found GPU 1: NVIDIA GeForce RTX 5060 Ti" in out
+        assert "[setup] GPU in use: NVIDIA GeForce RTX 5060 Ti" in out
+        assert "[warn]" not in out
+
+    def test_unsupported_first_card_does_not_force_the_cpu(self) -> None:
+        # cu124 cannot run the 5060 Ti in slot 0 but can run the 3080 in
+        # slot 1: use the 3080 instead of falling back to the CPU.
+        torch = _fake_torch(build=CU124, gpus=[
+            _props("NVIDIA GeForce RTX 5060 Ti", (12, 0)),
+            _props("NVIDIA GeForce RTX 3080", (8, 6)),
+        ])
+        with mock.patch.dict(sys.modules, {"torch": torch}):
+            assert gca._resolve_device("auto") == "cuda"
+        torch.cuda.set_device.assert_called_once_with(1)
 
     def test_mismatch_is_not_mistaken_for_a_broken_venv(self, capsys) -> None:
         # The installer rebuilds the venv (~30 min) on corruption-shaped smoke
@@ -313,6 +360,15 @@ class TestSelftest:
         assert _selftest_with(torch) == 0
         torch.ones.assert_called_once()
         assert "OK" in capsys.readouterr().out
+
+    def test_kernel_runs_on_the_card_synthesis_will_use(self) -> None:
+        torch = _fake_torch(build=CU124, gpus=[
+            _props("NVIDIA GeForce RTX 5060 Ti", (12, 0)),
+            _props("NVIDIA GeForce RTX 3080", (8, 6)),
+        ])
+        assert _selftest_with(torch) == 0
+        torch.cuda.set_device.assert_called_once_with(1)
+        torch.ones.assert_called_once()
 
     def test_cpu_build_skips_the_gpu(self, capsys) -> None:
         torch = _fake_torch(available=False, build=CPU_BUILD)

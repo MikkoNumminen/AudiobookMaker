@@ -16,9 +16,11 @@ from src.torch_builds import (
     CHATTERBOX_DECLARED_TORCH,
     CPU_BUILD,
     GPU_BUILDS,
+    GpuSpec,
     arch_list_covers,
     arch_runs_on,
     parse_capability,
+    pick_gpu,
     select_torch_build,
 )
 
@@ -183,3 +185,44 @@ def test_cpu_build() -> None:
     assert not CPU_BUILD.is_cuda
     assert CPU_BUILD.local_version == f"{CHATTERBOX_DECLARED_TORCH}+cpu"
     assert CPU_BUILD.index_url == "https://download.pytorch.org/whl/cpu"
+
+
+# ---------------------------------------------------------------------------
+# Which GPU synthesis runs on
+# ---------------------------------------------------------------------------
+
+GTX_1080 = GpuSpec(0, "NVIDIA GeForce GTX 1080", (6, 1), 20, 8 * 2**30)
+RTX_5060_TI = GpuSpec(1, "NVIDIA GeForce RTX 5060 Ti", (12, 0), 36, 16 * 2**30)
+RTX_3080 = GpuSpec(0, "NVIDIA GeForce RTX 3080", (8, 6), 68, 10 * 2**30)
+
+
+def test_new_card_beats_the_old_one_left_in_the_machine() -> None:
+    # cu128 runs on both, so CUDA's own ordering would decide; pick_gpu must
+    # not leave the work on the older card.
+    assert pick_gpu([GTX_1080, RTX_5060_TI], CU128.arch_list) == RTX_5060_TI
+
+
+def test_only_gpus_the_build_runs_on_are_candidates() -> None:
+    # cu124 has no sm_120 kernels: the 1080 is the only card it can use.
+    assert pick_gpu([GTX_1080, RTX_5060_TI], CU124.arch_list) == GTX_1080
+
+
+def test_no_usable_gpu() -> None:
+    assert pick_gpu([RTX_5060_TI], CU124.arch_list) is None
+    assert pick_gpu([], CU128.arch_list) is None
+
+
+def test_more_multiprocessors_win_across_generations() -> None:
+    newer_but_smaller = GpuSpec(1, "RTX 5060 Ti", (12, 0), 36, 16 * 2**30)
+    assert pick_gpu([RTX_3080, newer_but_smaller], CU128.arch_list) == RTX_3080
+
+
+def test_identical_cards_use_the_first() -> None:
+    twin = GpuSpec(1, RTX_3080.name, RTX_3080.capability, 68, 10 * 2**30)
+    assert pick_gpu([twin, RTX_3080], CU124.arch_list) == RTX_3080
+
+
+def test_describe_names_the_card_and_its_size() -> None:
+    assert RTX_5060_TI.describe() == (
+        "NVIDIA GeForce RTX 5060 Ti (compute capability 12.0, 16 GB, 36 SMs)"
+    )
