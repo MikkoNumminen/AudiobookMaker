@@ -302,59 +302,24 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
-// UninstallPreviousVersion — Detect a previous AudiobookMaker install via
-// the Inno Setup uninstall registry key (same AppId), and silently remove
-// it before the new install proceeds.  This catches installs at ANY path —
-// Program Files, LocalAppData, C:\AudiobookMaker, D:\koodaamista\..., etc.
+// No "uninstall the previous version first" step, on purpose.
 //
-// User preferences in %LocalAppData%\AudiobookMaker\config.json are NOT
-// touched by the uninstaller (they live outside the install directory),
-// so all settings persist across reinstalls automatically.
+// There used to be one (UninstallPreviousVersion). It built the uninstall
+// key from the raw AppId setting, which keeps the [Setup] brace escape and
+// reads "{{GUID}_is1", so it never found the real "{GUID}_is1" key and never
+// ran (in HKCU, HKLM or HKLM32). It was deleted rather than fixed, because
+// a working version breaks the common case: Inno's uninstaller finishes from
+// a copy of itself in %TEMP%, so ewWaitUntilTerminated returns early, and its
+// last act deletes the unins000.exe the new install has just written. Tested
+// with a throwaway installer: every second in-place update left the app with
+// no uninstaller. In-place updates need no uninstall step anyway, since Inno
+// overwrites the files. The one case it was meant for, the app changing
+// folders, is what keep_install_dir.iss now prevents for the updater.
 // ---------------------------------------------------------------------------
-procedure UninstallPreviousVersion();
-var
-  UninstallString: String;
-  AppId: String;
-  ResultCode: Integer;
-  SubKey: String;
-begin
-  AppId := '{#SetupSetting("AppId")}' + '_is1';
-
-  // Per-user install (current default, HKCU) — and legacy admin HKLM entries
-  SubKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + AppId;
-
-  if RegQueryStringValue(HKCU, SubKey, 'UninstallString', UninstallString) or
-     RegQueryStringValue(HKLM, SubKey, 'UninstallString', UninstallString) or
-     RegQueryStringValue(HKLM32, SubKey, 'UninstallString', UninstallString) then
-  begin
-    // Strip surrounding quotes if present.
-    if (Length(UninstallString) >= 2) and
-       (UninstallString[1] = '"') and
-       (UninstallString[Length(UninstallString)] = '"') then
-    begin
-      UninstallString := Copy(UninstallString, 2, Length(UninstallString) - 2);
-    end;
-
-    if FileExists(UninstallString) then
-    begin
-      // Run the old uninstaller silently. Wait for it to finish before we
-      // start copying new files so there's no race with locked files.
-      Exec(
-        UninstallString,
-        '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES',
-        '',
-        SW_HIDE,
-        ewWaitUntilTerminated,
-        ResultCode
-      );
-    end;
-  end;
-end;
 
 // ---------------------------------------------------------------------------
 // InitializeSetup — Called before the installer wizard is shown.
-// Enforces Windows 10+ and triggers silent uninstall of any previous
-// AudiobookMaker install (any location).
+// Enforces Windows 10+ and decides the install folder (keep_install_dir.iss).
 // ---------------------------------------------------------------------------
 function InitializeSetup(): Boolean;
 var
@@ -376,12 +341,7 @@ begin
     exit;
   end;
 
-  // Must read the previous install folder before the uninstall deletes the
-  // registry key that records it.
   KeepDirDecide();
-
-  // Silently remove any previous AudiobookMaker install before proceeding.
-  UninstallPreviousVersion();
 
   Result := True;
 end;
