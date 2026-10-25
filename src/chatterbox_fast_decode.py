@@ -134,11 +134,18 @@ def write_marker(path: Path, reason: str) -> bool:
 
 
 def cuda_rng_usable(torch) -> bool:
-    """Can this process still sample on the GPU? False after a broken capture."""
+    """Can this process still sample on the GPU? False after a broken capture.
+
+    The probe draws from the default CUDA generator, so on success the
+    generator is put back: a recoverable failure must not shift the random
+    stream the library loop samples from next.
+    """
     try:
+        state = torch.cuda.get_rng_state()
         probs = torch.ones((1, 2), device=torch.device("cuda", torch.cuda.current_device()))
         torch.multinomial(probs, 1)
         torch.cuda.synchronize()
+        torch.cuda.set_rng_state(state)
     except Exception:  # RuntimeError on 2.6, AcceleratorError on 2.8
         return False
     return True

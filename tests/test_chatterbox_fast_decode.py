@@ -307,3 +307,18 @@ def test_unwritable_marker_says_how_to_turn_it_off(tmp_path, monkeypatch, chatte
         with pytest.raises(fd.FastDecodeBrokeCuda):
             fd._after_failure(chatterbox_heads, MagicMock(), RuntimeError("x"), lines.append)
     assert f"{fd.ENV_FLAG}=0" in lines[-1]
+
+
+def test_health_probe_puts_the_random_state_back() -> None:
+    torch = MagicMock()
+    torch.cuda.get_rng_state.return_value = "state before probe"
+    assert fd.cuda_rng_usable(torch) is True
+    torch.multinomial.assert_called_once()
+    torch.cuda.set_rng_state.assert_called_once_with("state before probe")
+
+
+def test_health_probe_reports_a_broken_generator() -> None:
+    torch = MagicMock()
+    torch.multinomial.side_effect = RuntimeError(
+        "Offset increment outside graph capture encountered unexpectedly.")
+    assert fd.cuda_rng_usable(torch) is False
