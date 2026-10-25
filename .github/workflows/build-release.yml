@@ -17,7 +17,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -56,7 +56,7 @@ jobs:
         shell: bash
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -363,6 +363,9 @@ jobs:
 
       - name: Upload installer artifact
         if: github.event_name == 'push'
+        # Stays on v4 (Node 20, forced onto Node 24 by this job) like the
+        # release action below: it runs on tag builds only, so a newer major
+        # would first be exercised in the middle of a release.
         uses: actions/upload-artifact@v4
         with:
           name: installer
@@ -526,7 +529,15 @@ jobs:
         if: github.event_name == 'push'
         # Pinned to a commit SHA (was @v2): this third-party action publishes
         # the release, so an upstream tag re-point can't change what runs.
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
+        #
+        # Stays on v2.6.2 (a Node 20 action) on purpose. The job forces Node 24
+        # (FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 above), and the 3.24.1 and 3.24.2
+        # releases proved its asset uploads under Node 24. v3.0.0 changes the
+        # code that streams the installer and its .sha256 sidecar to GitHub,
+        # which is the exact path auto-update depends on, and only a real tag
+        # build exercises it. Move to v3 only together with a check that
+        # downloads the published installer and compares its SHA-256.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           name: AudiobookMaker ${{ steps.version.outputs.VERSION }}
           body_path: release_notes.md
