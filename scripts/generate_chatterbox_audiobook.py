@@ -2570,6 +2570,12 @@ def main() -> int:
     engine, ref_wav_path = _load_engine(device, args.ref_audio,
                                          language=args.language,
                                          voice_pack_dir=voice_pack_dir)
+    if device == "cuda":
+        # The library's token loop is bound by Python, not the GPU; this
+        # replays each token as one CUDA graph instead. It falls back to the
+        # library's loop on its own if anything about it fails.
+        from src.chatterbox_fast_decode import install as install_fast_decode
+        install_fast_decode(engine, log=lambda line: print(line, flush=True))
     vad_model, get_speech_timestamps = _make_vad()
 
     wall_start = time.time()

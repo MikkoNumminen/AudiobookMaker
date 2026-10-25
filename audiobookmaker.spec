@@ -318,6 +318,7 @@ datas += [
     (os.path.join('src', 'ffmpeg_path.py'), 'src'),
     (os.path.join('src', '_yaml_data.py'), 'src'),
     (os.path.join('src', 'torch_builds.py'), 'src'),
+    (os.path.join('src', 'chatterbox_fast_decode.py'), 'src'),
 ]
 # Goat icon for the window title bar and taskbar
 datas += [(os.path.join('assets', 'icon.ico'), 'assets')]
