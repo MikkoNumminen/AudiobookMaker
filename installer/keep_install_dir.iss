@@ -26,8 +26,7 @@ var
   KeepDirPrevious: String;
   KeepDirReroute: Boolean;
 
-// Folder of the installed version, as Inno recorded it. Read before
-// UninstallPreviousVersion runs, because the uninstall deletes this key.
+// Folder of the installed version, as Inno recorded it.
 function KeepDirReadPrevious(): String;
 var
   SubKey: String;
@@ -117,7 +116,7 @@ begin
   Result := ChangedNonAscii;
 end;
 
-// Call from InitializeSetup, BEFORE UninstallPreviousVersion.
+// Call from InitializeSetup.
 procedure KeepDirDecide();
 var
   Requested: String;
