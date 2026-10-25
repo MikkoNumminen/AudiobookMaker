@@ -210,3 +210,43 @@ class TestRelease:
         single_instance.release()
         # Second release must not raise even though the file is already gone.
         single_instance.release()
+
+
+# ---------------------------------------------------------------------------
+# Owner liveness check
+# ---------------------------------------------------------------------------
+
+
+class TestPidAlive:
+    def test_own_process_is_alive(self) -> None:
+        assert single_instance._pid_alive(os.getpid()) is True
+
+    def test_exited_process_is_not_alive(self) -> None:
+        import subprocess
+        import sys
+
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        assert single_instance._pid_alive(proc.pid) is False
+
+    @pytest.mark.skipif(
+        __import__("sys").platform != "win32", reason="Windows-only signal semantics"
+    )
+    def test_owner_check_never_signals_on_windows(self, tmp_path: Path) -> None:
+        """os.kill(pid, 0) on Windows sends CTRL_C_EVENT to a console group.
+
+        With our own PID in the lock it interrupted the whole console: the
+        test run and the shell around it died without output. The check
+        must not touch os.kill at all there.
+        """
+        (tmp_path / "audiobookmaker.lock").write_text(str(os.getpid()))
+
+        with patch("os.kill", side_effect=AssertionError("os.kill called on Windows")):
+            assert single_instance._acquire_lock_file() is False
+
+    @pytest.mark.skipif(
+        __import__("sys").platform != "win32", reason="Windows PID range"
+    )
+    def test_out_of_range_number_is_not_alive_on_windows(self) -> None:
+        assert single_instance._pid_alive(2**40) is False
+        assert single_instance._pid_alive(-5) is False

@@ -143,14 +143,17 @@ fi
 # real engine end-to-end and are skipped by default in pre-commit.
 # They still run in full CI / manual `pytest` invocations.
 #
-# test_single_instance.py is ignored to match CI (both Windows test
-# workflows skip it): its concurrency test races real threads and flakes
-# (~1-in-3), so leaving it in would spuriously block commits with -x. The
-# retry-once above can't reliably absorb a coin-flip flake. Everything
-# else CI skips for headless-Windows reasons (GUI files, voice recorder)
-# passes deterministically on the dev box, so pre-commit keeps running it
-# for the extra local coverage.
-PYTEST_ARGS=(tests/ --ignore=tests/test_record_voice_sample.py --ignore=tests/test_single_instance.py -m "not slow" -x -q --tb=short)
+# test_single_instance.py runs here again. It used to be ignored as a
+# "~1-in-3 flake", but the cause was not the thread race: the lock-file
+# owner check called os.kill(pid, 0), which on Windows sends CTRL_C_EVENT,
+# and with our own PID in the lock it interrupted the whole console (the
+# test run and the shell died without output). src/single_instance.py now
+# checks liveness without signals on Windows; 30 consecutive runs passed.
+# CI still skips the file for its own headless-Windows tkinter reason.
+# Everything else CI skips for headless-Windows reasons (GUI files, voice
+# recorder) passes deterministically on the dev box, so pre-commit keeps
+# running it for the extra local coverage.
+PYTEST_ARGS=(tests/ --ignore=tests/test_record_voice_sample.py -m "not slow" -x -q --tb=short)
 
 if ! $PY -c "import pytest" >/dev/null 2>&1; then
     echo "WARNING: $PY has no pytest — skipping the test gate (CI is the backstop)."
