@@ -53,7 +53,7 @@ def _load_runner():
     return runner
 
 
-def teacher_forced(engine, ref_wav) -> bool:
+def teacher_forced(runner, engine, ref_wav) -> bool:
     import torch
     import torch.nn.functional as F
     from chatterbox.models.t3.inference.alignment_stream_analyzer import (
@@ -110,7 +110,9 @@ def teacher_forced(engine, ref_wav) -> bool:
                 worst_attn = max(worst_attn, (hook_row - fast_row).abs().max().item())
             token = ref_logits[0:1].argmax(-1, keepdim=True)
     finally:
-        analyzer.close()
+        # PyPI chatterbox-tts 0.1.7's analyzer has no close(); the runner's
+        # per-chunk cleanup removes its hooks and config changes either way.
+        runner._clear_chatterbox_state(engine)
 
     ok = worst_logit <= MAX_REL_LOGIT_DIFF and worst_attn <= MAX_ATTN_DIFF
     print(f"[teacher-forced] {TEACHER_STEPS} steps, graphs {sorted(decoder.graphs)}: "
@@ -155,7 +157,7 @@ def main() -> int:
     device = runner._resolve_device("auto")
     engine, ref_wav = runner._load_engine(device, None, "fi")
     with torch.inference_mode():
-        ok = teacher_forced(engine, ref_wav)
+        ok = teacher_forced(runner, engine, ref_wav)
     ok &= end_to_end(runner, engine, ref_wav)
     print("EQUIVALENT" if ok else "NOT EQUIVALENT")
     return 0 if ok else 1
