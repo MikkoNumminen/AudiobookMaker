@@ -129,7 +129,7 @@ def test_cache_layers_reads_every_cache_layout() -> None:
 
 @pytest.fixture()
 def chatterbox_heads():
-    """The one chatterbox import install() needs, without chatterbox."""
+    """The one chatterbox import install() needs, plus a fake torch."""
     analyzer = SimpleNamespace(LLAMA_ALIGNED_HEADS=[(12, 15), (13, 11), (9, 2)])
     names = [
         "chatterbox", "chatterbox.models", "chatterbox.models.t3",
@@ -137,14 +137,35 @@ def chatterbox_heads():
     ]
     modules = {name: MagicMock() for name in names}
     modules["chatterbox.models.t3.inference.alignment_stream_analyzer"] = analyzer
+    torch = MagicMock()
+    torch.get_rng_state.return_value = "cpu rng before"
+    torch.cuda.get_rng_state.return_value = "cuda rng before"
+    modules["torch"] = torch
     with mock.patch.dict(sys.modules, modules):
-        yield
+        yield torch
+
+
+@pytest.fixture()
+def marker(tmp_path, monkeypatch):
+    path = tmp_path / fd.MARKER_NAME
+    monkeypatch.setattr(fd, "marker_path", lambda: path)
+    monkeypatch.delenv(fd.ENV_FLAG, raising=False)
+    return path
 
 
 def _engine():
     t3 = _t3()
     t3.inference = MagicMock(return_value="library tokens")
     return SimpleNamespace(t3=t3)
+
+
+def _decoder(self_test=None):
+    decoder = MagicMock()
+    if isinstance(self_test, Exception):
+        decoder.self_test.side_effect = self_test
+    else:
+        decoder.self_test.return_value = self_test
+    return decoder
 
 
 def test_off_switch_leaves_the_library_loop(monkeypatch) -> None:
@@ -157,8 +178,7 @@ def test_off_switch_leaves_the_library_loop(monkeypatch) -> None:
     assert "off" in lines[0]
 
 
-def test_unsupported_model_leaves_the_library_loop(monkeypatch) -> None:
-    monkeypatch.delenv(fd.ENV_FLAG, raising=False)
+def test_unsupported_model_leaves_the_library_loop(marker) -> None:
     engine = _engine()
     engine.t3.device = SimpleNamespace(type="cpu")
     original = engine.t3.inference
@@ -168,27 +188,31 @@ def test_unsupported_model_leaves_the_library_loop(monkeypatch) -> None:
     assert "standard decoder" in lines[0]
 
 
-def test_fast_path_serves_inference(monkeypatch, chatterbox_heads) -> None:
-    monkeypatch.delenv(fd.ENV_FLAG, raising=False)
+def test_fast_path_serves_inference(marker, chatterbox_heads) -> None:
     engine = _engine()
     original = engine.t3.inference
     lines = []
-    with mock.patch.object(fd, "FastT3Decoder") as decoder_cls, \
+    decoder = _decoder()
+    with mock.patch.object(fd, "FastT3Decoder", return_value=decoder) as decoder_cls, \
          mock.patch.object(fd, "fast_inference", return_value="fast tokens") as fast:
         assert fd.install(engine, log=lines.append) is True
         assert engine.t3.inference(text_tokens="tt", max_new_tokens=1000) == "fast tokens"
     decoder_cls.assert_called_once_with(engine.t3, [(12, 15), (13, 11), (9, 2)])
+    decoder.self_test.assert_called_once()
     assert fast.call_args.kwargs == {"text_tokens": "tt", "max_new_tokens": 1000}
     original.assert_not_called()
-    assert lines == ["[tts] fast decode on (static cache + CUDA graphs)"]
+    assert engine.t3.inference.fast_decode_state == {"enabled": True}
+    assert engine.t3.inference.fast_decoder is decoder
+    assert lines == ["[tts] fast decode on (static cache + CUDA graphs, self-test passed)"]
 
 
-def test_failure_falls_back_for_the_rest_of_the_run(monkeypatch, chatterbox_heads) -> None:
-    monkeypatch.delenv(fd.ENV_FLAG, raising=False)
+def test_failure_falls_back_for_the_rest_of_the_run(marker, chatterbox_heads) -> None:
+    torch = chatterbox_heads
     engine = _engine()
     original = engine.t3.inference
     lines = []
-    with mock.patch.object(fd, "FastT3Decoder"), \
+    with mock.patch.object(fd, "FastT3Decoder", return_value=_decoder()), \
+         mock.patch.object(fd, "cuda_rng_usable", return_value=True), \
          mock.patch.object(fd, "fast_inference",
                            side_effect=RuntimeError("graph capture failed")) as fast:
         fd.install(engine, log=lines.append)
@@ -200,4 +224,86 @@ def test_failure_falls_back_for_the_rest_of_the_run(monkeypatch, chatterbox_head
     assert [c.kwargs for c in original.call_args_list] == [
         {"text_tokens": "a"}, {"text_tokens": "b"},
     ]
+    # The random state the failed attempt consumed is rewound first.
+    torch.set_rng_state.assert_called_once_with("cpu rng before")
+    torch.cuda.set_rng_state.assert_called_once_with("cuda rng before")
+    assert engine.t3.inference.fast_decode_state == {"enabled": False}
     assert lines[-1].startswith("[warn] fast decode failed (RuntimeError: graph capture failed)")
+    assert not marker.exists()
+
+
+def test_failure_that_breaks_cuda_stops_the_run_and_remembers(marker, chatterbox_heads) -> None:
+    engine = _engine()
+    original = engine.t3.inference
+    lines = []
+    with mock.patch.object(fd, "FastT3Decoder", return_value=_decoder()), \
+         mock.patch.object(fd, "cuda_rng_usable", return_value=False), \
+         mock.patch.object(fd, "fast_inference",
+                           side_effect=RuntimeError("operation failed during capture")):
+        fd.install(engine, log=lines.append)
+        with pytest.raises(fd.FastDecodeBrokeCuda):
+            engine.t3.inference(text_tokens="a")
+    # Falling back in this process would only fail again in multinomial.
+    original.assert_not_called()
+    assert fd.marker_disables(marker)
+    assert "Press Convert again" in lines[-1] and "finished parts are kept" in lines[-1]
+
+
+def test_marker_turns_it_off_on_the_next_run(marker) -> None:
+    assert fd.write_marker(marker, "RuntimeError: capture")
+    engine = _engine()
+    original = engine.t3.inference
+    lines = []
+    assert fd.install(engine, log=lines.append) is False
+    assert engine.t3.inference is original
+    assert "failed on this machine before" in lines[0]
+
+
+def test_marker_from_an_older_version_is_ignored(marker) -> None:
+    marker.write_text("version=0\nold failure\n", encoding="utf-8")
+    assert not fd.marker_disables(marker)
+    assert not fd.marker_disables(marker.with_name("missing.txt"))
+
+
+def test_self_test_mismatch_keeps_the_library_loop(marker, chatterbox_heads) -> None:
+    engine = _engine()
+    original = engine.t3.inference
+    lines = []
+    decoder = _decoder(self_test="graph replay differs from the plain step (max diff 0.5)")
+    with mock.patch.object(fd, "FastT3Decoder", return_value=decoder):
+        assert fd.install(engine, log=lines.append) is False
+    assert engine.t3.inference is original
+    decoder.release.assert_called()
+    assert "self-test failed (graph replay differs" in lines[-1]
+
+
+def test_self_test_error_with_healthy_cuda_keeps_the_library_loop(marker, chatterbox_heads) -> None:
+    engine = _engine()
+    original = engine.t3.inference
+    lines = []
+    decoder = _decoder(self_test=fd.FastDecodeUnavailable("needs 0.75 GB"))
+    with mock.patch.object(fd, "FastT3Decoder", return_value=decoder), \
+         mock.patch.object(fd, "cuda_rng_usable", return_value=True):
+        assert fd.install(engine, log=lines.append) is False
+    assert engine.t3.inference is original
+    assert "needs 0.75 GB" in lines[-1]
+    assert not marker.exists()
+
+
+def test_self_test_that_breaks_cuda_stops_before_any_audio(marker, chatterbox_heads) -> None:
+    engine = _engine()
+    decoder = _decoder(self_test=RuntimeError("operation failed during capture"))
+    with mock.patch.object(fd, "FastT3Decoder", return_value=decoder), \
+         mock.patch.object(fd, "cuda_rng_usable", return_value=False):
+        with pytest.raises(fd.FastDecodeBrokeCuda):
+            fd.install(engine, log=lambda _line: None)
+    assert fd.marker_disables(marker)
+
+
+def test_unwritable_marker_says_how_to_turn_it_off(tmp_path, monkeypatch, chatterbox_heads) -> None:
+    monkeypatch.setattr(fd, "marker_path", lambda: tmp_path / "no-such-dir" / fd.MARKER_NAME)
+    lines = []
+    with mock.patch.object(fd, "cuda_rng_usable", return_value=False):
+        with pytest.raises(fd.FastDecodeBrokeCuda):
+            fd._after_failure(chatterbox_heads, MagicMock(), RuntimeError("x"), lines.append)
+    assert f"{fd.ENV_FLAG}=0" in lines[-1]

@@ -33,11 +33,27 @@ library's, so generation semantics do not change.
 
 Safety
 ------
-:func:`install` wraps ``engine.t3.inference``. Any failure in the fast path
-(an unexpected model layout, a CUDA graph capture error, a library version
-with a different loop) disables it for the rest of the run and the chunk is
-generated again with the library's own loop. Set
-``ABM_CHATTERBOX_FAST_DECODE=0`` to turn it off entirely.
+:func:`install` wraps ``engine.t3.inference`` and first runs a self-test: it
+records one graph with the real model and checks the replay against the same
+step run normally, before any audio is made.
+
+Failures come in two kinds, and they are handled differently:
+
+* Most failures (an unexpected model layout, a Python error, running out of
+  VRAM) leave CUDA usable. The fast path is switched off for the rest of the
+  run, the random state is put back, and the chunk is generated again with
+  the library's own loop.
+* A CUDA error *during* graph capture leaves torch's CUDA random generator
+  convinced a capture is still running; every later ``torch.multinomial`` in
+  that process then fails ("Offset increment outside graph capture"), and
+  nothing short of a new process clears it (tested on torch 2.6 and 2.8). The
+  runner cannot restart itself safely (the GUI stops it by process id, so a
+  child would outlive a Stop), so the fast path writes a marker file into the
+  engine venv that turns it off on this machine, and the run stops with a
+  message to press Convert again. Finished chunks are kept, and the next run
+  uses the library loop. A new FAST_DECODE_VERSION re-enables it.
+
+Set ``ABM_CHATTERBOX_FAST_DECODE=0`` to turn it off entirely.
 
 This module is imported only by the Chatterbox runner, inside the engine
 venv; torch and chatterbox are imported lazily so the module itself stays
@@ -47,6 +63,8 @@ importable (and testable) without them.
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from typing import Callable, Optional
 
 # Attention width granularity for the CUDA graphs. Attention reads the whole
@@ -61,11 +79,69 @@ CAPACITY_BUCKET = 256
 
 ENV_FLAG = "ABM_CHATTERBOX_FAST_DECODE"
 
+# Bump when a change to this module could fix a machine that wrote the
+# disable marker; a marker from an older version is then ignored.
+FAST_DECODE_VERSION = "1"
+
+MARKER_NAME = "abm_fast_decode_disabled.txt"
+
+# VRAM that must stay free after the cache is allocated. S3Gen (speech
+# tokens -> audio) runs after T3 with the cache still resident; its peak was
+# ~0.5 GB above the loaded model for a 20 s chunk on an RTX 3080 Ti, so 1 GB
+# leaves margin for longer chunks and other programs.
+VRAM_RESERVE_BYTES = 1 << 30
+
+# Capacity the self-test allocates: a typical chunk's prefill (~150-450
+# positions) plus the library's 1000 new tokens, so the first real chunk
+# usually reuses the self-test's cache and graph instead of reallocating.
+SELF_TEST_CAPACITY = 1280
+
+
+class FastDecodeUnavailable(RuntimeError):
+    """The fast path declined to run (e.g. not enough VRAM); CUDA is fine."""
+
+
+class FastDecodeBrokeCuda(RuntimeError):
+    """A failed graph capture left CUDA unusable for the rest of this process."""
+
 
 def fast_decode_enabled(environ: Optional[dict] = None) -> bool:
     """False only when the user explicitly turned the fast path off."""
     value = (environ if environ is not None else os.environ).get(ENV_FLAG, "")
     return value.strip().lower() not in ("0", "false", "no", "off")
+
+
+def marker_path() -> Path:
+    """Disable marker inside the engine venv the runner is executing in."""
+    return Path(sys.prefix) / MARKER_NAME
+
+
+def marker_disables(path: Path) -> bool:
+    """True when ``path`` holds a disable marker written by this version."""
+    try:
+        first_line = path.read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, IndexError, UnicodeDecodeError):
+        return False
+    return first_line.strip() == f"version={FAST_DECODE_VERSION}"
+
+
+def write_marker(path: Path, reason: str) -> bool:
+    try:
+        path.write_text(f"version={FAST_DECODE_VERSION}\n{reason}\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def cuda_rng_usable(torch) -> bool:
+    """Can this process still sample on the GPU? False after a broken capture."""
+    try:
+        probs = torch.ones((1, 2), device=torch.device("cuda", torch.cuda.current_device()))
+        torch.multinomial(probs, 1)
+        torch.cuda.synchronize()
+    except Exception:  # RuntimeError on 2.6, AcceleratorError on 2.8
+        return False
+    return True
 
 
 def width_for(keys: int, capacity: int) -> int:
@@ -172,11 +248,21 @@ class FastT3Decoder:
         capacity = capacity_for(needed)
         # Drop the old graphs and cache before allocating the bigger one so
         # the two never coexist in VRAM.
-        self.graphs.clear()
-        self.pool = None
-        self.k_cache = self.v_cache = self.aligned_rows = None
-        torch.cuda.empty_cache()
+        self.release()
         shape = (len(self.layers), 2, self.n_heads, capacity, self.head_dim)
+        element = torch.empty((), dtype=self.dtype).element_size()
+        cache_bytes = 2 * element
+        for dim in shape:
+            cache_bytes *= dim
+        free, _total = torch.cuda.mem_get_info()
+        # Blocks torch has cached but not handed out are free for this too.
+        free += torch.cuda.memory_reserved() - torch.cuda.memory_allocated()
+        if free - cache_bytes < VRAM_RESERVE_BYTES:
+            raise FastDecodeUnavailable(
+                f"needs {cache_bytes / 2**30:.2f} GB of VRAM for its cache plus "
+                f"{VRAM_RESERVE_BYTES / 2**30:.0f} GB to spare, "
+                f"{free / 2**30:.2f} GB free"
+            )
         self.k_cache = torch.zeros(shape, dtype=self.dtype, device=self.device)
         self.v_cache = torch.zeros(shape, dtype=self.dtype, device=self.device)
         self.aligned_rows = torch.zeros(
@@ -187,6 +273,41 @@ class FastT3Decoder:
         cos, sin = self.tfmr.rotary_emb(probe, positions)
         self.cos, self.sin = cos[0].contiguous(), sin[0].contiguous()  # (capacity, head_dim)
         self.capacity = capacity
+
+    def release(self) -> None:
+        """Free the cache and every recorded graph."""
+        self.graphs.clear()
+        self.pool = None
+        self.k_cache = self.v_cache = self.aligned_rows = None
+        self.cos = self.sin = None
+        self.capacity = 0
+        self.torch.cuda.empty_cache()
+
+    def self_test(self) -> Optional[str]:
+        """Record one graph with the real weights and check its replay.
+
+        Returns None when the replay matches the same step run without a
+        graph, else what differed. Runs before any audio, so a GPU or driver
+        that cannot record this step is found before the first chunk. The
+        dummy step writes cache slot 0, which every chunk's prefill
+        overwrites.
+        """
+        torch = self.torch
+        self.ensure_capacity(SELF_TEST_CAPACITY)
+        self.tok.fill_(int(self.t3.hp.start_speech_token))
+        self.pos.fill_(0)
+        self.speech_pos.fill_(1)
+        self.k_cache.zero_()
+        self.v_cache.zero_()
+        self._step_math(WIDTH_BUCKET)
+        expected = self.logits.clone()
+        self._graph_for(WIDTH_BUCKET).replay()
+        torch.cuda.synchronize()
+        diff = (self.logits - expected).abs().max().item()
+        scale = expected.abs().max().item() or 1.0
+        if not diff <= 1e-4 * scale:
+            return f"graph replay differs from the plain step (max diff {diff:.3g})"
+        return None
 
     def load_prefill(self, past, prefill_len: int) -> None:
         """Copy the library's prefill cache into the static cache."""
@@ -358,10 +479,15 @@ def fast_inference(
             output_hidden_states=True,
             return_dict=True,
         )
-        decoder.ensure_capacity(prefill_len + max_new_tokens)
-        decoder.load_prefill(output.past_key_values, prefill_len)
-        logits_source = output.logits
+        # Keep only what the loop needs: the prefill output also holds every
+        # layer's attention map and hidden states, which must not sit in VRAM
+        # while the cache is allocated.
+        past = output.past_key_values
+        logits_source = output.logits[:, -1:, :]
         del output
+        decoder.ensure_capacity(prefill_len + max_new_tokens)
+        decoder.load_prefill(past, prefill_len)
+        del past
 
         aligned_slots = len(decoder.aligned)
         for i in range(max_new_tokens):
@@ -410,15 +536,56 @@ def fast_inference(
             alignment_stream_analyzer.close()
 
 
+def _after_failure(torch, decoder: "FastT3Decoder", exc: Exception, log) -> None:
+    """Free the fast path's VRAM and stop the run if CUDA is now unusable.
+
+    Returns normally when CUDA still works, so the caller can fall back to
+    the library loop in this process. Raises FastDecodeBrokeCuda otherwise,
+    after recording the marker that keeps the next run off the fast path.
+    """
+    try:
+        decoder.release()
+    except Exception:  # a broken capture can make even empty_cache fail
+        pass
+    if cuda_rng_usable(torch):
+        return
+    path = marker_path()
+    if write_marker(path, f"{type(exc).__name__}: {exc}"):
+        log(
+            "[error] The GPU fast mode failed on this graphics card and CUDA "
+            "cannot be used again in this run. It is now switched off on this "
+            "machine. Press Convert again: finished parts are kept, and the "
+            "next run uses the standard mode."
+        )
+    else:
+        log(
+            f"[error] The GPU fast mode failed on this graphics card and CUDA "
+            f"cannot be used again in this run. Could not save the setting "
+            f"that switches it off ({path}); set {ENV_FLAG}=0 and press "
+            f"Convert again. Finished parts are kept."
+        )
+    raise FastDecodeBrokeCuda(f"{type(exc).__name__}: {exc}") from exc
+
+
 def install(engine, log: Callable[[str], None] = print) -> bool:
     """Route ``engine.t3.inference`` through the fast decoder when possible.
 
-    Returns True when the fast path was installed. The original method stays
-    in place as the fallback: the first failure logs one line, disables the
-    fast path for the rest of the run, and regenerates the chunk with it.
+    Returns True when the fast path was installed. It is installed only after
+    its self-test passes. The original method stays in place as the
+    fallback; see the module docstring for how failures are handled. Raises
+    FastDecodeBrokeCuda when a failure left CUDA unusable for this process.
+
+    The wrapper exposes ``fast_decode_state`` (``{"enabled": bool}``) and
+    ``fast_decoder`` so checks can confirm the fast path really ran.
     """
     if not fast_decode_enabled():
         log(f"[tts] fast decode off ({ENV_FLAG}=0)")
+        return False
+    if marker_disables(marker_path()):
+        log(
+            f"[tts] fast decode off: it failed on this machine before "
+            f"({marker_path()}); using the standard decoder"
+        )
         return False
     t3 = engine.t3
     reason = unsupported_reason(t3)
@@ -432,25 +599,45 @@ def install(engine, log: Callable[[str], None] = print) -> bool:
     except ImportError as exc:
         log(f"[tts] fast decode unavailable: {exc}; using the standard decoder")
         return False
+    import torch
+
+    decoder = FastT3Decoder(t3, LLAMA_ALIGNED_HEADS)
+    try:
+        with torch.inference_mode():
+            problem = decoder.self_test()
+    except Exception as exc:
+        _after_failure(torch, decoder, exc, log)
+        problem = f"{type(exc).__name__}: {exc}"
+    if problem:
+        decoder.release()
+        log(f"[tts] fast decode unavailable: self-test failed ({problem}); "
+            f"using the standard decoder")
+        return False
 
     original = t3.inference
-    decoder = FastT3Decoder(t3, LLAMA_ALIGNED_HEADS)
     state = {"enabled": True}
 
     def inference(**kwargs):
         if state["enabled"]:
+            cpu_rng = torch.get_rng_state()
+            cuda_rng = torch.cuda.get_rng_state()
             try:
                 return fast_inference(t3, decoder, **kwargs)
-            except Exception as exc:  # any failure: fall back for the whole run
+            except Exception as exc:
                 state["enabled"] = False
-                decoder.graphs.clear()
-                decoder.k_cache = decoder.v_cache = None
+                _after_failure(torch, decoder, exc, log)
+                # The failed attempt may have drawn samples; rewind so the
+                # library loop draws what it would have drawn on its own.
+                torch.set_rng_state(cpu_rng)
+                torch.cuda.set_rng_state(cuda_rng)
                 log(
                     f"[warn] fast decode failed ({type(exc).__name__}: {exc}); "
                     f"using the standard decoder for the rest of this run"
                 )
         return original(**kwargs)
 
+    inference.fast_decode_state = state
+    inference.fast_decoder = decoder
     t3.inference = inference
-    log("[tts] fast decode on (static cache + CUDA graphs)")
+    log("[tts] fast decode on (static cache + CUDA graphs, self-test passed)")
     return True

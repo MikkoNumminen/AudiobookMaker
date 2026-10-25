@@ -160,7 +160,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-10-25.3"
+RUNNER_BUILD = "2026-10-25.4"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -2574,8 +2574,13 @@ def main() -> int:
         # The library's token loop is bound by Python, not the GPU; this
         # replays each token as one CUDA graph instead. It falls back to the
         # library's loop on its own if anything about it fails.
-        from src.chatterbox_fast_decode import install as install_fast_decode
-        install_fast_decode(engine, log=lambda line: print(line, flush=True))
+        try:
+            from src.chatterbox_fast_decode import install as install_fast_decode
+        except ImportError as exc:  # a stale or partial bundle
+            print(f"[warn] fast decode unavailable ({exc}); using the standard "
+                  f"decoder", flush=True)
+        else:
+            install_fast_decode(engine, log=lambda line: print(line, flush=True))
     vad_model, get_speech_timestamps = _make_vad()
 
     wall_start = time.time()
@@ -2915,4 +2920,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        # The fast decoder already printed what happened and what to do
+        # (src/chatterbox_fast_decode._after_failure); skip the traceback.
+        if type(exc).__name__ != "FastDecodeBrokeCuda":
+            raise
+        sys.exit(3)
