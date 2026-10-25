@@ -570,6 +570,39 @@ jobs:
           Write-Host "Published release v$version has both SHA-256 lines — auto-update path verified."
         shell: pwsh
 
+      # Guard: the installer GitHub serves must be the one whose hash the notes
+      # carry. The step above proves only that the text is there. A corrupted
+      # asset upload would publish a release whose installer every auto-update
+      # rejects on the hash check, so download what was published and compare
+      # it, and the sidecar, with the hash computed before upload.
+      - name: Verify the published installer matches its SHA-256
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $expected = "${{ steps.sha.outputs.HASH }}"
+          $exeName = "AudiobookMaker-Setup-$version.exe"
+          $dir = Join-Path $env:RUNNER_TEMP "published"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          gh release download "v$version" -R "${{ github.repository }}" -D $dir -p $exeName -p "$exeName.sha256"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Could not download the published installer of v$version to verify it."
+            exit 1
+          }
+          $served = (Get-FileHash (Join-Path $dir $exeName) -Algorithm SHA256).Hash.ToLower()
+          $sidecar = ((Get-Content (Join-Path $dir "$exeName.sha256") -Raw).Trim() -split '\s+')[0].ToLower()
+          if ($served -ne $expected) {
+            Write-Error "Published installer SHA-256 is $served but the built one is $expected. Every auto-update will reject it. Re-upload the installer before announcing."
+            exit 1
+          }
+          if ($sidecar -ne $expected) {
+            Write-Error "Published .sha256 sidecar says $sidecar, expected $expected."
+            exit 1
+          }
+          Write-Host "Published installer and its sidecar both match $expected."
+        shell: pwsh
+
       - name: Update README version links
         if: github.event_name == 'push'
         run: |
