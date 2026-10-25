@@ -184,3 +184,38 @@ def select_torch_build(
         if arch_list_covers(build.arch_list, newest):
             return build
     return CPU_BUILD
+
+
+@dataclass(frozen=True)
+class GpuSpec:
+    """One CUDA device as torch reports it (``torch.cuda.get_device_properties``)."""
+
+    index: int
+    name: str
+    capability: Capability
+    sm_count: int
+    memory_bytes: int
+
+    def describe(self) -> str:
+        return (
+            f"{self.name} (compute capability {self.capability[0]}."
+            f"{self.capability[1]}, {self.memory_bytes / 2**30:.0f} GB, "
+            f"{self.sm_count} SMs)"
+        )
+
+
+def pick_gpu(gpus: Sequence[GpuSpec], arch_list: Sequence[str]) -> Optional[GpuSpec]:
+    """The GPU synthesis should run on, or None when the build runs on none.
+
+    Plain ``"cuda"`` means device 0, and CUDA's own ordering only guesses
+    which card is fastest. On a machine that kept its old card next to the
+    new one (a GTX 1080 beside an RTX 5060 Ti, both covered by the cu128
+    build), that guess decides whether the new card is used at all. So pick
+    explicitly: among the GPUs this build has kernels for, the one with the
+    most streaming multiprocessors (the units that do the work), then the
+    most memory, then the lowest index.
+    """
+    usable = [g for g in gpus if arch_list_covers(arch_list, g.capability)]
+    if not usable:
+        return None
+    return max(usable, key=lambda g: (g.sm_count, g.memory_bytes, -g.index))

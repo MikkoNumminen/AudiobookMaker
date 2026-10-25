@@ -52,6 +52,7 @@ scripts/chatterbox_cloud_runbook.md.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -160,7 +161,7 @@ logging.getLogger("huggingface_hub.utils._http").addFilter(_HfTokenNagFilter())
 # <install>\_internal\scripts\; if an app update ever leaves a stale copy
 # behind, the stamp in the user's log is the diagnostic. Bump when editing
 # this file.
-RUNNER_BUILD = "2026-10-25.2"
+RUNNER_BUILD = "2026-10-25.4"
 
 # Make `src.*` importable when the script is run from anywhere. APPEND, do not
 # prepend: in a frozen install _REPO_ROOT is the app's _internal bundle dir,
@@ -729,9 +730,43 @@ def _gpu_arch_mismatch(torch) -> list[str]:
     ]
 
 
+def _select_gpu(torch):
+    """Make the GPU this run should use the current CUDA device.
+
+    Returns ``(gpus, chosen)``: every CUDA device found, and the chosen one
+    (None when the installed torch build runs on none of them). Selecting it
+    as the current device makes every later plain ``"cuda"`` (the engine
+    load, the selftest kernel) land on it. Rule: src/torch_builds.pick_gpu.
+    """
+    from src.torch_builds import GpuSpec, pick_gpu
+
+    gpus = []
+    for index in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(index)
+        gpus.append(GpuSpec(
+            index=index,
+            name=props.name,
+            capability=(props.major, props.minor),
+            sm_count=props.multi_processor_count,
+            memory_bytes=props.total_memory,
+        ))
+    chosen = pick_gpu(gpus, torch.cuda.get_arch_list())
+    if chosen is not None:
+        torch.cuda.set_device(chosen.index)
+    return gpus, chosen
+
+
 def _resolve_device(requested: str) -> str:
     import torch
     if requested in ("auto", "cuda") and torch.cuda.is_available():
+        gpus, chosen = _select_gpu(torch)
+        if chosen is not None:
+            if len(gpus) > 1:
+                for gpu in gpus:
+                    print(f"[setup] found GPU {gpu.index}: {gpu.describe()}",
+                          flush=True)
+            print(f"[setup] GPU in use: {chosen.describe()}", flush=True)
+            return "cuda"
         mismatch = _gpu_arch_mismatch(torch)
         if not mismatch:
             return "cuda"
@@ -1105,6 +1140,36 @@ def _voice_pack_clip_warning(
     )
 
 
+@contextlib.contextmanager
+def _checkpoints_onto_current_gpu(device: str):
+    """Make the library's ``torch.load(map_location=None)`` use the chosen GPU.
+
+    chatterbox's ``from_local`` loads ``ve.pt``, ``s3gen.pt`` and ``conds.pt``
+    with ``map_location=None`` on CUDA, and those files were saved from
+    ``cuda:0``, so torch restores them onto physical GPU 0 no matter which
+    device is current: ~1 GB plus a CUDA context on the old card when the run
+    was meant for another one (see _select_gpu). Only active when the chosen
+    GPU is not device 0, so single-GPU machines load exactly as before.
+    """
+    import torch
+    if device != "cuda" or torch.cuda.current_device() == 0:
+        yield
+        return
+    target = torch.device("cuda", torch.cuda.current_device())
+    original = torch.load
+
+    def load(*args, **kwargs):
+        if kwargs.get("map_location") is None and len(args) < 2:
+            kwargs["map_location"] = target
+        return original(*args, **kwargs)
+
+    torch.load = load
+    try:
+        yield
+    finally:
+        torch.load = original
+
+
 def _load_engine(device: str, ref_override: str | None, language: str = "fi",
                  voice_pack_dir: Path | None = None):
     """Load Chatterbox. Returns (engine, ref_wav_path).
@@ -1124,7 +1189,8 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
 
     print(f"[tts] loading ChatterboxMultilingualTTS on {device}...", flush=True)
     t0 = time.time()
-    engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    with _checkpoints_onto_current_gpu(device):
+        engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
     print(f"[tts] base loaded in {time.time() - t0:.1f}s", flush=True)
 
     # A voice pack's own clip carries the target speaker's timbre, so use it
@@ -2175,7 +2241,8 @@ def _selftest() -> int:
             # A torch build without kernels for this GPU must fail here, with
             # the reason, rather than mid-conversion. The kernel launch below
             # alone would catch it, but only as "no kernel image".
-            mismatch = _gpu_arch_mismatch(torch)
+            _gpus, chosen = _select_gpu(torch)
+            mismatch = [] if chosen is not None else _gpu_arch_mismatch(torch)
             if mismatch:
                 for line in mismatch:
                     print(f"[error] {line}", flush=True)
@@ -2535,6 +2602,17 @@ def main() -> int:
     engine, ref_wav_path = _load_engine(device, args.ref_audio,
                                          language=args.language,
                                          voice_pack_dir=voice_pack_dir)
+    if device == "cuda":
+        # The library's token loop is bound by Python, not the GPU; this
+        # replays each token as one CUDA graph instead. It falls back to the
+        # library's loop on its own if anything about it fails.
+        try:
+            from src.chatterbox_fast_decode import install as install_fast_decode
+        except ImportError as exc:  # a stale or partial bundle
+            print(f"[warn] fast decode unavailable ({exc}); using the standard "
+                  f"decoder", flush=True)
+        else:
+            install_fast_decode(engine, log=lambda line: print(line, flush=True))
     vad_model, get_speech_timestamps = _make_vad()
 
     wall_start = time.time()
@@ -2874,4 +2952,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        # The fast decoder already printed what happened and what to do
+        # (src/chatterbox_fast_decode._after_failure); skip the traceback.
+        if type(exc).__name__ != "FastDecodeBrokeCuda":
+            raise
+        sys.exit(3)
