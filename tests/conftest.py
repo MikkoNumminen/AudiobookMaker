@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import time
 import urllib.request
 
 import pytest
@@ -68,6 +69,49 @@ def _isolate_diagnostic_log(tmp_path_factory):
                 root.removeHandler(handler)
                 handler.close()
         error_log.LOG_DIR, error_log.LOG_FILE, error_log._installed = saved
+
+
+# ---------------------------------------------------------------------------
+# Transient Tk startup failures on the Windows CI runner
+# ---------------------------------------------------------------------------
+
+
+def _tk_init_with_retry(original, tcl_error):
+    """Wrap ``tkinter.Tk.__init__`` to retry once when Tcl cannot read init.tcl.
+
+    On the windows-2022 runner, creating a Tk root now and then fails with
+    "Can't find a usable init.tcl ... couldn't read file ...: No error" even
+    though the file is there; the next attempt works. The GUI fixtures are
+    module-scoped, so one such failure errors every remaining test in that
+    module (3 in one PR run, 30 in another, on code that does not touch the
+    GUI). Any other TclError still fails at once.
+    """
+
+    def init_with_retry(self, *args, **kwargs):
+        try:
+            original(self, *args, **kwargs)
+        except tcl_error as exc:
+            if "init.tcl" not in str(exc):
+                raise
+            time.sleep(0.5)
+            original(self, *args, **kwargs)
+
+    return init_with_retry
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _retry_transient_tk_startup():
+    try:
+        import tkinter
+    except ImportError:
+        yield
+        return
+    original = tkinter.Tk.__init__
+    tkinter.Tk.__init__ = _tk_init_with_retry(original, tkinter.TclError)
+    try:
+        yield
+    finally:
+        tkinter.Tk.__init__ = original
 
 
 # ---------------------------------------------------------------------------

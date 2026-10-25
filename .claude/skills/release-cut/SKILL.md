@@ -92,7 +92,13 @@ Two rules keep the in-app banner working:
   opens with `### Something` shows those users an empty notes panel. The
   summary is the only part they see; make it stand on its own.
 - **Reset the file after each release** so the next cut starts from a blank
-  slate rather than re-shipping notes that describe an older version.
+  slate rather than re-shipping notes that describe an older version. The
+  reset form is the single line `<!-- release-notes: not written yet -->`.
+
+The build's first step enforces this: it fails the tag build when the file is
+empty, still holds that placeholder, opens with a heading, or is unchanged
+since the previous tag. If it fails, write the notes, then re-tag (see "Tag
+re-do" below).
 
 Write for the person pressing the button: what changed for them, in plain
 language. Section headings below the summary are fine and are shown in full
@@ -168,8 +174,15 @@ only real end-to-end check on the `_fetch_sidecar_sha256` fallback.
 
 ### Step 9 — clean up TODO.md
 
-If there was a release-related claim in `TODO.md`, remove it per the
-project's single-source-of-truth protocol. Push.
+If there was a release-related claim in `TODO.md`, remove it. The file is
+local-only and gitignored, so there is nothing to commit or push.
+
+### Step 10 — reset `docs/RELEASE_NOTES_NEXT.md`
+
+Once the release is verified, replace the file's contents with the single
+line `<!-- release-notes: not written yet -->` and commit it
+(`docs(release): reset the notes after X.Y.Z`). The next tag build refuses to
+publish until someone writes real notes over it.
 
 ## Tag re-do
 

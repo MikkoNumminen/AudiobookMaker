@@ -15,8 +15,14 @@ either file. These lock the parts that broke.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from src.auto_updater import WHATS_NEW_END_MARKER, extract_whats_new
 
@@ -93,6 +99,67 @@ def test_notes_do_not_smuggle_in_the_technical_tail() -> None:
     assert not re.search(r"(?im)^#{1,6}\s*installation\s*$", text)
     assert "SHA-256:" not in text
     assert WHATS_NEW_END_MARKER not in text
+
+
+# ---------------------------------------------------------------------------
+# The tag build refuses notes that were never written for the release
+# ---------------------------------------------------------------------------
+
+RESET_PLACEHOLDER = "<!-- release-notes: not written yet -->"
+
+
+def _guard_script() -> str:
+    """The guard step's shell script, cut out of build-release.yml."""
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = next(
+        i for i, ln in enumerate(lines)
+        if "release notes must be written for this release" in ln
+    )
+    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    end = next(i for i in range(run, len(lines)) if lines[i].strip() == "shell: bash")
+    return "\n".join(ln[10:] for ln in lines[run + 1:end]) + "\n"
+
+
+def _bash() -> str | None:
+    if sys.platform == "win32":
+        # Not shutil.which: on Windows "bash" can resolve to the WSL launcher.
+        git_bash = Path(r"C:\Program Files\Git\bin\bash.exe")
+        return str(git_bash) if git_bash.is_file() else None
+    return shutil.which("bash")
+
+
+def _run_guard(tmp_path: Path, notes: str) -> int:
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "RELEASE_NOTES_NEXT.md").write_text(notes, encoding="utf-8")
+    script = tmp_path / "guard.sh"
+    script.write_text(_guard_script(), encoding="utf-8", newline="\n")
+    # Outside any git repo there is no previous tag, so the unchanged-since-
+    # last-tag check is skipped and only the file's own content is judged.
+    return subprocess.run(
+        [_bash(), str(script)], cwd=tmp_path, capture_output=True,
+        env={"GITHUB_REF_NAME": "v9.9.9", "PATH": os.environ["PATH"]},
+    ).returncode
+
+
+def test_reset_placeholder_is_what_the_guard_looks_for() -> None:
+    """The skill resets the file to this line; the build must recognise it."""
+    assert RESET_PLACEHOLDER.removeprefix("<!-- ").removesuffix(" -->") in _guard_script()
+
+
+@pytest.mark.skipif(_bash() is None, reason="needs bash (Git Bash on Windows)")
+@pytest.mark.parametrize(
+    "notes, ok",
+    [
+        ("This update fixes a thing.\n\n### Details\n\nMore.\n", True),
+        (RESET_PLACEHOLDER + "\n", False),
+        ("", False),
+        ("### Heading first\n\nThen text.\n", False),
+        ("\n\n### Heading after blank lines\n", False),
+    ],
+    ids=["written", "placeholder", "empty", "heading-first", "heading-after-blanks"],
+)
+def test_guard_accepts_only_written_notes(tmp_path: Path, notes: str, ok: bool) -> None:
+    assert (_run_guard(tmp_path, notes) == 0) is ok
 
 
 # ---------------------------------------------------------------------------

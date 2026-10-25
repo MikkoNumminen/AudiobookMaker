@@ -21,6 +21,40 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Guard: docs/RELEASE_NOTES_NEXT.md must describe THIS release. Nothing
+      # resets it automatically, and 3.24.0's notes sat there unchanged after
+      # that cut, ready to ship again under the next version number. Runs
+      # first so a forgotten file fails in seconds, not after the build.
+      - name: Guard — release notes must be written for this release
+        if: github.event_name == 'push'
+        run: |
+          notes=docs/RELEASE_NOTES_NEXT.md
+          if [ ! -s "$notes" ]; then
+            echo "::error::$notes is missing or empty. Write this release's notes before tagging."
+            exit 1
+          fi
+          if grep -q "release-notes: not written yet" "$notes"; then
+            echo "::error::$notes still holds the reset placeholder. Write this release's notes before tagging."
+            exit 1
+          fi
+          # Users on 3.23.0 and older read only the text before the first
+          # sub-heading, so the file has to open with a plain paragraph.
+          first=$(grep -m1 -v '^[[:space:]]*$' "$notes")
+          case "$first" in
+            "#"*)
+              echo "::error::$notes must open with a summary paragraph, not a heading: $first"
+              exit 1
+              ;;
+          esac
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -n "$prev" ] && git show "$prev:$notes" > /tmp/prev_notes 2>/dev/null \
+              && cmp -s /tmp/prev_notes "$notes"; then
+            echo "::error::$notes is unchanged since $prev, so it describes the previous release. Write this release's notes before tagging."
+            exit 1
+          fi
+          echo "Release notes OK (previous tag: ${prev:-none})."
+        shell: bash
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
