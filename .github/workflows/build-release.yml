@@ -113,6 +113,19 @@ jobs:
           --ignore=tests/test_gui_update_mixin.py
           -x -q --tb=short -p no:timeout
 
+      # The installer's own logic (installer/keep_install_dir.iss) only runs
+      # inside a compiled installer, and the real one is built on tag pushes
+      # alone. This compiles that code into a throwaway installer and runs the
+      # old updater's garbled-folder scenario on every PR, so a broken change
+      # fails here and not in the middle of a release. ABM_REQUIRE_ISCC turns
+      # the tests' "Inno Setup missing" skip into a failure.
+      - name: Installer keeps the install folder (real Inno Setup)
+        run: |
+          choco install innosetup --yes --no-progress
+          python -m pytest tests/test_installer_keep_dir.py -q --tb=short -p no:timeout
+        env:
+          ABM_REQUIRE_ISCC: "1"
+
       - name: Download ffmpeg
         if: github.event_name == 'push'
         env:

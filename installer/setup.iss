@@ -276,6 +276,10 @@ const
   SHCNE_ASSOCCHANGED = $08000000;
   SHCNF_IDLIST       = $0000;
 
+// Undo the garbled /DIR that the updater in 3.24.0 and older passes for a
+// non-ASCII install folder. See the file for the full story.
+#include "keep_install_dir.iss"
+
 // ---------------------------------------------------------------------------
 // CurStepChanged — Called by Inno Setup at each major step transition.
 // We use the ssPostInstall step to notify the shell of association changes
@@ -285,6 +289,8 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    KeepDirStartApp();
+
     // Only refresh associations if the user opted in to the pdfassoc task.
     if IsTaskSelected('pdfassoc') then
     begin
@@ -370,10 +376,23 @@ begin
     exit;
   end;
 
+  // Must read the previous install folder before the uninstall deletes the
+  // registry key that records it.
+  KeepDirDecide();
+
   // Silently remove any previous AudiobookMaker install before proceeding.
   UninstallPreviousVersion();
 
   Result := True;
+end;
+
+// ---------------------------------------------------------------------------
+// InitializeWizard — Called once the wizard exists, after /DIR has been
+// applied. The only place the install folder can still be replaced.
+// ---------------------------------------------------------------------------
+procedure InitializeWizard();
+begin
+  KeepDirApply();
 end;
 
 // ---------------------------------------------------------------------------
