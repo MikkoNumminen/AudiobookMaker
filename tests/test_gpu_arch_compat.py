@@ -430,3 +430,39 @@ class TestLegacyVoicePackOnCpu:
         with mock.patch.dict(sys.modules, modules):
             gca._apply_lora_adapter(MagicMock(), pack)
         assert torch.load.call_args.kwargs["map_location"] == "cpu"
+
+
+class TestCheckpointsLoadOntoTheChosenGpu:
+    """chatterbox loads its .pt files with map_location=None, which restores
+    cuda:0-saved tensors onto physical GPU 0 whatever device is current."""
+
+    def _torch(self, current):
+        torch = _fake_torch(build=CU128)
+        torch.cuda.current_device.return_value = current
+        torch.device = lambda kind, index: f"{kind}:{index}"
+        loaded = []
+        torch.load = lambda *args, **kwargs: loaded.append(kwargs) or "state"
+        return torch, loaded
+
+    def test_second_gpu_gets_the_tensors(self) -> None:
+        torch, loaded = self._torch(current=1)
+        original = torch.load
+        with mock.patch.dict(sys.modules, {"torch": torch}):
+            with gca._checkpoints_onto_current_gpu("cuda"):
+                torch.load("s3gen.pt", map_location=None, weights_only=True)
+                torch.load("conds.pt", map_location="cpu")
+            assert torch.load is original
+        assert loaded == [
+            {"map_location": "cuda:1", "weights_only": True},
+            {"map_location": "cpu"},  # an explicit choice is left alone
+        ]
+
+    @pytest.mark.parametrize("device, current", [("cuda", 0), ("cpu", 1)])
+    def test_single_gpu_and_cpu_load_exactly_as_before(self, device, current) -> None:
+        torch, loaded = self._torch(current=current)
+        original = torch.load
+        with mock.patch.dict(sys.modules, {"torch": torch}):
+            with gca._checkpoints_onto_current_gpu(device):
+                assert torch.load is original
+                torch.load("ve.pt", map_location=None)
+        assert loaded == [{"map_location": None}]

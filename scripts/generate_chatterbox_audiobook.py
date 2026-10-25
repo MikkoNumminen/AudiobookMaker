@@ -52,6 +52,7 @@ scripts/chatterbox_cloud_runbook.md.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -1139,6 +1140,36 @@ def _voice_pack_clip_warning(
     )
 
 
+@contextlib.contextmanager
+def _checkpoints_onto_current_gpu(device: str):
+    """Make the library's ``torch.load(map_location=None)`` use the chosen GPU.
+
+    chatterbox's ``from_local`` loads ``ve.pt``, ``s3gen.pt`` and ``conds.pt``
+    with ``map_location=None`` on CUDA, and those files were saved from
+    ``cuda:0``, so torch restores them onto physical GPU 0 no matter which
+    device is current: ~1 GB plus a CUDA context on the old card when the run
+    was meant for another one (see _select_gpu). Only active when the chosen
+    GPU is not device 0, so single-GPU machines load exactly as before.
+    """
+    import torch
+    if device != "cuda" or torch.cuda.current_device() == 0:
+        yield
+        return
+    target = torch.device("cuda", torch.cuda.current_device())
+    original = torch.load
+
+    def load(*args, **kwargs):
+        if kwargs.get("map_location") is None and len(args) < 2:
+            kwargs["map_location"] = target
+        return original(*args, **kwargs)
+
+    torch.load = load
+    try:
+        yield
+    finally:
+        torch.load = original
+
+
 def _load_engine(device: str, ref_override: str | None, language: str = "fi",
                  voice_pack_dir: Path | None = None):
     """Load Chatterbox. Returns (engine, ref_wav_path).
@@ -1158,7 +1189,8 @@ def _load_engine(device: str, ref_override: str | None, language: str = "fi",
 
     print(f"[tts] loading ChatterboxMultilingualTTS on {device}...", flush=True)
     t0 = time.time()
-    engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    with _checkpoints_onto_current_gpu(device):
+        engine = ChatterboxMultilingualTTS.from_pretrained(device=device)
     print(f"[tts] base loaded in {time.time() - t0:.1f}s", flush=True)
 
     # A voice pack's own clip carries the target speaker's timbre, so use it
